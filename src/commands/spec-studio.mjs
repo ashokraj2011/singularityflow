@@ -172,6 +172,10 @@ export async function specStudioCommand(root, positionals, options, { config, ac
   }
   const response = { schemaVersion: 1, resultType: 'sflow-spec-author', action, ...(specId ? { specId } : {}),
     ...(['derive', 'fork', 'resume', 'restore-version', 'source'].includes(action) && result.localOnly !== true ? { operationId } : {}), ...result };
-  console.log(optionBoolean(options, 'json') ? JSON.stringify(response, null, 2) : `${specId ?? 'Specification library'}: ${action} complete.\n${JSON.stringify(result, null, 2)}`);
+  // The same rule as every other `spec author` answer: only the person's own page sees a secret-shaped value.
+  const shown = optionBoolean(options, 'for-person') ? { value: response, withheld: 0 } : (await import('../spec-library/share-check.mjs')).withholdForModel(response);
+  const printed = { ...shown.value, ...(shown.withheld ? { withheld: shown.withheld } : {}) };
+  const { schemaVersion: _version, resultType: _type, action: _action, specId: _spec, operationId: _operation, ...body } = printed;
+  console.log(optionBoolean(options, 'json') ? JSON.stringify(printed, null, 2) : `${specId ?? 'Specification library'}: ${action} complete.\n${JSON.stringify(body, null, 2)}`);
   return response;
 }

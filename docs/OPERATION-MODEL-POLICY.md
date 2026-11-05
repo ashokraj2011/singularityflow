@@ -777,6 +777,7 @@ Every public operation is classified before its implementation module is importe
 | spec.author.research | mutation | never | — | — |
 | spec.author.restore-version | mutation | never | — | — |
 | spec.author.resume | mutation | never | — | — |
+| spec.author.screen | read | never | — | — |
 | spec.author.settle | mutation | never | — | — |
 | spec.author.shared | read | never | — | — |
 | spec.author.show | read | never | — | — |

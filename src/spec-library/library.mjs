@@ -177,19 +177,20 @@ export function revisionFiles({ specId, revision, parent, reviewState, operation
   return { manifest, files };
 }
 
+async function ownSnapshot(root, specId, draft, snapshotSha256) {
+  const history = draft.historyChecked === false ? await (await import('./draft-store.mjs')).readDraft(root, specId) : draft;
+  return (history?.snapshots ?? []).some((snapshot) => snapshot.snapshotSha256 === snapshotSha256);
+}
+
 /**
  * Publish the draft head as the next revision. Retries a bounded number of times when another
  * publication moved the branch first; refuses a revision of this specification someone else
  * published since this draft was based; returns the revision already published by this same
  * operation (a lost acknowledgement) instead of publishing twice.
  */
-async function ownSnapshot(root, specId, draft, snapshotSha256) {
-  const history = draft.historyChecked === false ? await (await import('./draft-store.mjs')).readDraft(root, specId) : draft;
-  return (history?.snapshots ?? []).some((snapshot) => snapshot.snapshotSha256 === snapshotSha256);
-}
-
 export async function publishRevision(root, config, { specId, draft, report, reviewState, operationId, actor, command, seal = null, env = process.env }) {
-  const { publishToStateBranch } = await import('../ledger.mjs');
+  const { assertFilesShareable, publishCheckedFiles } = await import('./share-check.mjs');
+  const shipping = { specId, verb: 'published', code: 'SPEC_PUBLISH_SECRET' };
   const head = draft.head;
   // The revision's files and its SF Guard seal are made once: a retry after another specification
   // moved the branch publishes the same bytes, so the person is asked for one touch.
@@ -228,6 +229,8 @@ export async function publishRevision(root, config, { specId, draft, report, rev
     }
     if (!prepared) {
       const built = revisionFiles({ specId, revision, parent: latest, reviewState, operationId, actor, recordedAt: new Date().toISOString(), head, report });
+      // Before the person's touch: a signature is not asked for a revision that cannot leave.
+      assertFilesShareable(specId, built.files, shipping);
       const sealFile = seal ? await seal({ specId, revision, manifestSha256: digest(built.files['manifest.json']), reviewState }) : null;
       prepared = { revision, ...built, sealFile };
     }
@@ -236,11 +239,11 @@ export async function publishRevision(root, config, { specId, draft, report, rev
     const entries = Object.fromEntries(Object.entries(files).map(([name, bytes]) => [`${directory}/${name}`, bytes]));
     if (sealFile) entries[`${directory}/${REVISION_SEAL_FILE}`] = sealFile;
     try {
-      const published = await publishToStateBranch(root, view.ledger, entries, `[${specId}][spec:publish] revision ${revision} (${reviewState})`, {
+      const published = await publishCheckedFiles(root, view.ledger, entries, `[${specId}][spec:publish] revision ${revision} (${reviewState})`, {
         exactBlobSha256: Object.fromEntries(Object.entries(entries).map(([file, bytes]) => [file, digest(bytes)])),
         pathPreconditions: { [`${directory}/manifest.json`]: { condition: 'absent' } },
         env
-      });
+      }, shipping);
       return { revision, manifest, manifestSha256: digest(files['manifest.json']), commit: published.commit, replayed: false };
     } catch (error) {
       if (error?.concurrent || error?.code === 'state_branch.path_precondition_failed') continue;

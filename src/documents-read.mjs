@@ -9,10 +9,9 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
 import { exactFileAtObject, head, withEnvironmentFilesRegistry } from './git.mjs';
-import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_SOURCE_EXTENSIONS, TEXT_RENDITION_SUFFIX, documentMimeType as mimeTypeForName, effectiveDocumentMimeType, extractSourceText, hasTextExtractor } from './source-text.mjs';
+import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_SOURCE_EXTENSIONS, documentMimeType as mimeTypeForName, effectiveDocumentMimeType, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import { isLocalDocument, localDocumentAvailability, readLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
-import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
 
 export const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
 const readFile = (...args) => measurePerformance('file', 'file.read-document', () => rawReadFile(...args));
@@ -64,13 +63,13 @@ export function documentPolicy(workflow, config) {
   return workflow.resolution?.documents ?? config.documents ?? { allowedPhases: [], maxFileBytes: 26214400, maxPreviewBytes: 1048576 };
 }
 
-export function environmentLocalRefusal(candidate, match) {
+export function environmentLocalRefusal(candidate, match, { refused = 'Document upload was refused', becoming = 'Story documents' } = {}) {
   const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
   const owner = match.kind === 'environment-file' ? `this machine's env files registry${match.environmentId ? ` (${match.environmentId})` : ''}`
     : match.environmentId ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
   return new SingularityFlowError(
-    `Document upload was refused: '${candidate}' matches ${owner} rule '${rule}'. `
-      + 'Environment-local files must remain in the machine-local binding and cannot become Story documents.',
+    `${refused}: '${candidate}' matches ${owner} rule '${rule}'. `
+      + `Environment-local files must remain in the machine-local binding and cannot become ${becoming}.`,
     {
       code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED',
       details: { path: candidate, rule }
@@ -94,93 +93,6 @@ export function safeName(value) {
   return candidate;
 }
 
-export async function repositoryRelativeSource(root, source) {
-  // Compare canonical filesystem locations rather than caller spellings. macOS commonly exposes
-  // the same file through /var and /private/var, while Windows drive casing and junctions create
-  // equivalent aliases. A lexical comparison could treat a repository-local environment file as
-  // external and thereby skip its path-specific localFiles rule.
-  const [canonicalRoot, canonicalSource] = await Promise.all([
-    realpath(path.resolve(root)), realpath(path.resolve(source))
-  ]);
-  const relative = path.relative(canonicalRoot, canonicalSource);
-  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)
-      || path.isAbsolute(relative)) return null;
-  return posix(relative);
-}
-
-/**
- * The source's own repository path with its last link not followed: a placed environment file is a
- * link into the private store, so only this spelling names it. Also refuse a real environment file
- * by where it lives (the store or a linked file) [ENVF].
- */
-export async function environmentFileSourceCandidates(root, declaration, source) {
-  const absolute = path.resolve(source);
-  const [canonicalRoot, parent] = await Promise.all([realpath(path.resolve(root)), realpath(path.dirname(absolute))]).catch(() => []);
-  const relative = parent ? path.relative(canonicalRoot, path.join(parent, path.basename(absolute))) : '';
-  const lexical = relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? posix(relative) : null;
-  const match = lexical ? matchEnvironmentLocalPath(declaration, lexical) : null;
-  if (match) throw environmentLocalRefusal(lexical, match);
-  const canonical = await realpath(absolute).catch(() => null);
-  if (canonical && (declaration?.environmentFileLocations ?? []).some((location) => canonical === location || canonical.startsWith(`${location}${path.sep}`))) {
-    throw environmentLocalRefusal(source, { kind: 'environment-file', pattern: 'a private environment-file location' });
-  }
-  return lexical ? [lexical] : [];
-}
-
-export function assertDocumentInputContainsNoSecret(input, captured) {
-  const logicalPath = input.sourceRelativePath ? posix(input.sourceRelativePath) : safeName(input.source);
-  // An Office document's text reaches prompts through its rendition, so that text is scanned too.
-  const type = mimeType(input.source);
-  if (hasTextExtractor(type)) {
-    const extracted = extractSourceText(captured.bytes, type);
-    if (extracted.status === 'extracted') {
-      const refusal = secretRefusal(scanEntries([{ path: `${logicalPath}${TEXT_RENDITION_SUFFIX}`, content: extracted.text }]));
-      if (refusal) throw new SingularityFlowError(`Document upload was refused before any bytes were copied.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
-    } else if (!extracted.empty) {
-      throw new SingularityFlowError(
-        `Document upload was refused before any bytes were copied: the text of '${logicalPath}' could not be read to scan it for secrets (${extracted.reason}).`,
-        { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
-      );
-    }
-    return;
-  }
-  if (!scannablePath(logicalPath)) return;
-  let content;
-  try {
-    if (captured.bytes.includes(0)) throw new TypeError('NUL byte');
-    content = new TextDecoder('utf-8', { fatal: true }).decode(captured.bytes);
-  } catch {
-    throw new SingularityFlowError(
-      `Document upload was refused before any bytes were copied: '${logicalPath}' is not valid NUL-free UTF-8 text.`,
-      { code: 'DOCUMENT_CONTENT_UNSCANNABLE', details: { path: logicalPath } }
-    );
-  }
-  const refusal = secretRefusal(scanEntries([{ path: logicalPath, content }]));
-  if (!refusal) return;
-  throw new SingularityFlowError(
-    `Document upload was refused before any bytes were copied.\n\n${refusal}`,
-    { code: 'SECRET_DETECTED' }
-  );
-}
-
-/**
- * The two refusals every document input takes, for a specification source: its path against the
- * repository's environment-local rules, then its content through the secret scanner. A source's
- * originals stay on this laptop, but `spec author sources` and a phase's read hand their text to a model.
- */
-export async function assertSpecSourceAdmissible(root, { file = null, repositoryPath = null, name = null, bytes = null } = {}) {
-  const declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
-  if (declaration) {
-    const candidates = [repositoryPath, name && safeName(name),
-      ...(file ? [await repositoryRelativeSource(root, file).catch(() => null), ...await environmentFileSourceCandidates(root, declaration, file)] : [])];
-    for (const candidate of new Set(candidates.filter(Boolean))) {
-      const match = matchEnvironmentLocalPath(declaration, candidate);
-      if (match) throw environmentLocalRefusal(candidate, match);
-    }
-  }
-  if (bytes) assertDocumentInputContainsNoSecret({ source: name ?? repositoryPath ?? file }, { bytes });
-}
-
 /** A Story's pinned specification originals as document records, each once, including inherited specifications'. */
 function pinnedSourceRecords(slices, seen = new Set()) {
   return slices.flatMap(slice => [...(slice.sources ?? []).flatMap(source => {
@@ -201,7 +113,7 @@ function pinnedSourceRecords(slices, seen = new Set()) {
  * (Figma node-id, GitHub line anchors), so a blanket refusal would make normal links unusable.
  */
 export function credentialUrlParameter(parsed) {
-  const sensitive = (name) => /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|share[-_]?token|token|sig|signature|secret|password|passwd|credential|authorization|auth|api[-_]?key|apikey|awsaccesskeyid|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-signature)$/iu.test(name);
+  const sensitive = (name) => /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|share[-_]?token|auth[-_]?token|private[-_]?token|x-auth-token|token|sig|signature|secret|client[-_]?secret|password|passwd|credential|authorization|auth|jwt|api[-_]?key|apikey|x-api-key|awsaccesskeyid|x-amz-credential|x-amz-security-token|x-amz-signature|x-goog-credential|x-goog-signature)$/iu.test(name);
   const query = [...parsed.searchParams.keys()].find(sensitive);
   if (query) return query;
   return parsed.hash.includes('=') ? [...new URLSearchParams(parsed.hash.replace(/^#/u, '')).keys()].find(sensitive) ?? null : null;
@@ -370,7 +282,7 @@ async function viewDocumentRecord(root, config, workflow, record) {
     // Verified against the committed SHA-256, or refused with who has it and how to share it.
     ({ bytes, absolutePath: absolute } = await readLocalDocument(root, workflow.workItem.id, record));
     // A pinned specification original took these refusals at upload only if it was added after them.
-    if (record.specificationSource) await assertSpecSourceAdmissible(root, { name: record.sourceName ?? record.name, bytes });
+    if (record.specificationSource) await (await import('./document-admission.mjs')).assertSpecSourceAdmissible(root, { name: record.sourceName ?? record.name, bytes });
     current = { sha256: record.sha256, size: bytes.length };
   } else {
     absolute = await governedDocumentPath(root, config, workflow, record);

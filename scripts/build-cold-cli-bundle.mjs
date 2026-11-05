@@ -108,7 +108,9 @@ const FAMILIES = Object.freeze([
     // SF Guard standing. Unclaimed, each loaded compatibility and models.
     'commands/spec-studio.mjs', 'spec-library/shared-drafts.mjs', 'spec-library/shared-basis.mjs',
     'spec-library/sources.mjs', 'spec-library/share-check.mjs', 'spec-library/presence.mjs',
-    'presence/repository-steps.mjs', 'presence/repository-seals.mjs', 'workflow-build/store.mjs']],
+    'presence/repository-steps.mjs', 'presence/repository-seals.mjs', 'workflow-build/store.mjs',
+    // Upload and source admission, loaded only when a document or source is added or read.
+    'document-admission.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

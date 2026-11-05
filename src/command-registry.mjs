@@ -465,7 +465,7 @@ const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS
 const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace', 'drift']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 // The specification library (src/commands/spec-author.mjs): drafts, gaps, check and state-branch revisions.
-const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage', 'shared', 'history', 'sources']);
+const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage', 'shared', 'history', 'sources', 'screen']);
 const SPEC_AUTHOR_MUTATION_ACTIONS = Object.freeze(['new', 'edit', 'research', 'gap', 'propose', 'accept', 'reject', 'decide', 'settle', 'publish', 'discard', 'sync', 'resume', 'source', 'derive', 'fork', 'restore-version']);
 const SPEC_AUTHOR_ACTIONS = Object.freeze([...SPEC_AUTHOR_READ_ACTIONS, ...SPEC_AUTHOR_MUTATION_ACTIONS]);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', 'author', 'attach', 'split', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);

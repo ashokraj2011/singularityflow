@@ -1,6 +1,6 @@
 /** Local originals reuse the document store; portable drafts contain only source descriptors. */
 import { constants } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { storeLocalDocument, readLocalDocument } from '../document-storage.mjs';
@@ -13,8 +13,11 @@ const fail = (message, code) => { throw new SingularityFlowError(message, { code
 export const MAXIMUM_SPEC_SOURCE_BYTES = 20 * 1024 * 1024;
 const MAXIMUM = MAXIMUM_SPEC_SOURCE_BYTES;
 const MAXIMUM_DRAFT_BYTES = 256 * 1024;
+const MAXIMUM_INLINE_CODE_BYTES = 256 * 1024;
+const FOLDER_FILES = 2000;
+const FOLDER_BYTES = 64 * 1024 * 1024;
 /** The refusals every document input takes, loaded only when a source is added or read: an autosave pays nothing for them. */
-const admit = async (root, input) => (await import('../documents-read.mjs')).assertSpecSourceAdmissible(root, input);
+const admit = async (root, input) => (await import('../document-admission.mjs')).assertSpecSourceAdmissible(root, input);
 const REFUSED_CONTENT = new Set(['ENVIRONMENT_LOCAL_CONTENT_REFUSED', 'SECRET_DETECTED', 'DOCUMENT_CONTENT_UNSCANNABLE']);
 
 /** Read at most the statted size plus one byte; a growing file never allocates without a bound. */
@@ -48,14 +51,16 @@ export async function addSpecSource(root, specId, draft, { file, url, code, spec
     try { parsed = new URL(url); } catch { fail('Use a complete http or https link.', 'SPEC_SOURCE_URL_INVALID'); }
     if (parsed.href.length > 2048) fail('Use a link no longer than 2048 characters.', 'SPEC_SOURCE_URL_INVALID');
     if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) fail('Use an http or https link without credentials.', 'SPEC_SOURCE_URL_INVALID');
-    const credential = (await import('../documents-read.mjs')).credentialUrlParameter(parsed);
-    if (credential) fail(`This link carries an access credential in its '${credential}' parameter, and a link is shared with the draft. Use a link without it, or add the document as a file.`, 'SPEC_SOURCE_URL_CREDENTIALS');
+    const [credential] = (await import('./share-check.mjs')).linkCredentials(parsed.href);
+    if (credential) fail(`This link carries ${credential.label}, and a link is shared with the draft. Use a link without it, or add the document as a file.`, 'SPEC_SOURCE_URL_CREDENTIALS');
     source = { id: 'SRC-' + digest(Buffer.from(parsed.href)).slice(0, 16), type: 'url', name: parsed.hostname,
       url: parsed.href, purpose, standing: 'not-read' };
   } else if (code) {
     const selected = normalizeArea(code);
     const located = await secureRepositoryPath(root, selected, { mustExist: true, label: 'Selected code' });
-    await admit(root, { repositoryPath: selected, name: selected, bytes: located.entry.isFile() ? await boundedFile(located.absolute, MAXIMUM) : null });
+    // A folder's files are judged when it is read; a file too large or not text is judged only by its path, and says so then.
+    const bytes = located.entry.isFile() && located.entry.size <= MAXIMUM ? await boundedFile(located.absolute, MAXIMUM) : null;
+    await admit(root, { repositoryPath: selected, name: selected }).then(() => bytes && admit(root, { repositoryPath: selected, name: selected, bytes })).catch((error) => { if (error?.code !== 'DOCUMENT_CONTENT_UNSCANNABLE') throw error; });
     source = { id: 'SRC-' + digest(Buffer.from('code:' + selected)).slice(0, 16), type: 'code', name: selected, path: selected, purpose, standing: 'not-read' };
   } else {
     const bytes = await boundedFile(path.resolve(file), MAXIMUM);
@@ -70,6 +75,43 @@ export async function addSpecSource(root, specId, draft, { file, url, code, spec
       mediaType: documentMimeType(name), size: bytes.length, sha256, storage: { kind: 'local', key: storage.key }, purpose, standing: 'not-read' };
   }
   return { ...draft, sources: [...sources.filter(item => item.id !== source.id), source] };
+}
+
+/**
+ * A selected folder is read natively, so this says which of its files not to read: those the environment
+ * rules or the scanner refuse. What could not be checked is counted, not implied to be clean.
+ */
+async function readSelectedFolder(root, source, absolute) {
+  const { assertSpecSourceAdmissible, sourceAdmissionPolicy } = await import('../document-admission.mjs');
+  const declaration = sourceAdmissionPolicy(root);
+  const excluded = [];
+  let checkedBytes = 0, files = 0, unchecked = 0;
+  const pending = [{ directory: absolute, relative: source.path }];
+  while (pending.length) {
+    const { directory, relative } = pending.pop();
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { if (!['.git', 'node_modules'].includes(entry.name)) pending.push({ directory: path.join(directory, entry.name), relative: child }); continue; }
+      if (!entry.isFile()) continue;
+      files += 1;
+      const input = { repositoryPath: child, name: child, reading: true, declaration };
+      try {
+        await assertSpecSourceAdmissible(root, input);
+        const size = files <= FOLDER_FILES && checkedBytes < FOLDER_BYTES ? (await stat(path.join(directory, entry.name))).size : Infinity;
+        if (size > MAXIMUM_INLINE_CODE_BYTES) { unchecked += 1; continue; }
+        checkedBytes += size;
+        await assertSpecSourceAdmissible(root, { ...input, bytes: await boundedFile(path.join(directory, entry.name), MAXIMUM_INLINE_CODE_BYTES) });
+      } catch (error) {
+        if (error?.code === 'ENVIRONMENT_LOCAL_CONTENT_REFUSED' || error?.code === 'SECRET_DETECTED') excluded.push(child);
+        else if (error?.code === 'DOCUMENT_CONTENT_UNSCANNABLE') continue;
+        else if (['SPEC_SOURCE_FILE_CHANGED', 'SPEC_SOURCE_FILE_INVALID', 'SPEC_SOURCE_FILE_TOO_LARGE', 'ENOENT', 'EACCES', 'ELOOP'].includes(error?.code)) unchecked += 1;
+        else throw error;
+      }
+    }
+  }
+  return { source, status: 'selected-folder', path: absolute, ...(excluded.length ? { excluded } : {}), ...(unchecked ? { unchecked: `${unchecked} file(s) here were too large or too many to check for secrets, so nothing vouches for them.` } : {}),
+    instruction: `Read only this selected area using native tools; existing code is observed behaviour, not desired requirements.${excluded.length ? ' Do not read the files under excluded: they are private to this laptop or hold what looks like a secret.' : ''}` };
 }
 
 async function boundedFile(file, maximum) {
@@ -100,27 +142,28 @@ async function readAdmittedSource(root, specId, source, { config = {} } = {}) {
   }
   if (source.type === 'url') {
     // Saved before links with a credential were refused: the address itself must not reach a model.
-    const credential = (await import('../documents-read.mjs')).credentialUrlParameter(new URL(source.url));
-    if (credential) { const { url: _address, ...descriptor } = source; return { source: descriptor, status: 'refused', code: 'SPEC_SOURCE_URL_CREDENTIALS', message: `This link carries an access credential in its '${credential}' parameter. Remove it from this draft and add a link without it.`, nextAction: 'singularity-flow spec author source ' + specId + ' --remove ' + source.id + ' --json' }; }
+    const [credential] = (await import('./share-check.mjs')).linkCredentials(source.url);
+    if (credential) { const { url: _address, ...descriptor } = source; return { source: descriptor, status: 'refused', code: 'SPEC_SOURCE_URL_CREDENTIALS', message: `This link carries ${credential.label}. Remove it from this draft and add a link without it.`, nextAction: 'singularity-flow spec author source ' + specId + ' --remove ' + source.id + ' --json' }; }
     return { source, status: 'not-read', instruction: 'Open this link using the host research tools. If unavailable, ask for an excerpt; never claim its contents were read.' };
   }
   if (source.type === 'code') {
     const located = await secureRepositoryPath(root, source.path, { mustExist: true, label: 'Selected code' });
-    await admit(root, { repositoryPath: source.path, name: source.path });
-    if (!located.entry.isFile()) return { source, status: 'selected-folder', path: located.absolute,
-      instruction: 'Read only this selected area using native tools; existing code is observed behaviour, not desired requirements.' };
-    const handle = await open(located.absolute, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    try {
-      const info = await handle.stat();
-      if (info.size > 256 * 1024) return { source, status: 'native-read-required', path: located.absolute };
-      const bytes = await boundedRead(handle, 256 * 1024);
-      await admit(root, { repositoryPath: source.path, name: source.path, bytes });
-      return { source, status: 'available', path: located.absolute, text: bytes.toString('utf8'), sha256: digest(bytes), basis: 'selected-working-code' };
-    } finally { await handle.close(); }
+    await admit(root, { repositoryPath: source.path, name: source.path, reading: true });
+    if (!located.entry.isFile()) return readSelectedFolder(root, source, located.absolute);
+    const native = { source, status: 'native-read-required', path: located.absolute };
+    if (located.entry.size > MAXIMUM) return { ...native, unchecked: 'This file is too large to check for secrets, so nothing vouches for it.' };
+    const bytes = await boundedFile(located.absolute, MAXIMUM);
+    try { await admit(root, { repositoryPath: source.path, name: source.path, bytes, reading: true }); }
+    catch (error) {
+      if (error?.code !== 'DOCUMENT_CONTENT_UNSCANNABLE') throw error;
+      return { ...native, unchecked: 'This file is not text, so it could not be checked for secrets.' };
+    }
+    if (bytes.length > MAXIMUM_INLINE_CODE_BYTES) return native;
+    return { source, status: 'available', path: located.absolute, text: bytes.toString('utf8'), sha256: digest(bytes), basis: 'selected-working-code' };
   }
   try {
     const read = await readLocalDocument(root, specId, source);
-    await admit(root, { name: source.sourceName ?? source.name, bytes: read.bytes });
+    await admit(root, { name: source.sourceName ?? source.name, bytes: read.bytes, reading: true });
     const mime = source.mediaType;
     const image = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime);
     if (image) {
@@ -154,7 +197,6 @@ export async function copySpecSources(root, fromSpecId, toSpecId, sources = [], 
   }
 }
 
-/** A draft's prose from a file. Too large is its own answer: the person keeps the text and can split or export it. */
 /**
  * Isolated Story bases can have another Git common directory on this same laptop. Carry available
  * originals from the verified launch clone before the existing phase reader needs them; another
@@ -168,6 +210,7 @@ export async function copySliceSources(launchRepository, root, slices, copied = 
   }
 }
 
+/** A draft's prose from a file. Too large is its own answer: the person keeps the text and can split or export it. */
 export async function readSpecTextFile(file, { tooLarge = 'This draft exceeds 256 KiB. Keep your text, export it or split it into smaller specifications.' } = {}) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(await boundedFile(path.resolve(file), MAXIMUM_DRAFT_BYTES)); }
   catch (error) {

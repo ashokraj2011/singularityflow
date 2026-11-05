@@ -27,10 +27,10 @@ import { addPersonFact, gapImpact, mergeResearch, normalizeArea, removeResearch 
 import { optionBoolean, optionNumber, optionString, optionStrings, samePlatformPath, SingularityFlowError } from '../util.mjs';
 
 export const SPEC_AUTHOR_ACTIONS = Object.freeze([
-  'new', 'edit', 'research', 'gap', 'gaps', 'propose', 'accept', 'reject', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage', 'sync', 'shared', 'resume', 'history', 'source', 'sources', 'derive', 'fork', 'restore-version'
+  'new', 'edit', 'research', 'gap', 'gaps', 'propose', 'accept', 'reject', 'decide', 'settle', 'check', 'status', 'publish', 'show', 'list', 'discard', 'coverage', 'sync', 'shared', 'resume', 'history', 'source', 'sources', 'derive', 'fork', 'restore-version', 'screen'
 ]);
 /** `coverage --repair` writes; `coverage` alone reads. */
-export const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage', 'shared', 'history', 'sources']);
+export const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage', 'shared', 'history', 'sources', 'screen']);
 /** The person's own steps: refused for agents, whatever the turn. */
 export const SPEC_AUTHOR_PERSON_ACTIONS = Object.freeze(['accept', 'reject', 'decide', 'settle', 'publish', 'discard']);
 
@@ -41,9 +41,23 @@ const kindUnconfirmed = (report) => report.blocking.some((finding) => finding.co
 const USAGE = `Usage: singularity-flow spec author <${SPEC_AUTHOR_ACTIONS.join('|')}> …  (singularity-flow help spec)`;
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 
-function print(options, json, text) {
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-spec-author', ...json }, null, 2)); // schema-transient: command result
-  else console.log(text);
+/**
+ * Every `spec author` answer goes through here. Only the person's own page asks with --for-person (an agent is
+ * refused it); anyone else, a model above all, gets the same answer with secret-shaped values withheld.
+ */
+async function print(options, json, text) {
+  const shown = optionBoolean(options, 'for-person') || json.action === 'edit' ? { value: { json, text }, withheld: 0 }
+    : (await import('../spec-library/share-check.mjs')).withholdForModel({ json, text });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-spec-author', ...shown.value.json, ...(shown.withheld ? { withheld: shown.withheld } : {}) }, null, 2)); // schema-transient: command result
+  else console.log(shown.value.text);
+}
+
+/** A person's request or selected wording, checked before the Studio sends it to chat. It says what stood out and never repeats it. */
+async function screenAction(options) {
+  const file = optionString(options, 'file');
+  if (!file) fail('spec author screen needs --file FILE.', 'SPEC_EDIT_INCOMPLETE', { nextAction: 'singularity-flow help spec' });
+  const findings = (await import('../spec-library/share-check.mjs')).screenText(await readFile(path.resolve(file), 'utf8'));
+  return print(options, { action: 'screen', findings }, findings.length ? findings.map((finding) => `${finding.label} on line ${finding.line}`).join('\n') : 'Nothing stands out.');
 }
 
 function actor(root) {
@@ -468,8 +482,6 @@ async function publishAction(root, positionals, options) {
     return print(options, { action: 'publish', specId, revision: basedOn.revision, reviewState, replayed: true, manifestSha256: basedOn.manifestSha256, unchanged: true },
       `Nothing changed since ${specId}@${basedOn.revision} (${reviewState}); no new revision was published.`);
   }
-  // A revision is immutable on the state branch, so what cannot be shared cannot be published either.
-  (await import('../spec-library/share-check.mjs')).assertDraftShareable(specId, draft.head.draft, { verb: 'published', code: 'SPEC_PUBLISH_SECRET' });
   const report = await reportFor(root, specId, draft);
   if (reviewState === 'reviewed' && !report.reviewReady) {
     const setKind = kindUnconfirmed(report) ? setKindCommand(specId, draft.sequence) : null;
@@ -603,7 +615,7 @@ async function coverageAction(root, positionals, options) {
 
 // How many positionals each action reads (`spec author <action> SPEC-ID` is four). A value past them
 // was dropped without a word: `settle --finding A-001=fixed A-002=fixed` settled A-001 alone.
-const POSITIONAL_LIMITS = Object.freeze({ list: 3, gaps: 5, decide: 5, accept: Infinity, reject: Infinity });
+const POSITIONAL_LIMITS = Object.freeze({ list: 3, screen: 3, gaps: 5, decide: 5, accept: Infinity, reject: Infinity });
 
 /** Refuse values an action would not read, before anything is written. */
 export function refuseStrayValues(command, positionals, limit) {
@@ -666,6 +678,7 @@ export async function specAuthorCommand(positionals, options) {
   if (action === 'publish') return publishAction(root, positionals, options);
   if (action === 'show') return showAction(root, positionals, options);
   if (action === 'list') return listAction(root, options);
+  if (action === 'screen') return screenAction(options);
   if (action === 'coverage') return coverageAction(root, positionals, options);
   return discardAction(root, positionals, options);
 }

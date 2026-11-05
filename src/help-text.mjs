@@ -689,6 +689,8 @@ Usage:
   singularity-flow spec author derive SPEC-ID@N [--parent SPEC-ID@N]... [--json]
   singularity-flow spec author source SPEC-ID (--file FILE... | --url URL | --path CODE | --specification SPEC-ID@N | --remove SRC-ID) [--restore SRC-ID] [--json]
   singularity-flow spec author sources SPEC-ID[@N] [--source SRC-ID --from LINE --column N --max-bytes N] [--json]
+  singularity-flow spec author screen --file FILE [--json]
+    answers withhold secret-shaped values; a person's own view adds --for-person, which an agent is refused
     shared drafts are unreviewed checkpoints; local files/images never go into Git;
     resume compares exact versions and retains local history; derive pins a reviewed parent's requirements
   singularity-flow spec author check SPEC-ID [--json] | status SPEC-ID [--quick] [--json]

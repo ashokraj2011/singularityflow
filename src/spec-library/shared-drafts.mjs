@@ -18,8 +18,16 @@ const hash = value => 'sha256:' + recordSha256(value);
 const fail = (message, code, details) => { throw new SingularityFlowError(message, { code, details }); };
 const bytesHash = bytes => 'sha256:' + createHash('sha256').update(bytes).digest('hex');
 
+/**
+ * What another laptop continues from. A proposal or finding already settled keeps its identity and outcome and not
+ * its text: its wording is in the draft or was turned down, and a person could never remove anything from it.
+ */
 export function portableDraft(draft) {
   const { sharedDraftBase: _base, ...content } = structuredClone(draft);
+  if (content.proposals) content.proposals = content.proposals.map((proposal) => (proposal.status === 'staged' ? proposal
+    : { id: proposal.id, kind: proposal.kind, status: proposal.status, at: proposal.at }));
+  if (content.assisted?.findings) content.assisted.findings = content.assisted.findings.map((finding) => (finding.status === 'pending' ? finding
+    : { id: finding.id, article: finding.article, status: finding.status, at: finding.at, ...(finding.gap ? { gap: finding.gap } : {}) }));
   return content;
 }
 
@@ -77,14 +85,16 @@ async function automaticSlot(root, minimum, now = Date.now()) {
 }
 
 /**
- * Whether the shared head is this laptop's own: the same wording, or a snapshot from this draft's
- * history. Its push landed but the acknowledgement was lost (SPEC-SPA section 5.2), so it is the basis
- * to continue from and not another writer. Only this rare path reads the whole history.
+ * The local version the shared head was made from when it is this laptop's own, or null. Its push landed
+ * but the acknowledgement was lost (SPEC-SPA section 5.2), so it is the basis to continue from and not
+ * another writer. The intent recorded before a push answers first, so history thinning cannot make this
+ * read as someone else's; only the rare remaining path reads the whole history.
  */
-async function ownCheckpoint(root, specId, remote, contentSha256) {
-  if (remote.checkpoint.contentSha256 === contentSha256) return true;
+async function ownCheckpoint(root, specId, remote, { contentSha256, local, basis }) {
+  if (remote.checkpoint.contentSha256 === contentSha256) return local.sequence;
+  if (basis?.pendingPush?.checkpointSha256 === remote.head.checkpointSha256) return basis.pendingPush.localSequence;
   const history = await readDraft(root, specId);
-  return Boolean(history?.snapshots.some(snapshot => snapshot.snapshotSha256 === remote.checkpoint.sourceSnapshotSha256));
+  return history?.snapshots.find(snapshot => snapshot.snapshotSha256 === remote.checkpoint.sourceSnapshotSha256)?.sequence ?? null;
 }
 
 export async function syncDraft(root, config, specId, { automatic = false, minimumIntervalMs = 30000 } = {}) {
@@ -93,7 +103,8 @@ export async function syncDraft(root, config, specId, { automatic = false, minim
   if (!local?.head) fail('Open or restore a draft before sharing it.', 'SPEC_DRAFT_MISSING', { specId });
   const content = portableDraft(local.head.draft);
   // A shared checkpoint cannot be taken back, so nothing leaves before this; a refusal takes no automatic slot.
-  (await import('./share-check.mjs')).assertDraftShareable(specId, content);
+  const { assertFilesShareable, publishCheckedFiles } = await import('./share-check.mjs');
+  assertFilesShareable(specId, { 'checkpoint.json': canonicalJson({ draft: content }) });
   if (automatic) { const deferred = await automaticSlot(root, minimumIntervalMs); if (deferred) return { ...deferred, specId }; }
   const contentSha256 = hash(content);
   let basis = await sharedBasis(root, specId) ?? local.head.draft.sharedDraftBase;
@@ -103,12 +114,17 @@ export async function syncDraft(root, config, specId, { automatic = false, minim
   catch (error) {
     throw new SingularityFlowError('Your writing is saved on this laptop. Sharing did not start: ' + error.message, { code: error.code, cause: error, details: { specId, nextAction: 'singularity-flow spec author status ' + specId + ' --json' } });
   }
-  if (remote && remote.head.checkpointSha256 !== basis?.checkpointSha256 && await ownCheckpoint(root, specId, remote, contentSha256)) {
-    basis = { checkpointSha256: remote.head.checkpointSha256, contentSha256: remote.checkpoint.contentSha256, localSequence: local.sequence };
-    await recordSharedBasis(root, specId, basis);
+  if (remote && remote.head.checkpointSha256 !== basis?.checkpointSha256) {
+    // Acknowledge only what that push carried: newer writing is not shared until its own push lands.
+    const localSequence = await ownCheckpoint(root, specId, remote, { contentSha256, local, basis });
+    if (localSequence !== null) {
+      basis = { checkpointSha256: remote.head.checkpointSha256, contentSha256: remote.checkpoint.contentSha256, localSequence };
+      await recordSharedBasis(root, specId, basis);
+    }
   }
   if (basis?.contentSha256 === contentSha256 && remote?.head.checkpointSha256 === basis.checkpointSha256) {
-    await recordSharedBasis(root, specId, { ...basis, localSequence: local.sequence });
+    const { pendingPush: _settled, ...reconciled } = basis;
+    await recordSharedBasis(root, specId, { ...reconciled, localSequence: local.sequence });
     return { status: 'synced', specId, checkpointSha256: basis.checkpointSha256, unchanged: true, commit: view.commit };
   }
   const core = { schemaVersion: currentSchemaVersion('spec-shared-draft'), specId,
@@ -129,15 +145,17 @@ export async function syncDraft(root, config, specId, { automatic = false, minim
       checkpointSha256, previousCheckpointSha256: basis?.checkpointSha256 ?? null }));
     const headPath = ROOT + '/' + specId + '/head.json';
     const entries = { [ROOT + '/' + specId + '/' + checkpointSha256.slice(7) + '.json']: checkpoint, [headPath]: head };
-    const { publishToStateBranch } = await import('../ledger.mjs');
+    // Before the push: if its acknowledgement is lost, this says the checkpoint is ours and keeps its version from thinning.
+    await recordSharedBasis(root, specId, { ...basis, pendingPush: { checkpointSha256, localSequence: local.sequence } });
     try {
-      const published = await publishToStateBranch(root, view.ledger, entries, '[' + specId + '][spec:draft] saved checkpoint', {
+      const published = await publishCheckedFiles(root, view.ledger, entries, '[' + specId + '][spec:draft] saved checkpoint', {
         exactBlobSha256: Object.fromEntries(Object.entries(entries).map(([file, bytes]) => [file, bytesHash(bytes)])),
         pathPreconditions: { [headPath]: remote ? { condition: 'exact', sha256: bytesHash(remote.bytes),
           bytes: remote.bytes.length, gitMode: '100644' } : { condition: 'absent' } }
-      });
+      }, { specId, verb: 'shared', code: 'SPEC_SHARED_DRAFT_SECRET' });
       commit = published.commit;
     } catch (error) {
+      if (['SPEC_SHARED_DRAFT_SECRET', 'SPEC_SHARE_CHECK_FAILED'].includes(error.code)) throw error;
       throw new SingularityFlowError('Your writing is saved on this laptop. Sharing did not finish: ' + error.message,
         { code: error.code === 'state_branch.path_precondition_failed' ? 'SPEC_SHARED_DRAFT_CONFLICT' : 'SPEC_SHARED_DRAFT_PENDING',
           cause: error, details: { specId, checkpointSha256, originalCode: error.code ?? null,

@@ -359,6 +359,7 @@ test('publication acknowledgement preserves a newer draft without claiming it wa
 
 /** Assembled here so no credential-shaped literal sits in the repository. */
 const FAKE_TOKEN = 'ghp_' + 'Z9y8'.repeat(9);
+const REAL = 'Zx9fK2mQ7vLp4Tn8';
 const stateFiles = repo => {
   const listed = run(repo.root, 'git', ['ls-remote', '--heads', repo.remote, 'state'], repo.env).stdout.trim();
   return listed ? listed.split(/\s/u)[0] : null;
@@ -384,7 +385,7 @@ test('a draft holding a secret is never shared or published; the writing stays s
     assert.ok(!JSON.stringify(refused.value).includes(FAKE_TOKEN), 'a refusal never repeats the value');
   }
   assert.equal(stateFiles(repo), before, 'nothing left this laptop');
-  assert.equal(repo.sf('status', specId, '--quick').spec, text, 'the writing is still saved');
+  assert.equal(repo.sf('status', specId, '--quick', '--for-person').spec, text, 'the writing is still saved');
   const publication = repo.cli(repo.root, 'spec', 'author', 'publish', specId, '--draft');
   assert.equal(publication.value.error.code, 'SPEC_PUBLISH_SECRET');
   assert.equal(stateFiles(repo), before, 'a revision is immutable too, so it is refused the same way');
@@ -402,30 +403,198 @@ test('a draft holding a secret is never shared or published; the writing stays s
 
 test('a link carrying a credential stays out of shared records, in a new source, an old one and the wording', async t => {
   const repo = await fixture(t); repo.create();
-  for (const link of ['https://files.example.test/doc?sig=abc123', 'https://files.example.test/doc?X-Amz-Signature=abc123', 'https://files.example.test/doc#access_token=abc123']) {
+  for (const link of [`https://files.acme.io/doc?sig=${REAL}`, `https://files.acme.io/doc?X-Amz-Signature=${REAL}`, `https://files.acme.io/doc#access_token=${REAL}`,
+    `https://files.acme.io/doc?client_secret=${REAL}`, `https://files.acme.io/doc?a=1&sig=${REAL}`]) {
     assert.equal(repo.fail('source', specId, '--url', link).code, 'SPEC_SOURCE_URL_CREDENTIALS', link);
   }
-  assert.equal(repo.sf('source', specId, '--url', 'https://files.example.test/doc?node-id=12#L4').sources[0].type, 'url', 'an ordinary query stays usable');
+  assert.equal(repo.sf('source', specId, '--url', 'https://files.acme.io/doc?node-id=12#L4').sources[0].type, 'url', 'an ordinary query stays usable');
+  assert.equal(repo.sf('source', specId, '--url', 'https://api.example.com/doc?token=abc123&auth=true').sources[1].type, 'url', 'and so does documentation');
   // Saved before this refusal existed.
   await saveDraft(repo.root, specId, { operationId: 'old-link', operation: 'source', change: draft => ({ ...draft,
-    sources: [...draft.sources, { id: 'SRC-0000000000000001', type: 'url', name: 'files.example.test', url: 'https://files.example.test/old?token=abc123', purpose: '', standing: 'not-read' }] }) });
+    sources: [...draft.sources, { id: 'SRC-0000000000000001', type: 'url', name: 'files.acme.io', url: `https://files.acme.io/old?token=${REAL}`, purpose: '', standing: 'not-read' }] }) });
   const refused = repo.fail('sync', specId);
   assert.equal(refused.code, 'SPEC_SHARED_DRAFT_SECRET');
-  assert.match(refused.message, /'token' parameter/u);
+  assert.match(refused.message, /'token' parameter at source 3/u);
+  assert.match(refused.message, /spec author source SPEC-WRITE-001 --remove/u, 'it says how to clear it');
   assert.equal(stateFiles(repo), null);
   assert.equal(repo.sf('sources', specId, '--source', 'SRC-0000000000000001').sources[0].status, 'refused', 'nor is it handed to a model');
   repo.sf('source', specId, '--remove', 'SRC-0000000000000001');
   // In the prose too; a placeholder is how documentation writes one, and is left alone.
-  await editProse(repo, specId, wording(specId) + '\nRead https://files.example.test/doc?sig=abc123 first.\n');
+  await editProse(repo, specId, wording(specId) + `\nRead https://files.acme.io/doc?sig=${REAL} first.\n`);
   assert.equal(repo.fail('sync', specId).code, 'SPEC_SHARED_DRAFT_SECRET');
-  await editProse(repo, specId, wording(specId) + '\nCall https://api.example.test/v1?token=<TOKEN> with your own.\n');
+  await editProse(repo, specId, wording(specId) + '\nCall https://api.acme.io/v1?token=<TOKEN> with your own.\n');
   assert.equal(repo.sf('sync', specId).status, 'synced');
 });
 
+test('a value is judged by its shape, in every form a link can take it', async () => {
+  const { assertFilesShareable, linkCredentials, screenText } = await import('../src/spec-library/share-check.mjs');
+  const refused = link => screenText(`See ${link} for it.`).length > 0;
+  // What a reviewer found passing.
+  for (const link of [
+    `https://x.io/d?token=...&sig=${REAL}`, `https://x.io/d?auth=&sig=${REAL}`, `https://x.io/d?sig=xxx&sig=${REAL}`, `https://x.io/d?a=1&amp;sig=${REAL}`, `https://x.io/d?a=1;sig=${REAL}`,
+    `https://x.io/a_(b)/doc?sig=${REAL}`, `https://x.io/a[]=1?sig=${REAL}`, `[the doc](https://x.io/a_(b)/doc?sig=${REAL})`,
+    `https://x.io/d?client_secret=${REAL}`, `https://x.io/d?auth_token=${REAL}`, `https://x.io/d?private_token=${REAL}`, `https://x.io/d?x-api-key=${REAL}`, `https://x.io/d?key=${REAL}`, `https://x.io/d?jwt=${REAL}`,
+    `https://x.io/d?accessToken=${REAL}`, `wss://x.io/socket?token=${REAL}`, `postgres://db.x.io/app?password=${REAL}`, `https://${REAL}@git.x.io/repo.git`,
+    `https://hooks.slack.com/services/T00000000/B00000000/${REAL}${REAL}`
+  ]) assert.ok(refused(link), link);
+  // Ordinary specifications.
+  for (const link of [
+    'https://x.io/d?auth=true', 'https://x.io/d?auth=google', 'https://api.example.com/v1/items?token=abc123', `https://api.example.com/v1/items?token=${REAL}`, `https://svc.test/d?sig=${REAL}`,
+    'https://x.io/d?token=abc123', 'https://x.io/d?token=<TOKEN>', 'https://x.io/d?key=PROJ-1', 'https://x.io/d?key=value', 'https://x.io/d?keyboard=dvorak', `https://x.io/d?page_token=${REAL}`,
+    'https://x.io/d?node-id=12:34', 'https://git@git.x.io/team/repo.git', 'https://git.x.io/team/repo/commit/0123456789abcdef0123456789abcdef01234567', 'https://x.io/d?signature=required'
+  ]) assert.ok(!refused(link), link);
+  assert.deepEqual(linkCredentials('not a link'), []);
+  // The scanner still finds what it always found, in a file exactly as it ships, and its waiver still works.
+  const checkpoint = draft => ({ 'abc.json': JSON.stringify({ draft }) });
+  const token = FAKE_TOKEN;
+  assert.throws(() => assertFilesShareable(specId, checkpoint({ spec: `One\nTwo ${token}\n` })), error => error.code === 'SPEC_SHARED_DRAFT_SECRET' && !error.message.includes(token));
+  assert.doesNotThrow(() => assertFilesShareable(specId, checkpoint({ spec: `One ${token} sflow-allow-secret: a sample\n` })));
+  assert.doesNotThrow(() => assertFilesShareable(specId, checkpoint({ spec: 'Plain.', origins: [{ clauses: [{ text: `Pinned ${token}` }] }] })), 'a parent already on the state branch is not judged again');
+});
+
 test('a sharing check that breaks shares nothing and says so', async () => {
-  const { assertDraftShareable } = await import('../src/spec-library/share-check.mjs');
-  const broken = { get spec() { throw new Error('the scanner stopped'); } };
-  assert.throws(() => assertDraftShareable(specId, broken), error => error.code === 'SPEC_SHARE_CHECK_FAILED' && /saved on this laptop/u.test(error.message) && /the scanner stopped/u.test(error.message));
+  const { assertFilesShareable } = await import('../src/spec-library/share-check.mjs');
+  assert.throws(() => assertFilesShareable(specId, { 'checkpoint.json': '{ torn' }), error => error.code === 'SPEC_SHARE_CHECK_FAILED' && /saved on this laptop/u.test(error.message));
+});
+
+test('only what ships is judged, and a refusal always has a way through', async t => {
+  const repo = await fixture(t); repo.create(); await editProse(repo, specId, wording(specId));
+  const proposal = path.join(repo.base, 'proposal.json');
+  await writeFile(proposal, JSON.stringify({ proposals: [{ kind: 'edit', summary: 'Use ' + FAKE_TOKEN, spec: wording(specId) + '\nDeploy with ' + FAKE_TOKEN + '\n' }] }));
+  repo.sf('propose', specId, '--file', proposal);
+  const pendingRefusal = repo.fail('sync', specId);
+  assert.match(pendingRefusal.message, /Copilot suggestion 1/u); assert.match(pendingRefusal.message, /Reject that suggestion/u);
+  // The way through works: a rejected suggestion's text does not ship, and a reviewed revision never carried suggestions.
+  repo.sf('reject', specId, 'P-001', '--reason', 'No thanks.');
+  assert.equal(repo.sf('sync', specId).status, 'synced');
+  repo.git(repo.root, 'fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state');
+  assert.ok(!repo.git(repo.root, 'log', '-p', 'refs/remotes/origin/state').includes(FAKE_TOKEN), 'the rejected text stayed here');
+  repo.sf('settle', specId, '--all-articles', 'satisfied');
+  assert.equal(repo.sf('publish', specId, '--reviewed').revision, 1, 'publish is not refused for what it does not ship');
+  // History nobody can edit still ships, so it is refused, and the refusal says where to go.
+  repo.sf('new', 'SPEC-GAP-001', '--title', 'A question', '--kind', 'business', '--local');
+  repo.sf('gap', 'SPEC-GAP-001', '--kind', 'open-question', '--question', 'Which token, ' + FAKE_TOKEN + '?');
+  const history = repo.fail('sync', 'SPEC-GAP-001');
+  assert.match(history.message, /the recorded decisions/u); assert.match(history.message, /spec author new --from <FILE>/u);
+  assert.equal(history.details.findings[0].path.includes('gaps'), true);
+});
+
+test('a split’s free text is checked before it is signed or pushed', async t => {
+  const repo = await fixture(t); repo.create(); await ready(repo, specId, twoRequirements(specId));
+  const plan = path.join(repo.base, 'plan.json');
+  await writeFile(plan, JSON.stringify({ children: [], stories: [{ key: 'S1', title: 'Part one', description: 'Deploy with ' + FAKE_TOKEN, workId: 'PART-1', clauses: [specId + ':REQ-001', specId + ':REQ-002', specId + ':AC-001', specId + ':AC-002'], dependsOn: [] }], notDelivered: [] }));
+  const split = (...argv) => repo.cli(repo.root, 'spec', 'split', specId + '@1', ...argv);
+  assert.equal(split('--propose', '--file', plan).status, 0);
+  const before = stateFiles(repo);
+  const refused = split('--publish');
+  assert.notEqual(refused.status, 0);
+  assert.equal(refused.value.error.code, 'SPEC_SPLIT_SECRET');
+  assert.match(refused.value.error.message, /the split plan/u); assert.match(refused.value.error.message, /Change the plan/u);
+  assert.ok(!JSON.stringify(refused.value).includes(FAKE_TOKEN));
+  assert.equal(stateFiles(repo), before, 'nothing was pushed');
+});
+
+test('every specification publisher goes through the check', async () => {
+  for (const file of ['shared-drafts', 'library', 'split']) {
+    const source = await readFile(fileURLToPath(new URL(`../src/spec-library/${file}.mjs`, import.meta.url)), 'utf8');
+    assert.doesNotMatch(source.replace(/^.*\*.*publishToStateBranch.*$/gmu, ''), /publishToStateBranch\(/u, file);
+    assert.match(source, /publishCheckedFiles\(/u, file);
+  }
+  // Usage records are identifiers and digests, written when a Story is approved or closed; a checked failure there would undo neither.
+  const usage = await readFile(fileURLToPath(new URL('../src/spec-library/usage.mjs', import.meta.url)), 'utf8');
+  assert.doesNotMatch(usage, /title|description|reason/u, 'a usage record stays free of free text');
+});
+
+test('no answer to a model carries a secret-shaped value, on any route; the person’s own view stays whole', async t => {
+  const repo = await fixture(t); repo.create();
+  const file = path.join(repo.base, 'with-secret.md');
+  const text = wording(specId) + `\nDeploy with ${FAKE_TOKEN} from https://files.acme.io/d?sig=${REAL} now.\n`;
+  await writeFile(file, text); repo.sf('edit', specId, '--file', file, '--expected-seq', '1');
+  await saveDraft(repo.root, specId, { operationId: 'old-link-2', operation: 'source', change: draft => ({ ...draft,
+    sources: [{ id: 'SRC-0000000000000001', type: 'url', name: 'files.acme.io', url: `https://files.acme.io/old?token=${REAL}`, purpose: '', standing: 'not-read' }] }) });
+  const safe = value => { const printed = JSON.stringify(value); assert.ok(!printed.includes(FAKE_TOKEN), printed.slice(0, 200)); assert.ok(!printed.includes(REAL), printed.slice(0, 200)); };
+  const status = repo.sf('status', specId);
+  safe(status); assert.match(status.spec, /Deploy with \[withheld: looks like a secret\] from/u); assert.ok(status.withheld >= 3);
+  safe(repo.sf('status', specId, '--quick'));
+  safe(repo.sf('sources', specId));
+  safe(repo.sf('history', specId, '--sequence', '2'));
+  safe(repo.sf('list', '--local'));
+  // The native tool asks the same CLI, with no way to ask for more.
+  const tool = await import('../apps/vscode/src/views/spec-studio-tool.ts');
+  const runner = { run: argv => { const result = repo.cli(repo.root, ...argv.filter(item => item !== '--json')); assert.equal(result.status, 0); return result.value; } };
+  for (const request of [{ action: 'state', spec: specId }, { action: 'prose', spec: specId }, { action: 'details', spec: specId, part: 'sources' }]) safe(await tool.answerSpecStudioTool(request, runner));
+  // Asking for the person's view is refused to an agent in every turn, and gives the person everything.
+  const { argvAllowed } = await import('../src/copilot-mutation-guard.mjs');
+  assert.equal(argvAllowed(['spec', 'author', 'status', specId, '--for-person', '--json'], 'read', {}), false);
+  assert.equal(argvAllowed(['spec', 'author', 'status', specId, '--json'], 'read', {}), true);
+  const person = repo.sf('status', specId, '--for-person');
+  assert.equal(person.spec, text); assert.equal(person.withheld, undefined);
+  // What a person selected is judged before it would go to chat.
+  const asked = path.join(repo.base, 'asked.txt'); await writeFile(asked, 'Improve this: ' + FAKE_TOKEN);
+  const screened = repo.sf('screen', '--file', asked); assert.equal(screened.findings.length, 1); safe(screened);
+  await writeFile(asked, 'Make this clearer.'); assert.equal(repo.sf('screen', '--file', asked).findings.length, 0);
+});
+
+test('with no declaration, .env is refused by name for sources and document upload alike, and says what to do', async t => {
+  const repo = await fixture(t); repo.create();
+  await mkdir(path.join(repo.root, 'config'), { recursive: true });
+  for (const name of ['.env', 'config/.env.local', '.env.production', '.env.example', '.env.sample', '.env.template', 'config/notes.env']) await writeFile(path.join(repo.root, name), 'LOG_LEVEL=debug\n');
+  for (const refused of ['.env', 'config/.env.local', '.env.production']) {
+    const failure = repo.fail('source', specId, '--path', refused);
+    assert.equal(failure.code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', refused); assert.match(failure.message, /rename it \.env\.example/u); assert.match(failure.message, /singularity\/environments\.yml/u);
+    assert.equal(repo.fail('source', specId, '--file', path.join(repo.root, refused)).code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED', refused);
+  }
+  for (const allowed of ['.env.example', '.env.sample', '.env.template', 'config/notes.env']) assert.equal(repo.cli(repo.root, 'spec', 'author', 'source', specId, '--path', allowed).status, 0, allowed);
+  // The one helper document upload goes through.
+  const documents = await import('../src/documents.mjs');
+  await assert.rejects(documents.assertStartDocumentNotEnvironmentLocal(repo.root, null, path.join(repo.root, '.env')), { code: 'ENVIRONMENT_LOCAL_CONTENT_REFUSED' });
+  await documents.assertStartDocumentNotEnvironmentLocal(repo.root, null, path.join(repo.root, '.env.example'));
+  // A repository with rules decides for itself.
+  await mkdir(path.join(repo.root, 'singularity'), { recursive: true });
+  await writeFile(path.join(repo.root, 'singularity', 'environments.yml'), 'schemaVersion: 1\nenvironments:\n  qa:\n    requires:\n      - name: API_TOKEN\n        kind: secret\n    localFiles:\n      - secrets.txt\nchecks: {}\nneverCommit: []\n');
+  assert.equal(repo.cli(repo.root, 'spec', 'author', 'source', specId, '--path', '.env').status, 0, 'declared rules are the rules');
+  await rm(path.join(repo.root, 'singularity', 'environments.yml'));
+  // Unquoted values in an env-style file are secrets; a placeholder or an ordinary setting is not.
+  const example = path.join(repo.root, '.env.example');
+  await writeFile(example, 'API_KEY=abc123xyz987LMN\n');
+  assert.equal(repo.fail('source', specId, '--file', example).code, 'SECRET_DETECTED');
+  for (const line of ['PASSWORD=hunter2', 'CALLBACK=https://x.io/done?token=Zq7vK2mPx9LtR4wNf8Bc', 'SIGNING_SALT=Zq7vK2mPx9LtR4wNf8Bc1234', 'ENCRYPTION_KEY=Zq7vK2mPx9']) {
+    await writeFile(example, line + '\n');
+    assert.equal(repo.fail('source', specId, '--file', example).code, 'SECRET_DETECTED', line);
+  }
+  for (const line of ['API_KEY=your-key-here', 'API_KEY=', 'API_KEY=<KEY>', 'API_KEY=${API_KEY}', 'LOG_LEVEL=debug', '# API_KEY=abc123xyz987LMN', 'API_KEY=abc123xyz987LMN # sflow-allow-secret: a sample',
+    // What an example file ordinarily holds: an address, a path, a name that only contains a credential's letters.
+    'DB_URL=postgres://localhost/app', 'AUTH_URL=https://login.x.io/authorize', 'AUTHOR=someone', 'KEYBOARD=us', 'TOKEN_TTL=3600', 'KEY_PATH=/etc/ssl/app.pem', 'AUTH_MODE=oauth', 'AUTH_ENABLED=yes', 'BUCKET=my-company-prod-assets-us-east-1', 'CONFIG_DIR=/var/lib/application/config/current']) {
+    await writeFile(example, line + '\n');
+    assert.equal(repo.cli(repo.root, 'spec', 'author', 'source', specId, '--file', example).status, 0, line);
+  }
+});
+
+test('a selected folder says which files not to read, a large file is checked, and what cannot be checked says so', async t => {
+  const repo = await fixture(t); repo.create();
+  const config = path.join(repo.root, 'config'); await mkdir(config, { recursive: true });
+  await writeFile(path.join(config, 'plain.txt'), 'Plain.\n'); await writeFile(path.join(config, '.env.local'), 'A=1\n');
+  await writeFile(path.join(config, 'leaky.txt'), 'token: ' + FAKE_TOKEN + '\n'); await writeFile(path.join(config, 'image.bin'), Buffer.from([0, 1, 2, 0]));
+  const big = path.join(repo.root, 'big.txt'), bigLeak = path.join(repo.root, 'big-leak.txt'), huge = path.join(repo.root, 'huge.txt'), binary = path.join(repo.root, 'blob.dat');
+  await writeFile(big, 'x '.repeat(200 * 1024)); await writeFile(bigLeak, 'x '.repeat(200 * 1024) + '\n' + FAKE_TOKEN + '\n');
+  await writeFile(huge, Buffer.alloc(21 * 1024 * 1024, 'y')); await writeFile(binary, Buffer.from([0, 255, 0, 254]));
+  const added = repo.sf('source', specId, '--path', 'config').sources.find(source => source.path === 'config');
+  const folder = repo.sf('sources', specId, '--source', added.id).sources[0];
+  assert.equal(folder.status, 'selected-folder');
+  assert.deepEqual([...folder.excluded].sort(), ['config/.env.local', 'config/leaky.txt']);
+  assert.match(folder.instruction, /Do not read the files under excluded/u);
+  // Too large or not text is no reason to refuse the source: the read path supports both, and says it could not vouch for them.
+  const read = name => repo.sf('sources', specId, '--source', repo.sf('source', specId, '--path', name).sources.find(source => source.path === name).id).sources[0];
+  assert.equal(read('big.txt').status, 'native-read-required');
+  const large = read('huge.txt'); assert.equal(large.status, 'native-read-required'); assert.match(large.unchecked, /too large/u);
+  const notText = read('blob.dat'); assert.equal(notText.status, 'native-read-required'); assert.match(notText.unchecked, /not text/u);
+  assert.equal(repo.fail('source', specId, '--path', 'big-leak.txt').code, 'SECRET_DETECTED');
+  // A file past the inline limit changed after it was chosen: checked at read, with words about reading.
+  await writeFile(big, 'x '.repeat(200 * 1024) + '\n' + FAKE_TOKEN + '\n');
+  const id = (await readDraft(repo.root, specId)).head.draft.sources.find(source => source.path === 'big.txt').id;
+  const changed = repo.sf('sources', specId, '--source', id).sources[0];
+  assert.equal(changed.status, 'refused'); assert.equal(changed.path, undefined);
+  assert.match(changed.message, /This source is not read out/u); assert.doesNotMatch(changed.message, /Document upload/u);
 });
 
 test('file and code sources take the refusals every document input takes, on add, restore and read', async t => {
@@ -621,7 +790,7 @@ test('the same wording on both sides is not a conflict, whichever laptop saved i
 // ---- Parent closure and split children (findings 11, 15) ----------------------------------------
 
 const twoRequirements = id => wording(id).replace(`[${id}:REQ-001]`, `[${id}:REQ-001]\n\nWHEN a customer asks, the service SHALL show the order status. [${id}:REQ-002]`)
-  .replace(`A submitted valid order returns one non-empty reference. [${id}:AC-001]`, `A submitted valid order returns one reference and a status, as ${id}:REQ-001 and ${id}:REQ-002 state. [${id}:AC-001]`);
+  .replace(`A submitted valid order returns one non-empty reference. [${id}:AC-001]`, `A submitted valid order returns one reference and a status, as ${id}:REQ-001 and ${id}:REQ-002 state. [${id}:AC-001]\n\nA status request shows the current state, as ${id}:REQ-002 states. [${id}:AC-002]`);
 
 test('an inherited clause brings what it depends on, without asking the Story to deliver the parent', async t => {
   const repo = await fixture(t); repo.create(); await ready(repo, specId, twoRequirements(specId));
@@ -629,12 +798,13 @@ test('an inherited clause brings what it depends on, without asking the Story to
   const coverage = '\n## Business coverage\n\n| Source requirement | Technical requirement or disposition | Reason |\n| --- | --- | --- |\n'
     + '| ' + specId + ':REQ-001 | ' + child.specId + ':REQ-001 | Implements the reference. |\n'
     + '| ' + specId + ':REQ-002 | deferred | Status comes later. |\n'
-    + '| ' + specId + ':AC-001 | ' + child.specId + ':AC-001 | Verifies it. |\n';
+    + '| ' + specId + ':AC-001 | ' + child.specId + ':AC-001 | Verifies it. |\n'
+    + '| ' + specId + ':AC-002 | deferred | Status comes later. |\n';
   await ready(repo, child.specId, wording(child.specId) + coverage);
   const [slice] = await resolveSlices(repo.root, {}, [child.specId + '@1=REQ-001'], { env: repo.env });
   const inherited = slice.inheritedSpecifications[0];
   assert.equal(inherited.standing, 'inherited-constraint');
-  assert.deepEqual(inherited.clauses.map(clause => clause.anchor).sort(), [`[${specId}:AC-001]`, `[${specId}:REQ-001]`, `[${specId}:REQ-002]`]);
+  assert.deepEqual(inherited.clauses.map(clause => clause.anchor).sort(), [`[${specId}:AC-001]`, `[${specId}:AC-002]`, `[${specId}:REQ-001]`, `[${specId}:REQ-002]`], 'a requirement brought in brings the acceptance that proves it');
   assert.equal(inherited.partialDependency, undefined, 'nothing was left out, so no reason is owed');
   assert.deepEqual(slice.clauses.map(clause => clause.anchor), [`[${child.specId}:REQ-001]`], 'only the technical clause is delivered');
 });
@@ -645,7 +815,8 @@ test('a split child keeps the parent’s pinned business links, so its Story kee
   const coverage = '\n## Business coverage\n\n| Source requirement | Technical requirement or disposition | Reason |\n| --- | --- | --- |\n'
     + '| ' + specId + ':REQ-001 | ' + technical.specId + ':REQ-001 | Implements the reference. |\n'
     + '| ' + specId + ':REQ-002 | ' + technical.specId + ':REQ-002 | Implements the status. |\n'
-    + '| ' + specId + ':AC-001 | ' + technical.specId + ':AC-001 | Verifies them. |\n';
+    + '| ' + specId + ':AC-001 | ' + technical.specId + ':AC-001 | Verifies them. |\n'
+    + '| ' + specId + ':AC-002 | ' + technical.specId + ':AC-002 | Verifies the status. |\n';
   const id = technical.specId;
   await ready(repo, id, wording(id).replace(`[${id}:REQ-001]`, `[${id}:REQ-001]\n\nWHEN a customer asks, the service SHALL show the order status. [${id}:REQ-002]`)
     .replace(`[${id}:AC-001]`, `[${id}:AC-001]\n\nAsking for an order shows its status. [${id}:AC-002]`) + coverage);
@@ -705,6 +876,45 @@ test('old autosaves are thinned behind a bound; what recovery needs is kept and 
   const plan = retentionPlan([hour(1, '09:00', 'new'), hour(2, '09:10'), hour(3, '09:50'), hour(4, '10:05'), hour(5, '10:06', 'accept'), hour(6, '10:07'), hour(7, '10:08')], { recent: 1 });
   assert.deepEqual(plan.remove.map(entry => entry.sequence), [2, 4, 6]);
   assert.deepEqual(plan.retain.map(entry => [entry.sequence, entry.reason]), [[1, 'new'], [3, 'last save of its hour'], [5, 'accept'], [7, 'current version']]);
+});
+
+test('thinning keeps the version a lost push came from, leaves a usable index, and the preview says only what will happen', async t => {
+  const repo = await fixture(t); repo.create();
+  const previous = process.env.SINGULARITY_FLOW_SPEC_HISTORY_RECENT; process.env.SINGULARITY_FLOW_SPEC_HISTORY_RECENT = '20';
+  t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_SPEC_HISTORY_RECENT; else process.env.SINGULARITY_FLOW_SPEC_HISTORY_RECENT = previous; });
+  const save = (operation, change) => saveDraft(repo.root, specId, { operationId: 'save-' + Math.random().toString(16).slice(2), operation, change });
+  const { draftRetentionPreview } = await import('../src/spec-library/draft-store.mjs');
+  const { recordSharedBasis } = await import('../src/spec-library/shared-basis.mjs');
+  await save('edit', draft => ({ ...draft, spec: 'The words a lost push carried.' }));
+  // Below the bound the preview promises nothing, though the rule alone would pick some.
+  for (let index = 0; index < 30; index += 1) await save('edit', draft => ({ ...draft, spec: 'Early ' + index }));
+  assert.deepEqual((await draftRetentionPreview(repo.root, specId, await readDraft(repo.root, specId))).remove, [], 'nothing goes until the bound is passed');
+  await recordSharedBasis(repo.root, specId, { pendingPush: { checkpointSha256: 'sha256:' + 'e'.repeat(64), localSequence: 2 } });
+  for (let index = 0; index < 70; index += 1) await save('edit', draft => ({ ...draft, spec: 'Later ' + index }));
+  const quick = await readDraft(repo.root, specId, { headOnly: true });
+  assert.equal(quick.historyChecked, false, 'the index written after thinning is the one the next read uses');
+  const full = await readDraft(repo.root, specId);
+  assert.ok(full.snapshots.length < 102, 'thinned: ' + full.snapshots.length);
+  assert.ok(full.snapshots.some(snapshot => snapshot.sequence === 2), 'the version a lost push may have shared stays');
+  assert.ok((await draftRetentionPreview(repo.root, specId, full)).retain.some(entry => entry.sequence === 2 && entry.reason === 'shared basis'));
+});
+
+test('adopting a lost push acknowledges what it carried; a failed newer push does not look shared', async t => {
+  const repo = await fixture(t); repo.create(); const remote = repo.git(repo.root, 'remote', 'get-url', 'origin');
+  const crashed = run(repo.root, process.execPath, [bin, 'spec', 'author', 'sync', specId, '--json'], { ...repo.env, SINGULARITY_FLOW_TEST_CRASH_AT: 'spec-draft-synced' });
+  if (process.platform === 'win32') assert.equal(crashed.status, 1); else assert.equal(crashed.signal, 'SIGKILL');
+  await editProse(repo, specId, 'Newer writing.');
+  const sequence = repo.sf('status', specId, '--quick').sequence;
+  // The remote answers the read and then refuses the push, so the first part of sync reconciles and the second fails.
+  const hook = path.join(repo.remote, 'hooks', 'pre-receive'); await writeFile(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  assert.notEqual(repo.cli(repo.root, 'spec', 'author', 'sync', specId).status, 0);
+  const status = repo.sf('status', specId, '--quick');
+  assert.equal(status.sharedDraft.localSequence, 1, 'only what the landed push carried is acknowledged');
+  assert.notEqual(status.sharedDraft.localSequence, sequence);
+  await rm(hook);
+  assert.equal(repo.sf('sync', specId).status, 'synced', remote);
+  assert.equal(repo.sf('status', specId, '--quick').sharedDraft.localSequence, sequence);
+  assert.equal(repo.sf('shared', specId, '--refresh').drafts[0].draft.spec, 'Newer writing.');
 });
 
 test('checking and publishing read the current version, not every earlier one', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async t => {

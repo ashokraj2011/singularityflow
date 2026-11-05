@@ -192,7 +192,11 @@ export async function resolveSlices(root, config, values, { dependencyReason = n
       // with it. These are inherited constraints, so the Story is not asked to deliver the parent.
       const byId = new Map(parentClauses.map(clause => [clause.id, clause]));
       const closure = new Set([...wanted, ...acceptance.map(clause => clause.id)]);
-      for (const id of closure) for (const dependency of byId.get(id)?.dependsOn ?? []) if (byId.has(dependency)) closure.add(dependency);
+      // And a requirement brought in this way brings the acceptance that proves it, whose own dependencies follow.
+      for (const id of closure) {
+        for (const dependency of byId.get(id)?.dependsOn ?? []) if (byId.has(dependency)) closure.add(dependency);
+        if (id.includes(':REQ-')) for (const clause of parentClauses) if (clause.id.includes(':AC-') && clause.dependsOn.includes(id)) closure.add(clause.id);
+      }
       const parentSelected = [...closure];
       const slice = buildSlice(parent, { ...reference, clauses: parentSelected }, { dependencyReason });
       const key = parent.specId + '@' + parent.revision;

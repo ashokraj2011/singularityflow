@@ -366,7 +366,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // count holds at 39.
   // 856,950 (measured 856,931): Spec Studio's five record families (schema-migrations.mjs +716), spec author's own
   // routes and read actions (command-registry.mjs +134) and one option (util.mjs +13). Neither can load later: every command reads them to dispatch.
-  assert.ok(root.bytes <= 856_950, `root dispatch loads ${root.bytes} source bytes`);
+  // 856,957 (measured 856,957): the screen read action (command-registry.mjs +12) and --for-person (util.mjs +14), for the same reason.
+  assert.ok(root.bytes <= 856_957, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

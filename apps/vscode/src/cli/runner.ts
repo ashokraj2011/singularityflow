@@ -103,7 +103,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'host-review', 'presence', 'recipe', 'state-records',
   'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached', 'debug', 'personal', 'from-template', 'clear',
-  'author'
+  'author', 'for-person', 'retention'
 ]);
 
 const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;

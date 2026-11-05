@@ -350,7 +350,8 @@ export function childClauses(revision, child, childId = child.specId) {
  * holds is refused before anything is written.
  */
 export async function publishSplit(root, config, { revision, analysis, operationId, actor, command, seal = null, env = process.env }) {
-  const { publishToStateBranch } = await import('../ledger.mjs');
+  const { assertFilesShareable, publishCheckedFiles } = await import('./share-check.mjs');
+  const shipping = { specId: revision.specId, verb: 'published', code: 'SPEC_SPLIT_SECRET' };
   const { specId } = revision;
   const name = `${specId}@${revision.revision}`;
   const planSha256 = planDigest(analysis.plan);
@@ -394,12 +395,14 @@ export async function publishSplit(root, config, { revision, analysis, operation
     };
     const file = splitPath(specId, split);
     const bytes = Buffer.from(canonicalJson(record), 'utf8');
+    // Its titles, descriptions and reasons are free text. Before the person's touch: a signature is not asked for a split that cannot leave.
+    assertFilesShareable(specId, { 'split.json': bytes }, shipping);
     if (!prepared) prepared = { split, record, sealFile: seal ? await seal({ split, splitSha256: digest(bytes) }) : null };
     const files = { [file]: bytes, ...(prepared.sealFile ? { [splitSealPath(specId, split)]: prepared.sealFile } : {}) };
     try {
-      const published = await publishToStateBranch(root, view.ledger, files, `[${specId}][spec:split] split ${split} of revision ${revision.revision}`, {
+      const published = await publishCheckedFiles(root, view.ledger, files, `[${specId}][spec:split] split ${split} of revision ${revision.revision}`, {
         exactBlobSha256: Object.fromEntries(Object.entries(files).map(([name, content]) => [name, digest(content)])), pathPreconditions: { [file]: { condition: 'absent' } }, env
-      });
+      }, shipping);
       return { record, commit: published.commit, replayed: false };
     } catch (error) {
       if (error?.concurrent || error?.code === 'state_branch.path_precondition_failed') continue;
@@ -418,11 +421,6 @@ export async function publishSplit(root, config, { revision, analysis, operation
 // ---- A child draft ------------------------------------------------------------------------------
 
 /**
- * A child's first draft: the template's sections with the parent clauses it takes, each under the
- * child's ID with the parent's number, and the parent's decisions on them. A reference to another taken
- * clause follows it into the child; a reference to a clause the child does not take names the parent's.
- */
-/**
  * The parent's pinned business links that this child's clauses carry: a split must not lose them, or
  * a Story from the child loses its inherited constraints and their acceptance (SPEC-SPA section 9.2).
  * Each origin keeps only the requirements mapped to this child, with the parent's stated reason.
@@ -438,6 +436,11 @@ export function childOrigins(revision, child) {
     .filter((origin) => origin.clauses.length) };
 }
 
+/**
+ * A child's first draft: the template's sections with the parent clauses it takes, each under the
+ * child's ID with the parent's number, and the parent's decisions on them. A reference to another taken
+ * clause follows it into the child; a reference to a clause the child does not take names the parent's.
+ */
 export function childSpecText(revision, child, { split }) {
   const parent = revision.specId;
   const byId = new Map(extractClauses(revision.spec, { namespace: parent }).map((clause) => [clause.id, clause]));

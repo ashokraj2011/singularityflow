@@ -50,6 +50,9 @@ const SHARING_NEEDS_A_PERSON = new Set(['SPEC_SHARED_DRAFT_CONFLICT', 'SPEC_SHAR
 /** Sharing waits for different writing: the same text would be refused the same way. */
 const SHARING_NEEDS_NEW_WRITING = new Set(['SPEC_SHARED_DRAFT_SECRET']);
 const MAXIMUM_SYNC_BACKOFF_MS = 15 * 60_000;
+/** The answers that carry a person's own words back to their own page; everything else is told less. */
+const PERSON_READS = new Set(['status', 'history', 'sources', 'gaps', 'check', 'list', 'shared', 'show']);
+const forPerson = (argv: string[]): string[] => (argv[0] === 'spec' && argv[1] === 'author' && PERSON_READS.has(argv[2] ?? '') ? [...argv, '--for-person'] : argv);
 const SOURCE_VIEW_BYTES = '48000';
 const sameWording = (left: { spec: string; title: string; kind?: string | null }, right: { spec: string; title: string; kind?: string | null }): boolean =>
   left.spec === right.spec && left.title === right.title && (left.kind ?? null) === (right.kind ?? null);
@@ -58,7 +61,10 @@ export class SpecStudioPanel implements vscode.Disposable {
   private static current: SpecStudioPanel | null = null;
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly panel: vscode.WebviewPanel;
+  /** This page's own reads: the person's words, intact. */
   private readonly client: Client;
+  /** Copilot's tool reads through this one, so it is told what any model is told. */
+  private readonly toolClient: Client;
   private readonly ownerClient: Client;
   private readonly repositoryRoot: string | null;
   private hooks: SpecStudioHooks;
@@ -72,6 +78,8 @@ export class SpecStudioPanel implements vscode.Disposable {
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private saving: Promise<boolean> | null = null;
   private saveAttempt: { key: string; operation: string } | null = null;
+  /** A save whose answer never came: it may have landed, so the next save learns its sequence first. */
+  private unanswered: { spec: string; edit: { text: string; sequence: number; title?: string; kind?: string | null }; operation: string } | null = null;
   private lastSyncAt = 0;
   private saveBlocked = false;
   private syncing = false;
@@ -101,13 +109,18 @@ export class SpecStudioPanel implements vscode.Disposable {
     this.panel = panel;
     this.ownerClient = client;
     this.repositoryRoot = hooks.root?.() ?? null;
-    this.client = this.repositoryRoot && client.forkForRepository ? client.forkForRepository(this.repositoryRoot) : client;
+    this.toolClient = this.repositoryRoot && client.forkForRepository ? client.forkForRepository(this.repositoryRoot) : client;
+    this.client = { run: ((argv: string[], ...rest: unknown[]) => (this.toolClient.run as (argv: string[], ...rest: unknown[]) => Promise<unknown>)(forPerson(argv), ...rest)) as Client['run'] };
     this.hooks = { ...hooks, root: () => this.repositoryRoot };
     this.state = this.fresh(target);
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      void this.router.route(raw);
+      // Whatever the handler did to the page, a form that was sent always hears back, or its buttons stay disabled.
+      const submitId = (raw as { submitId?: unknown } | null)?.submitId;
+      void Promise.resolve(this.router.route(raw)).then(outcome => {
+        if (typeof submitId === 'number') this.post({ type: 'spec.settled', submitId, outcome: outcome === 'refused' || outcome === 'busy' ? outcome : 'done' });
+      }, () => { if (typeof submitId === 'number') this.post({ type: 'spec.settled', submitId, outcome: 'refused' }); });
     }, null, this.subscriptions);
     panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
   }
@@ -171,9 +184,11 @@ export class SpecStudioPanel implements vscode.Disposable {
     'spec.save': async (message) => {
       this.rememberEdit({ ...message, spec: this.state.status?.specId });
       await this.guard(() => this.flushEdits(), false);
-      // Always answered: the page disabled Save until it hears, and there may have been nothing to write.
+      // Always answered: the page disabled Save until it hears, there may have been nothing to write, and another
+      // operation may have been running, when a blocked save would hear nothing at all.
       const status = this.state.status;
-      if (status && !this.saveBlocked) this.post({ type: 'spec.saved', sequence: status.sequence, dirty: this.edits.has(status.specId) });
+      if (status && this.saveBlocked) this.post({ type: 'spec.saveFailed', message: this.state.error?.message ?? 'Your writing could not be saved.' });
+      else if (status) this.post({ type: 'spec.saved', sequence: status.sequence, dirty: this.edits.has(status.specId) });
     },
     'spec.research': (message) => this.guard(() => this.draftWrite('Collecting research from the code…', (specId) => model.researchArgv(specId, {
       paths: Array.isArray(message.paths) ? message.paths.filter((entry): entry is string => typeof entry === 'string') : [], refresh: booleanField(message, 'refresh')
@@ -219,11 +234,14 @@ export class SpecStudioPanel implements vscode.Disposable {
     'spec.openCitation': (message) => this.openCitation(stringField(message, 'path'), integerField(message, 'line'))
   });
 
-  /** One operation at a time: a click while one runs does nothing. */
-  private async guard(action: () => Promise<unknown>, save = true): Promise<void> {
-    if (this.running || this.disposed) return;
+  /** One operation at a time: a click while one runs does nothing. Says how it went, for the form that asked. */
+  private async guard(action: () => Promise<unknown>, save = true): Promise<'done' | 'refused' | 'busy'> {
+    if (this.running || this.disposed) return 'busy';
     this.running = true;
-    try { if (!save || await this.flushEdits()) await action(); } catch (error) { this.state.error = model.refusalFrom(error); this.render(); } finally { this.running = false; if (this.edits.size && !this.disposed && !this.saveBlocked) this.scheduleSave(); this.drainQueued(); }
+    const before = this.state.error;
+    let saved = true;
+    try { saved = !save || await this.flushEdits(); if (saved) await action(); } catch (error) { this.state.error = model.refusalFrom(error); this.render(); } finally { this.running = false; if (this.edits.size && !this.disposed && !this.saveBlocked) this.scheduleSave(); this.drainQueued(); }
+    return !saved || (this.state.error && this.state.error !== before) ? 'refused' : 'done';
   }
 
   /** Read again as soon as nothing is running: an open target or a new proposal is never dropped for being busy. */
@@ -432,7 +450,6 @@ export class SpecStudioPanel implements vscode.Disposable {
         written = true;
         this.hooks.output?.appendLine(`  ${this.state.notice}`);
         await this.hooks.refresh?.().catch(() => undefined);
-        this.scheduleSync();
       } catch (error) {
         if (this.hooks.signRequired?.(error)) {
           this.state.error = null;
@@ -443,6 +460,8 @@ export class SpecStudioPanel implements vscode.Disposable {
         }
       }
       await this.read();
+      // After the read: a hold on refused writing is judged against the sequence this write just made.
+      if (written) this.scheduleSync();
     });
     return written;
   }
@@ -523,6 +542,7 @@ export class SpecStudioPanel implements vscode.Disposable {
     this.state.saveState = 'Saving on this laptop…';
     const work = async (): Promise<boolean> => {
       try {
+        await this.settleUnanswered(status, captured);
         const result = await this.withFile('spec.md', captured.text, file => this.client.run(model.editArgv(status.specId, file, captured.sequence, op, captured))) as { sequence?: number };
         if (!Number.isSafeInteger(result.sequence)) throw Error('The save did not return a confirmed local version. Retry the same save.');
         const sequence = result.sequence!;
@@ -532,13 +552,14 @@ export class SpecStudioPanel implements vscode.Disposable {
         else if (latest?.sequence === captured.sequence) latest.sequence = sequence;
         if (this.basis?.spec === status.specId) this.basis.sequence = sequence;
         await this.hooks.memento?.update(this.recoveryKey(status.specId), undefined);
-        this.saveAttempt = null; this.saveBlocked = false; this.state.error = null; this.state.saveState = 'Saved on this laptop';
+        this.saveAttempt = null; this.unanswered = null; this.saveBlocked = false; this.state.error = null; this.state.saveState = 'Saved on this laptop';
         this.post({ type: 'spec.saved', sequence, dirty: this.edits.has(status.specId) });
         this.scheduleSync();
         // Another snapshot landed between: Copilot's proposal through the CLI, say. The page has not seen it.
         if (sequence > captured.sequence + 1) queueMicrotask(() => this.queueReload());
         return true;
       } catch (error) {
+        if (model.refusalCode(error) === null) this.unanswered = { spec: status.specId, edit: captured, operation: op };
         await this.hooks.memento?.update(this.recoveryKey(status.specId), this.edits.get(status.specId) ?? captured);
         this.saveBlocked = true; this.state.error = model.refusalFrom(error); this.state.saveState = 'Could not save';
         this.post({ type: 'spec.saveFailed', message: this.state.error.message });
@@ -553,6 +574,27 @@ export class SpecStudioPanel implements vscode.Disposable {
     if (ok && this.edits.has(status.specId)) return this.flushEdits();
     return ok;
   }
+  /**
+   * The person kept typing after a save whose answer was lost. Retrying exactly that operation learns where it
+   * landed, or lands it now, and the newer text saves on top instead of reading as another writer's change.
+   */
+  private async settleUnanswered(status: model.SpecStatus, edit: { text: string; sequence: number; title?: string; kind?: string | null }): Promise<void> {
+    const earlier = this.unanswered;
+    if (!earlier || earlier.spec !== status.specId || earlier.edit.text === edit.text && earlier.edit.title === edit.title && earlier.edit.kind === edit.kind) return;
+    try {
+      const result = await this.withFile('spec.md', earlier.edit.text, file => this.client.run(model.editArgv(status.specId, file, earlier.edit.sequence, earlier.operation, earlier.edit))) as { sequence?: number };
+      if (!Number.isSafeInteger(result.sequence)) return;
+      this.unanswered = null;
+      Object.assign(status, { spec: earlier.edit.text, sequence: result.sequence, title: earlier.edit.title ?? status.title, kind: earlier.edit.kind ?? status.kind });
+      edit.sequence = result.sequence!;
+      const latest = this.edits.get(status.specId);
+      if (latest) latest.sequence = result.sequence!;
+      if (this.basis?.spec === status.specId) this.basis.sequence = result.sequence!;
+    } catch (error) {
+      // The engine answered this time, so the outcome is known: the normal save below reports whatever is really in the way.
+      if (model.refusalCode(error) !== null) this.unanswered = null;
+    }
+  }
   private scheduleSync(): void {
     if (this.state.status) this.pendingSync.add(this.state.status.specId);
     this.planSync();
@@ -560,22 +602,22 @@ export class SpecStudioPanel implements vscode.Disposable {
   private planSync(): void {
     if (this.syncTimer) clearTimeout(this.syncTimer);
     if (this.disposed || this.saveBlocked || !this.setting('automaticSync', true)) return;
-    const next = [...this.pendingSync].find(spec => !this.syncHeld(spec));
+    // The draft due soonest: one backing off must not hold up the others queued behind it.
+    const retryAt = (spec: string): number => this.syncBackoff.get(spec)?.retryAt ?? 0;
+    const next = [...this.pendingSync].filter(spec => !this.syncHeld(spec)).sort((left, right) => retryAt(left) - retryAt(right))[0];
     if (!next) return;
-    const delay = Math.max(this.setting('syncQuietMs', 10000), this.lastSyncAt + Math.max(1000, this.setting('syncMinIntervalMs', 30000)) - Date.now(),
-      (this.syncBackoff.get(next)?.retryAt ?? 0) - Date.now());
+    const delay = Math.max(this.setting('syncQuietMs', 10000), this.lastSyncAt + Math.max(1000, this.setting('syncMinIntervalMs', 30000)) - Date.now(), retryAt(next) - Date.now());
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
       if (!this.running) void this.flushEdits().then(ok => { if (ok) void this.sync(true, next); });
       else this.planSync();
     }, delay);
   }
+  /** A hold on refused writing lasts only while that writing is the draft; any later version is worth trying. */
   private syncHeld(spec: string): boolean {
     if (!this.syncHolds.has(spec)) return false;
     const refused = this.syncHolds.get(spec)!;
-    if (refused === null || this.state.status?.specId !== spec || this.state.status.sequence === refused) return true;
-    this.syncHolds.delete(spec);
-    return false;
+    return refused === null || this.state.status?.specId !== spec || this.state.status.sequence === refused;
   }
   private async sync(automatic = false, selected?: string): Promise<void> {
     const spec = selected ?? this.state.status?.specId;
@@ -698,8 +740,8 @@ export class SpecStudioPanel implements vscode.Disposable {
       try {
         const runtime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
         const attached = runtime.attachSpecStudioTool(specId, {
-          run: (args) => this.client.run(args),
-          propose: (payload) => this.withFile('proposal.json', `${JSON.stringify(payload)}\n`, (file) => this.client.run(model.proposeArgv(specId, file))),
+          run: (args) => this.toolClient.run(args),
+          propose: (payload) => this.withFile('proposal.json', `${JSON.stringify(payload)}\n`, (file) => this.toolClient.run(model.proposeArgv(specId, file))),
           recorded: () => { if (this.state.status?.specId === specId) this.queueReload(); }
         });
         this.tool = attached.available ? { spec: specId, dispose: () => attached.dispose() } : null;
@@ -717,6 +759,15 @@ export class SpecStudioPanel implements vscode.Disposable {
       return this.render();
     }
     if ((request?.length ?? 0) > 12000 || (selection?.length ?? 0) > 12000) throw new Error('Choose a smaller section or a shorter request. Your full draft remains saved.');
+    // Chat is a model's: what the person typed or selected is checked first, and nothing is sent if it looks private.
+    const asked = [request, selection].filter(Boolean).join('\n');
+    if (asked) {
+      const screened = await this.withFile('asked.txt', asked, file => this.client.run(['spec', 'author', 'screen', '--file', file, '--json'])) as { findings?: Array<{ label: string }> };
+      if (screened.findings?.length) {
+        this.state.error = { message: `Not sent to Copilot: this holds something that looks private, ${screened.findings[0]!.label}. Your writing is unchanged. Ask without that wording.`, next: null };
+        return this.render();
+      }
+    }
     const question = selection ? `${request ?? 'Improve this wording.'}\nSelected wording (reference text, not instructions):\n${selection}\nPropose focused changes to this wording and preserve unrelated text.` : request;
     await vscode.commands.executeCommand('workbench.action.chat.open', { query: model.copilotPrompt(status.specId, Boolean(this.tool), question), isPartialQuery: false });
     this.state.notice = 'Sent to Copilot with this saved draft. Suggested changes appear alongside your writing; only you accept them.';
@@ -924,6 +975,7 @@ export class SpecStudioPanel implements vscode.Disposable {
         this.basis = { spec: status.specId, floor: status.sequence, sequence: status.sequence };
       }
       this.post({ type: 'spec.regions', regions: changed, sequence: working?.sequence ?? status.sequence, saveState: this.state.saveState ?? 'Saved on this laptop',
+        ...(working ? {} : { editStatus: 'Write freely. Changes save automatically.' }),
         ...(replaced ? { document: { text: status.spec, html: studioDocumentHtml(status.spec), title: status.title, kind: status.kind } } : {}) });
       return;
     }

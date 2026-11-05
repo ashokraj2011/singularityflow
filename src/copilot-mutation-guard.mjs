@@ -556,6 +556,8 @@ function hostOnlyCommand(positionals) {
 export function argvAllowed(argv, mode, value) {
   const { positionals, options } = parseCli(argv);
   if (hostOnlyCommand(positionals)) return false;
+  // A specification's secret-shaped values are withheld from a model; asking for them is the person's own page, in no turn.
+  if (positionals[0] === 'spec' && positionals[1] === 'author' && options['for-person'] !== undefined) return false;
   // `run --repair-on-fault` runs the command it wraps unchecked; the guided `run` is `next` and `submit`.
   if (positionals[0] === 'run' && (positionals.length > 1 || options['repair-on-fault'] !== undefined)) return false;
   // `action execute` runs its plan's stored command in this process: a turn admits it only when it

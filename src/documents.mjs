@@ -17,7 +17,7 @@ import { DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH, assertAvailableDocumentNames, assi
 import { head, withEnvironmentFilesRegistry } from './git.mjs';
 import { isLocalDocument, localDocumentOwner, readLocalDocument, resolveDocumentStorage, storeLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
-import { assertDocumentInputContainsNoSecret, credentialUrlParameter, environmentFileSourceCandidates, loadManifest, documentCatalog, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, repositoryRelativeSource, safeName, viewDocument, documentPolicy } from './documents-read.mjs';
+import { credentialUrlParameter, loadManifest, documentCatalog, manifestPath, evidenceIsActive, mimeType, governedDocumentPath, environmentLocalRefusal, safeName, viewDocument, documentPolicy } from './documents-read.mjs';
 export { documentCatalog, evidenceIsActive, governedDocumentPath, viewDocument } from './documents-read.mjs';
 
 export const STORY_DOCUMENT_RESOURCE_LIMITS = Object.freeze({
@@ -613,7 +613,7 @@ export async function storeDocumentInGit(root, config, workflow, { documentId } 
   const { bytes } = await readLocalDocument(root, workflow.workItem.id, record);
   const filename = safeName(record.sourceName ?? record.storage.key.split('/').at(-1));
   // Committing makes the bytes everyone's, so they are checked as a Git upload would be.
-  assertDocumentInputContainsNoSecret({ source: filename }, { bytes });
+  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret({ source: filename }, { bytes });
   const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', record.id, filename);
   await ensureInputsStoredExactly(root, config, workflow);
   const destination = path.join(root, relative);
@@ -652,7 +652,7 @@ export async function restoreLocalDocument(root, config, workflow, { documentId,
       expectedSha256: record.sha256, actualSha256: captured.sha256 } });
   const declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
   await assertDocumentInputNotEnvironmentLocal(root, declaration, { source }, workflow, config);
-  assertDocumentInputContainsNoSecret({ source: record.sourceName ?? source }, captured);
+  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret({ source: record.sourceName ?? source }, captured);
   const restored = await storeLocalDocument(root, localDocumentOwner(workflow.workItem.id, record), { bytes: captured.bytes, sha256: record.sha256,
     filename: record.storage.key.split('/').at(-1), replaceChanged: true });
   const viewed = await readLocalDocument(root, workflow.workItem.id, record);
@@ -738,6 +738,8 @@ function assertCapabilityMime(workflow, type, label) {
 async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, workflow, config, {
   additionalCandidates = [], sourceIsLocalPath = true
 } = {}) {
+  const { assertNotPrivateEnvironmentName, environmentFileSourceCandidates, repositoryRelativeSource } = await import('./document-admission.mjs');
+  assertNotPrivateEnvironmentName(declaration, input.sourceRelativePath ?? input.source);
   if (!declaration) return;
   const filename = safeName(input.source);
   const preservedPath = input.sourceRelativePath
@@ -768,6 +770,8 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
  * capture's path; the path the operator gave is checked here, before any byte is read.
  */
 export async function assertStartDocumentNotEnvironmentLocal(root, declaration, source) {
+  const { assertNotPrivateEnvironmentName, environmentFileSourceCandidates, repositoryRelativeSource } = await import('./document-admission.mjs');
+  assertNotPrivateEnvironmentName(declaration, source);
   if (!declaration) return;
   for (const relative of [await repositoryRelativeSource(root, source), ...await environmentFileSourceCandidates(root, declaration, source)]) {
     const match = relative ? matchEnvironmentLocalPath(declaration, relative) : null;
@@ -868,7 +872,7 @@ export async function addDocuments(root, config, workflow, {
     const captured = expected
       ? await readFrozenDocument(input.source, expected)
       : await readStableDocument(input.source, policy.maxFileBytes ?? 26214400);
-    assertDocumentInputContainsNoSecret(input, captured);
+    (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(input, captured);
     capturedBySource.set(path.resolve(input.source), captured);
   }
   const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
@@ -1094,7 +1098,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
     additionalCandidates: [requestedFilename, headMeta?.name, remoteRef],
     sourceIsLocalPath: false
   });
-  assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
+  (await import('./document-admission.mjs')).assertDocumentInputContainsNoSecret(input, { bytes: fetchedBytes });
   const manifest = await loadManifest(root, config, workflow);
   const id = nextId(manifest.documents);
   const remote = {

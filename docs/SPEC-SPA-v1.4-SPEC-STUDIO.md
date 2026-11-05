@@ -145,7 +145,7 @@ Default behaviour is local autosave after 750 ms of idle time, background synchr
 
 If publication succeeds but its acknowledgement is lost, SFlow reconciles the original operation before retrying. If a push is retained for recovery, the pending save stays bound to that checkpoint and commit. Retrying must not create another specification or reviewed version.
 
-A checkpoint or revision cannot be retracted once pushed, so each MUST pass the repository's secret scan first, including links carrying a credential parameter. A finding, or a scan that fails, shares nothing, keeps the writing saved locally and tells the person where to look without repeating the value. It never stops them writing.
+A checkpoint, revision or split cannot be retracted once pushed, so the exact files each publisher would ship MUST pass the repository's secret scan first, including links, which are judged by the shape of their values so ordinary specifications are not refused. A finding, or a scan that fails, shares nothing, keeps the writing saved locally and tells the person where to look and how to clear it without repeating the value. It never stops them writing. Answers to a model withhold such values on every route; only the person's own page reads them.
 
 ### 5.3 Another laptop and concurrent changes
 
@@ -193,7 +193,7 @@ On another laptop, a missing local source offers **Add this file again**. A matc
 
 The phase or authoring context MUST offer the assistant the actual readable material, not only a file name. Text sources receive bounded readable excerpts and references; supported images receive a native image input or an exact readable image path that the host supports. CLI-issued files and read ranges are authoritative. Readers must preserve real missing-file, permission, unsupported-media and timeout errors and offer the applicable upload, access or reader-recovery route. [SPA4:REQ-019]
 
-Links store their permitted canonical address and source metadata. Access credentials and secret-bearing addresses stay out of shared records: a link carrying a credential parameter is refused. Files and code take the environment-local and secret refusals of every other document input, when added, restored and read. A link is not treated as readable until retrieval succeeds. Code facts bind to repository identity, commit or observed working-copy basis, path and cited span. Source changes invalidate the affected observation rather than erasing the draft.
+Links store their permitted canonical address and source metadata. Access credentials and secret-bearing addresses stay out of shared records: a link carrying a credential parameter is refused. Files and code take the environment-local and secret refusals of every other document input, when added, restored and read; with no declaration, `.env` and `.env.*` are refused by name, apart from example files. What cannot be checked, such as a very large file, says so when it is read. A link is not treated as readable until retrieval succeeds. Code facts bind to repository identity, commit or observed working-copy basis, path and cited span. Source changes invalidate the affected observation rather than erasing the draft.
 
 ## 8. From business needs to technical details
 

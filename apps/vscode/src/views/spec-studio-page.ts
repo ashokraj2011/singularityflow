@@ -5,7 +5,7 @@
  */
 import { brandLockup, escape, icon } from './webview.ts';
 import {
-  CHECKLIST_DECISIONS, copilotPrompt, FINDING_OUTCOMES, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, shortClause, sliceOption,
+  CHECKLIST_DECISIONS, copilotPrompt, FINDING_OUTCOMES, gapPipeline, GAP_KINDS, MAXIMUM_OPTIONS, nextRevision, shortClause, sliceOption,
   SPEC_STUDIO_STEPS, specBlocks, specClauses, startCommand,
   type SpecCoverage, type SpecGap, type SpecGapImpact, type SpecLibrary, type SpecProposal, type SpecResearchItem, type SpecRevision, type SpecStatus,
   type SpecStudioStep, type SpecStudioTarget
@@ -215,8 +215,9 @@ function openGapForm(status: SpecStatus): string {
 
 function gapsStage(state: SpecStudioPageState, status: SpecStatus): string {
   const gap = status.gaps.find((entry) => entry.id === state.selectedGap) ?? null;
-  return `<h2>${icon('approval')}Review gaps</h2>
-    ${gap ? gapDetail(status, gap, state.impact) : `<p class="muted">${status.gaps.length ? 'Choose a gap in the pipeline.' : 'No gaps yet.'} Open gaps come first.</p>`}
+  const questions = gapPipeline(status.gaps).map((entry) => `<li><button type="button" class="ss-link" data-message="spec.gap" data-gap="${escape(entry.id)}"><span>${escape(entry.id)} ${statusPill(entry.status)}</span><small>${escape(entry.question)}</small></button></li>`).join('');
+  return `<h2>${icon('approval')}Questions to answer</h2>
+    ${gap ? gapDetail(status, gap, state.impact) : questions ? `<p class="muted">Open questions come first. Choose one to answer it, or to reopen a decided or deferred one.</p><ul class="ss-question-list" data-questions>${questions}</ul>` : '<p class="muted">No questions yet.</p>'}
     ${gap ? '' : openGapForm(status)}
     ${controls('gaps')}`;
 }
@@ -338,10 +339,7 @@ function assistedHtml(status: SpecStatus): string {
 
 function proposalBody(proposal: SpecProposal): string {
   if (proposal.kind === 'edit') {
-    return `<details><summary>The proposed prose${proposal.stale ? ' (made against an older snapshot)' : ''}</summary><pre class="ss-proposed">${escape(proposal.spec ?? '')}</pre></details>
-      ${proposal.stale ? `<p class="ss-stale">${icon('warning')}The prose changed since snapshot ${proposal.basisSequence}. Ask Copilot again, or merge it yourself and accept your text:</p>
-      <form class="ss-form" data-form="spec.acceptEdited"><input type="hidden" name="proposal" value="${escape(proposal.id)}"><textarea name="text" rows="8" aria-label="Your merge of ${escape(proposal.id)}">${escape(proposal.spec ?? '')}</textarea>
-        <div class="ss-controls"><button type="submit">${icon('approval')}Accept ${escape(proposal.id)} with this text</button></div></form>` : ''}`;
+    return `<details><summary>The proposed prose${proposal.stale ? ' (made against an older snapshot)' : ''}</summary><pre class="ss-proposed">${escape(proposal.spec ?? '')}</pre></details>`;
   }
   if (proposal.kind === 'research') {
     return proposal.citation ? `<p><button type="button" class="ss-link" data-message="spec.openCitation" data-path="${escape(proposal.citation.path)}" data-line="${proposal.citation.lines[0]}">${escape(proposal.citation.path)}:${proposal.citation.lines[0]}-${proposal.citation.lines[1]}</button> verified against the code</p>`
@@ -349,6 +347,13 @@ function proposalBody(proposal: SpecProposal): string {
   }
   return `<p><strong>${escape(proposal.question ?? '')}</strong> <small>${escape((proposal.gapKind ?? '').replaceAll('-', ' '))}${proposal.evidence?.length ? ` · evidence ${escape(proposal.evidence.join(', '))}` : ''}</small></p>
     ${proposal.options?.length ? `<ol>${proposal.options.map((option) => `<li>${escape(option.id)}: ${escape(option.wording)}${option.changesCode ? '' : ' <small>(keeps the code)</small>'}</li>`).join('')}</ol>` : ''}`;
+}
+
+/** A form of its own after the list: a form inside a form does not exist in a page, so it would submit the list instead. */
+function staleProposalForm(proposal: SpecProposal): string {
+  return `<div class="ss-stale-merge" data-proposal-merge="${escape(proposal.id)}"><p class="ss-stale">${icon('warning')}${escape(proposal.id)}: the prose changed since snapshot ${proposal.basisSequence}. Ask Copilot again, or merge it yourself and accept your text:</p>
+    <form class="ss-form" data-form="spec.acceptEdited"><input type="hidden" name="proposal" value="${escape(proposal.id)}"><textarea name="text" rows="8" aria-label="Your merge of ${escape(proposal.id)}">${escape(proposal.spec ?? '')}</textarea>
+      <div class="ss-controls"><button type="submit">${icon('approval')}Accept ${escape(proposal.id)} with this text</button></div></form></div>`;
 }
 
 /** The Copilot tab: what Copilot staged, for the person to take or turn down, and how to ask it. */
@@ -362,7 +367,7 @@ function copilotHtml(state: SpecStudioPageState, status: SpecStatus): string {
       <label class="ss-check"><input type="checkbox" name="proposals[]" value="${escape(proposal.id)}"${proposal.kind === 'edit' && proposal.stale ? ' disabled' : ''}><strong>${escape(proposal.id)}</strong> ${escape(proposal.kind)}${proposal.summary ? `: ${escape(proposal.summary)}` : ''}</label>
       ${proposalBody(proposal)}</li>`).join('')}</ul>
       <label class="field"><span>Reason (needed to reject)</span><textarea name="reason" rows="2"></textarea></label>
-      <div class="ss-controls"><button type="submit" name="decision" value="accept">${icon('approval')}Accept selected</button><button type="submit" class="secondary" name="decision" value="reject">Reject selected</button></div></form>`
+      <div class="ss-controls"><button type="submit" name="decision" value="accept">${icon('approval')}Accept selected</button><button type="submit" class="secondary" name="decision" value="reject">Reject selected</button></div></form>${waiting.filter((proposal) => proposal.kind === 'edit' && proposal.stale).map(staleProposalForm).join('')}`
     : '<p class="muted">Nothing is waiting for you.</p>';
   const pending = status.findings.filter((finding) => finding.status === 'pending').length;
   return `${ask}${list}${pending ? `<p>${pending} assisted finding(s) to settle: <button type="button" class="ss-link" data-message="spec.step" data-step="check">Check</button></p>` : ''}`;
@@ -483,9 +488,6 @@ body:has(.ss-root) { max-width:none; }
 .ss-auto-id { font-size:.85em; line-height:1.5; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .ss-header { display:flex; flex-wrap:wrap; justify-content:space-between; gap:1rem; align-items:flex-end; }
-.ss-grid { display:grid; grid-template-columns:minmax(13rem,16rem) minmax(0,1fr); gap:1rem; margin:1rem 0; align-items:start; }
-@media (max-width: 1100px) { .ss-grid { grid-template-columns:minmax(13rem,16rem) minmax(0,1fr); } .ss-right { grid-column:1 / -1; } }
-@media (max-width: 720px) { .ss-grid { grid-template-columns:minmax(0,1fr); } }
 .ss-stage, .ss-right, .ss-tabs, .ss-library { padding:.9rem; border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface); min-width:0; }
 .ss-right h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:var(--sf-dim); margin:1rem 0 .4rem; }
 .ss-right h2:first-child { margin-top:0; }
@@ -511,6 +513,8 @@ body:has(.ss-root) { max-width:none; }
 .ss-rules li { display:flex; gap:.4rem; align-items:flex-start; } .ss-rules li > span { display:grid; }
 .ss-rules li.ok > svg { color:var(--sf-ok); } .ss-rules li.bad > svg { color:var(--sf-bad); }
 .ss-rules small { color:var(--sf-dim); }
+.ss-question-list { list-style:none; margin:0 0 1rem; padding:0; display:grid; gap:.4rem; }
+.ss-question-list small { color:var(--sf-dim); overflow-wrap:anywhere; }
 .ss-facts { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:.3rem .8rem; }
 .ss-facts dt { color:var(--sf-dim); }
 .ss-pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font-family:var(--vscode-editor-font-family); }
@@ -559,6 +563,19 @@ export const SPEC_STUDIO_SCRIPT = `
     return value;
   }
 
+  /** A form is itself and the record it acts on: its kind and hidden fields, so two proposals' boxes never meet. */
+  function formIdentity(form) {
+    return (form.dataset.form || '') + '?' + Array.from(form.querySelectorAll('input[type=hidden][name]')).filter(input => input.name !== 'sequence').map(input => input.name + '=' + input.value).join('&');
+  }
+  function fieldOwner(field) {
+    const decide = field.closest('[data-decide-for]');
+    if (decide) return 'decide:' + decide.dataset.decideFor;
+    const form = field.closest('form');
+    return form ? formIdentity(form) : '';
+  }
+  /** What was sent and has not been answered, by the number the host echoes in spec.settled. */
+  const sent = new Map();
+  let sendNumber = 0;
   let selectedWording = () => '';
   const writing = root.querySelector('.ss-writing-form');
   if (writing) {
@@ -612,15 +629,22 @@ export const SPEC_STUDIO_SCRIPT = `
     window.addEventListener('message',event=>{const message=event.data;if(message.type==='spec.saved'){writing.querySelector('button[type=submit]').disabled=false;writing.querySelector('[name=sequence]').value=String(message.sequence);root.querySelector('[data-save-state]').textContent=message.dirty?'Saving your changes…':message.synced?'Synced':'Saved on this laptop';root.querySelector('[data-edit-status]').textContent=message.dirty?'Changes waiting to save':'Changes saved';}if(message.type==='spec.saveFailed'){writing.querySelector('button[type=submit]').disabled=false;root.querySelector('[data-save-state]').textContent='Could not save — your text is kept here';root.querySelector('[data-edit-status]').textContent=message.message;}if(message.type==='spec.syncState')root.querySelector('[data-save-state]').textContent=message.text;if(message.type==='spec.link'){rich.focus();if(selection){const selected=window.getSelection();selected.removeAllRanges();selected.addRange(selection);}document.execCommand('createLink',false,message.url);serialize();raw.dispatchEvent(new Event('input',{bubbles:true}));}});
     document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();serialize();post(Object.assign({type:'spec.save'},fields(writing),{sequence:Number(fields(writing).sequence)}));}});
     // What changed around the editor arrives as a message; the editor keeps its caret, undo, scroll and mode.
+    // Many fields share a name, so a value goes back only into the field it was typed in, and an unmatched one is dropped.
     function patchRegion(element, html) {
-      const fields = () => Array.from(element.querySelectorAll('textarea[name],select[name],input[name]:not([type=hidden])'));
-      const key = field => field.name + (field.type === 'checkbox' ? '=' + field.value : '');
-      const typed = new Map(fields().map(field => [key(field), { value: field.value, checked: field.checked, focused: field === document.activeElement, start: field.selectionStart, end: field.selectionEnd }]));
+      const fields = () => {
+        const seen = new Map();
+        return Array.from(element.querySelectorAll('textarea[name],select[name],input[name]:not([type=hidden])')).map(field => {
+          const base = fieldOwner(field) + '|' + field.name + (field.type === 'checkbox' ? '=' + field.value : '');
+          const nth = seen.get(base) ?? 0; seen.set(base, nth + 1);
+          return { field, key: base + '#' + nth };
+        });
+      };
+      const typed = new Map(fields().map(({ field, key }) => [key, { value: field.value, checked: field.checked, focused: field === document.activeElement, start: field.selectionStart, end: field.selectionEnd }]));
       const opened = Array.from(element.querySelectorAll('details')).map(item => item.open);
       const tab = element.querySelector('[data-tab][aria-selected="true"]')?.dataset.tab;
       element.innerHTML = html;
-      for (const field of fields()) {
-        const before = typed.get(key(field));
+      for (const { field, key } of fields()) {
+        const before = typed.get(key);
         if (!before) continue;
         if (field.type === 'checkbox') field.checked = before.checked; else field.value = before.value;
         if (before.focused) { field.focus(); if (typeof before.start === 'number' && field.setSelectionRange) field.setSelectionRange(before.start, before.end); }
@@ -636,6 +660,7 @@ export const SPEC_STUDIO_SCRIPT = `
       if(message.document){raw.value=message.document.text;rich.innerHTML=message.document.html;adoptDocument();title.value=message.document.title;writing.querySelector('[name=kind]').value=message.document.kind||'';sizeTitle();selection=null;root.querySelector('[data-word-count]').textContent=message.document.text.trim().split(/\\s+/).filter(Boolean).length+' words';}
       if(typeof message.sequence==='number')writing.querySelector('[name=sequence]').value=String(message.sequence);
       if(typeof message.saveState==='string')root.querySelector('[data-save-state]').textContent=message.saveState;
+      if(typeof message.editStatus==='string')root.querySelector('[data-edit-status]').textContent=message.editStatus;
       syncDecide();for(const form of root.querySelectorAll('form[data-form="spec.slice"]'))syncSlice(form);
       window.dispatchEvent(new Event('sf-spec-regions'));
     });
@@ -643,6 +668,18 @@ export const SPEC_STUDIO_SCRIPT = `
     selectedWording = () => raw.hidden ? (selection?.toString() || '') : raw.value.slice(raw.selectionStart, raw.selectionEnd);
     for(const button of root.querySelectorAll('[data-prompt]'))button.addEventListener('click',()=>post({type:'spec.ask',request:button.dataset.prompt,selection:selectedWording()}));
   }
+  window.addEventListener?.('message', event => {
+    const message = event.data;
+    if (message.type !== 'spec.settled' || !sent.has(message.submitId)) return;
+    const identity = sent.get(message.submitId);
+    sent.delete(message.submitId);
+    // The region may not have changed, so this is what makes the form usable again. Only an accepted form starts empty.
+    for (const form of root.querySelectorAll('form[data-form]')) {
+      if (formIdentity(form) !== identity) continue;
+      for (const button of form.querySelectorAll('button[data-sent]')) { button.disabled = false; button.removeAttribute('data-sent'); }
+      if (message.outcome === 'done' && form.dataset.form !== 'spec.save') form.reset();
+    }
+  });
   const split = (text) => String(text || '').split(/[,\\n]/).map((entry) => entry.trim()).filter(Boolean);
   const transforms = {
     'spec.ask': value => ({request:value.request,selection:selectedWording()}),
@@ -725,8 +762,10 @@ export const SPEC_STUDIO_SCRIPT = `
     const value = fields(form);
     if (event.submitter && event.submitter.name) value[event.submitter.name] = event.submitter.value;
     const transform = transforms[form.dataset.form];
-    for (const button of form.querySelectorAll('button[type=submit]')) button.disabled = true;
-    post(Object.assign({ type: form.dataset.form }, transform ? transform(value) : value));
+    for (const button of form.querySelectorAll('button[type=submit]:not([disabled])')) { button.disabled = true; button.setAttribute('data-sent', ''); }
+    const submitId = ++sendNumber;
+    sent.set(submitId, formIdentity(form));
+    post(Object.assign({ type: form.dataset.form, submitId }, transform ? transform(value) : value));
   });
   root.addEventListener('reset', () => { setTimeout(() => { syncDecide(); for (const form of root.querySelectorAll('form[data-form="spec.slice"]')) syncSlice(form); }, 0); });
   root.addEventListener('input', (event) => {

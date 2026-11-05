@@ -260,22 +260,29 @@ export function retentionPlan(snapshots, { protectedSequences = [], recent = ret
   return { recent, retain, remove };
 }
 
+/** The version last shared, and the one a push may have shared with its acknowledgement lost: reconciling needs both. */
 async function protectedDraftSequences(root, specId) {
   const basis = await (await import('./shared-basis.mjs')).sharedBasis(root, specId);
-  return Number.isSafeInteger(basis?.localSequence) ? [basis.localSequence] : [];
+  return [basis?.localSequence, basis?.pendingPush?.localSequence].filter(Number.isSafeInteger);
+}
+
+/** One plan, for the pass and its preview alike: below the bound, or with a damaged file, nothing goes. */
+async function plannedRetention(root, specId, records, { rowCount = records.length, damaged = 0 } = {}) {
+  const plan = retentionPlan(records, { protectedSequences: await protectedDraftSequences(root, specId) });
+  if (rowCount >= retainedRecentSaves() + RETENTION_BATCH && !damaged) return plan;
+  return { ...plan, retain: records.map(({ sequence }) => plan.retain.find((entry) => entry.sequence === sequence) ?? { sequence, reason: 'within the bound' }), remove: [] };
 }
 
 /** What the next retention pass would remove from this draft and what it keeps: a read. */
 export async function draftRetentionPreview(root, specId, view) {
-  return retentionPlan(view.snapshots, { protectedSequences: await protectedDraftSequences(root, specId) });
+  return plannedRetention(root, specId, view.snapshots, { damaged: view.damaged.length });
 }
 
 /** One pass, every RETENTION_BATCH saves past the bound, holding the draft lock. Its failure never undoes a save. */
 async function thinDraftHistory(root, specId, directory, rows) {
-  if (rows.length < retainedRecentSaves() + RETENTION_BATCH || rows.at(-1).sequence % RETENTION_BATCH) return;
+  if (rows.at(-1).sequence % RETENTION_BATCH) return;
   const read = await readSnapshots(directory, specId);
-  if (read.some((entry) => entry.damaged)) return;
-  const { remove } = retentionPlan(read.map((entry) => entry.record), { protectedSequences: await protectedDraftSequences(root, specId) });
+  const { remove } = await plannedRetention(root, specId, read.flatMap((entry) => (entry.damaged ? [] : [entry.record])), { rowCount: rows.length, damaged: read.filter((entry) => entry.damaged).length });
   for (const { sequence } of remove) await rm(path.join(directory, snapshotName(sequence)), { force: true });
   if (remove.length) await syncDirectory(directory);
 }
@@ -347,8 +354,10 @@ export async function saveDraft(root, specId, {
     await publishSnapshotFile(directory, `${String(sequence).padStart(6, '0')}.json`, canonicalJson(record));
     // The snapshot is already durable. A failed optimization cache write cannot undo that fact;
     // the next writer rebuilds it from the immutable history instead.
-    await writeDraftIndex(directory, specId, { rows, damaged: view.damaged }, indexed.names, record).catch(() => undefined);
+    // Thin first, so the index it then writes describes the files that are left and the next read can use it.
     await thinDraftHistory(root, specId, directory, [...rows, indexRow(record)]).catch(() => undefined);
+    const names = (await readdir(directory)).filter((name) => SNAPSHOT.test(name));
+    await writeDraftIndex(directory, specId, { rows: rows.filter((row) => names.includes(snapshotName(row.sequence))), damaged: view.damaged }, names.filter((name) => name !== snapshotName(record.sequence)), record).catch(() => undefined);
     return { snapshot: record, replayed: false, head: record };
   });
 }

@@ -220,8 +220,8 @@ test('the Studio opens directly in the continuous editor with one question and n
   SpecStudioPanel.show(client, SPEC, { root: () => root });
   const studio = panels.at(-1); await settled(client, studio);
   assert.equal(writes(client.calls).length, 0);
-  assert.ok(client.calls.some(argv => argv.join(' ') === `spec author status ${SPEC} --quick --json`));
-  assert.ok(client.calls.some(argv => argv.join(' ') === 'spec author list --local --json'));
+  assert.ok(client.calls.some(argv => argv.join(' ') === `spec author status ${SPEC} --quick --json --for-person`));
+  assert.ok(client.calls.some(argv => argv.join(' ') === 'spec author list --local --json --for-person'));
   const html = studio.webview.html;
   assert.match(html, /contenteditable="true" role="textbox" aria-label="Specification text"/u);
   assert.match(html, /Write with Copilot/u);
@@ -632,7 +632,7 @@ test('the page sends title-only creation and unsaved edits, and searches titles 
     { name: 'title', value: 'Delivery fee' }, { name: 'intent', value: 'Free above the threshold.' }, { name: 'areas', value: 'src/cart, src/shipping' }
   ] : [] };
   handlers.submit({ target: { closest: () => form }, preventDefault() {} });
-  assert.deepEqual(messages.shift(), { type: 'spec.new', title: 'Delivery fee', intent: 'Free above the threshold.', areas: ['src/cart', 'src/shipping'] });
+  assert.deepEqual(messages.shift(), { type: 'spec.new', submitId: 1, title: 'Delivery fee', intent: 'Free above the threshold.', areas: ['src/cart', 'src/shipping'] });
   const search = { value: 'SPEC-TWO', matches: () => true, closest: () => null };
   handlers.input({ target: search });
   assert.deepEqual(cards.map((card) => card.hidden), [true, false]);
@@ -1154,4 +1154,126 @@ test('the source viewer asks for a full page, and Copilot’s tool keeps the sma
   const call = client.calls.find(argv => argv[2] === 'sources' && argv.includes('--source'));
   assert.equal(call[call.indexOf('--max-bytes') + 1], '48000');
   assert.match(studio.webview.html, /Some notes\./u);
+});
+
+test('a form that asks for something always hears how it went, including when another operation was running', async t => {
+  const { root } = await storefront(t); const original = recordingClient(root);
+  let release; const held = new Promise(resolve => { release = resolve; }); let holding = false;
+  const client = { ...original, run: async argv => { if (holding && argv[2] === 'list') { holding = false; await held; } return original.run(argv); } };
+  const studio = await live(client, root); t.after(() => studio.dispose());
+  const settledFor = id => studio.webview.messages.find(message => message.type === 'spec.settled' && message.submitId === id);
+  // Refused with the same error twice, which changes no region.
+  studio.post({ type: 'spec.proposals', decision: 'reject', submitId: 1 }); await settled(original, studio);
+  assert.equal(settledFor(1).outcome, 'refused');
+  studio.post({ type: 'spec.proposals', decision: 'reject', submitId: 2 }); await settled(original, studio);
+  assert.equal(settledFor(2).outcome, 'refused');
+  studio.post({ type: 'spec.fact', fact: 'A fact.', source: 'A person', submitId: 3 }); await settled(original, studio);
+  assert.equal(settledFor(3).outcome, 'done');
+  // Busy: dropped, and still answered.
+  holding = true; studio.post({ type: 'spec.refresh' });
+  for (let attempt = 0; holding && attempt < 200; attempt++) await new Promise(resolve => setTimeout(resolve, 5));
+  studio.post({ type: 'spec.fact', fact: 'Another.', source: 'A person', submitId: 4 });
+  for (let attempt = 0; !settledFor(4) && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(settledFor(4).outcome, 'busy');
+  // Save, blocked by a real conflict, while another operation runs: still answered.
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  release(); await settled(original, studio);
+  const other = path.join(path.dirname(root), 'other-writer.md'); await writeFile(other, status.spec + '\nElsewhere.\n');
+  json(root, ['spec', 'author', 'edit', SPEC, '--file', other, '--expected-seq', String(status.sequence)]);
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: status.spec + '\nMine.\n' }); await settled(original, studio);
+  studio.webview.messages.length = 0;
+  let again; const stalled = new Promise(resolve => { again = resolve; }); holding = true;
+  const run = original.run;
+  client.run = async argv => { if (holding && argv[2] === 'edit') { holding = false; await stalled; } return run(argv); };
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: status.spec + '\nMine.\n' });
+  studio.post({ type: 'spec.save', sequence: status.sequence, text: status.spec + '\nMine, more.\n' });
+  for (let attempt = 0; !posted(studio, 'spec.saveFailed').length && attempt < 300; attempt++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.ok(posted(studio, 'spec.saveFailed').length > 0, 'a blocked Save hears back even while another operation holds the panel');
+  again(); await settled(original, studio);
+});
+
+test('sharing resumes once a value is gone that was not wording, with nobody typing', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root);
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  const { saveDraft } = await import('../src/spec-library/draft-store.mjs');
+  await saveDraft(root, SPEC, { operationId: 'old-source', operation: 'source', change: draft => ({ ...draft,
+    sources: [{ id: 'SRC-0000000000000009', type: 'url', name: 'files.acme.io', url: 'https://files.acme.io/old?token=Zx9fK2mQ7vLp4Tn8', purpose: '', standing: 'not-read' }] }) });
+  const studio = await live(client, root, {}, { keep: true }); t.after(() => studio.dispose());
+  const refused = () => posted(studio, 'spec.syncState').some(message => /Not shared/u.test(message.message ?? ''));
+  for (let attempt = 0; !refused() && attempt < 800; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(refused(), 'the old link holds sharing');
+  await settled(client, studio);
+  const syncs = () => client.calls.filter(argv => argv[2] === 'sync').length;
+  const before = syncs();
+  await new Promise(resolve => setTimeout(resolve, 1300));
+  assert.equal(syncs(), before, 'the same version is not tried again');
+  studio.post({ type: 'spec.removeSource', item: 'SRC-0000000000000009' }); await settled(client, studio);
+  for (let attempt = 0; syncs() === before && attempt < 500; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(syncs() > before, 'removing it starts sharing again');
+  await settled(client, studio);
+  assert.equal(posted(studio, 'spec.regions').map(message => message.regions.notices).filter(value => value !== undefined).at(-1).includes('data-sync-problem hidden'), true);
+});
+
+test('a lost save answer does not become someone else’s conflict when the person keeps typing', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root); const run = client.run;
+  let lost = true;
+  client.run = async argv => { const value = await run(argv); if (argv[2] === 'edit' && lost) { lost = false; throw new Error('Save response was lost'); } return value; };
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  const status = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  const first = status.spec + '\nFirst thought.\n', second = first + 'Second thought.\n';
+  studio.post({ type: 'spec.save', text: first, sequence: status.sequence }); await settled(client, studio);
+  assert.match(studio.webview.html, /Save response was lost/u);
+  studio.post({ type: 'spec.save', text: second, sequence: status.sequence }); await settled(client, studio);
+  const after = json(root, ['spec', 'author', 'status', SPEC, '--quick']);
+  assert.equal(after.spec, second);
+  assert.doesNotMatch(studio.webview.html, /someone saved it since you read it/u);
+  const edits = writes(client.calls).filter(argv => argv[2] === 'edit');
+  assert.equal(edits[0][edits[0].indexOf('--operation-id') + 1], edits[1][edits[1].indexOf('--operation-id') + 1], 'the unanswered operation is retried first, to learn where it landed');
+  assert.equal(edits[2][edits[2].indexOf('--expected-seq') + 1], String(status.sequence + 1), 'the newer text then saves on top of it');
+  assert.equal(after.sequence, status.sequence + 2);
+});
+
+test('a draft in backoff does not hold up another queued behind it', async t => {
+  const { root } = await storefront(t); const original = recordingClient(root);
+  json(root, ['spec', 'author', 'new', 'SPEC-OTHER-004', '--title', 'Another', '--kind', 'business', '--local']);
+  quiet(t, { 'singularityFlow.specStudio.automaticSync': true, 'singularityFlow.specStudio.syncQuietMs': 20, 'singularityFlow.specStudio.syncMinIntervalMs': 1000 });
+  const syncs = [];
+  const client = { ...original, run: async argv => {
+    if (argv[2] === 'sync') { syncs.push(argv[3]); if (argv[3] === SPEC) throw Object.assign(new Error('Could not reach the remote'), { result: { error: { code: 'SPEC_SHARED_DRAFT_PENDING', message: 'Could not reach the remote', details: {} } } }); }
+    return original.run(argv);
+  } };
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(original, studio);
+  t.after(() => studio.dispose());
+  for (let attempt = 0; !syncs.length && attempt < 300; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(syncs[0], SPEC);
+  // Its backoff is now 2 seconds out. The other draft opens and queues; it goes first at the plain interval.
+  studio.post({ type: 'spec.open', spec: 'SPEC-OTHER-004' }); await settled(original, studio);
+  const started = Date.now();
+  for (let attempt = 0; !syncs.includes('SPEC-OTHER-004') && attempt < 400; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(syncs.includes('SPEC-OTHER-004'), JSON.stringify(syncs));
+  assert.equal(syncs.filter(spec => spec === SPEC).length, 1, 'the failing one waits its turn: ' + (Date.now() - started));
+});
+
+test('selected wording that looks private is not sent to chat; ordinary wording is', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root);
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  const token = 'ghp_' + 'Z9y8'.repeat(9);
+  chats.length = 0;
+  studio.post({ type: 'spec.ask', request: 'Improve this.', selection: 'Deploy with ' + token, submitId: 1 }); await settled(client, studio);
+  assert.equal(chats.length, 0, 'nothing went to chat');
+  assert.match(studio.webview.html, /Not sent to Copilot/u); assert.ok(!studio.webview.html.includes(token));
+  assert.equal(studio.webview.messages.find(message => message.type === 'spec.settled' && message.submitId === 1).outcome, 'refused', 'and the person keeps what they typed');
+  studio.post({ type: 'spec.ask', request: 'Improve this.', selection: 'Plain wording.', submitId: 2 }); await settled(client, studio);
+  assert.equal(chats.length, 1); assert.match(chats[0].query, /Plain wording\./u);
+});
+
+test('a reloading page reads the person’s words and Copilot’s tool does not', async t => {
+  const { root } = await storefront(t); const client = recordingClient(root);
+  SpecStudioPanel.show(client, SPEC, { root: () => root }); const studio = panels.at(-1); await settled(client, studio);
+  t.after(() => studio.dispose());
+  const pageReads = client.calls.filter(argv => ['status', 'list'].includes(argv[2]));
+  assert.ok(pageReads.length > 0); assert.ok(pageReads.every(argv => argv.includes('--for-person')));
+  assert.equal(writes(client.calls).every(argv => !argv.includes('--for-person')), true, 'a write carries no such flag');
 });

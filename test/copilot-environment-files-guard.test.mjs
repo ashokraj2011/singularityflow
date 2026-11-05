@@ -129,7 +129,7 @@ test('a linked worktree is protected through the shared registry', async (t) => 
   assert.ok(denied(result));
 });
 
-test('the explicit-turn boundary refuses before any turn mode is consulted; native chat is untouched', async (t) => {
+test('the explicit-turn boundary refuses before any turn mode is consulted, and a plain chat is refused too', async (t) => {
   const { recordRepositoryBoundaryTurn, repositoryToolGuard } = await import('../src/copilot-repository-boundary.mjs');
   const repo = await repository(t);
   const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
@@ -139,7 +139,9 @@ test('the explicit-turn boundary refuses before any turn mode is consulted; nati
     else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
   });
   const read = { cwd: repo.root, sessionId: 'envf-turn', toolName: 'read', toolArgs: { path: '.env' } };
-  assert.deepEqual(await repositoryToolGuard({ ...read, sessionId: 'native-chat' }), {}, 'no explicit turn: not guarded here');
+  const plain = await repositoryToolGuard({ ...read, sessionId: 'native-chat' });
+  assert.equal(plain.permissionDecision, 'deny', 'no explicit turn: the plain-chat check, in a repository that uses SFlow');
+  assert.match(plain.permissionDecisionReason, /^ENVIRONMENT_FILE_PRIVATE: \.env /u);
   await recordRepositoryBoundaryTurn({ cwd: repo.root, sessionId: 'envf-turn', prompt: '/sf-phase' }, { captureMutation: async () => {} });
   const refused = await repositoryToolGuard(read);
   assert.equal(refused.permissionDecision, 'deny');

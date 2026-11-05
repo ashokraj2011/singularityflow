@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 25
+version: 26
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -30,6 +30,21 @@ to the team collection), or with `--app-id` on `capability map`, `capability add
 `capability map-team` and `bootstrap`. It is text without spaces, at most 64 characters, and
 `capability set <ID> --app-id ''` clears it. Mapping a capability that already exists with a
 different App ID is refused like any other differing attribute; change it on the capability's page.
+
+## Secrets in plain chats
+
+In a repository that uses SFlow, a Copilot chat with no `/sf-` command is refused a file that holds secrets: `.env`,
+`application-local.yml`, or a config file with a real value. A capability can choose otherwise for the files it owns:
+
+```bash
+singularity-flow capability plain-chat <ID> --secrets allow
+```
+
+`refuse` is the default and `inherit` removes this capability's own value. A child can refuse under a parent that
+allows, but cannot allow under a parent that refuses. In VS Code it is **Secrets in plain chats** on the capability's
+page, and `capability set|edit` take `--plain-chat-secrets`. With `sflow/config` this is a reviewed proposal: it applies
+once the proposal is merged and the clone has fetched it. `sflow capability show [PATH]` says what applies to a path.
+A `/sf-` command is always refused, whatever this says, and `/sf-pause` turns the check off on your own machine.
 
 ## Source exclusions and test configuration
 

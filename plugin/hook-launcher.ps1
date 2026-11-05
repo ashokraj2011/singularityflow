@@ -4,10 +4,11 @@ if ($Action -notin @('boundary-turn', 'boundary-guard', 'boundary-after', 'bound
   Write-Output '{}'; exit 0
 }
 # With no SFlow turn recorded the runtime's guard still refuses a person's own step in any prompt
-# (personStepGuard in copilot-repository-boundary.mjs), and it looks only at a call that names SFlow.
+# (personStepGuard in copilot-repository-boundary.mjs), and it looks only at a call that names SFlow,
+# or a file that may hold secrets.
 # So the guard keeps its no-Node answer only for a payload that cannot: held here as bytes, read
 # once, and given to Node unchanged when it might. Over 1 MiB it is not read through; Node reads the
-# rest. Mirrors hold_hook_input, hook_input_names_sflow and run_hook in hook-launcher.sh.
+# rest. Mirrors hold_hook_input, hook_input_goes_to_node and run_hook in hook-launcher.sh.
 $script:hookHeld = $null; $script:hookHeldCount = 0; $script:hookMore = $false; $script:hookStdin = $null
 function Read-HookInput {
   $script:hookStdin = [Console]::OpenStandardInput()
@@ -23,7 +24,7 @@ function Read-HookInput {
 # in singularity-flow.mjs), on the raw JSON less the session's folder, which the guard does not read.
 # One character per byte; culture-invariant, so no locale folds I away from i. Under that test U+017F (long s,
 # bytes C5 BF) is an s, and an escaped printable ASCII character or U+017F could spell either word.
-function Test-HookInputNamesSflow {
+function Test-HookInputGoesToNode {
   if ($script:hookMore) { return $true }
   $text = [Text.Encoding]::GetEncoding(28591).GetString($script:hookHeld, 0, $script:hookHeldCount)
   $at = $text.IndexOf('"cwd":"', [StringComparison]::Ordinal)
@@ -31,14 +32,17 @@ function Test-HookInputNamesSflow {
     $end = $text.IndexOf('"', $at + 7, [StringComparison]::Ordinal)
     if ($end -ge 0) { $text = $text.Substring(0, $at) + $text.Substring($end + 1) }
   }
-  return [regex]::IsMatch($text, 'sflow|singularity-flow|\u00C5\u00BF|\\u00[2-7][0-9a-f]|\\u017f',
+  if ([regex]::IsMatch($text, 'sflow|singularity-flow|\u00C5\u00BF|\\u00[2-7][0-9a-f]|\\u017f',
+    [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) { return $true }
+  # A file that may hold secrets goes to Node too (plainChatGuard). Mirrors the names in hook-launcher.sh.
+  return [regex]::IsMatch($text, '(^|[^a-z0-9_)\]])\.env|\.(env|ya?ml|properties|toml|ini|cfg|conf|json|pem|key|p12|pfx|jks|keystore)($|[^a-z0-9_.(\[])|secret|credential',
     [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')
 }
 # Answered here, or the bytes go to Node as the host sent them: held ones first, then the rest.
 function Complete-QuietHook {
   if ($Action -eq 'boundary-guard') {
     Read-HookInput
-    if (Test-HookInputNamesSflow) { return }
+    if (Test-HookInputGoesToNode) { return }
   } else { [void][Console]::In.ReadToEnd() }
   Write-Output '{}'; exit 0
 }

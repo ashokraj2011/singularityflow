@@ -20,6 +20,11 @@ expect those keys to stay on their laptop whether or not they remembered to set 
 4. **Classification.** A `.env.*` file is not judged by its name alone. It is private until a person classifies
    it as shared, and its values are read either way.
 
+Decided 2026-11-06:
+
+5. **Plain chats.** A Copilot chat with no `/sf-` command gets the same refusals, and a capability can turn that
+   off. See "Plain chats" below.
+
 ## Model
 
 Every file is one of four kinds. The first match wins.
@@ -112,12 +117,39 @@ The class lives in the file rather than in `singularity/environments.yml` becaus
 older engine would refuse the whole declaration over a new key, and because a file that travels with its own
 decision cannot drift from a list kept elsewhere.
 
+### Plain chats
+
+The rest of the guard runs only in a `/sf-` turn. This check also runs in a chat with no `/sf-` command, because
+a real run on 2026-11-05 showed `.env` and `application.yml` values reaching the model there.
+
+- **Where it applies.** A file in a repository that uses SFlow: one with `singularity/workflow.yml`,
+  `capabilities.yml` or `environments.yml`, SFlow's private folder under `.git`, or an `sflow/config` branch. The
+  plugin runs in every chat on the machine, so `.env` in an unrelated project or in no repository is left alone.
+- **The setting.** `policy.plainChatSecrets` on a capability: `refuse` (the default) or `allow`. The capability that
+  owns the file decides, so one service can allow while the rest of the repository refuses. A child may refuse under
+  a parent that allows, and allowing under a parent that refuses is rejected when the map is validated. A `/sf-` turn
+  always refuses, whatever this says.
+- **How it changes.** `singularity-flow capability plain-chat <ID> --secrets refuse|allow|inherit`, `--plain-chat-secrets`
+  on `capability set|edit`, or **Secrets in plain chats** on the capability page in VS Code. In a repository with
+  `sflow/config` it is a reviewed proposal, and it applies once the proposal is merged and this clone has fetched it.
+  `capability show` says which applies to a path.
+- **What it reads.** The approved map on this machine, with no network, and only for a call that would be refused,
+  so an ordinary call pays nothing for it. An edit to `singularity/capabilities.yml` in a checkout does not stand in
+  for `sflow/config`. A repository with no such branch has only its working-tree map. A map that cannot be read leaves the
+  refusal standing.
+- **Pause.** `/sf-pause` asks for native Copilot on this machine, so it turns this check off too.
+- **A failure.** If the check itself fails, the call goes ahead. A plain chat is someone's ordinary work, and the launcher
+  already refuses when the runtime cannot load.
+
+Copilot runs the guard before every tool in every chat, and starting Node takes 100-180 ms, so with no turn recorded
+the launchers look at the call first. They start Node for a name that could be private: a dotfile such as `.env`, a settings
+or key extension (`yml`, `yaml`, `properties`, `toml`, `ini`, `cfg`, `conf`, `env`, `json`, `pem`, `key`, `p12`, `pfx`,
+`jks`, `keystore`) or the word `secret` or `credential`. A false match costs one Node start. A declared file with none of
+these in its name, such as `config/uat.txt`, is therefore not seen in a plain chat, though a `/sf-` turn still refuses it.
+
 ### What the Copilot check cannot see
 
-It runs only in a `/sf-` turn, as the rest of the guard does. A plain Copilot chat is not checked, and a real run on
-2026-11-05 showed `.env` and `application.yml` values reaching the model there. Whether to close that is an open decision.
-
-Inside a turn it reads what a call says. These still get through, and the spec does not claim otherwise:
+It reads what a call says. These still get through, and the spec does not claim otherwise:
 
 - A recursive search over a folder, such as `grep -r password src` or `git grep`. Search tools skip hidden and
   excluded files by default, which covers `.env` once it is excluded, but not a value in a shared config file.

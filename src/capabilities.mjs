@@ -308,23 +308,38 @@ function nonNegativeInteger(value, label, { positive = false } = {}) {
  */
 export const LOCAL_INTEGRATION_EVIDENCE_VALUES = Object.freeze(['off', 'allowed']);
 
-function foldLocalIntegrationEvidence(parent, child) {
+/**
+ * Whether a plain Copilot chat, with no `/sf-` turn open, may read a file that holds secrets
+ * (docs/SPEC-ENVIRONMENT-FILES-v2.md, "Plain chats"). `refuse` is the default, and folding only
+ * tightens, as above. A `/sf-` turn refuses whatever this says.
+ */
+export const PLAIN_CHAT_SECRETS_VALUES = Object.freeze(['refuse', 'allow']);
+
+// Each field's values, the tighter first. A child may always choose the tighter.
+const ONE_WAY_POLICY = Object.freeze({
+  localIntegrationEvidence: LOCAL_INTEGRATION_EVIDENCE_VALUES,
+  plainChatSecrets: PLAIN_CHAT_SECRETS_VALUES
+});
+
+function foldOneWayPolicy(field, parent, child) {
+  const [tighter, wider] = ONE_WAY_POLICY[field];
   for (const [value, label] of [[parent, 'Parent capability policy'], [child, 'Capability policy']]) {
-    if (value != null && !LOCAL_INTEGRATION_EVIDENCE_VALUES.includes(value)) {
-      throw new SingularityFlowError(`${label}.localIntegrationEvidence must be off or allowed.`, {
+    if (value != null && value !== tighter && value !== wider) {
+      throw new SingularityFlowError(`${label}.${field} must be ${tighter} or ${wider}.`, {
         code: 'CAPABILITY_POLICY_INVALID'
       });
     }
   }
-  if (parent === 'off' && child === 'allowed') throw localIntegrationLoosened();
+  if (parent === tighter && child === wider) throw oneWayPolicyLoosened(field);
   return child ?? parent ?? null;
 }
 
-function localIntegrationLoosened(capabilityId = null, ancestorId = null) {
+function oneWayPolicyLoosened(field, capabilityId = null, ancestorId = null) {
+  const [tighter, wider] = ONE_WAY_POLICY[field];
   return new SingularityFlowError(
-    `${capabilityId ? `Capability '${capabilityId}'` : 'A child capability'} cannot turn policy.localIntegrationEvidence to allowed`
-    + ` under ${ancestorId ? `'${ancestorId}'` : 'a parent'}, which sets it off. Change it on that parent through a capability proposal, or leave the child off.`,
-    { code: 'CAPABILITY_POLICY_LOOSENED', details: { capabilityId, ancestorId, field: 'localIntegrationEvidence' } }
+    `${capabilityId ? `Capability '${capabilityId}'` : 'A child capability'} cannot turn policy.${field} to ${wider}`
+    + ` under ${ancestorId ? `'${ancestorId}'` : 'a parent'}, which sets it ${tighter}. Change it on that parent through a capability proposal, or leave the child ${tighter}.`,
+    { code: 'CAPABILITY_POLICY_LOOSENED', details: { capabilityId, ancestorId, field } }
   );
 }
 
@@ -336,7 +351,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     'allowedPhases', 'requiredChecks', 'requiredAuthorityGroups', 'jiraProjects', 'jiraHosts', 'jiraOperations', 'jiraFields',
     'protectedPaths', 'worldModelGrounding', 'worldModelStaleness', 'requiredWorldModelViews',
     'writeScopes', 'qualityCommands', 'storageProviders', 'allowedMimeTypes', 'tokenBudget',
-    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence'
+    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatSecrets'
   ]);
   for (const key of Object.keys(child)) if (!allowed.has(key)) throw new SingularityFlowError(`Capability policy contains unknown key '${key}'.`);
   const array = (key) => uniqueStrings(child[key], `Capability policy.${key}`);
@@ -380,7 +395,8 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     contextBoundary: stricterEnum(parent.contextBoundary, child.contextBoundary, CONTEXT_ORDER, 'contextBoundary'),
     contextMaxBytes: min(parentContextMaxBytes, childContextMaxBytes),
     auto: foldCapabilityAutoPolicy(parentAuto, childAuto),
-    localIntegrationEvidence: foldLocalIntegrationEvidence(parent.localIntegrationEvidence, child.localIntegrationEvidence)
+    localIntegrationEvidence: foldOneWayPolicy('localIntegrationEvidence', parent.localIntegrationEvidence, child.localIntegrationEvidence),
+    plainChatSecrets: foldOneWayPolicy('plainChatSecrets', parent.plainChatSecrets, child.plainChatSecrets)
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }
@@ -927,15 +943,17 @@ export function validateCapabilities(definition, portfolio = null) {
       cursor = capabilities[cursor]?.parent ?? null;
     }
   }
-  // A child may turn local integration evidence off, never on under an ancestor that turned it off.
-  for (const [id, capability] of Object.entries(capabilities)) {
-    if (capability.policy?.localIntegrationEvidence !== 'allowed') continue;
-    let cursor = capability.parent ?? null;
-    while (cursor) {
-      const declared = capabilities[cursor]?.policy?.localIntegrationEvidence;
-      if (declared === 'off') throw localIntegrationLoosened(id, cursor);
-      if (declared === 'allowed') break;
-      cursor = capabilities[cursor]?.parent ?? null;
+  // A child may choose the tighter value, never the wider one under an ancestor that chose the tighter.
+  for (const [field, [tighter, wider]] of Object.entries(ONE_WAY_POLICY)) {
+    for (const [id, capability] of Object.entries(capabilities)) {
+      if (capability.policy?.[field] !== wider) continue;
+      let cursor = capability.parent ?? null;
+      while (cursor) {
+        const declared = capabilities[cursor]?.policy?.[field];
+        if (declared === tighter) throw oneWayPolicyLoosened(field, id, cursor);
+        if (declared === wider) break;
+        cursor = capabilities[cursor]?.parent ?? null;
+      }
     }
   }
   if (definition.version === 2) {

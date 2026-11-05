@@ -504,7 +504,7 @@ const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'inspect-repository', 'setup-proposals', 'setup-proposal', 'test-setup'
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
-  'add', 'protect', 'depend', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',
+  'add', 'protect', 'depend', 'auto', 'plain-chat', 'adopt-managed', 'set', 'remove', 'map', 'map-team', 'edit', 'publish',
   'activate', 'cancel-proposal', 'discard-proposal', 'rebase-proposal', 'repair-proposal', 'reconcile', 'repository',
   'setup-activate'
 ]);

@@ -28,6 +28,7 @@ export type CapabilitiesMessage =
   | { type: 'progressive-add' }
   | { type: 'progressive-protect' }
   | { type: 'managed-auto'; id: string; edits: Record<string, string> }
+  | { type: 'managed-plain-chat'; id: string; edits: Record<string, string> }
   | { type: 'open-auto-settings' }
   | { type: 'test-setup'; id: string }
   | { type: 'progressive-why' };
@@ -130,6 +131,9 @@ export class CapabilitiesPanel {
       if (message?.type === 'progressive-protect') return onMessage({ type: 'progressive-protect' });
       if (message?.type === 'managed-auto' && typeof message.id === 'string') {
         return onMessage({ type: 'managed-auto', id: message.id, edits: readEdits(message.edits) });
+      }
+      if (message?.type === 'managed-plain-chat' && typeof message.id === 'string') {
+        return onMessage({ type: 'managed-plain-chat', id: message.id, edits: readEdits(message.edits) });
       }
       if (message?.type === 'open-auto-settings') return onMessage({ type: 'open-auto-settings' });
       if (message?.type === 'test-setup' && typeof message.id === 'string') return onMessage({ type: 'test-setup', id: message.id });

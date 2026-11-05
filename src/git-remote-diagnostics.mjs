@@ -579,6 +579,11 @@ function resolveSflowFrozenRemote(remote, env, push) {
   return current;
 }
 
+/** The remote an SFlow frozen alias stands for, in the environment that carries its mapping; any other remote as it is. */
+export function frozenRemoteAuthority(remote, env = process.env) {
+  return resolveSflowFrozenRemote(remote, env, false);
+}
+
 /**
  * Address one exact URL without allowing Git to apply a later mutable url.* rewrite to it.
  *

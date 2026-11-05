@@ -72,7 +72,7 @@ import { createAndPushTransportIntent, pendingPublicationNote } from './transpor
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
   frozenRemoteTransport, remoteFingerprint, redactDiagnosticText, safeGitDiagnosticReference,
-  sanitizeRemote
+  sanitizeRemote, frozenRemoteAuthority
 } from './git-remote-diagnostics.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
@@ -1185,7 +1185,7 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
     });
   }
   const progressiveChange = receipt.kind === 'capability-change'
-    && ['add', 'protect', 'depend', 'map-team'].includes(receipt.operation);
+    && ['add', 'protect', 'depend', 'auto', 'plain-chat', 'map-team'].includes(receipt.operation);
   const managedAdoption = receipt.kind === 'capability-managed-adoption'
     && receipt.operation === 'adopt-managed';
   if (!progressiveChange && !managedAdoption) {
@@ -1212,8 +1212,10 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
       code: 'PCD_MANAGED_ADOPTION_INVALID'
     });
   } else {
-    const origin = organisationGitRead(root, env, ['config', '--get', 'remote.origin.url'],
+    const configured = organisationGitRead(root, env, ['config', '--get', 'remote.origin.url'],
       'The origin remote', { absentStatus: 1 }).trim();
+    // In a checkout made for one operation, origin is that operation's frozen alias.
+    const origin = configured && frozenRemoteAuthority(configured, env);
     const workflowBytes = proposalBlob(read, baseRef, WORKFLOW_PATH);
     if (!origin || workflowBytes == null) {
       throw new SingularityFlowError('First managed capability proposal cannot prove its implicit approved base.', {
@@ -1234,7 +1236,10 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
       approvalProfile: approved.approvalSecurity?.profile ?? 'team',
       basePolicy: {}
     });
-    const equivalence = materializationEquivalence(implicit, definition.capabilities['repository-root']);
+    // What this operation itself sets is reviewed as that change: the rest of the root must equal what it replaces.
+    const explicitRoot = structuredClone(definition.capabilities['repository-root']);
+    delete explicitRoot?.policy?.[{ auto: 'auto', 'plain-chat': 'plainChatSecrets' }[receipt.operation]];
+    const equivalence = materializationEquivalence(implicit, explicitRoot);
     if (receipt.beforeSha256 !== implicit.resolutionSha256
         || receipt.materialization?.implicitResolutionSha256 !== implicit.resolutionSha256
         || receipt.materialization?.equivalenceSha256 !== equivalence.equivalenceSha256
@@ -2260,6 +2265,23 @@ async function repairLeadDefaultBranch(
   document.setIn(['repositories', id, 'defaultBranch'], await observedDefaultBranchAsync(
     url, session, observation
   ));
+  await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
+}
+
+/**
+ * Declare the lead before a map names it. A map may name only declared repositories, and the setup
+ * front door's portfolio declares none, so materializing `repository-root` was refused there.
+ */
+async function declareLeadRepository(root, url) {
+  const file = path.join(root, PORTFOLIO_PATH);
+  if (!existsSync(file)) return;
+  const id = repositoryIdFromUrl(url);
+  const text = await readFile(file, 'utf8');
+  const document = YAML.parseDocument(text);
+  if (document.hasIn(['repositories', id])) return;
+  document.setIn(['repositories', id], document.createNode({
+    url: assertCredentialFreeRemote(url), defaultBranch: await leadApplicationBranch(root, url), required: true
+  }));
   await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
 }
 
@@ -7892,9 +7914,10 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
   approver = null,
   reason = null,
   dependency = null,
-  auto = undefined
+  auto = undefined,
+  plainChatSecrets = null
 } = {}) {
-  if (!['add', 'protect', 'depend', 'auto'].includes(operation)) {
+  if (!['add', 'protect', 'depend', 'auto', 'plain-chat'].includes(operation)) {
     throw new SingularityFlowError(`Unsupported progressive capability operation '${operation}'.`);
   }
   const safeSubject = operation === 'add'
@@ -7923,6 +7946,7 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
         approvalProfile: workflow.approvalSecurity?.profile ?? 'team',
         basePolicy: {}
       });
+      if (implicit) await declareLeadRepository(root, leadUrl);
       const definition = existing ?? materializeImplicitCapability(implicit);
       const equivalence = implicit
         ? materializationEquivalence(implicit, definition.capabilities['repository-root'])
@@ -8023,7 +8047,12 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
         }
         const node = definition.capabilities[selectedCapabilityId];
         const policy = node.policy ?? {};
-        if (auto == null) {
+        if (operation === 'plain-chat') {
+          if (plainChatSecrets == null) delete policy.plainChatSecrets;
+          else policy.plainChatSecrets = plainChatSecrets;
+          node.policy = policy;
+          Object.assign(parameters, { capabilityId: selectedCapabilityId, plainChatSecrets });
+        } else if (auto == null) {
           delete policy.auto;
           node.policy = policy;
           Object.assign(parameters, { capabilityId: selectedCapabilityId, auto: null });

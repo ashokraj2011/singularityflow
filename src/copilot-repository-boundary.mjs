@@ -193,11 +193,12 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
 
 /**
  * File permissions and discovery share explicit-turn opt-in, never native lifecycle gating. Outside a
- * turn (a plain prompt, or a paused session) only a person's own step is refused: no prompt makes it an agent's.
+ * turn (a plain prompt, or a paused session) a person's own step is refused, because no prompt makes it
+ * an agent's, and so, unless SFlow is paused, is a file that holds secrets.
  */
 export async function repositoryToolGuard(payload = {}) {
   const explicitTurn = await hasBoundaryTurn(payload);
-  const decision = explicitTurn ? await turnToolGuard(payload) : await personStepGuard(payload);
+  const decision = explicitTurn ? await turnToolGuard(payload) : await plainChatGuard(payload);
   if (explicitTurn && decision.permissionDecision === 'deny') await (await import('./copilot-review-completion.mjs'))
     .noteTaskCompletionFailure(payload, decision).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
@@ -229,6 +230,14 @@ export async function repositoryAgentStop(payload = {}) {
 
 export async function repositoryToolFailure(payload = {}) {
   return (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
+}
+
+async function plainChatGuard(payload) {
+  const step = await personStepGuard(payload);
+  if (step.permissionDecision === 'deny' || readCopilotMode().paused) return step;
+  // A plain chat is someone's ordinary work: this check failing is no reason to stop it.
+  try { return await (await import('./copilot-environment-files-guard.mjs')).plainChatEnvironmentFilesGuard(payload) ?? step; }
+  catch { return step; }
 }
 
 /** A tool call that names no SFlow command passes untouched; the guard loads only for one that does. */

@@ -81,3 +81,14 @@ test('the capability page shows and edits the App ID through capability set --ap
   assert.equal(cleared[cleared.indexOf('--app-id') + 1], '', 'an emptied field clears the App ID');
   assert.equal(capabilityDetail([{ ...tree[0], appId: undefined }], 'payments').appId, null);
 });
+
+test('the capability page shows and sends what a plain chat may do with secrets', () => {
+  const tree = (declared, effective) => [{ id: 'payments', name: 'Payments', kind: 'delivery', policy: declared, effectivePolicy: effective, children: [] }];
+  const detail = (declared, effective) => capabilityDetail(tree(declared, effective), 'payments');
+  assert.deepEqual(detail({}, {}).plainChatSecrets, { declared: null, effective: 'refuse' }, 'refused when nothing says otherwise');
+  assert.deepEqual(detail({}, { plainChatSecrets: 'allow' }).plainChatSecrets, { declared: null, effective: 'allow' }, 'an ancestor can allow');
+  assert.deepEqual(detail({ plainChatSecrets: 'refuse' }, { plainChatSecrets: 'refuse' }).plainChatSecrets, { declared: 'refuse', effective: 'refuse' });
+  const argv = capabilityArgv('set', 'payments', { plainChatSecrets: 'allow' });
+  assert.equal(argv[argv.indexOf('--plain-chat-secrets') + 1], 'allow');
+  assert.equal(capabilityArgv('set', 'payments', { name: 'Payments' }).includes('--plain-chat-secrets'), false);
+});

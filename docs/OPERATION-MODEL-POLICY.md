@@ -164,6 +164,7 @@ Every public operation is classified before its implementation module is importe
 | capability.activate | mutation | never | — | — |
 | capability.add | mutation | never | — | — |
 | capability.adopt-managed | mutation | never | — | — |
+| capability.auto | mutation | never | — | — |
 | capability.cancel-proposal | mutation | never | — | — |
 | capability.depend | mutation | never | — | — |
 | capability.discard-proposal | mutation | never | — | — |
@@ -177,6 +178,7 @@ Every public operation is classified before its implementation module is importe
 | capability.onboard.apply | mutation | never | — | — |
 | capability.onboard.preview | read | never | — | — |
 | capability.organisation | read | never | — | — |
+| capability.plain-chat | mutation | never | — | — |
 | capability.proposal | read | never | — | — |
 | capability.proposals | read | never | — | — |
 | capability.protect | mutation | never | — | — |

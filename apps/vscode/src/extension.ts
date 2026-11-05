@@ -7631,7 +7631,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     if (message.type === 'progressive-add' || message.type === 'progressive-protect'
-        || message.type === 'managed-auto') {
+        || message.type === 'managed-auto' || message.type === 'managed-plain-chat') {
       try {
         let argv: string[];
         if (message.type === 'progressive-add') {
@@ -7672,6 +7672,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
           }
           argv.push('--json');
+        } else if (message.type === 'managed-plain-chat') {
+          argv = ['capability', 'plain-chat', message.id, '--secrets', message.edits.plainChatSecrets ?? 'inherit', '--json'];
         } else {
           const protectedPath = await vscode.window.showInputBox({
             title: 'Protect a path',

@@ -315,7 +315,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // runtime-readiness.mjs +267, test-recovery-runtime.mjs +240). The lookup itself is lazy; no new eager file.
     // 9,465,600 (measured 9,465,592): each packaged agent's earlier bytes stay known, so an upgrade can give it a terminal in
     // VS Code (packaged-asset-history.mjs +3619). No new eager file.
-    assert.ok(closure.bytes <= 9_465_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,466,700 (measured 9,466,698): policy.plainChatSecrets (capabilities.mjs +835), the remote a frozen alias stands for
+    // (git-remote-diagnostics.mjs +249) and two routed subcommands (command-registry.mjs +22). The guard's reads are lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_466_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -376,7 +378,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // routes and read actions (command-registry.mjs +134) and one option (util.mjs +13). Neither can load later: every command reads them to dispatch.
   // 856,957 (measured 856,957): the screen read action (command-registry.mjs +12) and --for-person (util.mjs +14), for the same reason.
   // 856,970 (measured 856,969): env files classify in command-registry.mjs, which every command reads to dispatch.
-  assert.ok(root.bytes <= 856_970, `root dispatch loads ${root.bytes} source bytes`);
+  // 857,250 (measured 857,240): git-remote-diagnostics.mjs +249 and command-registry.mjs +22, as start. Every command reads them to dispatch.
+  assert.ok(root.bytes <= 857_250, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -469,7 +472,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,099,600 (measured 4,099,593): SPEC-ENVF v2, the same two eager files as start, the gates in git.mjs and the scanner's value check.
   // 4,099,900 (measured 4,099,875): the same copilot-guidance.mjs +282 as start.
   // 4,103,500 (measured 4,103,494): the same packaged-asset-history.mjs +3619 as start.
-  assert.ok(current.bytes <= 4_103_500, `session current loads ${current.bytes} source bytes`);
+  // 4,103,800 (measured 4,103,765): the same git-remote-diagnostics.mjs +249 and command-registry.mjs +22 as root dispatch.
+  assert.ok(current.bytes <= 4_103_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

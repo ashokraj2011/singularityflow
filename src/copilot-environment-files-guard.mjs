@@ -3,14 +3,14 @@
  *
  * An environment file holds secrets: a declared `localFiles` path or glob, a `neverCommit` pattern, a
  * path in this machine's environment-file registry, the private store, a linked real file, or a
- * workspace folder for an environment. In an explicit SFlow turn, a file tool, a search tool or a shell
- * command that names one is refused, whatever the turn mode. The `env files` reads and
+ * workspace folder for an environment. A file tool, a search tool or a shell command that names one is
+ * refused, in any turn mode and in a plain chat unless its capability allows it. The `env files` reads and
  * `env files create --from-template` / `place` stay allowed: they print locations, never contents.
  *
  * Two kinds need no setup at all (docs/SPEC-ENVIRONMENT-FILES-v2.md): a file with an always-local name,
  * and a shared config file holding what looks like a real value, until the value is moved out.
  *
- * Cheap on purpose: the guard runs before every tool call of an explicit turn. A repository with no
+ * Cheap on purpose: the guard runs before every tool call that could name one. A repository with no
  * `singularity/environments.yml`, no registry and no workspace-level state costs a few `lstat` calls,
  * and only a call that names a config file reads that file and loads the scanner.
  */
@@ -266,16 +266,23 @@ function openedTokens(simple) {
 }
 
 /** A shell line's refusal, or null. It reads what the line says, not what an expansion or a script would open. */
-async function shellLineRefusal(command, cwd) {
+async function shellLineRefusal(command, cwd, scope) {
   for (const simple of command.split(/&&|\|\||[;|\n]/u)) {
     for (const token of openedTokens(simple)) {
-      const local = await alwaysLocalTarget(token, cwd);
-      if (local) return alwaysLocalDenial(local);
-      const held = await heldValue(token, cwd);
-      if (held) return valueDenial(held);
+      const refusal = await namedFileRefusal(token, cwd, scope);
+      if (refusal) return refusal;
     }
   }
   return null;
+}
+
+/** The refusal for one word or path a call names, by its name and then by its values. */
+async function namedFileRefusal(target, cwd, scope) {
+  if (!scope.covers(target, cwd)) return null;
+  const local = await alwaysLocalTarget(target, cwd);
+  const held = local ? null : await heldValue(target, cwd);
+  if ((!local && !held) || await scope.allows(target, cwd)) return null;
+  return local ? alwaysLocalDenial(local) : valueDenial(held);
 }
 
 /** The first real value in a shared config file this call would open, or null. A file it cannot read is left to the other rules. */
@@ -325,8 +332,14 @@ function denial(target) {
   };
 }
 
-/** The refusal for the first tool call that touches an environment file, or null. */
-export async function environmentFilesToolGuard(payload = {}, { env = process.env } = {}) {
+// A `/sf-` turn looks at every file a call names and excuses none.
+const EVERY_FILE = Object.freeze({ covers: () => true, allows: async () => false });
+
+/**
+ * The refusal for the first tool call that touches an environment file, or null. `scope.covers` says
+ * whether a file known only by its name or value is this guard's to judge; `scope.allows` excuses one it would refuse.
+ */
+export async function environmentFilesToolGuard(payload = {}, { env = process.env, scope = EVERY_FILE } = {}) {
   const protection = await environmentFileProtection(payload.cwd, { env });
   for (const call of callsOf(payload)) {
     const cwd = call.args?.cwd ?? payload.cwd;
@@ -336,13 +349,17 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
       if (typeof command !== 'string' || !command) continue;
       const allowed = environmentFilesCommandVerdict(command);
       if (allowed === true) continue;
-      if (allowed === false) return denial('this env files command');
+      if (allowed === false) {
+        if (await scope.allows('.', cwd)) continue;
+        return denial('this env files command');
+      }
       const words = command.match(/"[^"]*"|'[^']*'|[^\s;&|<>()`]+/gu) ?? [];
       for (const word of words) {
-        const hit = protectedTarget(protection, word.replace(/^['"]|['"]$/gu, ''), cwd);
-        if (hit) return denial(hit);
+        const spelled = word.replace(/^['"]|['"]$/gu, '');
+        const hit = protectedTarget(protection, spelled, cwd);
+        if (hit && !await scope.allows(spelled, cwd)) return denial(hit);
       }
-      const refused = await shellLineRefusal(command, cwd);
+      const refused = await shellLineRefusal(command, cwd, scope);
       if (refused) return refused;
       continue;
     }
@@ -351,12 +368,54 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
       : pathArguments(call.args);
     for (const target of targets) {
       const hit = protectedTarget(protection, target, cwd);
-      if (hit) return denial(hit);
-      const local = await alwaysLocalTarget(target, cwd);
-      if (local) return alwaysLocalDenial(local);
-      const held = await heldValue(target, cwd);
-      if (held) return valueDenial(held);
+      if (hit) {
+        if (await scope.allows(target, cwd)) continue;
+        return denial(hit);
+      }
+      const refusal = await namedFileRefusal(target, cwd, scope);
+      if (refusal) return refusal;
     }
   }
   return null;
+}
+
+/** What SFlow leaves in a clone that uses it. Files only: an ordinary refusal should not start Git. */
+function usesSflow({ root, common }) {
+  if (['workflow.yml', 'capabilities.yml', 'environments.yml'].some((file) => exists(path.join(root, 'singularity', file)))) return true;
+  if ([['singularity-flow'], ['refs', 'heads', 'sflow'], ['refs', 'remotes', 'origin', 'sflow']].some((parts) => exists(path.join(common, ...parts)))) return true;
+  try { return /\srefs\/(?:heads|remotes\/[^/\s]+)\/sflow\/config\s/u.test(`${readFileSync(path.join(common, 'packed-refs'), 'utf8')}\n`); }
+  catch { return false; }
+}
+
+/** The capability's answer, from the approved map on this machine. No network, and anything unreadable leaves the refusal standing. */
+export async function plainChatSecretsPolicy(root, subjectPath) {
+  try {
+    const [{ withApprovedConfigurationRead }, { resolveLifecycleCapability }] = await Promise.all([
+      import('./approved-configuration-reader.mjs'), import('./capability-context.mjs')]);
+    const capability = await withApprovedConfigurationRead(root, () => resolveLifecycleCapability(root, { subjectPath, offline: true }),
+      { preferAuthority: true, refreshAuthority: false });
+    return capability?.policy?.plainChatSecrets ?? 'refuse';
+  } catch { return 'refuse'; }
+}
+
+/**
+ * The same refusals for a plain chat (docs/SPEC-ENVIRONMENT-FILES-v2.md, "Plain chats"), with two ways
+ * out a `/sf-` turn does not have: a file known only by its name or value, in no repository that uses
+ * SFlow, is not SFlow's to judge, and a capability may say `allow`. Neither opens a config file, and
+ * capabilities are read only for a call that would be refused.
+ */
+export async function plainChatEnvironmentFilesGuard(payload = {}, { env = process.env, policyFor = plainChatSecretsPolicy } = {}) {
+  const repositoryFor = (target, cwd) => { const absolute = absoluteOf(target, cwd); return absolute ? repositoryOf(absolute) : null; };
+  const answers = new Map();
+  const covers = (target, cwd) => {
+    const repository = repositoryFor(target, cwd);
+    if (!repository) return false;
+    if (!answers.has(repository.root)) answers.set(repository.root, usesSflow(repository));
+    return answers.get(repository.root);
+  };
+  const allows = async (target, cwd) => {
+    const repository = repositoryFor(target, cwd);
+    return Boolean(repository) && await policyFor(repository.root, path.relative(repository.root, absoluteOf(target, cwd)).split(path.sep).join('/')) === 'allow';
+  };
+  return environmentFilesToolGuard(payload, { env, scope: { covers, allows } });
 }

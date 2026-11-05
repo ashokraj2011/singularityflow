@@ -1205,6 +1205,9 @@ Usage:
   singularity-flow capability add <ID> --owns <DIRECTORY|DIRECTORY/**> [--name TEXT] [--team TEXT]... [--parent ID]
   singularity-flow capability protect <PATH> [--capability ID] [--approver GROUP] [--reason TEXT]
   singularity-flow capability depend <TARGET-CAPABILITY>@<REFERENCE> [--from ID] [--contract ID] [--json]
+  singularity-flow capability plain-chat <CAPABILITY-ID> --secrets inherit|refuse|allow [--lead URL] [--json]
+    (proposes whether a plain Copilot chat may read this capability's files that hold secrets; refuse is the
+     default, a child cannot allow under a parent that refuses, and a /sf- turn always refuses)
   singularity-flow capability auto <CAPABILITY-ID> --eligibility inherit|disabled|plan-only|bounded
     [--protected-scope block|allow] [--maximum-touched-paths N] [--maximum-concurrent-flights N]
   singularity-flow capability adopt-managed --preview [--lead URL]
@@ -1262,6 +1265,7 @@ Usage:
     [--auto-eligibility inherit|disabled|plan-only|bounded]
     [--auto-protected-scope block|allow]
     [--auto-maximum-touched-paths N] [--auto-maximum-concurrent-flights N]
+    [--plain-chat-secrets inherit|refuse|allow]
     [--application-file FILE]   (the whole application block, e.g. app suggest's applicationDraft)
     [--json]   (no checkout needed)
   Capability parents are optional. Omit --parent to create a top-level capability; clear it in the

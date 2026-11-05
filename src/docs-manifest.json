@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8290b94699b599c992ff43e1461d8b50e79f8428",
+  "sourceCommit": "3908d56a2f8649f1315fcb8a38247cea1d615491",
   "topicCount": 90,
-  "contentSha256": "f1df523c177268c716975805ba007dc8cdfbfa68d363008cd99792dd22e2458b",
+  "contentSha256": "9a290c4de77ffde505f134e7a962efab0511ee1093acaa306faa2d1d6378aac3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 25,
-      "sha256": "e59cabb90f8ba3012bce9959a1d38bb0573c58115421c05c1e44e84c3a7cbae2",
+      "version": 26,
+      "sha256": "ee6f8a607617d438637f73e751d23c2c41c1740dbea0f87bf4eaed3edd674bcc",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
@@ -144,8 +144,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 36,
-      "sha256": "f7e3face3a856438088a7f2628b6cbe7164f6fdeaf654cb0b5146e91c478bd13",
+      "version": 37,
+      "sha256": "3acf91708d325bcbc6d1cfdeed61babdbda49943b7823ef6f20a3bd6b8f685dc",
       "routingSha256": "6f4dbc798506b7f12c106b8a0423ec2ce9392195c08459bf76888c9fbd617a9a",
       "file": "copilot-and-surfaces.md"
     },
@@ -192,8 +192,8 @@
     {
       "id": "environment-bindings",
       "title": "Test environments without committing their values",
-      "version": 6,
-      "sha256": "b1f1137a5a43b6a032b0495d473e2640182ec761d409af66814c456c185a2bed",
+      "version": 7,
+      "sha256": "e4ad5f2e2b0ddde05d71073d01df6f4a162c9e8f54565e1fd4c81ebecd98a37d",
       "routingSha256": "3f61bd3248485e24065d018c2cc3d1fcd7f9e68c572106f2f5ae5e77f7c668bb",
       "file": "environment-bindings.md"
     },

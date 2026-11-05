@@ -43,6 +43,10 @@ creates a capability-change receipt and review branch; it never edits the approv
 The terminal equivalent is `singularity-flow capability auto <ID> --eligibility
 inherit|disabled|plan-only|bounded`, with optional protected-scope and numeric limits.
 
+**Secrets in plain chats** sits beside it and works the same way: **Propose this setting** on a managed map, or Save
+changes on any other. The terminal equivalent is `singularity-flow capability plain-chat <ID> --secrets
+inherit|refuse|allow`.
+
 The capability editor reuses the exact authority recorded in
 `singularity/configuration-source.json` when it creates the reviewed proposal. It asks you to choose
 a lead repository only when the current checkout has no valid pinned source and no unambiguous,

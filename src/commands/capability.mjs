@@ -11,7 +11,7 @@ let legacy = null;
 let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
-  'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
+  'add', 'protect', 'depend', 'auto', 'plain-chat', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
   'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository', 'test-setup', 'activate'
 ]);
 
@@ -627,11 +627,17 @@ function explanationRecord(capability, subject, config, { currentSchemaVersion, 
   return { ...core, explanationSha256: `sha256:${recordSha256(core)}` };
 }
 
-export async function showCapability(root, subject = '', {
+export async function showCapability(root, subject = '', options = {}) {
+  // A clone whose configuration lives only on `sflow/config` reads it from there; a checkout holding its own is unchanged.
+  const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
+  return withApprovedConfigurationRead(root, () => showCapabilityInScope(root, subject, options), { refreshAuthority: false });
+}
+
+async function showCapabilityInScope(root, subject, {
   json = false,
   verbose = false,
   gitShadow = false
-} = {}) {
+}) {
   const support = await loadExplanationSupport();
   const relative = subject || path.relative(root, process.cwd()).replaceAll('\\', '/') || '.';
   const gitShadowObservations = [];
@@ -644,7 +650,10 @@ export async function showCapability(root, subject = '', {
     } : {})
   });
   const config = await support.loadDefinition(root);
-  const record = explanationRecord(capability, relative, config, support);
+  // The guard's own answer, which reads the approved map even where this checkout pins or holds another.
+  const { plainChatSecretsPolicy } = await import('../copilot-environment-files-guard.mjs');
+  const record = { ...explanationRecord(capability, relative, config, support),
+    plainChatSecrets: await plainChatSecretsPolicy(root, relative === '.' ? '' : relative) };
   let gitShadowSummary = null;
   if (gitShadow) {
     const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
@@ -670,6 +679,7 @@ export async function showCapability(root, subject = '', {
   } else {
     console.log(`  ${record.approvalProfile} profile${record.selfApprovalAllowed ? '; self-approval is allowed' : ''}`);
   }
+  console.log(`\nSecrets in a plain Copilot chat:\n  ${record.plainChatSecrets === 'allow' ? 'allowed by this capability' : 'refused'}`);
   console.log(`\nWhy:\n  ${implicit
     ? 'No more specific ownership is configured, so this repository owns the path.'
     : `${capability.name} is the most specific approved capability for this path.`}`);
@@ -774,11 +784,17 @@ async function runMutation(subcommand, context) {
             capabilityId: required(context.positionals, 2, '<CAPABILITY-ID>'),
             auto: capabilityAutoOptions(options)
           })
-        : await proposeProgressiveCapabilityChange(lead, {
-          operation: 'depend',
-          capabilityId: optionString(options, 'from'),
-          dependency: exactDependency(context.positionals, options)
-        });
+        : subcommand === 'plain-chat'
+          ? await proposeProgressiveCapabilityChange(lead, {
+              operation: 'plain-chat',
+              capabilityId: required(context.positionals, 2, '<CAPABILITY-ID>'),
+              plainChatSecrets: capabilityPlainChatOption(options)
+            })
+          : await proposeProgressiveCapabilityChange(lead, {
+            operation: 'depend',
+            capabilityId: optionString(options, 'from'),
+            dependency: exactDependency(context.positionals, options)
+          });
   await rememberLeadRepository(lead);
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify({ lead, ...result, ...(result.changed ? await proposalContinuation(lead, result) : {}) }, null, 2));
@@ -809,6 +825,15 @@ function positiveOrNull(value, label) {
     throw new SingularityFlowError(`${label} must be a positive integer or empty to inherit.`);
   }
   return parsed;
+}
+
+/** `inherit` removes this capability's own value, so an ancestor's or the default `refuse` applies. */
+function capabilityPlainChatOption(options) {
+  const secrets = optionString(options, 'secrets');
+  if (!['inherit', 'refuse', 'allow'].includes(secrets ?? '')) {
+    throw new SingularityFlowError('--secrets must be inherit, refuse, or allow.', { code: 'CAPABILITY_POLICY_INVALID' });
+  }
+  return secrets === 'inherit' ? null : secrets;
 }
 
 function capabilityAutoOptions(options) {
@@ -941,6 +966,6 @@ export async function run(argv, context = {}) {
     console.log('Nothing has been applied yet. Existing Stories keep their pinned capability rules.');
     return result;
   }
-  if (['add', 'protect', 'depend', 'auto'].includes(subcommand)) return runMutation(subcommand, context);
+  if (['add', 'protect', 'depend', 'auto', 'plain-chat'].includes(subcommand)) return runMutation(subcommand, context);
   return (await loadLegacy()).run(argv);
 }

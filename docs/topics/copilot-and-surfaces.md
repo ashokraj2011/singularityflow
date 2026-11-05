@@ -19,13 +19,13 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 36
+version: 37
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
 ## Pause and native Copilot
 
-Use `/sf-pause` (shell: `singularity-flow pause on --json`) to pause SFlow Copilot guidance on this machine. Ordinary requests then use native Copilot: no Home headings, Story selection, phase prompts, clarification, or SFlow gates. SFlow hooks return no injected context, and paused Home returns only the local mode without Git or workspace discovery. `/sf-pause status` inspects the preference; `/sf-pause off` restores guidance without advancing any Story. `/sf-resume` remains the separate Story-resume command.
+Use `/sf-pause` (shell: `singularity-flow pause on --json`) to pause SFlow Copilot guidance on this machine. Ordinary requests then use native Copilot: no Home headings, Story selection, phase prompts, clarification, SFlow gates, or the check that refuses a plain chat a file holding secrets (see [Secrets in plain chats](capability-management.md)). SFlow hooks return no injected context, and paused Home returns only the local mode without Git or workspace discovery. `/sf-pause status` inspects the preference; `/sf-pause off` restores guidance without advancing any Story. `/sf-resume` remains the separate Story-resume command.
 
 The preference lives outside repositories and is never pushed. It survives restarts and skill reinstalls. It does not change any Story, approval, artifact, branch, checkout, personal skill, or Copilot setting. It does not abort commands or autonomous flights already running. Explicit terminal commands remain available and enforce all normal gates; native changes do not become evidence automatically. An unreadable preference conservatively pauses guidance and can be repaired with an explicit `pause off`.
 

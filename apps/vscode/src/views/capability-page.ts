@@ -31,7 +31,7 @@ const FIELDS = [
   'name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots',
   'sourceHashExcludedRoots', 'testConfigurationPaths', 'metadata',
   'jira.projectKey', 'jira.board', 'appId', 'teams', 'autoEligibility', 'autoProtectedScope',
-  'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights'
+  'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights', 'plainChatSecrets'
 ] as const;
 
 function fieldInfo(label: string, explanation: string): string {
@@ -158,6 +158,7 @@ function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null, ru
   ${detail ? `<section class="editor-card">
     <div class="card-head"><div><p class="eyebrow">Optional capability policy</p><h3>${escape(detail.name)}</h3></div></div>
     ${autoPolicyEditor(detail, true)}
+    ${plainChatPolicyEditor(detail, true)}
   </section>` : ''}`;
 }
 
@@ -187,9 +188,35 @@ function managedCapabilityHtml(
   <section class="editor-card">${detail
     ? `<div class="card-head"><div><p class="eyebrow">Capability policy</p><h3>${escape(detail.name)}</h3></div>
          <span class="grow"></span><span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span></div>
-       ${autoPolicyEditor(detail, true)}`
+       ${autoPolicyEditor(detail, true)}
+       ${plainChatPolicyEditor(detail, true)}`
     : '<p class="muted">Choose a capability to view or change its Auto eligibility and safety limits.</p>'}
   </section>`;
+}
+
+/** One policy field, editable because a team chooses it: the guard for files that hold secrets in a plain chat. */
+function plainChatPolicyEditor(detail: CapabilityDetail, managed = false): string {
+  const { declared, effective } = detail.plainChatSecrets;
+  return `<div class="card">
+    <div class="card-head"><div><h2>${icon('policy')}Secrets in plain chats</h2>
+      <p class="muted">Whether a Copilot chat with no <code>/sf-</code> command may read a file that holds secrets, such as <code>.env</code> or a config file with a real value. A <code>/sf-</code> command is always refused.</p></div>
+      <span class="grow"></span>
+      <span class="pill ${effective === 'allow' ? '' : 'ok'}">applies: ${effective === 'allow' ? 'allowed' : 'refused'}</span>
+    </div>
+    <div class="form-grid">
+      <label class="field"><span>Plain chats</span>
+        <select data-field="plainChatSecrets">
+          ${[['inherit', 'Inherit (refused unless an ancestor allows)'], ['refuse', 'Refuse'], ['allow', 'Allow']]
+            .map(([value, label]) => `<option value="${value}"${(declared ?? 'inherit') === value ? ' selected' : ''}>${label}</option>`).join('')}
+        </select>
+        <small>A child cannot allow what an ancestor refuses.</small>
+      </label>
+    </div>
+    ${managed
+    ? `<p><button type="button" data-managed-plain-chat-save="${escape(detail.id)}">Propose this setting</button></p>
+       <p class="remedy">This creates a review proposal. Nothing changes until it is reviewed into <code>sflow/config</code>.</p>`
+    : '<p class="remedy">Save changes to create a reviewed capability proposal.</p>'}
+  </div>`;
 }
 
 function autoPolicyEditor(detail: CapabilityDetail, managed = false): string {
@@ -399,6 +426,7 @@ function detailHtml(tree: CapabilityNode[], selected: string, repositories: Repo
        <p class="remedy">Policy is written in <code>singularity/capabilities.yml</code>.</p>`}
 
   ${autoPolicyEditor(detail)}
+  ${plainChatPolicyEditor(detail)}
   ${testSetupMenu(detail.id)}
   ${runAndTest(detail.id)}
 
@@ -506,7 +534,7 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'autoEligibility') synchronizeAuto();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-discard],[data-managed-auto-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team],[data-test-setup]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-discard],[data-managed-auto-save],[data-managed-plain-chat-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why],[data-open-auto-settings],[data-onboard-team],[data-test-setup]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -518,6 +546,7 @@ export const SCRIPT = `
     else if (data.progressiveProtect !== undefined) vscode.postMessage({ type: 'progressive-protect' });
     else if (data.progressiveWhy !== undefined) vscode.postMessage({ type: 'progressive-why' });
     else if (data.managedAutoSave !== undefined) vscode.postMessage({ type: 'managed-auto', id: data.managedAutoSave, edits: read() });
+    else if (data.managedPlainChatSave !== undefined) vscode.postMessage({ type: 'managed-plain-chat', id: data.managedPlainChatSave, edits: read() });
     else if (data.metadataAdd !== undefined) {
       document.querySelector('[data-metadata-list]')?.insertAdjacentHTML('beforeend', ${JSON.stringify(METADATA_ROW_HTML)});
     } else if (data.metadataRemove !== undefined) {

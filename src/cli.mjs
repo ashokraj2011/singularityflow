@@ -6764,6 +6764,14 @@ async function capabilityChanges(options) {
   const applicationFile = optionString(options, 'application-file');
   if (applicationFile != null) changes.application = (await import('./capability-application-file.mjs')).readApplicationFile(applicationFile);
 
+  const plainChatSecrets = optionString(options, 'plain-chat-secrets');
+  if (plainChatSecrets != null) {
+    if (!['inherit', 'refuse', 'allow'].includes(plainChatSecrets)) {
+      throw new SingularityFlowError('--plain-chat-secrets must be inherit, refuse, or allow.');
+    }
+    changes['policy.plainChatSecrets'] = plainChatSecrets === 'inherit' ? null : plainChatSecrets;
+  }
+
   // Auto is the one capability policy slice exposed by the guided editor. It is deliberately
   // narrower than a generic `--policy` escape hatch: capability policy can only tighten the
   // repository/work-type decision, and every accepted value is validated here before a remote

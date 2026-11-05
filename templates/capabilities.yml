@@ -49,3 +49,5 @@ capabilities:
   #         environments: [dev, qa]
   #   policy:
   #     localIntegrationEvidence: allowed       # off (default) | allowed; a child may only turn it off
+  #     plainChatSecrets: allow                 # refuse (default) | allow; a plain Copilot chat may read files that
+  #                                             # hold secrets. A child may only refuse; a /sf- turn always refuses.

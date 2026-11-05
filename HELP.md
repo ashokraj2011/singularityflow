@@ -1329,6 +1329,10 @@ version-2 managed map only inside an exact review proposal; they do not change a
 or existing Story pins. Version-1 maps keep legacy editing semantics until the expert
 `capability adopt-managed --preview` / `--confirm sha256:<PLAN>` flow is reviewed and activated.
 
+`singularity-flow capability plain-chat <ID> --secrets refuse|allow|inherit` proposes whether a plain Copilot
+chat, with no `/sf-` command, may read that capability's files that hold secrets. `refuse` is the default, a child
+cannot allow under a parent that refuses, and a `/sf-` command is always refused. `capability show` says which applies.
+
 **Configuration → Review proposals** opens a dashboard of pending changes across
 every registered lead repository; it is available even when no workspace is active.
 Select a proposal to open its exact diff and **Merge and acknowledge** action. The

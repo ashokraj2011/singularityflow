@@ -51,6 +51,7 @@ export interface CapabilityDetail {
   teams: string[];
   owns: string[];
   policy: PolicyField[];
+  plainChatSecrets: { declared: 'refuse' | 'allow' | null; effective: 'refuse' | 'allow' };
   auto: {
     declared: {
       eligibility: 'inherit' | 'disabled' | 'plan-only' | 'bounded';
@@ -90,6 +91,7 @@ const POLICY_FIELDS: Array<{ key: string; label: string; rule: string }> = [
   { key: 'jiraOperations', label: 'Jira operations', rule: 'the intersection with every ancestor' },
   { key: 'gitPublication', label: 'Git publication', rule: 'the stricter of this and every ancestor' },
   { key: 'contextBoundary', label: 'Context boundary', rule: 'the stricter of this and every ancestor' },
+  { key: 'plainChatSecrets', label: 'Secrets in plain chats', rule: 'a child cannot allow what an ancestor refuses' },
   { key: 'maxDocumentBytes', label: 'Maximum document bytes', rule: 'the smallest set by any ancestor' },
   { key: 'tokenBudget', label: 'Token budget', rule: 'the smallest set by any ancestor' },
   { key: 'contextMaxBytes', label: 'Context maximum bytes', rule: 'the smallest set by any ancestor' }
@@ -187,6 +189,10 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     teams: row.teams ?? [],
     owns: row.owns ?? [],
     policy,
+    plainChatSecrets: {
+      declared: declaredPolicy.plainChatSecrets === 'refuse' || declaredPolicy.plainChatSecrets === 'allow' ? declaredPolicy.plainChatSecrets : null,
+      effective: effectivePolicy.plainChatSecrets === 'allow' ? 'allow' : 'refuse'
+    },
     auto: {
       declared: {
         eligibility: declaredAuto?.eligibility ?? 'inherit',
@@ -218,7 +224,8 @@ const EDIT_FLAGS: Array<[string, string]> = [
   ['teams', '--teams'],
   ['autoEligibility', '--auto-eligibility'], ['autoProtectedScope', '--auto-protected-scope'],
   ['autoMaximumTouchedPaths', '--auto-maximum-touched-paths'],
-  ['autoMaximumConcurrentFlights', '--auto-maximum-concurrent-flights']
+  ['autoMaximumConcurrentFlights', '--auto-maximum-concurrent-flights'],
+  ['plainChatSecrets', '--plain-chat-secrets']
 ];
 
 /**

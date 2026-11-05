@@ -9,7 +9,8 @@ case "$action" in
 esac
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 # With no SFlow turn recorded the runtime's guard still refuses a person's own step in any prompt
-# (personStepGuard in copilot-repository-boundary.mjs), and it looks only at a call that names SFlow.
+# (personStepGuard in copilot-repository-boundary.mjs), and it looks only at a call that names SFlow,
+# or a file that may hold secrets.
 # So the guard keeps its no-Node answer only for a payload that cannot: held here, read once, and
 # given to Node unchanged when it might. Read whole: a bounded reader such as head over-reads a pipe
 # and loses the rest. Over 1 MiB it is not inspected; Node judges it.
@@ -27,7 +28,7 @@ hold_hook_input() {
 # in singularity-flow.mjs), on the raw JSON less the session's folder, which the guard does not read.
 # Under that test U+017F (long s) is an s. An escaped printable ASCII character or a long s could
 # spell either word without its letters; no JSON writer Copilot uses escapes one, so either goes to Node.
-hook_input_names_sflow() {
+hook_input_goes_to_node() {
   local LC_ALL=C text=$hook_input before after
   if (( hook_input_large )); then return 0; fi
   if [[ $text == *'"cwd":"'* ]]; then
@@ -35,14 +36,22 @@ hook_input_names_sflow() {
     text=$before${after#*\"}
   fi
   [[ $text == *[Ss][Ff][Ll][Oo][Ww]* || $text == *[Ss][Ii][Nn][Gg][Uu][Ll][Aa][Rr][Ii][Tt][Yy]-[Ff][Ll][Oo][Ww]* \
-    || $text == *$'\305\277'* || $text == *\\u00[2-7][0-9A-Fa-f]* || $text == *\\u017[Ff]* ]]
+    || $text == *$'\305\277'* || $text == *\\u00[2-7][0-9A-Fa-f]* || $text == *\\u017[Ff]* ]] && return 0
+  # A file that may hold secrets goes to Node too: outside a turn the runtime refuses one in a repository
+  # that uses SFlow (plainChatGuard). A dotfile, a settings or key extension (not `process.env.X`, `res.json(`
+  # or `.keys()`), or the word. These names come from src/local-config-policy.mjs; a false match costs one Node start.
+  local names='(^|[^]a-z0-9_)])\.env|\.(env|ya?ml|properties|toml|ini|cfg|conf|json|pem|key|p12|pfx|jks|keystore)($|[^a-z0-9_.([])|secret|credential' status
+  shopt -s nocasematch
+  [[ $text =~ $names ]]; status=$?
+  shopt -u nocasematch
+  return "$status"
 }
 # Answered here, or the bytes go to Node as the host sent them.
 quiet_hook() {
   if [[ "$action" == boundary-guard ]]; then
     # No reader to hold the payload with: Node reads it, as with a recorded turn.
     hold_hook_input || return 1
-    if hook_input_names_sflow; then return 1; fi
+    if hook_input_goes_to_node; then return 1; fi
   else cat >/dev/null 2>&1 || true; fi
   printf '%s\n' '{}'; exit 0
 }

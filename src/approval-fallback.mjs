@@ -1,5 +1,12 @@
 /** Who decides for a step that has no approval group of its own. Pure; reads approval policies only. */
 
+/** Technical correction is always same-phase. Business send-back targets remain as configured. */
+export function phaseCorrectionTargets(phase) {
+  const policy = phase?.approvalPolicy ?? phase?.approval;
+  if (!phase?.id || policy?.mode === 'none') return [];
+  return [...new Set([phase.id, ...(policy?.rejectTo ?? [])])];
+}
+
 /** A step's approval groups: those that may approve it and those it requires. */
 export const stepGroups = (workflow, id) => {
   const policy = workflow?.phases?.[id]?.approvalPolicy ?? {};

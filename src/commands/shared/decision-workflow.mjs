@@ -5,7 +5,8 @@ import { optionString, optionBoolean, SingularityFlowError } from '../../util.mj
 import { loadStoryDecisionExecution } from '../../story-decision-context.mjs';
 import { prefetchStoryPublicationObservation, assertNoPendingPublication, previewTestingRepair, storyPublicationPending } from '../../state-stores.mjs';
 import { assertPhaseSequence } from '../../sequence.mjs';
-import { assertApprovalSubmitted, assertLifecycleWorktreeClean } from '../../lifecycle-worktree.mjs';
+import { assertApprovalSubmitted } from '../../approval-submitted.mjs';
+import { assertLifecycleWorktreeClean } from '../../lifecycle-worktree.mjs';
 import { resolveSelectionReceipt } from '../../choices.mjs';
 import { phaseUsesDeterministicGeneration } from '../../manual-authorship.mjs';
 import { actionActor, activatePhaseAgent } from '../kernel.mjs';

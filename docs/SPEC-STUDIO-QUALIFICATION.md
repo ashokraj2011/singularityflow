@@ -36,6 +36,8 @@ Additional document/local-handoff regressions recorded 48 passes and one Windows
 
 The explicit browser check passes rich/Markdown round trips, escaping, editing metadata, save acknowledgements, sharing error/retry display, creation routing and light/dark/320 px layouts. VS Code typechecking, VS Code compilation, the CLI bundle build and repository checks also pass.
 
+The refresh from main through `d30c79f59` additionally qualified 119 distinct macOS integration cases across the Studio, workspace intake, compact agent output and skill contracts. Two stale upstream skill assertions were updated to the current single-packet approval flow and reduced token count. The two agent-output slow-lane cases were explicitly run and passed; the final combined integration results have no failed or skipped cases. This is targeted integration qualification, not the full release suite.
+
 Reproduce the principal suite:
 
 ```sh
@@ -61,6 +63,6 @@ On macOS with Node 26.12.0, 100 saved versions of a 104,000-byte document were r
 
 Native Windows and paid/live Copilot runs were not requested and were not run. Native host attachment delivery, accessibility and cold/warm end-to-end latency still need host qualification.
 
-The existing gateway bundle budget fails at **826 modules against an 817-module limit** both on the base main build and this branch. No budget was raised. The Studio and native tool bundles remain within their existing limits. This unrelated gateway failure still prevents claiming a clean package/release gate.
+After integrating main through `d30c79f59`, all configured VS Code bundle budgets pass. Main contains the gateway dependency changes and its documented 826-module ceiling; the merged build contains 826 gateway modules. The Studio and native tool bundles remain within their existing limits. The earlier 817-module budget failure is resolved by those upstream changes.
 
 Broader v1.4 work remains: provisional derivation from an unreviewed parent, semantic parent-change impact across descendants, the five-stage evidence rollup, Goal/Initiative linking, and cross-repository shared-contract/overall-outcome authoring. Existing split and usage coverage is retained, but does not establish those broader acceptance criteria.

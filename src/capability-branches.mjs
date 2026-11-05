@@ -257,9 +257,15 @@ export function baseBranchRecord(resolution, { capability = null, selectedAt = n
   });
 }
 
-/** Portable, exact bases from the preflight that actually created the Story, never local paths. */
+const STORY_BASE_SOURCES = new Set(['requested', 'override', 'default']);
+
+/**
+ * Portable, exact bases from the preflight that actually created the Story, never local paths.
+ * `sources` is the base resolution's per-repository record: its `source` is kept only for the
+ * branch it chose, and a Story recorded before that field simply has none.
+ */
 export function recordStoryRepositoryBases(repositories = [], {
-  repositoryId = null, baseBranch, baseCommit = null, baseRemote = null, storyBranch
+  repositoryId = null, baseBranch, baseCommit = null, baseRemote = null, storyBranch, sources = null
 } = {}) {
   const selected = repositories.length ? repositories
     : baseCommit ? [{ id: repositoryId ?? 'lifecycle', baseBranch, baseCommit }] : [];
@@ -277,12 +283,25 @@ export function recordStoryRepositoryBases(repositories = [], {
       throw new SingularityFlowError(`The recorded base of '${id}' differs from the Story launch base.`,
         { code: 'STORY_REPOSITORY_BASES_INVALID' });
     }
+    const chosen = sources?.[id];
     return { repositoryId: id, baseBranch: entry.baseBranch, baseCommit: entry.baseCommit,
-      baseRemote: entry.baseRemote ?? entry.remote ?? baseRemote, storyBranch };
+      baseRemote: entry.baseRemote ?? entry.remote ?? baseRemote, storyBranch,
+      ...(chosen?.branch === entry.baseBranch && STORY_BASE_SOURCES.has(chosen.source) ? { source: chosen.source } : {}) };
   });
   if (recorded.length && repositoryId && !seen.has(repositoryId)) {
     throw new SingularityFlowError(`The Story launch repository '${repositoryId}' has no recorded base.`,
       { code: 'STORY_REPOSITORY_BASES_INVALID' });
   }
   return recorded.sort((a, b) => a.repositoryId.localeCompare(b.repositoryId));
+}
+
+/** One repository's base for reading: `repository: branch @ short commit`, marked when it was an override. */
+export function storyRepositoryBaseText({ repositoryId, baseBranch, baseCommit, source } = {}) {
+  return `${repositoryId}: ${baseBranch} @ ${String(baseCommit).slice(0, 12)}${source === 'override' ? ' (override)' : ''}`;
+}
+
+/** The recorded bases worth listing: only a Story with more than one repository has any to tell apart. */
+export function storyRepositoryBases(workflow) {
+  const bases = workflow?.workItem?.repositoryBases;
+  return Array.isArray(bases) && bases.length > 1 ? bases : [];
 }

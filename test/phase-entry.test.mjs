@@ -785,8 +785,9 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   assert.equal(entry.context.text.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2, 'one shared requirement rubric, not duplicate inventories');
   assert.equal(entry.authoringContract.requirementCoverage.acceptanceCriteriaCount, true);
   assert.equal(entry.mutationContract.toolProtocol.localVerification.allowed, true);
-  assert.match(entry.context.text, /Local verification is allowed in this admitted authoring turn/u);
-  assert.match(entry.context.text, /VS Code task is optional, not a prerequisite/u);
+  // An artifact-only step keeps the permission; only a step that writes source gets the page about it.
+  assert.doesNotMatch(entry.context.text, /Local verification is allowed in this admitted authoring turn/u);
+  assert.match(entry.mutationContract.toolProtocol.localVerification.guidance, /VS Code task is optional, not a prerequisite/u);
   const promptPath = path.join(item.root, 'team/stories/ENTRY-1/context/prompts', `${entry.phase}-gen1.md`);
   const initial = await readFile(promptPath, 'utf8');
   assert.doesNotMatch(initial, /Local verification is allowed in this admitted authoring turn/u,

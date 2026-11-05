@@ -386,6 +386,8 @@ test('a Story pins the step setting, routes from it, verifies it, and keeps its 
   assert.equal(status.authoringRoutes.intake.authoringSkillSource, 'configured');
   assert.equal(status.authoringRoutes.design.authoringSkillSource, 'automatic');
   assert.equal(status.authoringRoutes.design.effectiveAuthoringSkill, '/sf-phase');
+  assert.ok((status.workItem.repositoryBases ?? []).length <= 1, 'this fixture is one repository');
+  assert.doesNotMatch(flow(root, ['status']).stdout, /^Bases:/mu, 'one repository has no bases to tell apart');
 
   // A hand-edited resolution no longer matches its anchors. An enrolled Story refuses to load it at
   // all; the creation-anchor check behind policyVerified catches it for Stories without a snapshot.

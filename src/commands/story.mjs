@@ -669,6 +669,7 @@ export async function storyFetchCommand(positionals, options) {
       resolved: resolvedWorkType,
       repositoryReadiness,
       readinessRepositories,
+      repositoryBaseSources: capabilityBase?.plan?.record?.repositories ?? null,
       // Keep both the selected/inferred ID and the exact retained map identity from the preflight
       // which ran before sibling movement. Workflow creation refuses if either authority changed.
       capabilityId: capabilityPreflight.capabilityId,

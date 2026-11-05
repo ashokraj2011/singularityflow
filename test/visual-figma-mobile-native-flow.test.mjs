@@ -125,7 +125,7 @@ test('a phone-only figma-mobile Story completes with a native phone capture and 
       assert.deepEqual(stored.visualProfileDecisions, [accepted.data.record], 'recorded append-only in workflow.json');
       assert.equal(stored.history.at(-1).event, 'visual_profile_decided');
       const { onlyHumanDecisionCommits } = await import('../src/state.mjs');
-      assert.deepEqual(onlyHumanDecisionCommits(root, YAML.parse(await readFile(configPath, 'utf8')), stored, beforeDecision, decisionCommit), [decisionCommit],
+      assert.deepEqual(await onlyHumanDecisionCommits(root, YAML.parse(await readFile(configPath, 'utf8')), stored, beforeDecision, decisionCommit), [decisionCommit],
         'the decision commit is one person\'s decision');
       // The phone cannot be decided away too: it is the last profile left to evidence.
       const last = flow(root, ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'phone-390x844', '--not-applicable', '--reason', reason, '--json'],

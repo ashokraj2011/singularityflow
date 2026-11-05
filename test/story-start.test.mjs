@@ -1234,10 +1234,10 @@ exit 0
     assert.deepEqual(started.workflow.workItem.repositoryBases, [
       { repositoryId: 'lead', baseBranch: 'release-capability',
         baseCommit: run('git', ['rev-parse', 'origin/release-capability'], lead.source).stdout.trim(),
-        baseRemote: 'origin', storyBranch: 'WORK-CAP-1' },
+        baseRemote: 'origin', storyBranch: 'WORK-CAP-1', source: 'requested' },
       { repositoryId: 'sibling', baseBranch: 'main',
         baseCommit: run('git', ['rev-parse', 'origin/main'], sibling.source).stdout.trim(),
-        baseRemote: 'origin', storyBranch: 'WORK-CAP-1' }
+        baseRemote: 'origin', storyBranch: 'WORK-CAP-1', source: 'override' }
     ]);
     const retained = JSON.parse(run('git', ['show', 'WORK-CAP-1:singularity/work-items/WORK-CAP-1/workflow.json'], lead.remote).stdout);
     assert.deepEqual(retained.workItem.repositoryBases, started.workflow.workItem.repositoryBases,
@@ -1253,6 +1253,13 @@ exit 0
     assert.deepEqual(cliRecord.workItem.repositoryBases.map(({ repositoryId, baseBranch, baseCommit }) =>
       ({ repositoryId, baseBranch, baseCommit })), started.workflow.workItem.repositoryBases.map(({ repositoryId, baseBranch, baseCommit }) =>
       ({ repositoryId, baseBranch, baseCommit })), 'CLI and native intake retain the same per-repository bases');
+    assert.deepEqual(cliRecord.workItem.repositoryBases.map(row => row.source), ['requested', 'override'],
+      'the CLI start records where each base came from, too');
+    const [cliLead, cliSibling] = cliRecord.workItem.repositoryBases;
+    const statusText = run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', 'WORK-CAP-CLI'], cliRoot).stdout;
+    assert.ok(statusText.includes(`Bases:\n  lead: release-capability @ ${cliLead.baseCommit.slice(0, 12)}\n  sibling: main @ ${cliSibling.baseCommit.slice(0, 12)} (override)\n`), statusText);
+    const statusJson = JSON.parse(run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', 'WORK-CAP-CLI', '--json'], cliRoot).stdout);
+    assert.deepEqual(statusJson.workItem.repositoryBases, cliRecord.workItem.repositoryBases, 'status --json carries the record');
     assert.equal(run('git', ['branch', '--show-current'], firstCheckout).stdout.trim(), 'WORK-CAP-REFUSED',
       'creating another Story must not switch the workspace\'s earlier Story checkout');
     assert.equal(JSON.parse(await readFile(path.join(firstCheckout,

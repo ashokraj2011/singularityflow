@@ -32,6 +32,14 @@ export function phaseGenerationChatPrefill(value: string | null | undefined): {
   return skill ? { query: `${skill} `, isPartialQuery: true } : null;
 }
 
+/**
+ * Review, submission and approval read their own packets. Started from the authoring chat they carry
+ * all of it into every call: 40% of a recorded Story's cost, 17% less replayed from a fresh chat.
+ */
+export function startsFreshChat(query: string): boolean {
+  return /^\/sf-(?:review-source|submit|approve)(?:\s|$)/u.test(query);
+}
+
 /** Parse only the exact engine-owned CLI route. No shell, fallback command, or local inference. */
 export function submissionCommandArgv(
   readiness: SubmissionReadiness | null | undefined,

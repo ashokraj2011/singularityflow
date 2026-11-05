@@ -10422,6 +10422,67 @@ async function workspaceSelectionRaceFixture(t, { deferredOlder = false } = {}) 
   return { cli, nodes, workspaceIds, selectionFile, source };
 }
 
+test('a window bound through its open folder names its workspace on the intake form and its review', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await workspaceSelectionRaceFixture(t);
+  const { api, registered } = stubVscode();
+  // The workspace's own clone, opened directly: the window never reads the workspace registry, and
+  // no workspace is selected for it. Only the repository's membership knows the name.
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.nodes.newer.openPath } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find(entry => entry.id === 'singularityFlow.intake');
+  await until(() => /<dt>Workspace<\/dt><dd>newer<\/dd>/.test(intake.webview.html) ? true : null,
+    { what: 'the review to name the workspace that owns this repository' });
+  assert.doesNotMatch(intake.webview.html, /<dt>Workspace<\/dt><dd>Not provided<\/dd>/);
+  assert.match(intake.webview.html, /<dt>Workspace:<\/dt><dd class="chip">newer<\/dd>/);
+  intake.dispose?.();
+});
+
+test('a retained intake form follows a later workspace choice, and a failed read leaves it usable', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const client = {
+    repository: '/fixture/retained',
+    prewarmRuntime: async () => ({ status: 'prepared' }),
+    run: async () => ({ choices: [], remote: 'origin', intake: { storyWorkflows: [] } })
+  };
+  const output = api.window.createOutputChannel('Intake');
+  const logged = [];
+  const originalAppend = output.appendLine;
+  output.appendLine = line => { logged.push(line); return originalAppend?.call(output, line); };
+  const target = { repository: '/fixture/retained', branch: 'main', inFlight: [], defaults: { source: 'manual' } };
+  const panel = IntakePanel.show(context(), client, output, async () => {}, {
+    ...target, workspace: null, readWorkspace: async () => { throw new Error('registry unreadable'); }
+  });
+  t.after(() => panel.dispose());
+  const webview = registered.panels.find(entry => entry.id === 'singularityFlow.intake');
+  await until(() => logged.some(line => /Could not read this repository's workspace: registry unreadable/.test(line)) ? true : null,
+    { what: 'a failed workspace read to be logged' });
+  assert.match(webview.webview.html, /<dt>Workspace<\/dt><dd>Not provided<\/dd>/, 'nothing is invented when the read fails');
+
+  // The person chose a workspace for this same checkout while the form stayed open.
+  assert.equal(IntakePanel.show(context(), client, output, async () => {}, { ...target, workspace: 'Payments' }), panel);
+  await until(() => /<dt>Workspace<\/dt><dd>Payments<\/dd>/.test(webview.webview.html) ? true : null,
+    { what: 'the retained form to name the chosen workspace' });
+  // Guided Start names the selected workspace, but this repository's own membership decides.
+  assert.equal(IntakePanel.show(context(), client, output, async () => {}, { ...target, workspace: 'Payments', readWorkspace: async () => 'Ledger' }), panel);
+  await until(() => /<dt>Workspace<\/dt><dd>Ledger<\/dd>/.test(webview.webview.html) ? true : null,
+    { what: 'the repository membership to replace a label' });
+  assert.equal(IntakePanel.show(context(), client, output, async () => {}, { ...target, workspace: null, readWorkspace: async () => null }), panel);
+  await until(() => /<dt>Workspace<\/dt><dd>Not provided<\/dd>/.test(webview.webview.html) ? true : null,
+    { what: 'a repository in no workspace to name none' });
+
+  // targetWorkspace is a display name. The recovery route finds the workspace from the exact repository.
+  await webview.post({ type: 'workflowRefresh' });
+  const refresh = registered.executedCommands.find(entry => entry.id === 'singularityFlow.refreshRepositorySetup');
+  assert.equal(refresh?.args[0]?.repositoryPath, '/fixture/retained');
+  assert.equal(refresh?.args[0]?.workspacePath, undefined);
+});
+
 test('a slow older explicit workspace selection cannot navigate after a newer choice', async (t) => {
   if (!requireBundle(t)) return;
   const fixture = await workspaceSelectionRaceFixture(t);

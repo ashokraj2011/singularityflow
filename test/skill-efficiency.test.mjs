@@ -60,7 +60,7 @@ test('every public skill has a bounded class and output contract', async () => {
   // 2026-10-31 (sweep batch 5): /sf-capability-map names a value conflict's discard and remap instead of a
   // rebase (C4), and /sf-configuration runs the draft read, discard and propose its refusals route to (E7).
   const overridden = ['sflow-appeal', 'sflow-approve', 'sflow-build-workflow', 'sflow-capability-map', 'sflow-code', 'sflow-configuration', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
-    'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
+    'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall',
     'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
     'sflow-story-start', 'sflow-submit', 'sflow-test-setup', 'sflow-verify', 'sflow-workflows'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - (row.storyCwdTokens ?? 0) - row.pauseGuardTokens - (row.gatewayToolsTokens ?? 0) > 800).map((row) => row.name), overridden);
@@ -178,7 +178,7 @@ test('generative requirements retains interactive clarification and governed pub
   assert.match(content, /Preparation is not authoring/);
   assert.match(content, /native file-edit tool/);
   assert.match(content, /verified Markdown-preview links/);
-  assert.match(content, /current `reviewBinding`[\s\S]*document reuse never (?:reuses|carries) approval consent/);
+  assert.match(content, /document reuse never (?:reuses|carries) approval consent/);
 });
 
 test('phase handoffs show Copilot, Shell and exact available model-free alternatives', async () => {
@@ -217,12 +217,14 @@ test('approval remains explicit-only with complete bound human review outside ch
   assert.match(content, /sflow-output-contract: governed-review/);
   assert.match(content, /Require human review of complete bound documents; never infer it from opened previews/);
   assert.match(content, /exact phase name|exact phase ID/i);
-  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --for-agent --json'),
-    'approval must resolve the requested Story and phase before reading artifacts');
-  assert.ok(content.indexOf('phase show <phase> --for-agent --json') < content.indexOf('Review outside chat against the exact binding'),
+  const entry = content.indexOf('choices begin approve <WORK-ID> --fetch --for-agent --json --review-packet');
+  const binding = content.indexOf('match `approvalPacket.review`');
+  assert.ok(entry >= 0 && entry < binding, 'the bound approval entry returns its review packet before artifacts are used');
+  assert.ok(binding < content.indexOf('Review outside chat against the exact binding'),
     'current packet must be revalidated before prior human acknowledgement is reused');
-  assert.match(content, /Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; mismatch or missing binding stops/);
-  assert.match(content, /Do not repeat document lookup/);
+  assert.match(content, /match `approvalPacket\.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; missing\/mismatched bindings stop/i);
+  assert.match(content, /Read once\./);
+  assert.doesNotMatch(content, /phase show <phase> --for-agent --json/u, 'the bound review packet replaces a duplicate document lookup');
   assert.match(content, /omissions or truncation require fresh human review/);
   assert.match(content, /do not ask again/);
   assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);

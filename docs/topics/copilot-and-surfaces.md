@@ -19,7 +19,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 33
+version: 34
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -30,6 +30,12 @@ Use `/sf-pause` (shell: `singularity-flow pause on --json`) to pause SFlow Copil
 The preference lives outside repositories and is never pushed. It survives restarts and skill reinstalls. It does not change any Story, approval, artifact, branch, checkout, personal skill, or Copilot setting. It does not abort commands or autonomous flights already running. Explicit terminal commands remain available and enforce all normal gates; native changes do not become evidence automatically. An unreadable preference conservatively pauses guidance and can be repaired with an explicit `pause off`.
 
 Instructions already loaded in a chat cannot be unloaded by a CLI preference. Switch from the SFlow custom agent to the host's default Agent and start a new chat for a clean native context. Reload skills or the IDE after installing this build; earlier loaded copies can still contain automatic routing.
+
+## What a long result asks you to read
+
+A result too long for the host stays whole in `.sflow/out/`. `agentOutput.read` lists the line ranges this step needs, and a `textFiles` entry marked `need` is a file it needs. A result whose `act` names no fields is read whole. The other `omittedFields` are listed so that a later step can open them by line. The same path holds the same bytes, so a path already read in this chat is not read again.
+
+Source review, submission and approval each read their own packet, so they cost less from a new chat. SFlow's replies suggest one, and VS Code's next-step button opens one for source review. It is advice: each step also works from the chat you are in.
 
 ## A person's own steps, in any chat
 

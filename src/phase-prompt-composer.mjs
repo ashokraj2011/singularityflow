@@ -2,7 +2,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { constitutionPromptContext } from './constitution-prompt.mjs';
 import { withoutAttachedSkills, withoutTableSection } from './skill-library.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
-import { withAgentPathProtocol } from './safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, withAgentPathProtocol } from './safe-command-guidance.mjs';
 import { withCommandPresentationProtocol } from './model-free-commands.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
@@ -528,11 +528,14 @@ async function recordedVisualReviewContext(root, workflow, phase) {
 /** Same delivery-only corrections for fresh and cached prompts; never persist over their receipts. */
 export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase) {
   const bound = Boolean(workflow && phase);
-  const verification = bound && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed;
+  // An artifact-only step keeps the permission (its mutation contract says so), not the page about it.
+  const verification = bound && phase.writeScope !== 'artifact-only'
+    && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed;
   const requirements = bound && phaseOwnsScope(workflow, phase)
     && !phasePromptExecutionContract(definition, workflow, phase).deterministicOnly;
   return withCommandPresentationProtocol(withAgentPathProtocol(withRepairContinuationProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements))), {
-    normalizeLegacy: false, authoringVerification: Boolean(verification)
+    // A composed contract already states the path rule: one copy is enough.
+    normalizeLegacy: false, authoringVerification: Boolean(verification), pathRuleStated: text.includes(`- Paths: ${CLI_PATH_CONTRACT}`)
   }));
 }
 
@@ -599,7 +602,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Work-item directory: \`${itemRelative}\``,
     `- Required artifact: \`${requiredArtifact}\``,
     ...artifactContentContractLines(phase.requiredArtifact),
-    '- Path boundary: Repository discovery stays within the selected checkout. Keep CLI-issued absolute paths unchanged, including exact private/external files; writes still require phase authorization.',
+    '- Path boundary: Repository discovery stays within the selected checkout.',
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
     `- Intelligence: world-model=\`${pinnedIntelligence.worldModel ?? 'inherit'}\`, AST=\`${astContract}\`, agent-briefs=\`${pinnedIntelligence.agentBriefs ?? 'inherit'}\``,
     ...(worldModelDisabledForWorkflow(workflow)

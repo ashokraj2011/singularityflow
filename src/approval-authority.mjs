@@ -190,7 +190,7 @@ export function approvalRequirementsMet(policy, approvals = [], { counts = null 
     && remainingRequiredAuthorities(policy, active).length === 0;
 }
 
-import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
+import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 /**
  * One engine-computed view of where the approval of the phase awaiting it stands, so no surface

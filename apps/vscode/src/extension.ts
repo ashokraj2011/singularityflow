@@ -45,7 +45,7 @@ import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import { buildJourney } from './views/journey-model.ts';
 import {
-  phaseGenerationChatPrefill, submissionCommandArgv
+  phaseGenerationChatPrefill, startsFreshChat, submissionCommandArgv
 } from './views/submission-presentation.ts';
 import { phasePrepublishDecision } from './views/phase-prepublish.ts';
 import { testRecoveryPreviewArgs, testRecoveryReviewActions, type TestRecoveryAction } from './views/story-test-recovery.ts';
@@ -6766,7 +6766,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const intakeRepository = defaults.repositoryPath ?? repositoryState?.root ?? repository;
     const intakeCommonDirectory = defaults.clone?.repository?.commonDirectory ?? intakeCatalogKey();
     const { IntakePanel, intakeInFlight } = lazyPanels();
-    IntakePanel.show(context, defaults.repositoryPath ? client.forkForRepository(intakeRepository) : client, output, async (started) => {
+    const intakeClient = defaults.repositoryPath ? client.forkForRepository(intakeRepository) : client;
+    IntakePanel.show(context, intakeClient, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
           && await storyCheckoutNeedsWindowSwitch(started.repositoryPath,
@@ -6801,7 +6802,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
     }, {
-      workspace: workspaceLabel,
+      // Painted at once, then replaced by what the repository's own membership says.
+      workspace: defaults.workspaceName ?? (defaults.repositoryPath ? null : workspaceLabel),
+      readWorkspace: async () => {
+        const owner = await intakeClient.run<{ active?: boolean; workspaceName?: string }>(['workspace', 'current', '--json']);
+        return owner.active === false ? null : owner.workspaceName;
+      },
       repository: intakeRepository,
       workflowPreferenceScope: () => {
         const observed = store.current.snapshot?.executionContext;
@@ -9146,6 +9152,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // This is deliberately a partial query. Clicking the lifecycle action cannot prepare,
       // review, author, publish, or submit anything; the contributor reviews the engine-selected skill.
+      // Advice, not a gate: with chat features off this command may not exist, and the prefill still runs.
+      if (startsFreshChat(prefill.query)) await vscode.commands.executeCommand('workbench.action.chat.newChat').then(undefined, () => undefined);
       await vscode.commands.executeCommand('workbench.action.chat.open', prefill);
     },
     'singularityFlow.approve': runNode as never,

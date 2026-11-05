@@ -1148,7 +1148,7 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /Compare authored-content hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
   assert.match(skill, /only the author prepares\/publishes successors/);
-  assert.match(skill, /End with `continuation.actions`, target generation\/owner/);
+  assert.match(skill, /End with the words `Run this in a new chat:` then `continuation.actions`, target generation\/owner/);
   assert.match(skill, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {
@@ -1357,7 +1357,7 @@ test('governed phase skills reuse the shared repository model without Story task
     else assert.match(content, /wm (?:compose|availability) --phase|phase enter (?:<phase> )?(?:--work-id <WORK-ID> )?--compose/i,
       `${name} must inspect or compose repository grounding`);
     assert.doesNotMatch(content, /singularity-flow wm (?:compose|availability) --phase [^`\n]*--task/i, `${name} must not create a Story-specific task guide`);
-    assert.match(content, /Story context|governed workflow|entry packet[^\n]*binding, recovery, clarification and references|reuse binding\/recovery\/clarification\/references/i,
+    assert.match(content, /Story context|governed workflow|entry packet[^\n]*binding, recovery, clarification and references|reuse binding and delivered inputs|reuse binding\/recovery\/clarification\/references/i,
       `${name} must preserve Story context separately`);
   }
   const alias = await readFile(path.join(pluginRoot, 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');

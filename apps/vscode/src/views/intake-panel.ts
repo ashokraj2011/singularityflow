@@ -65,6 +65,13 @@ export interface Started {
 
 export interface IntakeTarget {
   workspace: string | null;
+  /**
+   * The workspace this repository belongs to, or null when it belongs to none. `workspace` is only
+   * the window's label: a window bound through its open folder, a workspace directory or its
+   * remembered selection never read the registry, and Guided Start names the selected workspace
+   * whichever repository the window has open. So this answer replaces it.
+   */
+  readWorkspace?: (() => Promise<string | null | undefined>) | null;
   repository: string;
   branch: string | null;
   /** From the Store's last snapshot, possibly cached; `lifecycleChanged` keeps it current. */
@@ -310,6 +317,7 @@ export class IntakePanel {
   private renderSequence = 0;
   private favouriteScope = '';
   private readonly workflowPreferenceScope: NonNullable<IntakeTarget['workflowPreferenceScope']>;
+  private readWorkspace: IntakeTarget['readWorkspace'];
   private readonly runtimeWarmup = new AbortController();
   private prep: IntakeWorktreePreparation | null = null;
   private branchCheckout: { base: string; client: SingularityFlowClient } | null = null;
@@ -338,6 +346,7 @@ export class IntakePanel {
     this.holdBackgroundWork = target.holdBackgroundWork ?? null;
     this.holdNavigation = target.holdNavigation ?? null;
     this.workflowPreferenceScope = target.workflowPreferenceScope ?? (() => ({ commonDirectory: target.repository }));
+    this.readWorkspace = target.readWorkspace ?? null;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -387,9 +396,29 @@ export class IntakePanel {
       null, this.disposables);
     this.holdWhileVisible(this.panel.visible);
     this.render();
+    void this.refreshTargetWorkspace();
     void this.load().finally(() => {
       if (!this.disposed) void this.client.prewarmRuntime(this.runtimeWarmup.signal);
     });
+  }
+
+  /** Name the workspace this form targets. A failed read leaves the form usable and says so in the log. */
+  private async refreshTargetWorkspace(): Promise<void> {
+    const repository = this.form.targetRepository;
+    try {
+      const name = await this.readWorkspace?.();
+      if (name !== undefined && name !== this.form.targetWorkspace && !this.disposed
+          && this.form.targetRepository === repository) this.update({ targetWorkspace: name }, { background: true });
+    } catch (error) {
+      this.output.appendLine(`Could not read this repository's workspace: ${(error as Error).message}`);
+    }
+  }
+
+  /** A retained form may have opened before a workspace was chosen for this same checkout. */
+  private retarget({ workspace, readWorkspace }: IntakeTarget): void {
+    this.readWorkspace = readWorkspace ?? this.readWorkspace;
+    if (workspace && workspace !== this.form.targetWorkspace) this.update({ targetWorkspace: workspace }, { background: true });
+    void this.refreshTargetWorkspace();
   }
 
   /** Optional background work waits while this form is on screen, and resumes once it is not. */
@@ -427,6 +456,7 @@ export class IntakePanel {
           && IntakePanel.current.form.targetBranch === target.branch
           && Boolean(IntakePanel.current.journey) === Boolean(target.journey)) {
         IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
+        IntakePanel.current.retarget(target);
         // A retained Intake panel may have outlived a terminal or Configuration Center refresh.
         // Reopening Start Work is an explicit request for the current authority, not for its cached
         // launch catalog. Preserve the person's draft while refreshing only governed choices.
@@ -1033,8 +1063,8 @@ export class IntakePanel {
     catalogRetry: () => { if (!this.form.busy) return this.reloadCatalog({ refresh: true }); },
     workflowRefresh: () => vscode.commands.executeCommand(
       'singularityFlow.refreshRepositorySetup', {
-        repositoryPath: this.form.targetRepository ?? undefined,
-        workspacePath: this.form.targetWorkspace ?? undefined
+        // The exact repository finds its workspace there. targetWorkspace is a name, never a path.
+        repositoryPath: this.form.targetRepository ?? undefined
       }
     ),
     referenceAdd: () => {

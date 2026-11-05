@@ -4,6 +4,7 @@ import {
   changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
 } from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
+import { storyRepositoryBases, storyRepositoryBaseText } from './capability-branches.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { countedApprovals } from './presence/counted.mjs';
 import { workDir } from './story-paths.mjs';
@@ -188,10 +189,15 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
       status: `singularity-flow status --work-id ${workflow.workItem.id}`
     }
   };
+  // Each repository's base sits with the observations, not the core: a Story that already has a
+  // receipt keeps the same receiptCoreSha256 when it replays, and one repository adds nothing.
+  const repositoryBases = storyRepositoryBases(workflow).map(({ repositoryId, baseBranch, baseCommit, source }) =>
+    ({ repositoryId, baseBranch, baseCommit, ...(source ? { source } : {}) }));
   const observations = {
     changes: changedPaths,
     requirements,
     publication: publicationProjection(root, config, packet),
+    ...(repositoryBases.length ? { repositoryBases } : {}),
     ...(presence?.applies ? { presence: presenceProjection(presence) } : {}),
     ...(attribution ? { attributionSeal: await attributionSealProjection(root, workflow, packet, attribution) } : {})
   };
@@ -252,6 +258,7 @@ export function renderEvidenceReceipt(receipt) {
   return [
     `Evidence receipt: ${receipt.work.id} · ${receipt.work.phase} generation ${receipt.work.generation}`,
     `Source: ${receipt.source.commit.slice(0, 12)} · changes ${unavailable(receipt.changes.count)} (${receipt.changes.status})`,
+    ...(receipt.repositoryBases ? [`Bases: ${receipt.repositoryBases.map(storyRepositoryBaseText).join(' · ')}`] : []),
     `Requirements: ${unavailable(receipt.requirements.claimed)}/${unavailable(receipt.requirements.clauses)} claimed (${receipt.requirements.status})`,
     `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `Approvals: ${receiptApprovalText(receipt)}`,
@@ -271,6 +278,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     '',
     `- Phase: \`${receipt.work.phase}\` generation ${receipt.work.generation}`,
     `- Source commit: \`${receipt.source.commit}\``,
+    ...(receipt.repositoryBases ? [`- Bases: ${receipt.repositoryBases.map(base => `\`${storyRepositoryBaseText(base)}\``).join(', ')}`] : []),
     `- Changed paths: **${value(receipt.changes.count)}** (${receipt.changes.status})`,
     `- Requirements claimed: **${value(receipt.requirements.claimed)}/${value(receipt.requirements.clauses)}** (${receipt.requirements.status})`,
     `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,

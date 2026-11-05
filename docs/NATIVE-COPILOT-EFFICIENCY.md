@@ -929,3 +929,54 @@ World Model classifications, a missing `MODEL_SESSION_INCOMPATIBLE` classificati
 and a placeholder-only removed-command route. Their source, tests and discovered
 version-sensitive code set are unchanged by this efficiency work; this is not a
 claim that the entire repository test suite is green.
+
+## Recorded sessions and a live comparison — 2026-11-05
+
+Copilot's own session logs for two real Stories in VS Code, six chats, showed where the cost went.
+Phase prompts are not the main cost: the prompt log sees 7-9K tokens per phase, while the same chats
+used 4-8M input tokens each, 97% of it read from cache.
+
+| Where the cost went | Share |
+|---|---:|
+| Model output, plus its earlier turns read again | 36% |
+| SFlow command results (JSON) | 28% |
+| Copilot's base prompt and tool list, read again on every call | 18% |
+| Phase prompts and review documents | 6% |
+| Skill text | 4% |
+| Reading its own artifact again | 4% |
+| Repository reads and other tools | 4% |
+
+What changed as a result:
+
+- A long result names what the step needs. 73% of the JSON the recorded chats read was outside the
+  fields each `act` named. Replaying 26 recorded results through the new code cut the JSON to read by 78%.
+- A published result reads its next step and output, not the review packet. A correction reads the
+  findings, not `resolution`, which was 124 KB of a 150 KB result in the live run.
+- Saved results have no indentation (18% fewer bytes, about 10% fewer tokens by one common tokenizer).
+- A repeated entry with an unchanged prompt names the same prompt file, and a path already read is not
+  read again. A recorded specification had read 17.7K tokens twice.
+- `agentOutput.read` and a field's own ranges no longer overlap. A recorded result was read twice in one response.
+- Review, submission and approval suggest a new chat. They were 40% of a recorded Story's cost, and a
+  replay from a fresh chat came to 17% less.
+- The phase prompt lost about 2 KB of repeated rules, and artifact-only steps lost the page on local verification.
+
+Live comparison, same fixture Story and answers, Copilot CLI 1.0.105 over ACP, one pinned model, specification
+and planning, from publishing through submission (approvals made in the terminal for both):
+
+| Build | Chats | Calls | Input tokens | Cache writes | Output | Peak context | Credits |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Before, one chat per phase | 2 | 61 | 3,848,590 | 191,452 | 31,700 | 118,886 | 7.64 |
+| After, a new chat per step | 6 | 73 | 2,446,210 | 190,392 | 26,884 | 69,857 | 5.98 |
+
+That is 36% fewer input tokens and 22% fewer credits on one run of a small Story, so read it as a direction,
+not a rate. Every step finished without a stall, and so did a further code step on the new build (20 calls, 1.74 credits).
+
+Still open:
+
+- Copilot's base context was 27.7K tokens in VS Code (154 tools, 46 listed skills, mostly from Java migration
+  and Python extensions), against 14K on SFlow's own model calls. Turning those extensions off in a workspace
+  should help but has not been measured.
+- A full cache rewrite happened 5 times in 11 recorded chats (4.9 of 70 credits), mostly with a switch between
+  Auto and a named model at a slash command. Nothing in SFlow sets the model.
+- Over ACP, with no question tool, a person's phase answer arrives as a new turn, which is not a `/sf-approve`
+  turn, so the approval is refused and the person runs it in their terminal.

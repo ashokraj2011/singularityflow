@@ -153,11 +153,15 @@ export function stop(result, label, code = 'CLI_STEP_FAILED') {
  * step was itself the next action. An agent that read the long result from the top reported
  * "published" and ended without offering what follows, so callers put this first.
  */
+// Review, submission and approval read their own packets, so the authoring chat only makes each of
+// their calls dearer: 40% of a recorded Story's cost, 17% less replayed from a fresh chat (2026-11-05).
+const FRESH_CHAT_ROUTE = /^\/sf(?:low)?-(?:review-source|submit|approve)(?:\s|$)/u;
+
 export function nextAfterStep(review, done) {
   const continuation = review?.continuation ?? null;
   const action = continuation?.nextAction ?? null;
   return {
-    instruction: `${done} End the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one. Fields after this one describe the check before the step ran.`,
+    instruction: `${done} End the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one.${FRESH_CHAT_ROUTE.test(continuation?.copilotCommand ?? '') ? ' Say to run it in a new chat: it needs nothing from this one.' : ''} Fields after this one describe the check before the step ran.`,
     ...(continuation?.contextBoundary ? { contextBoundary: continuation.contextBoundary } : {}),
     reason: action?.reason ?? null,
     commandGuidance: action ? { copilotCommand: continuation.copilotCommand ?? null,

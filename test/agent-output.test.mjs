@@ -85,10 +85,16 @@ test('act reads each result by its own fields and never invents a next action', 
   assert.equal(prepared({ status: 'repair-or-human-decision', items: [] }).do.shell, 'singularity-flow phase prepublish intake', 'the route is unchanged');
   assert.equal(prepared(null).read, undefined, 'nothing to link adds nothing to read');
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [{}, {}] }).state, 'correct');
+  assert.deepEqual(agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [{}, {}] }).read,
+    ['findings', 'correction', 'traceabilityRepair', 'repairLoop'], 'every finding\'s choices and repair task are not what a correction needs');
+  assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'implementation', generatesCode: true }).read.slice(-2), ['recovery.testExecution', 'intent']);
+  assert.ok(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', generatesCode: true, recovery: { requiresRecovery: true } }).read.includes('recovery'));
+  assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'planning' }).read.includes('intent'), false);
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', repairLoop: { status: 'escalate', instruction: 'Stop.' } }).state, 'escalate');
   const published = agentAct({ publishIfReady: { published: true, next: { instruction: 'Published. End the reply.', reason: 'Submit it.',
     commandGuidance: { copilotCommand: '/sf-submit', command: 'singularity-flow submit intake --work-id W', modelFreeCommand: null } } } });
   assert.deepEqual(published.do, { reason: 'Submit it.', copilot: '/sf-submit', shell: 'singularity-flow submit intake --work-id W', vscode: null });
+  assert.deepEqual(published.read, ['publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff'], 'the review packet is the person\'s, not this step\'s');
   // A step only a person may author is theirs to publish: publish-if-ready did not, and the agent never does.
   const personal = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready',
     commands: { publish: 'singularity-flow phase publish charter --authored human --channel manual-in-place' },
@@ -271,7 +277,7 @@ test('a small result keeps every field with act first; a large one is written wh
   assert.equal(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).stdout, '', 'nothing SFlow wrote shows as a change');
   const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
   const recovery = view.omittedFields.find((entry) => entry.field === 'recovery');
-  const slice = lines.slice(recovery.lines[0] - 1, recovery.lines[1]).join('\n').replace(/^ {2}"recovery": /u, '').replace(/,$/u, '');
+  const slice = lines.slice(recovery.lines[0] - 1, recovery.lines[1]).join('\n').replace(/^"recovery": /u, '').replace(/,$/u, '');
   assert.deepEqual(JSON.parse(slice), large.recovery, 'the named line range is exactly the omitted field');
   const context = view.omittedFields.find((entry) => entry.field === 'context');
   assert.equal(await readFile(context.textFiles[0].path, 'utf8'), prose, 'a long text is its own line-readable file, byte for byte');
@@ -301,16 +307,20 @@ test('the fields a view leaves out are written first and together, and named as 
   assert.ok(omitted.length >= 2, omitted.join(', '));
   // act reads context, so it is first; the rest follow in the result's own order.
   assert.equal(omitted[0], 'context');
-  assert.deepEqual(view.agentOutput.read.length, 1, 'one read holds every field left out');
+  assert.deepEqual(view.agentOutput.read.length, 1, 'one read holds what act names');
   assert.equal(view.agentOutput.read[0].lines[0], 2, 'the fields left out start the file');
   assert.ok(view.agentOutput.read[0].bytes <= READ_CHUNK_BYTES);
   const read = await fieldsIn(view.agentOutput.path, view.agentOutput.read);
-  assert.deepEqual(Object.keys(read), omitted, 'exactly the fields left out, in the order they are read');
+  assert.deepEqual(Object.keys(read), ['context'], 'only the field left out that act names');
   const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
-  for (const field of omitted) assert.deepEqual(read[field], full[field]);
-  assert.deepEqual(read.recovery, large.recovery);
-  assert.match(view.agentOutput.instruction, /together in one response/u);
-  assert.doesNotMatch(view.agentOutput.instruction, /only the ranges you need/u);
+  assert.deepEqual(read.context, full.context);
+  assert.match(view.agentOutput.instruction, /in one response/u);
+  assert.match(view.agentOutput.instruction, /the other omittedFields are optional/u);
+  // The rest is still listed, at lines that hold it whole.
+  const recovery = view.omittedFields.find((entry) => entry.field === 'recovery');
+  const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
+  assert.deepEqual(JSON.parse(lines.slice(recovery.lines[0] - 1, recovery.lines[1]).join('\n').replace(/^"recovery": /u, '').replace(/,$/u, '')), large.recovery);
+  assert.equal(recovery.read, undefined, 'its own ranges would invite a second read');
 });
 
 test('large fields left out become a few ranges of whole fields, each within one read', async (t) => {
@@ -320,7 +330,7 @@ test('large fields left out become a few ranges of whole fields, each within one
   const rows = (label, count) => Array.from({ length: count }, (_, index) => ({ id: `${label}-${index}`, detail: 'y'.repeat(150) }));
   // authoring-entry reads mutationContract: it is read first although the result lists it last.
   const large = { resultType: 'sflow-phase-entry', status: 'authoring-entry', repositoryPath: root, workId: 'W',
-    history: rows('history', 160), evidence: rows('evidence', 90), extra: rows('extra', 400), mutationContract: { rules: rows('rule', 40) } };
+    history: rows('history', 160), evidence: rows('evidence', 90), extra: rows('extra', 400), mutationContract: { rules: rows('rule', 120) } };
   const view = JSON.parse(await boundedAgentOutput(JSON.stringify(large), { cwd: root }));
   const { read } = view.agentOutput;
   assert.ok(read.length >= 2 && read.length <= READ_PLAN_CHUNKS, JSON.stringify(read));
@@ -329,11 +339,12 @@ test('large fields left out become a few ranges of whole fields, each within one
     if (index) assert.equal(range.lines[0], read[index - 1].lines[1] + 1, 'consecutive ranges');
   }
   const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
-  assert.match(lines[read[0].lines[0] - 1], /^ {2}"mutationContract":/u, 'what act reads comes first');
-  // A field larger than a read is split at line boundaries; every field the plan does not reach keeps its own range.
+  assert.match(lines[read[0].lines[0] - 1], /^"mutationContract":/u, 'what act reads comes first');
+  // A field larger than a read is split at line boundaries; what act does not name is not planned.
   const reached = read.at(-1).lines[1];
-  for (const entry of view.omittedFields) assert.ok(entry.lines[0] <= reached || entry.lines[0] > reached, entry.field);
-  assert.ok(view.omittedFields.some((entry) => entry.field === 'extra'));
+  const extra = view.omittedFields.find((entry) => entry.field === 'extra');
+  assert.ok(extra.lines[0] > reached, 'a field act does not name stays out of the plan');
+  assert.equal(view.omittedFields.find((entry) => entry.field === 'mutationContract').lines[1], reached);
 });
 
 test('a long text file is named as ranges the file tool shows whole, to request in the same response', async (t) => {
@@ -352,7 +363,8 @@ test('a long text file is named as ranges the file tool shows whole, to request 
     assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES, `range ${start}-${end}`);
     if (index) assert.equal(start, text.read[index - 1][1] + 1, 'consecutive ranges');
   }
-  assert.match(view.agentOutput.instruction, /by its read ranges when given/u);
+  assert.equal(text.need, true, 'act names context, so its file is marked to read');
+  assert.match(view.agentOutput.instruction, /every textFiles entry marked need/u);
 });
 
 // Copilot 1.0.100 in VS Code (2026-10-27) showed at most 8,193 bytes of a read before "Output truncated"
@@ -405,9 +417,10 @@ test('omitted pretty JSON fields advertise safe field-specific reads and actual 
   const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
   const range = lines.slice(reference.lines[0] - 1, reference.lines[1]).join('\n') + '\n';
   assert.equal(reference.bytes, Buffer.byteLength(range));
-  assert.ok(reference.bytes > 8000);
-  assert.ok(reference.read.length >= 2);
-  for (const [start, end] of reference.read) assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES);
+  assert.equal(reference.read, undefined, 'the read plan holds it; a list of its own got one result read twice');
+  const planned = view.agentOutput.read.filter(({ lines: [start, end] }) => start <= reference.lines[1] && end >= reference.lines[0]);
+  assert.ok(planned.length >= 1 && planned[0].lines[0] <= reference.lines[0] && planned.at(-1).lines[1] >= reference.lines[1], JSON.stringify(view.agentOutput.read));
+  for (const { lines: [start, end] } of planned) assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES);
   assert.deepEqual(completeAgentResult(view).reportSchema, reportSchema);
 });
 
@@ -418,7 +431,7 @@ test('review document bodies and text given elsewhere become reference files out
   const body = (label) => Array.from({ length: 80 }, (_, index) => `${label} line ${index}: the authored requirement text.`).join('\n');
   const rule = 'Run the declared local checks before publishing; '.repeat(16);
   const document = (id, content) => ({ id, path: `singularity/work-items/W/artifacts/${id}.md`, sha256: 'a'.repeat(64), size: Buffer.byteLength(content), content });
-  const result = { resultType: 'sflow-phase-prepublish', status: 'ready', repositoryPath: root, workId: 'W', summary: rule,
+  const result = { resultType: 'x', status: 'ready', repositoryPath: root, workId: 'W', summary: rule,
     publishIfReady: { published: true, command: 'singularity-flow publish intake --json',
       review: { displayBinding: `sha256:${'b'.repeat(64)}`, documents: [document('intake', body('Intake')), document('brief', 'Short brief.')] } },
     guidance: { protocol: rule, extended: `${'Context first. '.repeat(50)}${rule}`, steps: Array.from({ length: 60 }, (_, index) => `Step ${index}: ${'s'.repeat(100)}`) },
@@ -504,7 +517,7 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
   // The checkpoint act points at is in the view, or exactly at the line range the view names.
   const named = view.omittedFields.find((entry) => entry.field === 'clarification');
   const clarification = view.clarification ?? JSON.parse((await readFile(view.agentOutput.path, 'utf8')).split('\n')
-    .slice(named.lines[0] - 1, named.lines[1]).join('\n').replace(/^ {2}"clarification": /u, '').replace(/,$/u, ''));
+    .slice(named.lines[0] - 1, named.lines[1]).join('\n').replace(/^"clarification": /u, '').replace(/,$/u, ''));
   assert.ok(clarification.checkpoint, 'the checkpoint act points at is in the view or at its named range');
   // One read holds the fields it left out, from the top of the file.
   assert.ok(view.agentOutput.read?.length >= 1 && view.agentOutput.read[0].lines[0] === 2, JSON.stringify(view.agentOutput.read));
@@ -803,4 +816,77 @@ test('an opened session keeps its commit, path and every next action in view, ho
   assert.equal(view.open.head, 'a'.repeat(40));
   assert.deepEqual(view.omittedFields.map((field) => field.field), ['context']);
   assert.equal(view.nextsteps.actions.length, 12);
+});
+
+// Measured on a recorded Story, 2026-11-05: 73% of the JSON read was outside the fields each act named,
+// and the review packet alone was 10 KB of each publish and 25 KB of a code step's submit.
+test('a result reads what its act names, nested fields included, and only a result with no act direction is read whole', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-needs-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const rows = (label, count) => Array.from({ length: count }, (_, index) => ({ id: `${label}-${index}`, detail: 'y'.repeat(120) }));
+  const next = { instruction: 'Submitted. End the reply.', reason: 'Decide it.', commandGuidance: { copilotCommand: '/sf-approve intake --work-id W', command: 'singularity-flow approve intake --work-id W --fetch', modelFreeCommand: null } };
+  const submitted = { resultType: 'sflow-submission-readiness', repositoryPath: root, workId: 'W', submitIfReady: { submitted: true, next, result: 'Submitted generation 1.',
+    review: { documents: rows('document', 60), displayBinding: rows('binding', 20) } }, recovery: { blockers: rows('blocker', 60) } };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(submitted), { cwd: root }));
+  assert.deepEqual(view.act.read, ['submitIfReady.next', 'submitIfReady.result']);
+  assert.equal(view.agentOutput.read.length, 1);
+  const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
+  const planned = lines.slice(view.agentOutput.read[0].lines[0] - 1, view.agentOutput.read[0].lines[1]).join('\n');
+  assert.match(planned, /^"next": \{/mu);
+  assert.match(planned, /^"result": "Submitted generation 1\."/mu);
+  assert.doesNotMatch(planned, /document-0|blocker-0/u, 'neither the packet nor recovery is planned');
+  assert.ok(lines.every((line) => !line.startsWith(' ')), 'a saved result has line structure and no indentation');
+  assert.deepEqual(completeAgentResult(view).submitIfReady, submitted.submitIfReady, 'the complete result is still whole');
+
+  // Fields apart in the file never share a range, which would read every line between them.
+  const apart = { resultType: 'source-review-agent-context', canReview: true, ready: true, repositoryPath: root, workId: 'W',
+    sources: [{ id: 'story', text: 'Keep the pinned source.' }], unnamed: rows('unnamed', 60), artifact: { text: 'Authored artifact.\n'.repeat(500) } };
+  const review = JSON.parse(await boundedAgentOutput(JSON.stringify(apart), { cwd: root }));
+  const unnamed = review.omittedFields.find((entry) => entry.field === 'unnamed');
+  for (const { lines: [start, end] } of review.agentOutput.read ?? []) assert.ok(end < unnamed.lines[0] || start > unnamed.lines[1], JSON.stringify(review.agentOutput.read));
+
+  // No direction from act: the result is itself the answer.
+  const plain = { resultType: 'x', repositoryPath: root, workId: 'W', first: rows('first', 60), second: rows('second', 60) };
+  const whole = JSON.parse(await boundedAgentOutput(JSON.stringify(plain), { cwd: root }));
+  assert.equal(whole.act.read, undefined);
+  const read = await fieldsIn(whole.agentOutput.path, whole.agentOutput.read);
+  assert.deepEqual(Object.keys(read).sort(), ['first', 'second']);
+});
+
+test('nextsteps names its actions, and act alone is enough when they are already in view', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-nextsteps-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const actions = [{ id: 'phase', timing: 'now', reason: 'Author it.', command: 'singularity-flow phase enter --compose --for-agent --json', copilotCommand: '/sf-phase' }];
+  const result = { resultType: 'sflow-nextsteps', repositoryPath: root, workId: 'W', actions, mutationContract: { rules: 'r'.repeat(9_000) },
+    authoringContract: { rules: 'a'.repeat(9_000) } };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+  assert.deepEqual(view.act.read, ['contextBoundary', 'actions', 'pending']);
+  assert.deepEqual(view.actions, actions, 'what it names stays in the view');
+  assert.equal(view.agentOutput.read, undefined);
+  assert.match(view.agentOutput.instruction, /act is all this step needs/u);
+  assert.ok(view.omittedFields.every((entry) => (entry.textFiles ?? []).every((file) => !file.need)), 'nothing is marked to read');
+});
+
+test('a repeated entry with the same prompt names the same prompt file', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-same-prompt-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const text = Array.from({ length: 700 }, (_, index) => `Line ${index} of the composed phase prompt, with its rules.`).join('\n');
+  const entry = (head) => ({ resultType: 'sflow-phase-entry', status: 'clarification-required', repositoryPath: root, workId: 'W', head, context: { text } });
+  const [first, second] = await Promise.all(['a', 'b'].map(async (head) => JSON.parse(await boundedAgentOutput(JSON.stringify(entry(head)), { cwd: root }))));
+  assert.notEqual(first.agentOutput.path, second.agentOutput.path, 'the results differ');
+  const file = (view) => view.omittedFields.find((candidate) => candidate.field === 'context').textFiles[0];
+  assert.equal(file(first).path, file(second).path, 'the same bytes keep one path');
+  assert.match(path.basename(file(first).path), /^context-text-[0-9a-f]{8}\.txt$/u);
+  assert.equal(await readFile(file(first).path, 'utf8'), text);
+  assert.equal(completeAgentResult(second).context.text, text);
+});
+
+test('the next step after publishing or submitting says when it starts in a new chat', async () => {
+  const { nextAfterStep } = await import('../src/cli-steps.mjs');
+  const after = (copilotCommand) => nextAfterStep({ continuation: { nextAction: { reason: 'Go.' }, copilotCommand, nextCommand: 'singularity-flow status' } }, 'Done.').instruction;
+  for (const route of ['/sf-review-source planning', '/sf-submit', '/sf-approve planning --work-id W']) assert.match(after(route), /Say to run it in a new chat/u, route);
+  for (const route of ['/sf-code', '/sf-phase', '/sf-next', '/sf-outcome W', '/sf-review-decide planning']) assert.doesNotMatch(after(route), /new chat/u, route);
 });

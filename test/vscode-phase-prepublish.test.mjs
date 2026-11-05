@@ -209,3 +209,11 @@ test('a correction that restates the blocking finding is shown once, in its full
     'Recheck:\n- Copilot: /sf-phase\n- Shell: singularity-flow phase prepublish verify --json\n- VS Code (model-free): not available for this action'
   ]);
 });
+
+test('review, submission and approval prefills start from a new chat; authoring keeps its chat', async () => {
+  const { startsFreshChat } = await import(new URL('../apps/vscode/src/views/submission-presentation.ts', import.meta.url).href);
+  for (const skill of ['/sf-review-source ', '/sf-submit ', '/sf-approve planning']) assert.equal(startsFreshChat(skill), true, skill);
+  for (const skill of ['/sf-phase ', '/sf-code ', '/sf-converge ', '/sf-review-decide ']) assert.equal(startsFreshChat(skill), false, skill);
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(extension, /startsFreshChat\(prefill\.query\)\) await vscode\.commands\.executeCommand\('workbench\.action\.chat\.newChat'\)\.then\(undefined, \(\) => undefined\);\n\s+await vscode\.commands\.executeCommand\('workbench\.action\.chat\.open', prefill\)/u);
+});

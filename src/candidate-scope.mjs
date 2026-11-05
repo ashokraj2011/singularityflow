@@ -15,7 +15,6 @@ import path from 'node:path';
 import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
-import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
 
 /** Dirty files excluded from this delivery must be accounted for before it is published. */
@@ -24,6 +23,7 @@ export async function unreconciledCandidatePaths(root, config, workflow, phase, 
     path.join(root, config.workItemRoot ?? workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow, phase) : scope;
   if (!scope) return [];
   const context = applicationPathContext(config, workflow);
+  const { inspectLifecycleWorktree } = await import('./lifecycle-worktree.mjs');
   return [...new Set(inspectLifecycleWorktree(root, config, workflow).entries.flatMap(entry =>
     [entry.path, entry.originalPath].filter(item => item?.kind === 'utf8').map(item => ({ path: item.value, untracked: entry.type === 'untracked' })))
     .filter(item => isApplicationChangePath(item.path, { ...context, untracked: item.untracked }) && !scope.allows(item.path))

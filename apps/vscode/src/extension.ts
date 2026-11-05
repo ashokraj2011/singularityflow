@@ -3325,6 +3325,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     upgradeScope, attachScope, requestedRepositoryId);
   }));
 
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openCopilotExtensions', () => lazyPanels().CopilotExtensionsPanel.show()));
+
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.about', async () => {
     try {
       const registry = new SingularityFlowClient({ location: resolveCli({ extensionPath: context.extensionPath }),

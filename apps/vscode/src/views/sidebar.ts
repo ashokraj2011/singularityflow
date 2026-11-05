@@ -46,6 +46,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workflow-design': 'singularityFlow.openWorkflowStudio',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',
+  'copilot-extensions': 'singularityFlow.openCopilotExtensions',
   'prompt-log-toggle': 'singularityFlow.togglePromptLog',
   'visual-assurance': 'singularityFlow.openVisualAssurance',
   'help-open': 'singularityFlow.openHelp',
@@ -109,6 +110,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'fault-repairs', label: 'Faults & Repairs', description: 'diagnose and recover safely', icon: 'warning', command: ACTION_COMMANDS['fault-repairs']! },
   { id: 'journal', label: 'Local Journal', description: 'private local work history', icon: 'book', command: ACTION_COMMANDS.journal! },
   { id: 'diagnostics', label: 'Diagnostics', description: 'repository and schema health', icon: 'statusCurrent', command: ACTION_COMMANDS.diagnostics! },
+  { id: 'copilot-extensions', label: 'Copilot extensions', description: 'which extensions add to every Copilot call, and what to turn off here', icon: 'prompt', command: ACTION_COMMANDS['copilot-extensions']! },
   { id: 'local-reset', label: 'Local Data & Reset', description: 'preview local cleanup', icon: 'remove', command: ACTION_COMMANDS['local-reset']! },
   { id: 'configuration-center', label: 'Configuration Center', description: 'product configuration', icon: 'configuration', command: ACTION_COMMANDS['configuration-center']! },
   { id: 'ast-intelligence', label: 'AST intelligence', description: 'structural policy, assurance and cache', icon: 'worldModel', command: ACTION_COMMANDS['ast-intelligence']! },
@@ -414,7 +416,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const groups: Record<string, { title: string; ids: string[] }> = {
       'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'spec-studio', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
-      'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'fault-repairs', 'after-install', 'local-reset'] },
+      'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'copilot-extensions', 'fault-repairs', 'after-install', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'performance', 'prompt-audit', 'journal'] }
     };
     const selected = groups[group];

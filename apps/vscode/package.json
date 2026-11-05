@@ -1018,6 +1018,11 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "singularityFlow.openCopilotExtensions",
+        "title": "Singularity Flow: Copilot Extensions",
+        "icon": "$(extensions)"
+      },
+      {
         "command": "singularityFlow.openPromptAudit",
         "title": "Singularity Flow: Prompt Audit",
         "icon": "$(comment-discussion)"

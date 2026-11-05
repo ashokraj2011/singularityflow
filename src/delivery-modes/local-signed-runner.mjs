@@ -378,8 +378,10 @@ export async function executeLocalRunnerWorker(root, definition, value) {
   const before = repositoryStatus(root);
   const startedAt = new Date().toISOString();
   // A test command gets the environment a gate gives it [TCE:REQ-030].
-  const env = withCommandLiteralEnvironment(command.kind === 'test'
-    ? (await gateTestEnvironmentModule()).gateTestEnvironment(process.env, { declared: command.env ?? null }).environment : process.env, command);
+  const gateEnvironment = await gateTestEnvironmentModule();
+  const env = withCommandLiteralEnvironment((await gateEnvironment.withProjectNodeVersion(command.kind === 'test'
+    ? gateEnvironment.gateTestEnvironment(process.env, { declared: command.env ?? null }).environment : process.env,
+  { cwd: secured.absolute, root })).environment, command);
   const result = await runQualityCommand(command.argv[0], command.argv.slice(1), {
     cwd: secured.absolute, env, timeoutMs: command.timeoutMs, captureBytes: CAPTURE_BYTES,
     shell: false, killTree: true

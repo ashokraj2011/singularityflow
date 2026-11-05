@@ -6,6 +6,7 @@ import { mkdir, readdir, readFile, lstat, chmod, rm } from 'node:fs/promises';
 import { applicationReviewSnapshot, bytesDigest, reviewLocalRoot, localCheckoutIdentity } from './application-review-read.mjs';
 import { araFail, reviewDigest, reviewReportPages } from './application-review-contract.mjs';
 import { escapeReviewHtml } from './application-review-human.mjs';
+import { gateTestEnvironmentModule } from './test-runtime.mjs';
 import { writeAtomicExclusive, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { redactionEntries, redactText } from './output-redaction.mjs';
@@ -103,7 +104,8 @@ export async function prepareStaticReview(root, config, workflow, session, { hea
   const { runQualityCommand, withoutHostSurfaceVariables } = await import('./quality-command-runner.mjs');
   for (const step of command.beforeLaunch ?? []) {
     const cwd = (await secureRepositoryPath(materialization, step.workingDirectory ?? entry.workingDirectory ?? '.', { label: 'Review build directory', mustExist: true, type: 'directory' })).absolute;
-    const result = await runQualityCommand(step.argv[0], step.argv.slice(1), { cwd, env: { ...withoutHostSurfaceVariables(process.env), ...command.env }, timeoutMs: step.timeoutMs,
+    const { environment: buildEnvironment } = await (await gateTestEnvironmentModule()).withProjectNodeVersion(withoutHostSurfaceVariables(process.env), { cwd, root: materialization });
+    const result = await runQualityCommand(step.argv[0], step.argv.slice(1), { cwd, env: { ...buildEnvironment, ...command.env }, timeoutMs: step.timeoutMs,
       maxBuffer: 2 * 1024 * 1024 });
     if (result.status !== 0 && result.exitCode !== 0) {
       const entries = redactionEntries(Object.entries({ ...process.env, ...command.env }).filter(([name]) => /secret|password|token|api.?key/iu.test(name)).map(([name, value]) => ({ name, value })));

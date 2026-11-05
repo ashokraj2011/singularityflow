@@ -15,7 +15,9 @@
  *   Playwright configuration's forbidOnly all follow CI; Jest reads no selection variable itself;
  * - is recorded on its attempt [TCE:REQ-033]: the CI value it saw, the names removed (never their
  *   values), a digest of the declared variables (names and literal values; a bound secret by name
- *   only) and the toolchain versions of its runner family (test-toolchain.mjs).
+ *   only) and the toolchain versions of its runner family (test-toolchain.mjs);
+ * - runs on the Node version its repository asks for in `.nvmrc` or `.node-version`, as every command
+ *   SFlow runs for a repository does (project-node-version.mjs) [TCE:REQ-035].
  *
  * Variables the command declares, an environment binding's or (from TCE phase 2) the command's own
  * `env`, are applied after the cleanup and kept: they are visible in its definition and recorded.
@@ -119,6 +121,11 @@ export function gateTestEnvironment(inherited = process.env, { declared = null }
   };
 }
 
+/** A run's environment with the Node its repository asks for [TCE:REQ-035]; see project-node-version.mjs. */
+export async function withProjectNodeVersion(environment, options) {
+  return (await import('./project-node-version.mjs')).withRequestedNode(environment, options);
+}
+
 /**
  * The digest of what the command declared for its run: the literal variables with their values,
  * and an environment binding's variables, a secret by name only. Null when it declared nothing.
@@ -132,10 +139,10 @@ export function declaredVariablesSha256({ declared = {}, environment = {}, bound
 }
 
 /** The attempt's environment fields for one finished environment. Never rejects. */
-export async function testRunEnvironmentRecord(command, { cwd = process.cwd(), environment = {}, bound = null, removed = [], declared = {} } = {}) {
+export async function testRunEnvironmentRecord(command, { cwd = process.cwd(), environment = {}, bound = null, removed = [], declared = {}, nodeVersion = null } = {}) {
   const key = named(environment, 'CI').at(-1);
   const ci = key == null ? null : (bound?.secretsPresent ?? []).some(name => name.toUpperCase() === 'CI') ? '[redacted:CI]' : environment[key];
   let toolchain = {};
   try { toolchain = await (await import('./test-toolchain.mjs')).runnerToolchain(command, { cwd, environment }); } catch { /* recorded as unknown */ }
-  return { ci, removed: [...removed], declaredSha256: declaredVariablesSha256({ declared, environment, bound }), toolchain };
+  return { ci, removed: [...removed], declaredSha256: declaredVariablesSha256({ declared, environment, bound }), toolchain, ...(nodeVersion ? { nodeVersion } : {}) };
 }

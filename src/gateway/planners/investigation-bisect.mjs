@@ -92,8 +92,8 @@ export async function investigationBisectPlan({ arguments: args = {}, root = nul
 /** Run the reviewed bisection. Every observation is kept, including those before a stop. */
 export async function investigationBisectExecute({ plan, root }) {
   const preview = plan.review.preview;
-  const [{ addCandidateWorktree, removeCandidateWorktree }, { runQualityCommand }, { typedFirstParentRange }] = await Promise.all([
-    import('../../git.mjs'), import('../../quality-command-runner.mjs'), import('../../git-access.mjs')
+  const [{ addCandidateWorktree, removeCandidateWorktree }, { runQualityCommand }, { typedFirstParentRange }, { gateTestEnvironmentModule }] = await Promise.all([
+    import('../../git.mjs'), import('../../quality-command-runner.mjs'), import('../../git-access.mjs'), import('../../test-runtime.mjs')
   ]);
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-bisect-'));
   const observations = [];
@@ -106,9 +106,10 @@ export async function investigationBisectExecute({ plan, root }) {
     }
     try {
       const [executable, ...args] = preview.testCommand.argv;
-      const ran = await runQualityCommand(executable, args, {
-        cwd: path.join(target, preview.testCommand.workingDirectory), timeoutMs: STEP_TIMEOUT_MS, captureBytes: 4096
-      });
+      const cwd = path.join(target, preview.testCommand.workingDirectory);
+      // Each commit's own version file: bisecting across a Node upgrade runs each side on its Node.
+      const { environment } = await (await gateTestEnvironmentModule()).withProjectNodeVersion(process.env, { cwd, root: target });
+      const ran = await runQualityCommand(executable, args, { cwd, env: environment, timeoutMs: STEP_TIMEOUT_MS, captureBytes: 4096 });
       const passed = ran.status === 0 && !ran.timedOut;
       observations.push({ step: steps, commit, passed, status: ran.status ?? null, timedOut: Boolean(ran.timedOut) });
       return passed;

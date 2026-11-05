@@ -33,6 +33,7 @@ import {
   resolveStartCommand, resolveStartDebugLaunch, runConfigurationPaths, shownResolution, startArgvFor, startEntryCommandSha256
 } from './run-configurations.mjs';
 import { environmentBindingRefusal, localIntegrationPolicyRefusal, selectRunEnvironment } from './run-environment.mjs';
+import { gateTestEnvironmentModule } from './test-runtime.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const APP_RUN_FORMAT = 'sflow-app-run/v1';
@@ -486,7 +487,8 @@ async function runSingleApplication(root, context, entry, {
     label: `${subject} working directory`, mustExist: true, type: 'directory'
   })).absolute;
   // The host's own variables (VS Code runs the CLI with ELECTRON_RUN_AS_NODE) never reach the application.
-  const base = withoutHostSurfaceVariables(process.env);
+  // A before-launch build and the application get the Node the repository asks for [TCE:REQ-035].
+  const base = (await (await gateTestEnvironmentModule()).withProjectNodeVersion(withoutHostSurfaceVariables(process.env), { cwd, root })).environment;
   delete base.NODE_TEST_CONTEXT;
   // The entry's literal variables, and those its type appends to an inherited value (MAVEN_OPTS for
   // exec:java). A value bound for the environment wins over a literal of the same name.

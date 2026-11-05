@@ -325,6 +325,7 @@ export async function beginStoryTestRiskRun(root, config, workflow, phase, { com
   const inherited = (await gateTestEnvironmentModule()).gateTestEnvironment(process.env, { declared: tests[0].env ?? null }).environment;
   let environment = caseInventory ? trpExecutionEnvironment(caseInventory.declaration, inherited, { cwd }) : { ...inherited };
   environment = testRuntimeEnvironment(workflow.resolution?.testRuntime, environment);
+  environment = (await (await gateTestEnvironmentModule()).withProjectNodeVersion(environment, { cwd, root })).environment;
   environment = withCommandLiteralEnvironment(environment, tests[0]);
   if (tests[0].result?.adapter === 'node-tap') environment = await nodeTestReporterEnvironment(environment, root, { argv: tests[0].argv, cwd });
   delete environment.NODE_TEST_CONTEXT;
@@ -693,9 +694,10 @@ export async function captureTrpIntakeBaseline(root, definition, { workId, workT
     sourceCommit: baseCommit, sourceTreeSha256: before.sourceManifestSha256, startedAt: nowIso() });
   if (environmentBlock) throw unsupported('The baseline requires its approved isolated environment runner; no command was executed.', { errorCode: environmentBlock.errorCode });
   const cwd = await realpath(path.resolve(root, command.workingDirectory));
-  const environment = withCommandLiteralEnvironment(testRuntimeEnvironment(workflow.resolution?.testRuntime,
-    trpExecutionEnvironment(inventory.declaration, (await gateTestEnvironmentModule()).gateTestEnvironment(process.env, { declared: command.env ?? null }).environment,
-      { cwd })), command);
+  const gateEnvironment = await gateTestEnvironmentModule();
+  const environment = withCommandLiteralEnvironment((await gateEnvironment.withProjectNodeVersion(testRuntimeEnvironment(workflow.resolution?.testRuntime,
+    trpExecutionEnvironment(inventory.declaration, gateEnvironment.gateTestEnvironment(process.env, { declared: command.env ?? null }).environment,
+      { cwd })), { cwd, root })).environment, command);
   const stdoutFile = inventory.adapter === 'node-test-junit-v1' ? path.resolve(cwd, command.result.path) : null;
   const reportCapture = trpNativeReportCapture(root, command, inventory.declaration);
   const result = await runQualityCommand(command.argv[0], command.argv.slice(1), {

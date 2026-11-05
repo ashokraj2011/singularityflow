@@ -311,7 +311,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,460,900 (measured 9,460,870): SPEC-ENVF v2. The scanner is synchronous and every gate needs its value check, so
     // config-values.mjs (with the link helpers from the lazy share-check.mjs) and local-config-policy.mjs are new eager files.
     // 9,461,200 (measured 9,461,152): a /sf-docs route keeps its topic (copilot-guidance.mjs +282). No new eager file.
-    assert.ok(closure.bytes <= 9_461_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,462,000 (measured 9,461,973): a run asks for the Node its repository names [TCE:REQ-035] (state.mjs +314,
+    // runtime-readiness.mjs +267, test-recovery-runtime.mjs +240). The lookup itself is lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_462_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -73,7 +73,7 @@ async function packageVersion(start, names, levels = 4) {
   return null;
 }
 
-function nodeVersion(executable, context) {
+export function nodeVersion(executable, context) {
   return once(['node', executable, context.cwd, valueOf(context.environment, 'PATH')], async () => {
     const found = await real(await onPath(executable, context.environment, context.cwd));
     if (found && found === await real(process.execPath)) return process.versions.node;

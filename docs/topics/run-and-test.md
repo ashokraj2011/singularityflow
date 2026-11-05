@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 4
+version: 5
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -112,8 +112,11 @@ A capability-scope `tests run` is a local preview: it is kept at `singularity-fl
 
 A test command linked to an environment (through `checks` in `environments.yml`, its own `environment` field, or `application.tests[].environments`) runs with that environment's values only when the policy is `allowed` and the binding is complete. Publication and submission then record it as `local-integration`, labelled "Local integration run by <identity>, environment `qa`, commit `<abc1234>`; values never recorded". When `checks` links the command to one environment, only a run in that environment counts for the step; a run in another is shown with "does not count for this step: it requires `qa`". With the policy `off` such a command stays blocked, and the refusal names the policy and its capability proposal.
 
+Every command SFlow runs for a repository (a gate's tests and builds, `tests run`, a before-launch build and the application, readiness and recovery runs) uses the Node version the repository asks for: the nearest `.nvmrc`, then `.node-version`, from the command's working folder up to the repository root. nvm does not load in these runs, because it is a shell function and they start without a shell. When the `node` on PATH already matches, nothing changes. Otherwise the highest matching Node from nvm, fnm, Volta, asdf, mise, nodenv, n or Homebrew goes first on that run's PATH and SFlow says which one. A test attempt records the outcome in `environment.nodeVersion`. SFlow never installs a Node.
+
 ## Troubleshooting
 
+- If a run says `.nvmrc asks for Node 18, and no installed Node matches`, it ran on the Node PATH found. Install that version with your version manager (`nvm install 18`) and run again; if the run failed before any test ran, it reads as `toolchain-version`.
 - If `app start` says the policy is off, the capability's `localIntegrationEvidence` must become `allowed` through a capability proposal; nothing ran.
 - If it says an environment is not bound, bind it with `env bind <ENV> --stdin` and retry.
 - If it says the entry was not ready in time, check the URL and readiness rule in `app plan`; the process tree was stopped.

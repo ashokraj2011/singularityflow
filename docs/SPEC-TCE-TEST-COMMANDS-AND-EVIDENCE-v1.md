@@ -105,6 +105,14 @@ still fill an uncovered module, and that command is pinned on first use.
   digest of the declared variables (names and literal values; bound secret names only), and the
   toolchain versions of the runner family (Node and package manager, JDK and Maven/Gradle, Python and
   pytest, Go, .NET, Playwright), probed cheaply and cached per process.
+- `[TCE:REQ-035]` Every command SFlow runs for a repository (a gate's tests and builds, `tests run`,
+  a before-launch build and the application, readiness, recovery baselines, bisect) runs on the Node
+  version the repository asks for: the nearest `.nvmrc`, then `.node-version`, from its working folder
+  up to the repository root. When the `node` on PATH already matches, nothing changes; otherwise the
+  highest matching Node of nvm, fnm, Volta, asdf, mise, nodenv, n or Homebrew goes first on the run's
+  PATH. SFlow never installs a Node: with no match the run goes ahead on what PATH finds, says so, and
+  a failed run shows the reason as `toolchain-version`. A test attempt records `environment.nodeVersion`
+  (the file, the version asked for, the outcome and the version found).
 - `[TCE:REQ-034]` Test process groups are registered with a reaper that ends them when the CLI exits
   or is interrupted, as Git child groups already are; a descendant holding output open no longer
   stalls a run for its whole timeout.

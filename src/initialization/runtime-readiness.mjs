@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { testRuntimeEnvironment, testRuntimeIdentity } from '../test-runtime.mjs';
+import { gateTestEnvironmentModule, testRuntimeEnvironment, testRuntimeIdentity } from '../test-runtime.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
@@ -630,7 +630,9 @@ async function defaultRunCommand(command, {
       code: 'REPOSITORY_READINESS_COMMAND_INVALID'
     });
   }
-  const childEnvironment = { ...environment, CI: '1', GIT_TERMINAL_PROMPT: '0' };
+  // An install, build or test here gets the Node the repository asks for [TCE:REQ-035].
+  const { environment: requestedEnvironment } = await (await gateTestEnvironmentModule()).withProjectNodeVersion(environment, { cwd, root });
+  const childEnvironment = { ...requestedEnvironment, CI: '1', GIT_TERMINAL_PROMPT: '0' };
   // A readiness test launched by the CLI is its own test process. Inheriting Node's internal
   // parent test-harness marker suppresses TAP summaries for nested `node --test` invocations.
   for (const key of Object.keys(childEnvironment)) {

@@ -70,7 +70,8 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
     }
     delete commandEnvironment.NODE_TEST_CONTEXT;
     commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
-    commandEnvironment = withCommandLiteralEnvironment(commandEnvironment, policy);
+    const requestedNode = await (await gateTestEnvironmentModule()).withProjectNodeVersion(commandEnvironment, { cwd: commandRoot, root });
+    commandEnvironment = withCommandLiteralEnvironment(requestedNode.environment, policy);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json' && structuredResultTarget) {
       for (const key of Object.keys(commandEnvironment)) {
         if (key.toLocaleUpperCase('en-US') === 'PLAYWRIGHT_JSON_OUTPUT_FILE') delete commandEnvironment[key];
@@ -78,7 +79,7 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
     if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
-    gateRun?.observe(policy, { cwd: commandRoot, environment: commandEnvironment, bound: materialized?.environment });
+    gateRun?.observe(policy, { cwd: commandRoot, environment: commandEnvironment, bound: materialized?.environment, nodeVersion: requestedNode.nodeVersion });
     const timeoutMs = policy.timeoutMs ?? kernel.defaultTimeoutMs;
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
@@ -101,7 +102,7 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
       ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
       ...(result.timedOut ? { timedOut: true } : {}),
       exitCode: result.status, signal: result.signal ?? null, stdout: kernel.boundedQualityDiagnostic(result.stdout),
-      stderr: kernel.boundedQualityDiagnostic(result.timedOut ? `Command exceeded its ${timeoutMs}ms timeout.` : infrastructureError ?? result.stderr),
+      stderr: kernel.boundedQualityDiagnostic(result.timedOut ? `Command exceeded its ${timeoutMs}ms timeout.` : infrastructureError ?? requestedNode.explained(result)),
       stdoutBytes: result.stdoutBytes, stderrBytes: result.stderrBytes,
       stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
       stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000

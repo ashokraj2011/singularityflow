@@ -4883,7 +4883,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // Variables a host sets to run the CLI itself (VS Code's ELECTRON_RUN_AS_NODE) are not the
     // tests' environment, in a local run or at publication and submission alike.
     commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
-    commandEnvironment = withCommandLiteralEnvironment(commandEnvironment, policy);
+    // The Node the repository asks for, for a build as for a test [TCE:REQ-035].
+    const requestedNode = await (await gateTestEnvironmentModule()).withProjectNodeVersion(commandEnvironment, { cwd: executionRoot, root: isolation?.root ?? root });
+    commandEnvironment = withCommandLiteralEnvironment(requestedNode.environment, policy);
     if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {
@@ -4896,7 +4898,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       }
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
-    gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment });
+    gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment, nodeVersion: requestedNode.nodeVersion });
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: executionRoot,
@@ -4944,7 +4946,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       exitCode: result.status, signal: result.signal ?? null, stdout: boundedQualityDiagnostic(result.stdout),
       stderr: boundedQualityDiagnostic(result.timedOut
         ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
-        : infrastructureError ?? result.stderr),
+        : infrastructureError ?? requestedNode.explained(result)),
       stdoutBytes: result.stdoutBytes,
       stderrBytes: result.stderrBytes,
       stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,

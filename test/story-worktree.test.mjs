@@ -586,6 +586,8 @@ test('failed Story recovery preserves both the start error and Windows cleanup e
     assert.match(error.message, /The requested workflow is not installed/);
     assert.match(error.message, /Permission denied/);
     assert.deepEqual(error.details, {
+      nextAction: { executable: 'singularity-flow', argv: ['doctor', '--json'],
+        label: 'Inspect or continue the retained operation; recheck before retrying.' },
       repositoryPath: prepared.repositoryPath,
       cleanupStage: 'remove-worktree',
       originalError: {

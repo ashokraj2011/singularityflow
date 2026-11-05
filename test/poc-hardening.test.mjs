@@ -165,7 +165,13 @@ Quality review must decide first and engineering review must decide independentl
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'submit immutable review packet'], { cwd: root });
   assert.match(await readFile(artifact, 'utf8'), /Human decision/);
-  await setAgentSession(root, config, first, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
+  // An approval belongs to the person at this checkout, not the authoring session (43d7cc3ae), so
+  // each reviewer here is that checkout's Git identity.
+  const reviewAs = (person) => {
+    run('git', ['config', 'user.name', person.name], { cwd: root });
+    run('git', ['config', 'user.email', person.email], { cwd: root });
+  };
+  reviewAs(first);
   const one = await approvePhase(root, config, workflow, { phaseId: publication.id, persist: false });
   assert.equal(one.approval.authorityGroup, 'quality-reviewers');
   assert.equal(workflow.status, 'in_progress');
@@ -177,13 +183,11 @@ Quality review must decide first and engineering review must decide independentl
     assert.ok(!error.details.eligibleApprovers.includes('quality@example.com'), 'the identity already recorded is not suggested');
     return true;
   });
-  const outsider = { name: 'Outside Reviewer', email: 'outsider@example.com', login: null };
-  await setAgentSession(root, config, outsider, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
+  reviewAs({ name: 'Outside Reviewer', email: 'outsider@example.com' });
   await assert.rejects(approvePhase(root, config, workflow, { phaseId: publication.id, persist: false }),
     { code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED', message: /^Identity 'outsider@example\.com' is not a member of/u });
 
-  const second = { name: 'Engineering Reviewer', email: 'engineering@example.com', login: null };
-  await setAgentSession(root, config, second, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
+  reviewAs({ name: 'Engineering Reviewer', email: 'engineering@example.com' });
   const two = await approvePhase(root, config, workflow, { phaseId: publication.id, persist: false });
   assert.equal(two.approval.authorityGroup, 'engineering-reviewers');
   assert.equal(workflow.phases[publication.id].status, 'approved');

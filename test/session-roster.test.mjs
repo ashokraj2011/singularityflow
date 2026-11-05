@@ -390,7 +390,10 @@ test('a disabled ledger refuses remote discovery by naming ledger.enabled, not a
   // people back to Refresh; with the ledger disabled no refresh can ever list a Story.
   const disabled = (error) => {
     assert.equal(error.code, 'SESSION_STATE_INDEX_UNAVAILABLE');
-    assert.deepEqual(error.details, { ledgerEnabled: false, stateBranch: 'state' });
+    const { nextAction, ...facts } = error.details;
+    assert.deepEqual(facts, { ledgerEnabled: false, stateBranch: 'state' });
+    // The route the sentence names, never back to a refresh that cannot list a Story.
+    assert.deepEqual(nextAction.argv, ['ledger', 'init']);
     assert.match(error.message, /ledger\.enabled is false/u);
     assert.match(error.message, /singularity-flow ledger init, then singularity-flow ledger reconcile/u);
     assert.doesNotMatch(error.message, /could not be refreshed/u);

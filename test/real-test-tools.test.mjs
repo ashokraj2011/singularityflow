@@ -33,6 +33,8 @@ const CHECKOUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const NODE_TOOLS = [process.env.SINGULARITY_FLOW_TEST_NODE_TOOLS, CHECKOUT].filter(Boolean)
   .map((folder) => path.join(folder, 'node_modules'));
 const LANE = slowLane({ timeout: 600_000 });
+// Release verification forbids skipped tests, and no machine is required to have every one of these tools.
+const absent = (t, why) => (process.env.SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES === '1' ? t.diagnostic(why) : t.skip(why));
 
 const answers = (command, args) => {
   const result = spawnSync(command, args, { encoding: 'utf8', timeout: childTimeout(30_000), env: { ...process.env, NODE_TEST_CONTEXT: undefined } });
@@ -76,7 +78,7 @@ const commandFor = async (root, changedPath) => moduleTestCommands(root, await r
 const names = ({ attempt }) => attempt.occurrences.map((occurrence) => [occurrence.name, occurrence.outcome]).sort();
 
 test('real pytest: each test by name; a run with no tests reads as no tests; python without pytest is a missing dependency', LANE, async (t) => {
-  if (!answers('python3', ['-m', 'pytest', '--version'])) return t.skip('python3 has no pytest here');
+  if (!answers('python3', ['-m', 'pytest', '--version'])) return absent(t, 'python3 has no pytest here');
   const pyproject = '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n';
   const root = await repository(t, { 'pyproject.toml': pyproject, 'src/x.py': 'VALUE = 1\n',
     'tests/test_x.py': 'import pytest\n\ndef test_one():\n    assert 1 == 1\n\n@pytest.mark.skip(reason="no")\ndef test_two():\n    pass\n' });
@@ -103,7 +105,7 @@ test('real pytest: each test by name; a run with no tests reads as no tests; pyt
 });
 
 test('real go test: counts its own report from stdout', LANE, async (t) => {
-  if (!answers('go', ['version'])) return t.skip('go is not installed');
+  if (!answers('go', ['version'])) return absent(t, 'go is not installed');
   const root = await repository(t, { 'go.mod': 'module example.test/real\n\ngo 1.21\n', 'a.go': 'package real\n\nfunc A() int { return 1 }\n',
     'a_test.go': 'package real\n\nimport "testing"\n\nfunc TestA(t *testing.T) { if A() != 1 { t.Fatal() } }\nfunc TestB(t *testing.T) { t.Skip("no") }\n' });
   const [command] = await commandFor(root, 'a.go');
@@ -114,13 +116,13 @@ test('real go test: counts its own report from stdout', LANE, async (t) => {
 });
 
 test('real swift test: the empty companion report SwiftPM writes beside its tests does not refuse the set', LANE, async (t) => {
-  if (!answers('swift', ['--version'])) return t.skip('swift is not installed');
+  if (!answers('swift', ['--version'])) return absent(t, 'swift is not installed');
   const root = await repository(t, { 'Package.swift': '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "X", targets: [.target(name: "X"), .testTarget(name: "XTests", dependencies: ["X"])])\n',
     'Sources/X/A.swift': 'public func a() -> Int { 1 }\n',
     'Tests/XTests/ATests.swift': 'import XCTest\n@testable import X\nfinal class ATests: XCTestCase { func testA() { XCTAssertEqual(a(), 1) } }\n' });
   const [command] = await commandFor(root, 'Sources/X/A.swift');
   const ran = await gateRun(root, command);
-  if (/no such module 'XCTest'/u.test(ran.output)) return t.skip('this Swift toolchain has no XCTest');
+  if (/no such module 'XCTest'/u.test(ran.output)) return absent(t, 'this Swift toolchain has no XCTest');
   assert.equal(ran.attempt.exitCode, 0, ran.output);
   assert.equal(ran.reportError, null, 'both reports are read');
   assert.deepEqual(ran.attempt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
@@ -129,7 +131,7 @@ test('real swift test: the empty companion report SwiftPM writes beside its test
 });
 
 test('real mvn: what setup suggests at a reactor root runs, and its report is read', LANE, async (t) => {
-  if (!answers('mvn', ['-v'])) return t.skip('mvn is not installed');
+  if (!answers('mvn', ['-v'])) return absent(t, 'mvn is not installed');
   const pom = (extra) => `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>x</groupId>${extra}</project>`;
   const root = await repository(t, {
     'pom.xml': pom('<artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules><module>svc</module></modules>'),
@@ -141,7 +143,7 @@ test('real mvn: what setup suggests at a reactor root runs, and its report is re
   // The suite moves HOME, so name the developer's local repository; offline, it downloads nothing.
   const repositoryPath = path.join(os.userInfo().homedir, '.m2', 'repository');
   const ran = await gateRun(root, suggestions[0], { env: { MAVEN_ARGS: `-o -B -Dmaven.repo.local=${repositoryPath}` } });
-  if (ran.attempt.exitCode !== 0 && /offline mode|could not be resolved|Could not resolve/iu.test(ran.output)) return t.skip('the local Maven repository lacks surefire or junit-jupiter 5.10.2');
+  if (ran.attempt.exitCode !== 0 && /offline mode|could not be resolved|Could not resolve/iu.test(ran.output)) return absent(t, 'the local Maven repository lacks surefire or junit-jupiter 5.10.2');
   assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
   assert.deepEqual(ran.attempt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
   assert.deepEqual(names(ran), [['a', 'passed']], 'surefire names each test');
@@ -149,7 +151,7 @@ test('real mvn: what setup suggests at a reactor root runs, and its report is re
 
 test('real vitest: its own reporter beside SFlow\'s, a run with no test files, and a Playwright spec it collects', LANE, async (t) => {
   const modules = installedModules('vitest');
-  if (!modules) return t.skip('vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
+  if (!modules) return absent(t, 'vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
   const manifest = (script) => JSON.stringify({ private: true, type: 'module', scripts: { test: script }, devDependencies: { vitest: '4', '@playwright/test': '1' } });
   const passing = "import { test, expect } from 'vitest'\ntest('ok', () => { expect(1).toBe(1) })\n";
   const own = await repository(t, { 'package.json': manifest('vitest run --reporter=verbose'), 'src/a.test.js': passing }, { modules });
@@ -185,7 +187,7 @@ test('real vitest: its own reporter beside SFlow\'s, a run with no test files, a
 
 test('real playwright: bare npx keeps --project, a refused page and a taken port are the environment', LANE, async (t) => {
   const modules = installedModules('playwright');
-  if (!modules) return t.skip('@playwright/test is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
+  if (!modules) return absent(t, '@playwright/test is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
   const manifest = (script) => JSON.stringify({ private: true, type: 'module', scripts: { 'test:e2e': script }, devDependencies: { '@playwright/test': '1' } });
   const twoProjects = "import { defineConfig } from '@playwright/test'\nexport default defineConfig({ testDir: './e2e', projects: [{ name: 'one' }, { name: 'two' }] })\n";
   const selected = await repository(t, { 'package.json': manifest('npx playwright test --project=one'), 'playwright.config.js': twoProjects,

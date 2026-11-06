@@ -329,7 +329,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // failed outside its tests and a run with no tests are named (test-execution-diagnostics.mjs +1330), and SwiftPM's empty report and a
     // reactor's modules are read (code-delivery-tests.mjs +1102). The reading and reporting stay lazy; no new eager file.
     // 9,492,350 (measured 9,492,324): a code step's handoff points to its early checks (test-execution-handoff.mjs +630). The checks stay lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_492_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,492,700 (measured 9,492,668): a failed run names `tests base`, and a base run hashes its own worktree (state.mjs +229, command-registry.mjs +8). The run itself stays lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_492_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

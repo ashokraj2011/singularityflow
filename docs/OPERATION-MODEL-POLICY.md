@@ -892,6 +892,7 @@ Every public operation is classified before its implementation module is importe
 | telemetry.probe | read | never | — | — |
 | telemetry.reconcile | mutation | never | — | — |
 | telemetry.status | read | never | — | — |
+| tests.base | mutation | never | — | — |
 | tests.plan | read | never | — | — |
 | tests.run | mutation | never | — | — |
 | tests.summary | read | never | — | — |

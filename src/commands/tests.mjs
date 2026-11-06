@@ -12,9 +12,10 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
+const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base']);
 const OPTIONS = Object.freeze({
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
+  base: ['work-id', 'phase', 'command', 'json'],
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'json']
 });
@@ -573,6 +574,38 @@ async function planStory(root, options) {
   };
 }
 
+/**
+ * `tests base`: does this also fail without the Story's change? Each command once on the base commit,
+ * compared with the step's latest run. See src/verification/base-run.mjs: it runs no gate and records no attempt.
+ */
+async function baseStory(root, options) {
+  const [state, { localTestRunKernel: kernel }, { baseComparison, failedNames, runOnBase, storyBaseCommit }, { stepAttempts }, { workDirRelative }, { nodeVersion }, { parseTestResult }, { realpath }] = await Promise.all([
+    import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../verification/base-run.mjs'), import('../verification/attempts.mjs'),
+    import('../story-paths.mjs'), import('../test-toolchain.mjs'), import('../code-delivery-tests.mjs'), import('node:fs/promises')]);
+  const context = await storyContext(root, options);
+  const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId: optionString(options, 'phase', null) });
+  const baseCommit = storyBaseCommit(context.workflow, phase);
+  const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
+  if (!baseCommit) fail(`Story ${context.workflow.workItem.id} names no base commit to compare with.`, 'TESTS_BASE_UNKNOWN');
+  const attempts = await stepAttempts(root, workDirRelative(context.config, context.workflow.workItem.id), context.workflow.workItem.id, phase.id);
+  const results = [];
+  for (const command of context.select(commands)) {
+    const latest = attempts.filter((attempt) => attempt.commandId === command.id).at(-1) ?? null;
+    const here = latest && latest.status !== 'passed' ? failedNames(latest.occurrences) : [];
+    const cwd = path.join(root, command.workingDirectory ?? '.');
+    const version = await nodeVersion('node', { cwd, environment: process.env }).catch(() => null);
+    const result = await runOnBase(root, command, { baseCommit, nodeVersion: version, gateRun: async (workspace) => {
+      const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [command], { candidateRoot: await realpath(workspace), candidateIsOtherCode: true });
+      try {
+        const parsed = await parseTestResult(root, command, { startedAt: check.startedAt }).catch(() => null);
+        return { check, parsed, reportError: parsed ? null : 'SFlow could not read a report from this run.' };
+      } finally { await kernel.restoreTransientQualityResult(check); }
+    } });
+    results.push({ ...result, here, ...baseComparison(result, { here }) });
+  }
+  return { resultType: 'sflow-test-base', scope, baseCommit, results };
+}
+
 async function runStory(root, options) {
   const [state, store] = await Promise.all([import('../local-test-runs.mjs'), import('../test-runs.mjs')]);
   const context = await storyContext(root, options);
@@ -644,6 +677,16 @@ export async function run(_argv, { positionals, options = {} }) {
     const result = story ? await planStory(root, options) : await planCapability(root, options);
     if (json) console.log(JSON.stringify(result, null, 2));
     else console.log((await import('../test-plan.mjs')).testPlanText(result));
+    return result;
+  }
+  if (subcommand === 'base') {
+    if (!story) fail('tests base compares a Story step with the commit it started from; name it with --work-id.');
+    const result = await baseStory(root, options);
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`${result.scope.workId} step ${result.scope.phase}, against its base commit ${result.baseCommit.slice(0, 12)}. This is a fact for a person: it is not evidence and refuses nothing.`);
+      for (const entry of result.results) console.log(`  ${entry.commandId}${entry.reused ? ' (already run on this base)' : ''}: ${entry.words}`);
+    }
     return result;
   }
   if (subcommand === 'run') {

@@ -4315,7 +4315,7 @@ async function attachRequiredTestExecution(error, root, command, check) {
       : check?.status === 'passed' ? 'did not produce passing test evidence' : 'failed';
     const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
-      + 'See error.requiredTestExecution in --json for the command and bounded output.'
+      + 'See error.requiredTestExecution in --json for the command and bounded output. To see whether it also fails without this change: singularity-flow tests base --work-id <WORK-ID> --command ' + command.id + '.'
       + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
   }
   return refusal;
@@ -4746,7 +4746,7 @@ export const localTestRunKernel = Object.freeze({
 });
 
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
-  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null
+  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null, candidateIsOtherCode = false
 } = {}) {
   const checks = [];
   // Null unless the pinned capability policy allows local integration evidence [RUN M3].
@@ -4755,8 +4755,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const catalog = effectiveEnvironmentQualityCommandCatalog(phase, workflow, commands);
   validateEnvironmentQualityCommandCatalog(declaration, catalog);
   const sourceCommit = head(root);
-  const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
-  const testInputSha256 = await testInputTreeHash(root, config, workflow);
+  // A base run's worktree holds other code by design: what must not change is that worktree's own.
+  const sourceTreeSha256 = await sourceTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
+  const testInputSha256 = await testInputTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;

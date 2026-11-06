@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 35
+version: 36
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -289,6 +289,8 @@ singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a pers
 The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused).
 
 The refusal and the request show each change before and after, in `testCommandPin.diff` and on the decision list: a script's whole text (before `vitest run`, after `vitest run src`), or a configuration file's changed lines, bounded and redacted. Earlier text is shown only when its digest is the pin's; `known: false` says the Story's history no longer holds it. They also say whether tests were dropped: a path the script now names is compared with the test files of that folder on the base commit, and `dropped` names what falls outside it. SFlow cannot tell from a configuration file, and says so; the pin's first passing count still refuses a later run with fewer tests.
+
+When a run fails and the failure may not be the Story's, `singularity-flow tests base --work-id <WORK-ID> [--phase <PHASE>] [--command <ID>]` answers it: each command runs once on the Story's base commit, in a throwaway worktree with this checkout's dependencies, the way a gate runs it. It says which failures here also fail without the change, and on which Node. The result is kept by base commit, command and Node, so it never runs twice. It is a fact for a person: not evidence, no attempt, no refusal.
 
 The same comparison runs at every gate, also before a first pin. A path a script now names that drops nothing (`vitest run src` with every test under `src`) is recorded on the attempt as `narrowing.paths`, shown by `tests summary`, and refuses nothing. One that drops test files the base commit has (`jest src/one`) is `CODE_TEST_NARROWED`, naming them, and a person who approves the step decides with `decision test-narrowing` as for any filter. A re-pin a person accepted showed them the same paths, so it is not asked again. A test file the Story removed, a suite the Story added, and another runner's spec are not dropped tests.
 

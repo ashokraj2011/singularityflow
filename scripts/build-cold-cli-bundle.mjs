@@ -91,6 +91,8 @@ const FAMILIES = Object.freeze([
     'test-plan.mjs',
     // Loaded by the same gates when a Story runs only its new and changed tests [TCE:REQ-093].
     'verification/test-scope-selection.mjs',
+    // The same command once on a Story's base commit, loaded only by `tests base`.
+    'verification/base-run.mjs',
     // An APM project's lock and workflow.yml `apm` block, read by agent discovery in any command once a
     // repository has apm.lock.yaml [APM A3]; unclaimed, every such command loaded compatibility and models.
     'apm-lock.mjs', 'apm-configuration.mjs',

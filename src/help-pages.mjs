@@ -1350,6 +1350,7 @@ const PAGES = Object.freeze({
       ['singularity-flow tests run', 'Runs this capability\'s tests as a local preview and prints totals.'],
       ['singularity-flow tests run --command integration-tests --environment qa', 'Runs one command against qa.'],
       ['singularity-flow tests summary --json', 'Every test case of the latest run, with its requirement tags.'],
+      ['singularity-flow tests base --work-id ID', 'Runs each command once on the Story\'s base commit and says which failures here also fail without the change. Never evidence; kept per base commit, command and Node.'],
       ['singularity-flow tests run --work-id PAY-12', 'Stages a local run of the current code step\'s tests.']
     ],
     seeAlso: ['app', 'env', 'evidence', 'capability']

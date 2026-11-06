@@ -13,7 +13,7 @@ const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'prech
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
-const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
+const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base']);
 // APM packages [APM A1-A6]: status reads; install, update, attach, marketplace init, publish and
 // policy init each make one reviewed change, and each --dry-run is a read.
 const APM_SUBCOMMANDS = Object.freeze(['status', 'install', 'update', 'attach', 'marketplace', 'publish', 'policy']);

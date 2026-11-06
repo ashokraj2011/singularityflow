@@ -496,6 +496,11 @@ export function liveTerminalReviewStep([command, sub, verb], options) {
     && ((TEST_POLICY_TERMINAL_REVIEWS.has(verb) && options.apply === true) || (verb === 'confirm' && options.confirm !== undefined));
 }
 
+/** `story adjudicate` with nothing named: the table in a person's own terminal. */
+export function adjudicationTableStep([command, sub, item], options) {
+  return command === 'story' && sub === 'adjudicate' && !item && options.answers === undefined && options.item === undefined && options.disposition === undefined;
+}
+
 /**
  * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
  * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
@@ -507,6 +512,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
   // A card records a person's answers from outside chat; no chat writes the file for them.
   ['adjudication-answers', ([command, sub], options) => command === 'story' && sub === 'adjudicate' && options.answers !== undefined],
+  // The whole table asks a person at their own terminal, and no turn answers it. Naming an item stays /sf-converge's.
+  ['adjudication-table', adjudicationTableStep],
   ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
   ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
   ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(sub)],

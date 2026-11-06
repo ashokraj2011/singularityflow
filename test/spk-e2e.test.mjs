@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { hasRealTerminal, openRealTerminal } from './helpers/real-terminal.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { serializeConvergence } from '../src/convergence.mjs';
@@ -375,6 +376,65 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.equal(overruled.unresolvedBlockers.length, 1, 'overruling the plan did not block');
   await writeFile(convergenceRecord, serializeConvergence(iteration));
   assert.deepEqual(JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout).findings, []);
+
+  // A host with no card: the whole table in a person's own terminal, the same write, each answer its own.
+  const adjudications = () => JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout);
+  const noTerminal = sflow(root, ['story', 'adjudicate'], { allowFailure: true });
+  assert.notEqual(noTerminal.status, 0);
+  assert.match(noTerminal.output, new RegExp(`Nothing was asked or recorded\\. Run it there: singularity-flow story adjudicate --work-id ${WORK}`));
+  if (hasRealTerminal) {
+    const table = () => openRealTerminal(process.execPath, [CLI, 'story', 'adjudicate'], { cwd: root,
+      env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'E2E Tester', SINGULARITY_FLOW_LOG_CONSOLE: 'error' }, timeout: 120_000 });
+    const decideEach = async (term) => {
+      await term.waitFor(/How do you want to decide\?[\s\S]*?Choose 1-\d+: $/u);
+      term.type(term.number('Decide each one'));
+    };
+    const open = adjudications().items;
+    assert.ok(open.length > 0);
+    // A row left undecided, then one answered, then the person changes their mind: input ending records nothing.
+    const cancelled = table();
+    await decideEach(cancelled);
+    await cancelled.waitFor(/Choose 1-\d+: $/u);
+    cancelled.endInput();
+    await cancelled.finished;
+    assert.match(cancelled.screen, /No decision was recorded\./u);
+    assert.deepEqual(adjudications().items.map((item) => item.decision), open.map(() => null));
+    // Someone else records one while the list is open: nothing the person answered is written.
+    const moved = table();
+    await decideEach(moved);
+    await moved.waitFor(/Choose 1-\d+: $/u);
+    moved.type(moved.number('Accept as is'));
+    await moved.waitFor(/Reason for [^\n]*: $/u);
+    moved.type('The person at the terminal accepts this one.');
+    for (const _ of open.slice(1)) {
+      await moved.waitFor(/Choose 1-\d+: $/u);
+      moved.type(moved.number('Leave undecided'));
+    }
+    await moved.waitFor(/Record 1 decision on [\s\S]*Choose 1-2: $/u);
+    sflow(root, ['story', 'adjudicate', (open[1] ?? open[0]).id, '--disposition', 'dismissed', '--reason', 'Someone else answered this meanwhile.']);
+    moved.type(moved.number('Record these decisions'));
+    assert.notEqual(await moved.finished, 0);
+    assert.match(moved.screen, /The list of items changed while it was open\. Nothing was recorded/u);
+    assert.equal(adjudications().items.find((item) => item.id === open[0].id).decision?.reason === 'The person at the terminal accepts this one.', false);
+    await writeFile(convergenceRecord, serializeConvergence(iteration));
+    // Each row its own reason, confirmed as the exact list, and one write of all of them.
+    const answering = table();
+    await decideEach(answering);
+    for (const [index] of open.entries()) {
+      await answering.waitFor(/Choose 1-\d+: $/u);
+      answering.type(answering.number('Accept as is'));
+      await answering.waitFor(/Reason for [^\n]*: $/u);
+      answering.type(`This row's own reason, number ${index + 1}.`);
+    }
+    await answering.waitFor(/Record \d+ decisions? on [\s\S]*I reviewed this exact change\n[\s\S]*Choose 1-2: $/u);
+    answering.type(answering.number('Record these decisions'));
+    assert.equal(await answering.finished, 0, answering.screen);
+    assert.match(answering.screen, new RegExp(`${open.length} recorded\\. All decided\\.`));
+    assert.deepEqual(adjudications().items.map((item) => [item.id, item.decision.disposition, item.decision.reason]),
+      open.map((item, index) => [item.id, 'accepted-deviation', `This row's own reason, number ${index + 1}.`]));
+    await writeFile(convergenceRecord, serializeConvergence(iteration));
+    assert.deepEqual(JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout).findings, []);
+  }
 
   // A draft from before family v5 reads as it was written, every changed path asked, with the seal it was given.
   const beforeV5 = (facts, findings = []) => {

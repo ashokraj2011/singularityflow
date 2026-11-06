@@ -13,7 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, planRowCorrectionStep } from './command-skills.mjs';
+import { adjudicationTableStep, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, planRowCorrectionStep } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
@@ -729,6 +729,8 @@ export function argvAllowed(argv, mode, value) {
   if (signOff(positionals)) return false;
   // The decisions page records what a person answered on it; a turn that wrote that file would answer for them.
   if (positionals[0] === 'story' && positionals[1] === 'adjudicate' && options.answers !== undefined) return false;
+  // The table asks a person at their own terminal; a turn that answered it would answer for them.
+  if (adjudicationTableStep(positionals, options)) return false;
   if (planRowCorrectionStep(positionals, options)) return false;
   if (liveTerminalReviewStep(positionals, options)) return false;
   // An approver's clarification answer from their own clone carries their Git identity as its signer.
@@ -840,6 +842,7 @@ function ownTerminalStepCall(call, value) {
 // the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
 const OWN_STEP_DENIALS = Object.freeze({
   'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate or sflow_adjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
+  'adjudication-table': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this asks a person at their own terminal to answer the whole table, and no turn answers it. Call sflowAdjudicate or sflow_adjudicate with the Story ID where it is available; otherwise show the user this command to run themselves, and stop',
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',

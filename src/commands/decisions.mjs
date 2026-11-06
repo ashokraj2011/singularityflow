@@ -186,7 +186,7 @@ function emitShow(packet, options, workflow, extra = {}) {
 }
 
 /** Lines read on request; a line that arrives before its question waits for it. Null at the end of input. */
-function lineReader(input) {
+export function lineReader(input) {
   const reader = readline.createInterface({ input, terminal: false, crlfDelay: Infinity });
   const lines = [];
   const waiting = [];

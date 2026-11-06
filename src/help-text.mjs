@@ -1097,6 +1097,7 @@ Usage:
   singularity-flow story adjudicate <ITEM-ID> [--item ITEM-ID]...
     --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
+  singularity-flow story adjudicate [--work-id ID]  (your own terminal: the whole table, one reason for all or each its own)
   singularity-flow story adjudicate --answers FILE --expect DIGEST [--work-id ID]  (several items at once, each with its own answer)
   singularity-flow story adjudications [--work-id ID] [--json]  (what changed, what the plan says, what is decided)
   singularity-flow story intent-amendment status [--work-id ID] [--json]

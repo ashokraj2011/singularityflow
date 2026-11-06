@@ -1752,16 +1752,9 @@ async function adjudicationAnswers(file) {
   return answers;
 }
 
-export async function storyAdjudicateCommand(positionals, options) {
-  const root = repoRoot();
-  const { config } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  const answersFile = optionString(options, 'answers');
-  if (answersFile && (positionals[2] || optionStrings(options, 'item').length || optionString(options, 'disposition') || !optionString(options, 'expect'))) {
-    throw new SingularityFlowError('--answers takes every item from its file, and --expect with the digest of the list the person saw.', { code: 'ADJUDICATION_ANSWERS_INVALID' });
-  }
-  const answers = answersFile ? await adjudicationAnswers(answersFile) : null;
-  const itemIds = answers ? answers.map((entry) => entry.itemId) : [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
-  const result = await withConvergenceDraft(
+/** The one write of a person's adjudications: named on the command line, or answered on a table bound to `expect`. */
+function writeAdjudications(root, config, options, { answers, itemIds, expect }) {
+  return withConvergenceDraft(
     root,
     config,
     optionString(options, 'work-id'),
@@ -1786,7 +1779,7 @@ export async function storyAdjudicateCommand(positionals, options) {
       });
       await assertConvergenceSources(root, existing, { itemRelative: subject.itemRelative });
       // What the person answered is what they saw: a list that moved since records nothing.
-      if (answers && (await adjudicationList(root, config, workflow)).digest !== optionString(options, 'expect')) {
+      if (answers && (await adjudicationList(root, config, workflow)).digest !== expect) {
         throw new SingularityFlowError('The list of items changed while it was open. Nothing was recorded; read it again.', { code: 'ADJUDICATION_LIST_CHANGED' });
       }
 
@@ -1845,16 +1838,40 @@ export async function storyAdjudicateCommand(positionals, options) {
       }
     }
   );
+}
+
+/** What a table's answers came to: what was recorded, what remains, and what comes next. */
+function answersRecorded({ decisions, unchanged, projection, phaseId }) {
+  const undecided = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])]
+    .filter((item) => !(projection.findings ?? []).some((finding) => finding.itemId === item.id));
+  return { schemaVersion: 1, resultType: 'sflow-adjudications-recorded', status: 'recorded', phase: phaseId,
+    recorded: decisions.map((decision) => decision.itemId), unchanged: unchanged.map((decision) => decision.itemId),
+    remaining: undecided.map((item) => item.id), blocking: projection.unresolvedBlockers, allowedNext: projection.allowedNext,
+    next: undecided.length ? 'Some items still need a decision.' : `All decided. Run singularity-flow prepare ${phaseId} to regenerate the report.` };
+}
+
+export async function storyAdjudicateCommand(positionals, options) {
+  const root = repoRoot();
+  const workId = optionString(options, 'work-id');
+  const accepted = await loadAcceptedStoryExecution(root, workId);
+  const { config } = accepted;
+  const answersFile = optionString(options, 'answers');
+  if (answersFile && (positionals[2] || optionStrings(options, 'item').length || optionString(options, 'disposition') || !optionString(options, 'expect'))) {
+    throw new SingularityFlowError('--answers takes every item from its file, and --expect with the digest of the list the person saw.', { code: 'ADJUDICATION_ANSWERS_INVALID' });
+  }
+  // Nothing named: the whole table, for a person at their own terminal. The one-item form below keeps working as it did.
+  if (!answersFile && !positionals[2] && !optionStrings(options, 'item').length && !optionString(options, 'disposition')) {
+    const { runAdjudicationTable } = await import('./story-adjudicate-terminal.mjs');
+    return runAdjudicationTable({ workId: accepted.workflow.workItem.id, json: optionBoolean(options, 'json'),
+      read: async () => adjudicationList(root, config, await loadStoryAggregate(root, config, workId)),
+      record: async (list, answers) => answersRecorded(await writeAdjudications(root, config, options, { answers, itemIds: answers.map((entry) => entry.itemId), expect: list.digest })) });
+  }
+  const answers = answersFile ? await adjudicationAnswers(answersFile) : null;
+  const itemIds = answers ? answers.map((entry) => entry.itemId) : [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
+  const result = await writeAdjudications(root, config, options, { answers, itemIds, expect: optionString(options, 'expect') });
   const { decisions, unchanged, earlier, projection, authority, phaseId } = result;
 
-  if (answers) {
-    const undecided = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])]
-      .filter((item) => !(projection.findings ?? []).some((finding) => finding.itemId === item.id));
-    return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-adjudications-recorded', status: 'recorded', phase: phaseId,
-      recorded: decisions.map((decision) => decision.itemId), unchanged: unchanged.map((decision) => decision.itemId),
-      remaining: undecided.map((item) => item.id), blocking: projection.unresolvedBlockers, allowedNext: projection.allowedNext,
-      next: undecided.length ? 'Some items still need a decision.' : `All decided. Run singularity-flow prepare ${phaseId} to regenerate the report.` }, null, 2));
-  }
+  if (answers) return console.log(JSON.stringify(answersRecorded(result), null, 2));
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
   for (const decision of unchanged) console.log(`Already recorded: ${decision.disposition} on ${decision.itemId} at ${earlier.get(decision.itemId).at}. Nothing changed.`);
   for (const decision of decisions) {

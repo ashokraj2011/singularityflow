@@ -852,6 +852,8 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow configuration approve --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
     'adjudication-answers': ['singularity-flow story adjudicate --answers /tmp/a.json --expect sha256:abc --work-id PMC-1'],
+    // The whole table asks a person at their own terminal; no chat turn answers it, /sf-converge included.
+    'adjudication-table': ['singularity-flow story adjudicate --work-id PMC-1', 'singularity-flow story adjudicate'],
     'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
     'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
       'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."'],

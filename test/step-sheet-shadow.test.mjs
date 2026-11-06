@@ -271,10 +271,8 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
     assert.deepEqual([seen.readiness.sheet?.digest, seen.review.sheet?.digest, seen.next.sheet?.digest], [sheet.digest, sheet.digest, sheet.digest], label);
     const { workflow } = await loadAcceptedStoryExecution(root, WORK);
     assert.deepEqual(disagreements(workflow, seen.list, seen.readiness.approvalCheck, sheet), [], label);
-    // nextsteps' first action is the sheet's approval, or a way through one of its holds.
-    const now = withoutBlanks(seen.next.actions.find((action) => action.timing === 'now')?.command ?? '');
-    const ways = [...sheet.holds.flatMap((hold) => hold.steps.map((step) => withoutBlanks(step.command))), ...(sheet.next ? [withoutBlanks(sheet.next.command)] : [])];
-    assert.ok(!sheet.next || ways.includes(now) || (sheet.holds.length && /^singularity-flow (?:decisions|phase show)/u.test(now)), `${label}: nextsteps ${now}; the sheet ${JSON.stringify(ways)}`);
+    // nextsteps' first action is the sheet's next: one rule, read by both [study 6.1 rule 3].
+    assert.equal(withoutBlanks(seen.next.actions.find((action) => action.timing === 'now')?.command ?? ''), withoutBlanks(sheet.next.command), label);
     // The older fields say the same in their own words.
     assert.equal(seen.readiness.pending.open, seen.list.open, label);
     assert.deepEqual(seen.readiness.approvalCheck.holds.map((hold) => hold.code), seen.review.approvalCheck.holds.map((hold) => hold.code), label);

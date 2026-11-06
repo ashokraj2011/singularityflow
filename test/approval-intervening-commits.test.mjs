@@ -237,10 +237,11 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.equal(readiness.approvalCheck.ready, false);
   assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command, hold.summary]),
     [['APPROVAL_INTENT_AMENDMENT_PENDING', 'someone-decides', STATUS, 'Approving planning waits for intent amendment AMD-001 to be decided.']]);
-  // Next steps offer that route where they offered the approval.
+  // Next steps offer the list where they offered the approval: its reject and approve are a choice,
+  // so the step sheet's next picks neither [study 6.1].
   const next = JSON.parse(cli('nextsteps', WORK, '--json').stdout);
   const nowActions = (next.actions ?? next.data?.actions ?? []).filter((entry) => entry.timing === 'now');
-  assert.equal(nowActions[0]?.command, STATUS, JSON.stringify(nowActions.map((entry) => entry.command)));
+  assert.equal(nowActions[0]?.command, `singularity-flow decisions ${WORK}`, JSON.stringify(nowActions.map((entry) => entry.command)));
   assert.ok(!(next.actions ?? next.data?.actions ?? []).some((entry) => entry.command?.startsWith('singularity-flow approve planning ')),
     'no approval is offered into a refusal');
   const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);

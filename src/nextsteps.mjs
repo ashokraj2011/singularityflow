@@ -16,6 +16,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, upstreamIssueStates } from './upstream-routes.mjs';
+import { sheetRoute } from './step-sheet-route.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -153,6 +154,21 @@ function withApprovalHolds(workflow, phase, actions, check) {
   return [...actions.slice(0, index), ...routes, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
 }
 
+/**
+ * One rule for what comes next [study 6.1]: the step sheet's next, in the approval's place, whenever
+ * it is anything but the approval. The two above stay for a caller with no sheet to hand.
+ */
+function withStepSheet(phase, actions, sheet) {
+  const route = sheetRoute(sheet);
+  if (!route || sheet.next.effect === 'approves') return actions;
+  const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `);
+  const index = actions.findIndex(blocked);
+  if (index < 0) return actions;
+  return [...actions.slice(0, index), action(actions[index].timing, route.skill, route.command, route.reason,
+    { route: route.command.startsWith('singularity-flow decisions ') ? 'decision-list' : 'approval-hold' }),
+  ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
+}
+
 function cancellationActions(workflow) {
   return [
     action('now', '/sflow-documents', `singularity-flow documents list ${workflow.workItem.id}`, 'Review the preserved artifacts for this archived Story.'),
@@ -194,7 +210,7 @@ function visualCoverageActions(hold, timing) {
 
 export function workflowNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null
+  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -243,6 +259,7 @@ export function workflowNextSteps(workflow, {
   const held = decisionHold(workflow, phase, pendingDecisions);
   if (phase.status === 'awaiting_approval') {
     const actions = [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })];
+    if (sheet) return withStepSheet(phase, actions, sheet);
     return held ? withDecisionList(workflow, phase, actions, held) : withApprovalHolds(workflow, phase, actions, approvalCheck);
   }
 
@@ -384,7 +401,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -413,7 +430,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,

@@ -68,7 +68,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 468: SPEC-ENVF v2's config-values.mjs and local-config-policy.mjs, both import-light leaves, on the entry that was one under.
     // 469: the runner table (test-runners.mjs), an import-free leaf, which code-delivery-tests.mjs reads a report's language from.
     // 470: person-step-catalog.mjs, one leaf holding what the guard, SF Guard and the review rules read of a person's steps.
-    assert.ok(closure.files.size <= 470, `${file} loads ${closure.files.size} local files (budget 470; retired graph 597)`);
+    // 471: step-sheet-route.mjs, the leaf that reads a sheet's next step as a route.
+    assert.ok(closure.files.size <= 471, `${file} loads ${closure.files.size} local files (budget 471; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.

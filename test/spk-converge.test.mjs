@@ -546,7 +546,7 @@ test('a migrated legacy projection stays bound to its lossless archive', async (
 
   const { commandFunction } = await import('./helpers/command-source.mjs');
   assert.match(
-    await commandFunction('storyAdjudicateCommand'),
+    await commandFunction('writeAdjudications'),
     /adjudicatedConvergenceProjection\(existing,\s*\[\.\.\.kept,\s*\.\.\.changing\]\)/,
     'the adjudication command can sever the migrated evidence chain'
   );
@@ -616,7 +616,9 @@ test('same-iteration convergence writes are serialized by the Story mutation lea
     source.indexOf('export async function prepareDeterministicConvergence'),
     source.indexOf('export async function storyConvergeCommand')
   );
-  const adjudicate = await commandFunction('storyAdjudicateCommand');
+  // Every adjudication writes through writeAdjudications, whichever way a person answered.
+  assert.match(await commandFunction('storyAdjudicateCommand'), /writeAdjudications\(/);
+  const adjudicate = await commandFunction('writeAdjudications');
   const advance = await commandFunction('storyAdvanceCommand');
   assert.match(converge, /prepareDeterministicConvergence\(/);
   assert.match(converge, /loadAcceptedStoryExecution\(/,

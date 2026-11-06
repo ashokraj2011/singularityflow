@@ -6,14 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { AUTHORING_SKILL_DECLARATION } from '../src/authoring-skills.mjs';
-import { phaseTaskCompletion } from '../src/phase-authoring-progress.mjs';
+import { phaseTaskCompletion, phaseTaskHeldForAnswers } from '../src/phase-authoring-progress.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
-import { captureMutationTurn, recordPhaseTaskProgress, recordPhaseTaskCheck, refreshMutationContracts } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, recordPhaseTaskAnswers, recordPhaseTaskProgress, recordPhaseTaskCheck, refreshMutationContracts } from '../src/copilot-mutation-guard.mjs';
 import { recordRepositoryBoundaryTurn, repositoryAgentStop, repositoryToolGuard, repositoryToolFailure,
   workflowTaskCompletionRequested, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { recoverableWorkflowReadFailure } from '../src/copilot-review-completion.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
-import { specification, startedSpecificationStory } from './helpers/submitted-planning-story.mjs';
+import { fileURLToPath } from 'node:url';
+import { CLI, specification, startedSpecificationStory } from './helpers/submitted-planning-story.mjs';
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { enterPhase } from '../src/phase-entry.mjs';
 
@@ -57,7 +58,8 @@ async function fixture(t, { phaseId = 'planning', skill = '/sf-phase', code = fa
     await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: {
       command: `singularity-flow phase enter ${phaseId} --for-agent --json`
     } });
-    return recordPhaseTaskProgress(root, phaseTaskCompletion(value));
+    const taskCompletion = phaseTaskCompletion(value);
+    return recordPhaseTaskProgress(root, { ...taskCompletion, ...phaseTaskHeldForAnswers({ ...value, taskCompletion }) });
   };
   const mutationFile = path.join(directory, 'machine/copilot-boundaries', `${createHash('sha256').update(payload.sessionId).digest('hex')}.mutation.json`);
   const stop = extra => repositoryAgentStop({ ...payload, stopReason: 'end_turn', ...extra });
@@ -79,6 +81,115 @@ test('completion covers registered phase authors and delegates, excluding explic
   for (const prompt of ['/sf-approve', '/sf-submit', '/sf-decide', '/sf-publish', '/sf-code-docs', '/sf-review-source', 'Please explain /sf-code']) {
     assert.equal(workflowTaskCompletionRequested(prompt), false, prompt);
   }
+});
+
+test('a turn cannot end on a person\'s answers: after the question returns, and after they are recorded', async t => {
+  for (const options of [{ phaseId: 'specification' }, { phaseId: 'implementation', skill: '/sf-code', code: true }, { phaseId: 'verification' }, { phaseId: 'release', skill: '/sf-release' }]) await t.test(options.phaseId, async t => {
+    const f = await fixture(t, options);
+    const record = `singularity-flow clarification record ${options.phaseId} --response-file /issued/responses.json --for-agent --json`;
+    await f.arm({ ...f.entry, status: 'clarification-required', authoringAllowed: false,
+      clarification: { checkpoint: { recordAction: { commandGuidance: { command: record } } } } });
+    assert.deepEqual(await f.stop(), {}, 'questions shown in chat with no question tool still wait on the person');
+    await repositoryToolGuard({ ...f.payload, toolName: 'ask_user', toolArgs: { question: 'Which?' } });
+    const asked = await f.stop();
+    assert.equal(asked.decision, 'block');
+    assert.match(asked.reason, /^SFLOW_WORKFLOW_TASK_INCOMPLETE:/u);
+    assert.ok(asked.reason.includes(record), asked.reason);
+    assert.match(asked.reason, /phase enter --compose --for-agent --json once/u);
+    assert.match(asked.reason, /left a question open, say which and stop; never answer for them/u);
+    assert.deepEqual(await f.stop(), {}, 'told once, never a loop');
+    const continuation = await recordRepositoryBoundaryTurn({ ...f.payload, prompt: asked.reason });
+    assert.match(continuation.additionalContext, /same admitted workflow task/, 'a host that sends the reason as a prompt keeps the turn');
+    await recordPhaseTaskAnswers(f.root, { workId: 'TASK-1', phaseId: options.phaseId, generation: 1, completed: true });
+    const recorded = await f.stop();
+    assert.equal(recorded.decision, 'block');
+    assert.match(recorded.reason, /The answers are recorded\./u);
+    assert.match(recorded.reason, new RegExp(`phase enter ${options.phaseId} --work-id TASK-1 --compose --for-agent --json`));
+    assert.deepEqual(await f.stop(), {});
+    await f.arm();
+    const authoring = await f.stop();
+    assert.equal(authoring.decision, 'block', 'the authoring keeps its own continuation');
+    assert.match(authoring.reason, /Reuse the current exact paths/);
+  });
+  await t.test('VS Code asks with its own tool and sends no stop reason', async t => {
+    const f = await fixture(t, { phaseId: 'specification' });
+    await f.arm({ ...f.entry, status: 'clarification-required', authoringAllowed: false,
+      clarification: { checkpoint: { recordAction: { commandGuidance: { command: 'singularity-flow clarification record specification --response-file /issued/r.json --for-agent --json' } } } } });
+    await repositoryToolGuard({ cwd: f.root, session_id: 'task-completion', hook_event_name: 'PreToolUse', tool_name: 'vscode_askQuestions', tool_input: { questions: [] } });
+    const stop = await repositoryAgentStop({ cwd: f.root, session_id: 'task-completion', hook_event_name: 'Stop', stop_hook_active: false });
+    assert.equal(stop.decision, 'block');
+    assert.deepEqual(await repositoryAgentStop({ cwd: f.root, session_id: 'task-completion', hook_event_name: 'Stop', stop_hook_active: true }), {});
+  });
+  await t.test('answers still open keep the wait, and so does a hold that is not about answers', async t => {
+    const f = await fixture(t, { phaseId: 'specification' });
+    await f.arm({ ...f.entry, status: 'clarification-required', authoringAllowed: false,
+      clarification: { checkpoint: { recordAction: { commandGuidance: { command: 'singularity-flow clarification record specification --response-file /issued/r.json --for-agent --json' } } } } });
+    await recordPhaseTaskAnswers(f.root, { workId: 'TASK-1', phaseId: 'specification', generation: 1, completed: false });
+    assert.deepEqual(await f.stop(), {});
+    const other = await fixture(t, { phaseId: 'specification' });
+    await other.arm({ ...other.entry, authoringAllowed: false });
+    await repositoryToolGuard({ ...other.payload, toolName: 'ask_user', toolArgs: { question: 'Which?' } });
+    assert.deepEqual(await other.stop(), {});
+  });
+});
+
+test('a real Story carries on after a person\'s answers, through the real commands', async t => {
+  const f = await startedSpecificationStory(t, 'TASK-ANSWERS');
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(f.directory, 'machine', 'mode.json');
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
+  });
+  const hook = { cwd: f.root, sessionId: 'real-answers', prompt: '/sf-phase' };
+  await recordRepositoryBoundaryTurn(hook, { captureMutation: (payload, record) => captureMutationTurn(payload, record,
+    { resolveRoot: async () => f.root }) });
+  const stop = () => repositoryAgentStop({ ...hook, stopReason: 'end_turn' });
+  const enter = async () => {
+    await repositoryToolGuard({ ...hook, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --compose --for-agent --json' } });
+    return completeAgentResult(f.cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  };
+  const entry = await enter();
+  assert.equal(entry.status, 'clarification-required', JSON.stringify(entry.taskCompletion));
+  assert.equal(entry.taskCompletion.held, undefined, 'the result does not grow with what only the hook reads');
+  assert.deepEqual(await stop(), {}, 'nobody has answered yet');
+
+  await repositoryToolGuard({ ...hook, toolName: 'ask_user', toolArgs: { question: 'Is this interpretation complete?' } });
+  const action = entry.clarification.checkpoint.recordAction.commandGuidance;
+  const asked = await stop();
+  assert.equal(asked.decision, 'block', 'the question returned and the turn ended');
+  assert.ok(asked.reason.includes(action.command), asked.reason);
+
+  await mkdir(path.dirname(entry.clarification.responseStagingPath), { recursive: true });
+  await writeFile(entry.clarification.responseStagingPath, JSON.stringify({ responses: [{ question: 'Is this interpretation complete?', answer: 'Yes.' }] }));
+  const allowed = await repositoryToolGuard({ ...hook, toolName: 'bash', toolArgs: { command: action.command } });
+  assert.notEqual(allowed.permissionDecision, 'deny', allowed.permissionDecisionReason);
+  const recorded = completeAgentResult(f.cli(...action.argv).stdout);
+  assert.match(recorded.act.said, /phase enter --compose --for-agent --json once more now/u, JSON.stringify(recorded));
+  // Through the packaged hook, as VS Code's Local chat calls it: no stop reason, and it reads the answer from hookSpecificOutput.
+  const vsCodeStop = spawnSync(process.execPath, [fileURLToPath(new URL('../plugin/hook-launcher.mjs', import.meta.url)), 'boundary-stop', CLI], {
+    cwd: f.root, encoding: 'utf8', timeout: 60_000, env: { ...process.env, SINGULARITY_FLOW_BUNDLE: 'off' },
+    input: JSON.stringify({ timestamp: new Date().toISOString(), hook_event_name: 'Stop', session_id: hook.sessionId, cwd: f.root, stop_hook_active: false }) });
+  assert.equal(vsCodeStop.status, 0, vsCodeStop.stderr);
+  const answered = JSON.parse(vsCodeStop.stdout).hookSpecificOutput;
+  assert.equal(answered?.decision, 'block', vsCodeStop.stdout);
+  assert.match(answered.reason, /The answers are recorded\./u);
+  assert.match(answered.reason, /phase enter specification --work-id TASK-ANSWERS --compose --for-agent --json/u);
+
+  const admitted = await enter();
+  assert.equal(admitted.act.state, 'author');
+  assert.equal(admitted.authoringAllowed, true);
+  const authoring = await stop();
+  assert.equal(authoring.decision, 'block', 'the entry is refreshed and nothing is written');
+  assert.match(authoring.reason, /Reuse the current exact paths/);
+  assert.deepEqual(await stop(), {}, 'and that is the last nudge in this turn');
+});
+
+test('a host that sends no stop reason gets the end-of-turn check, and a reason other than the end of a turn does not', async t => {
+  const f = await fixture(t);
+  await f.arm();
+  assert.deepEqual(await f.stop({ stopReason: 'max_tokens' }), {});
+  assert.equal((await f.stop({ stopReason: undefined })).decision, 'block');
 });
 
 test('the refresh after recorded answers turns the end-of-turn check on, for every kind of step', async t => {

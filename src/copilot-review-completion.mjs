@@ -6,6 +6,14 @@ import { reviewCompletionTurn, workflowCompletionTurn, nativeFileReadCalls, nati
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
+// Copilot says why a turn ended. VS Code's Local chat calls its Stop hook only once the model has
+// finished and sends no reason, so requiring one meant these checks never ran in that chat.
+const turnFinished = (payload) => (payload.stopReason ?? payload.stop_reason ?? 'end_turn') === 'end_turn'
+  && payload.stop_hook_active !== true && payload.stopHookActive !== true;
+// The person's answers are in, so waiting on them no longer explains a stop. Each has its own one
+// continuation, and neither spends the task's budget, which belongs to the authoring that follows.
+const ANSWER_STATES = Object.freeze(['record-answers', 'refresh-entry']);
+
 async function reserveTaskContinuation(value, operation) {
   if (!operation.operationId) return true; // Compatibility with older issued prompts.
   const { reserveWorkflowTaskContinuation } = await import('./workflow-task-store.mjs');
@@ -97,22 +105,25 @@ export async function noteReviewCompletionFailure(payload, error = payload.error
 
 /** Full tasks stop at their observed terminal checkpoint, or yield to an explicit owner blocker. */
 export async function workflowTaskAgentStop(payload = {}) {
-  if ((payload.stopReason ?? payload.stop_reason) !== 'end_turn'
-      || payload.stop_hook_active === true || payload.stopHookActive === true) return {};
+  if (!turnFinished(payload)) return {};
   const value = await workflowCompletionTurn(payload);
   if (value?.reviewOperation) return sourceReviewAgentStop(payload);
   const operation = value?.taskOperation;
   if (!operation || operation.continued || operation.blocked || operation.complete
       || operation.kind !== 'phase-authoring' || operation.workId !== value.contract.workId
       || operation.phaseId !== value.contract.phaseId || operation.generation !== Number(value.contract.generation) + 1) return {};
-  const next = ['publish-ready', 'prepare-successor', 'load-context', 'validate-draft', 'open-code-generation'].includes(operation.state) ? safeCommandGuidance(operation.nextAction)
+  const answers = ANSWER_STATES.includes(operation.state);
+  const next = answers || ['publish-ready', 'prepare-successor', 'load-context', 'validate-draft', 'open-code-generation'].includes(operation.state) ? safeCommandGuidance(operation.nextAction)
     : safeCommandGuidance(operation.recheck);
   if (!next) return {};
   operation.continued = true;
-  if (!await saveReviewCompletionTurn(payload, value, { once: true }) || !await reserveTaskContinuation(value, operation)) return {};
+  if (!await saveReviewCompletionTurn(payload, value, { once: true, ...(answers ? { claim: `task-completion-${operation.state}` } : {}) })
+    || !answers && !await reserveTaskContinuation(value, operation)) return {};
   return { decision: 'block', reason: `SFLOW_WORKFLOW_TASK_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no verified completed publication from this task. `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --for-agent --json and follow that result; never replay the command. Otherwise: '
-    + (operation.state === 'load-context' ? `The admitted entry did not compose context. Run ${next.command} once, then use its delivered inputs and complete the current task. `
+    + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as {"responses":[...]} at the --response-file path and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
+      : operation.state === 'refresh-entry' ? `The answers are recorded. Run ${next.command} once, then do this step's own work from what it returns. `
+      : operation.state === 'load-context' ? `The admitted entry did not compose context. Run ${next.command} once, then use its delivered inputs and complete the current task. `
       : operation.state === 'prepare-successor' ? `Run only the returned successor preparation, ${next.command}; preserve prior publications and private drafts, then refresh phase entry once before authoring. `
       : operation.state === 'publish-ready' ? `Run only the returned publication command, ${next.command}, under its existing fresh checks. `
       : operation.state === 'validate-draft' ? `Preserve the authored draft and run its returned validation, ${next.command}; repair only current-scope findings and publish only when fresh checks permit it. `
@@ -123,8 +134,7 @@ export async function workflowTaskAgentStop(payload = {}) {
 }
 
 export async function sourceReviewAgentStop(payload = {}) {
-  if ((payload.stopReason ?? payload.stop_reason) !== 'end_turn'
-      || payload.stop_hook_active === true || payload.stopHookActive === true) return {};
+  if (!turnFinished(payload)) return {};
   const value = await reviewCompletionTurn(payload);
   const operation = value?.reviewOperation;
   if (!operation || operation.continued || operation.blocked || operation.complete

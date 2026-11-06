@@ -28,7 +28,8 @@ export async function run(argv, { positionals, options, invocationCwd = process.
     modelEnabled: operationContext()?.modelMode?.enabled !== false });
   const forAgent = optionBoolean(options, 'for-agent');
   if (forAgent && result.taskCompletion) {
-    await (await import('../copilot-mutation-guard.mjs')).recordPhaseTaskProgress(result.repositoryPath, result.taskCompletion)
+    await (await import('../copilot-mutation-guard.mjs')).recordPhaseTaskProgress(result.repositoryPath,
+      { ...result.taskCompletion, ...(await import('../phase-authoring-progress.mjs')).phaseTaskHeldForAnswers(result) })
       .catch(error => { result.taskCompletion.checkpointTracking = { status: 'unavailable', code: error.code ?? 'TASK_CHECKPOINT_WRITE_FAILED' }; });
   }
   if (forAgent && result.ready && !result.paused) {

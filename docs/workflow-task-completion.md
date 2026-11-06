@@ -15,6 +15,13 @@ new chat; author and independent reviewer tasks have different IDs. Current pins
 artifacts form the input revision. A changed revision invalidates affected checkpoints while spent
 budgets remain spent. A blocked clarification or admission keeps its human route.
 
+A wait on a person's answers ends when they answer. If the turn stops after a question tool (`ask_user`,
+or `vscode_askQuestions` in VS Code) has returned, or after the answers are recorded but before the entry
+is refreshed, the end-of-turn check sends the agent back once with the exact next command. Each of those two
+has its own one continuation and spends none of the task's budget. Questions shown in chat with no tool still
+wait on the person. VS Code's Local chat sends its Stop hook no stop reason, so a missing reason counts as
+the end of a turn.
+
 The shared resolver serves phase entry, prepublish, source review, session current/attach and
 next-step guidance. It chooses work from current kernel observations, not saved commands or model
 claims. A prepared artifact, diagnostic test pass, ready check or stored `complete` state cannot

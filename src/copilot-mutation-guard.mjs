@@ -54,6 +54,8 @@ function unissuedDraftOption(call, scope, mode, field, pick) {
   return shellAllowed(call, mode, { ...scope, [field]: [...(scope[field] ?? []), path.resolve(file)] }) ? file : null;
 }
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
+// Copilot CLI's question tool and VS Code's vscode_askQuestions, as calls() spells them.
+const QUESTION_TOOLS = new Set(['ask_user', 'vscode_askquestions']);
 const FILE_READS = new Set(['read', 'read_file', 'readfile', 'read_text_file', 'view', 'get_file']);
 const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
@@ -1587,6 +1589,18 @@ export async function settleObservedEdits(payload) {
   await unlink(pending).catch(() => {});
 }
 
+/** A host ends a turn only after its tools return, so a question asked now is answered by the next stop. */
+async function noteTaskQuestion(payload, record) {
+  if (!calls(payload).some(call => QUESTION_TOOLS.has(call.name))) return;
+  try {
+    const value = await currentContract(payload, record, { reclassifyOutputs: false });
+    const operation = value.taskOperation;
+    if (operation?.held !== 'clarification' || operation.state !== 'blocked' || !operation.answers) return;
+    value.taskOperation = { ...operation, state: 'record-answers', blocked: false, continued: false, nextAction: operation.answers };
+    await atomicRecord(recordFile(payload), value);
+  } catch { /* Advisory tracking cannot change this tool's permission decision. */ }
+}
+
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
   if (!record) return personStepDenial(payload) ?? {};
@@ -1596,6 +1610,7 @@ export async function mutationToolGuard(payload = {}) {
   const personal = turnPersonDecisionDenial(payload, record);
   if (personal) return personal;
   const decision = await mutationToolDecision(payload, record);
+  if (decision.permissionDecision !== 'deny' && record.taskCompletionRequested) await noteTaskQuestion(payload, record);
   if (decision.permissionDecision !== 'deny' && record.taskCompletionRequested) {
     // Only the chat that requested the entry receives its completion checkpoint. CLI issuers
     // otherwise share a checkout's grants, which must not arm an unrelated chat after its reads.
@@ -2187,9 +2202,30 @@ export async function recordPhaseTaskProgress(root, progress) {
     const record = await turn({ sessionId: value.sessionId });
     if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
     const prior = value.taskOperation;
-    value.taskOperation = { ...progress, continued: prior?.continued === true,
+    // A continuation spent on the person's answers leaves the authoring its own.
+    value.taskOperation = { ...progress, continued: prior?.continued === true && !['record-answers', 'refresh-entry'].includes(prior.state),
       blocked: Boolean(prior?.failure) || progress.state === 'blocked',
       ...(prior?.failure ? { failure: prior.failure } : {}) };
+    await atomicRecord(file, value);
+  }
+}
+
+/** Recorded answers end the wait this entry was held on: next comes a fresh entry, in this turn. */
+export async function recordPhaseTaskAnswers(root, { workId, phaseId, generation, completed }) {
+  if (!root || readCopilotMode().paused) return;
+  root = await realpath(root);
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    const operation = value?.taskOperation;
+    if (operation?.held !== 'clarification' || value.contract?.repositoryRoot !== root || operation.workId !== workId
+        || value.contract.workId !== workId || operation.phaseId !== phaseId || operation.generation !== generation
+        || value.contract.turnMode !== 'authoring') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || record.turnId !== value.turnId || turnExpired(value) || value.decisionEnded) continue;
+    value.taskOperation = { ...operation, continued: false, ...(completed
+      ? { state: 'refresh-entry', blocked: false, nextAction: safeCommandGuidance({ argv: ['phase', 'enter', phaseId, '--work-id', workId, '--compose', '--for-agent', '--json'] }) }
+      : { state: 'blocked', blocked: true }) };
     await atomicRecord(file, value);
   }
 }
@@ -2242,11 +2278,11 @@ export async function reviewCompletionTurn(payload) {
   } catch { return null; }
 }
 
-export async function saveReviewCompletionTurn(payload, value, { once = false } = {}) {
+export async function saveReviewCompletionTurn(payload, value, { once = false, claim: claimed = null } = {}) {
   if (once) {
     // Duplicate stop callbacks can overlap. An exclusive empty claim, removed with this turn's
     // issued files, consumes the single continuation even if a process dies before replying.
-    const claim = `${issuedReadFile(payload, value.turnId, value.taskOperation ? 'task-completion' : 'review-completion')}.once`;
+    const claim = `${issuedReadFile(payload, value.turnId, claimed ?? (value.taskOperation ? 'task-completion' : 'review-completion'))}.once`;
     await mkdir(path.dirname(claim), { recursive: true, mode: 0o700 });
     if ((await lstat(path.dirname(claim))).isSymbolicLink()) throw new Error('Unsafe completion claim directory');
     try { await writeFile(claim, '', { flag: 'wx', mode: 0o600 }); }

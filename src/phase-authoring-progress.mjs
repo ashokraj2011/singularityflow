@@ -34,6 +34,16 @@ export function phaseTaskCompletion(result) {
     instruction: 'Input reads, preparation and diagnostic tests are incomplete. Finish the admitted task or preserve its exact blocker and owner route. Never submit, approve or start another phase.' };
 }
 
+/** For the end-of-turn check while an entry waits on a person's answers. Kept out of the result: only the hook reads it. */
+export function phaseTaskHeldForAnswers(result) {
+  const held = result?.status === 'clarification-required' && result.taskCompletion?.state === 'blocked'
+    && result.taskResume?.state !== 'inspect-interrupted-operation';
+  const command = held ? result.clarification?.checkpoint?.recordAction?.commandGuidance?.command : null;
+  // The form an agent's view of this result gives the same route.
+  const route = command?.includes('--for-agent') ? command : command?.replace(/ --json(?=\s|$)/u, ' --for-agent --json');
+  return route ? { held: 'clarification', answers: { command: route, copilotCommand: null, modelFreeCommand: null } } : {};
+}
+
 export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null } = {}) {
   if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id
       || !phaseNeedsGeneration(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;

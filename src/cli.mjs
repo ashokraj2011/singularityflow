@@ -2630,6 +2630,8 @@ async function clarificationCommand(positionals, options) {
       replace: optionBoolean(options, 'replace'),
       responseFile: responseFile ? path.resolve(responseFile) : null
     }));
+  await (await import('./copilot-mutation-guard.mjs')).recordPhaseTaskAnswers(root, { workId: workflow.workItem.id, phaseId: phase.id,
+    generation: result.record.generation, completed: result.record.completed }).catch(() => {});
   const json = optionBoolean(options, 'json');
   if (!json) {
     console.log(`${result.reused ? 'Reused the exact recorded' : 'Recorded'} ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);

@@ -36,6 +36,29 @@ test('only explicit slash invocations or host skill contexts opt in; ordinary me
   for (const prompt of ['Explain /sf-code', 'find repository', '/other', '', null]) assert.equal(explicitSflowSkill(prompt), null);
 });
 
+test('looking at one named file outside the repository is no search, and a real search stays refused', async t => {
+  const item = await fixture(t);
+  await recordRepositoryBoundaryTurn({ ...item.payload, prompt: '/sf-code' });
+  const nodeFile = path.join(item.directory, 'opt', 'node@22', 'bin', 'node');
+  await mkdir(path.dirname(nodeFile), { recursive: true });
+  await writeFile(nodeFile, '#!/bin/sh\n');
+  const link = path.join(item.directory, 'opt', 'node-link');
+  await symlink(nodeFile, link);
+  const directoryLink = path.join(item.directory, 'opt', 'bin-link');
+  await symlink(path.dirname(nodeFile), directoryLink);
+  // The real command: one file that is there, one that is not, and a link to a file.
+  for (const command of [`ls -l ${nodeFile}`, `ls -l ${nodeFile} ${path.join(item.directory, 'not', 'here', 'node')}`, `ls -l ${link}`]) {
+    assert.deepEqual(await item.guard(command), {}, command);
+  }
+  for (const command of ['find ~ -name .git', 'find ~', 'ls ~', 'ls ~/projects', 'ls $HOME', 'ls /', 'ls /*', 'ls /Users', 'ls ..', 'ls ../..', 'ls ../../..',
+    `ls ${item.directory}`, `ls ${path.dirname(nodeFile)}`, `ls ${directoryLink}`, `ls ${path.join(item.directory, '*')}`, `ls ${path.join(item.directory, '*', '.git')}`,
+    `find ${item.directory} -name .git`, `find ${path.join(item.directory, 'not', 'here')}`, `rg --files ${item.directory}`, `grep -r x ${item.directory}`]) {
+    const decision = await item.guard(command);
+    assert.equal(decision.permissionDecision, 'deny', command);
+    assert.match(decision.permissionDecisionReason, /must not discover a repository/u, command);
+  }
+});
+
 test('native chat short-circuits without repository resolution or restrictions', async t => {
   const item = await fixture(t);
   let probes = 0;

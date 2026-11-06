@@ -1,6 +1,6 @@
 /** Explicit-turn discovery and mutation interception; not a filesystem sandbox. */
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, stat as fileStat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { codePageSafeJson } from './code-page-safe-json.mjs';
 import { copilotModeFile, hookCliLine, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
@@ -336,6 +336,9 @@ function inside(root, target) {
     || platformPathWithin(target, root);
 }
 
+// One whole absolute path: no wildcard, expansion or quoting a shell could turn into many.
+const EXACT_ABSOLUTE_PATH = /^\/[^\s*?[\]{}$~`'"()<>|;&!#]+$/u;
+
 function searchTargets(call) {
   let args = call.args ?? call.toolArgs ?? call.tool_input ?? {};
   if (typeof args === 'string') { try { args = JSON.parse(args); } catch { return []; } }
@@ -350,11 +353,11 @@ function searchTargets(call) {
   const command = args.command ?? args.cmd ?? args.script ?? '';
   if (typeof command !== 'string' || command.length > 32768) return [];
   const targets = [];
-  function scoped(target, at) {
+  function scoped(target, at, named = false) {
     const prefix = command.slice(0, at);
     const directories = [...prefix.matchAll(/(?:^|[;&|]\s*)cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?=&&|;)/gu)]
       .map(match => match[1].replace(/^['"]|['"]$/gu, ''));
-    return { target, directories };
+    return { target, directories, named };
   }
   // Recognize discovery in compound shells too. No arbitrary command execution or shell expansion.
   for (const match of command.matchAll(/(?:^|[;&|\n]\s*|\s)(find|Get-ChildItem|gci)\s+([^;&|\n]+)/gu)) {
@@ -386,7 +389,7 @@ function searchTargets(call) {
       operands.push(word);
     }
     const at = match.index + match[0].indexOf(match[1]);
-    targets.push(...(operands.length ? operands : ['.']).map(target => scoped(target, at)));
+    targets.push(...(operands.length ? operands : ['.']).map(target => scoped(target, at, match[1] === 'ls')));
   }
   return targets;
 }
@@ -402,7 +405,7 @@ export async function repositoryDiscoveryGuard(payload = {}, { now = Date.now(),
   if (!targets.length) return {};
   const root = await resolveRoot(payload).catch(() => null);
   const cwd = typeof payload.cwd === 'string' ? payload.cwd : process.cwd();
-  for (const { target, directories = [] } of targets) {
+  for (const { target, directories = [], named = false } of targets) {
     const base = directories.reduce((current, directory) => path.resolve(current, directory), cwd);
     const normalized = target.replaceAll('\\', '/');
     if (/^(?:~|\$\{?HOME\}?|\/Users\/?$|\/home\/?$|\/\*|\/$)/u.test(normalized)
@@ -410,6 +413,9 @@ export async function repositoryDiscoveryGuard(payload = {}, { now = Date.now(),
       // Exact temporary tool-output files remain readable; this is a directory-discovery guard.
       const stat = await lstat(path.resolve(base, target)).catch(() => null);
       if (stat?.isFile() && !stat.isSymbolicLink()) continue;
+      // `ls -l /opt/homebrew/opt/node@22/bin/node` looks at one named path, which is no search (bin-opr2): an exact
+      // absolute path that is not there, or a link to a file, shows nothing a search would. A directory still does.
+      if (named && EXACT_ABSOLUTE_PATH.test(normalized) && (!stat || await fileStat(path.resolve(base, target)).then(entry => entry.isFile(), () => false))) continue;
       return { permissionDecision: 'deny', permissionDecisionReason:
         `This explicit SFlow turn must not discover a repository by searching home/parent directories. Run ${boundaryBootstrap(turn.skill)} from the current scratch folder; it resolves the selected workspace without filesystem search. Use its ready/workId/repositoryPath binding as cwd. If selection is unavailable, use /sf-session or /sf-workspaces; do not widen the search. Native Copilot and pause mode are unaffected.` };
     }

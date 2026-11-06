@@ -9,17 +9,16 @@
 import path from 'node:path';
 
 import { configurationPathKind } from './configuration-paths.mjs';
+import { isRunnerConfigurationName } from './test-runners.mjs';
 import { posix } from './util.mjs';
 
-// What says how a runner runs. Each is what a pin of that runner can bind (src/test-command-pins.mjs) or its like in another language.
-const RUNNER_CONFIG = /^(?:(?:vitest|vite|jest|playwright|cypress)\.config\.[cm]?[jt]sx?|jest\.config\.json|vitest\.workspace\.(?:[cm]?[jt]s|json)|karma\.(?:config|conf)\.[cm]?[jt]s|\.mocharc\.(?:[cm]?js|jsonc?|ya?ml)|pytest\.ini|conftest\.py|\.rspec|phpunit\.xml(?:\.dist)?)$/u;
 // What a runner loads around the tests rather than as one.
 const SETUP_FILE = /^(?:setup-?tests?|test-?setup|tests?\.setup|(?:vitest|jest|playwright)\.setup|global-?(?:setup|teardown))\.[cm]?[jt]sx?$/iu;
 const SETUP_IN_TEST_FOLDER = /(?:^|\/)(?:tests?|__tests__|e2e|spec)\/(?:[^/]+\/)*(?:setup|helpers?|utils?|support)(?:\.[cm]?[jt]sx?$|\/)/iu;
 const TEST_NAME = /\.(?:test|spec|e2e|cy|pw)\.[cm]?[jt]sx?$/u;
 const PACKAGE_MANIFEST = /^(?:package\.json|requirements(?:[-_.][\w-]+)?\.txt|composer\.json|gemfile)$/iu;
 
-const isRunnerConfiguration = (file) => RUNNER_CONFIG.test(path.posix.basename(file));
+const isRunnerConfiguration = (file) => isRunnerConfigurationName(path.posix.basename(file));
 const isSetupFile = (file) => !TEST_NAME.test(file) && (SETUP_FILE.test(path.posix.basename(file)) || SETUP_IN_TEST_FOLDER.test(file));
 const isDependencyFile = (file) => PACKAGE_MANIFEST.test(path.posix.basename(file)) || configurationPathKind(file) === 'dependency-lock';
 

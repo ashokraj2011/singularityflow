@@ -16,22 +16,13 @@ import path from 'node:path';
 
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { launcherName, resolveTestCommand, SCRIPT_RUNNERS, unwrapRunner } from './test-command-resolution.mjs';
+import { runnerNamed, runnerNameOfAdapter, runnerNameOfLauncher, TEST_RUNNERS, TOOLS_ON_PATH } from './test-runners.mjs';
 import { profileForCommand, profileIsExact } from './verification/profiles.mjs';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_SCANNED_ENTRIES = 4000;
 const MAX_SHOWN_PATHS = 40;
 const MAX_SCRIPT_WORDS = 200;
-const ADAPTER_RUNNERS = Object.freeze({ 'vitest-json': 'Vitest', 'jest-json': 'Jest', 'playwright-json': 'Playwright', 'node-tap': 'node:test',
-  'mocha-json': 'Mocha', 'go-test-json': 'Go', 'dotnet-trx': '.NET', 'cargo-json': 'Cargo', 'karma-text': 'Karma' });
-const LAUNCHER_RUNNERS = Object.freeze({ mvn: 'Maven', mvnw: 'Maven', gradle: 'Gradle', gradlew: 'Gradle', swift: 'SwiftPM', xcodebuild: 'Xcode',
-  cypress: 'Cypress', pytest: 'pytest', 'py.test': 'pytest', vitest: 'Vitest', jest: 'Jest', 'react-scripts': 'Jest', mocha: 'Mocha', playwright: 'Playwright',
-  ng: 'Angular Karma', karma: 'Karma', go: 'Go', dotnet: '.NET', cargo: 'Cargo', nx: 'Nx' });
-const BROWSER_RUNNERS = new Set(['Playwright', 'Cypress']);
-const BUILD_FILES = Object.freeze({ Maven: ['pom.xml'], Gradle: ['build.gradle.kts', 'build.gradle'], Go: ['go.mod'], Cargo: ['Cargo.toml'], SwiftPM: ['Package.swift'],
-  pytest: ['pytest.ini', 'pyproject.toml', 'tox.ini', 'setup.cfg', 'setup.py', 'requirements.txt'], Nx: ['project.json', 'nx.json'] });
-// A tool the gate would start by name: found on PATH, with no process started to ask it.
-const PATH_TOOLS = Object.freeze({ mvn: 'Maven', gradle: 'Gradle', go: 'Go', dotnet: '.NET', swift: 'Swift', cargo: 'Cargo', xcodebuild: 'Xcode' });
 const JAVASCRIPT_TEST = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 // A path that says what it needs: Playwright's or Cypress's own names, or an end-to-end folder.
 const BROWSER_TEST_PATH = /(?:^|\/)(?:e2e|playwright|cypress)\/|\.(?:e2e|pw|cy)\.[cm]?[jt]sx?$/u;
@@ -57,6 +48,8 @@ function parsedManifest(text) {
   try { const value = JSON.parse(text ?? 'null'); return value && typeof value === 'object' ? value : null; } catch { return null; }
 }
 
+const isBrowserRunner = (name) => runnerNamed(name)?.level === 'browser';
+
 const dependenciesOf = (manifest) => ({ ...manifest?.dependencies, ...manifest?.devDependencies, ...manifest?.optionalDependencies, ...manifest?.peerDependencies });
 
 /** What a command resolves through: its package scripts and each runner step it reaches. Never rejects. */
@@ -69,12 +62,12 @@ async function resolved(command, reads) {
 
 /** The runner of a command in a person's words, from its report format, else what it starts. */
 function runnerName(command, launchers) {
-  const adapter = command.result?.adapter;
-  if (ADAPTER_RUNNERS[adapter]) return ADAPTER_RUNNERS[adapter];
+  const adapted = runnerNameOfAdapter(command.result?.adapter);
+  if (adapted) return adapted;
   const argv = (command.argv ?? []).map(String);
   if (argv.includes('pytest')) return 'pytest';
-  for (const name of launchers) if (LAUNCHER_RUNNERS[name]) return LAUNCHER_RUNNERS[name];
-  return LAUNCHER_RUNNERS[launcherName(argv[0])] ?? launchers[0] ?? launcherName(argv[0]) ?? null;
+  for (const name of launchers) if (runnerNameOfLauncher(name)) return runnerNameOfLauncher(name);
+  return runnerNameOfLauncher(launcherName(argv[0])) ?? launchers[0] ?? launcherName(argv[0]) ?? null;
 }
 
 /** Why this command: where a person approved it, or the file SFlow read it from. */
@@ -87,8 +80,8 @@ async function whyThisCommand(command, { packages, provenance, runner, reads }) 
     return { source: 'found', why: `Found in ${first.file} scripts.${first.name}, which runs ${shownScript(last.text)}.` };
   }
   const directory = command.workingDirectory ?? '.';
-  for (const name of BUILD_FILES[runner] ?? []) if (await reads.read(joined(directory, name)) != null) return { source: 'found', why: `Found from ${joined(directory, name)}.` };
-  if (BROWSER_RUNNERS.has(runner)) {
+  for (const name of runnerNamed(runner)?.buildFiles ?? []) if (await reads.read(joined(directory, name)) != null) return { source: 'found', why: `Found from ${joined(directory, name)}.` };
+  if (isBrowserRunner(runner)) {
     const config = (await reads.list(directory)).find((entry) => /^(?:playwright|cypress)\.config\./u.test(entry.name));
     if (config) return { source: 'found', why: `Found from ${joined(directory, config.name)} and its dependency, with no script for it.` };
   }
@@ -105,8 +98,8 @@ export async function describeTestCommand(root, command, { provenance = command.
   const exact = profileIsExact(profileForCommand(command));
   const { source, why } = await whyThisCommand(command, { packages, provenance, runner, reads });
   return {
-    runner, level: BROWSER_RUNNERS.has(runner) ? 'browser' : 'other',
-    title: `${BROWSER_RUNNERS.has(runner) ? 'Browser tests' : 'Tests'}${runner ? ` (${runner})` : ''}`,
+    runner, level: isBrowserRunner(runner) ? 'browser' : 'other',
+    title: `${isBrowserRunner(runner) ? 'Browser tests' : 'Tests'}${runner ? ` (${runner})` : ''}`,
     source, why,
     results: exact ? 'each-test' : 'counts',
     resultsWords: exact ? 'Reads each test by name.' : 'Reads test counts only, so a criterion rests on the whole suite.',
@@ -191,7 +184,8 @@ function upFrom(directory) {
   for (let at = directory; ; at = path.posix.dirname(at)) { folders.push(at); if (at === '.') return folders; }
 }
 
-const NODE_RUNNER_BINARIES = new Set(['vitest', 'jest', 'mocha', 'playwright', 'cypress', 'karma', 'ng', 'react-scripts', 'nyc', 'c8', 'tsx']);
+// What a Node command's steps start from node_modules/.bin: its runner, or what wraps it.
+const NODE_RUNNER_BINARIES = new Set([...['vitest', 'jest', 'mocha', 'playwright', 'cypress', 'karma', 'ng'].flatMap((key) => TEST_RUNNERS[key].launchers), 'nyc', 'c8', 'tsx']);
 
 /** Whether the runners a Node command reaches are installed here: the first run otherwise stops with "command not found". */
 async function dependencyChecks(root, commands, reads) {
@@ -241,9 +235,9 @@ async function toolChecks(root, commands, environment) {
     if (seen.has(key)) continue;
     seen.add(key);
     const { onPath, runnerFamily, runnerToolchain } = await import('./test-toolchain.mjs');
-    if (PATH_TOOLS[launcher]) {
+    if (TOOLS_ON_PATH[launcher]) {
       if (!await onPath(launcher, environment, path.join(root, directory))) {
-        found.push(check('tool-not-found', `${PATH_TOOLS[launcher]} (${launcher}) is not on this machine's PATH, and ${command.id} starts it.`, `Install ${PATH_TOOLS[launcher]} here, or run this step where it is installed.`));
+        found.push(check('tool-not-found', `${TOOLS_ON_PATH[launcher]} (${launcher}) is not on this machine's PATH, and ${command.id} starts it.`, `Install ${TOOLS_ON_PATH[launcher]} here, or run this step where it is installed.`));
       }
       continue;
     }
@@ -304,17 +298,18 @@ async function repositoryFiles(root, directory, { accept, limit = MAX_SHOWN_PATH
 
 /** Whether a runner's configuration file, or its package.json key, says where its tests are. */
 function limitsCollection(text, runner) {
-  return runner === 'Vitest' ? /\b(?:include|exclude|dir)\s*:/u.test(String(text ?? '')) : /\b(?:testMatch|testRegex|testPathIgnorePatterns|roots)\b/u.test(String(text ?? ''));
+  const { keys, within } = runnerNamed(runner).collection;
+  return new RegExp(`\\b(?:${keys.join('|')})\\b${within ? '\\s*:' : ''}`, 'u').test(String(text ?? ''));
 }
 
-const UNIT_RUNNER_CONFIGS = Object.freeze({ Vitest: /^(?:vitest|vite)\.config\.[cm]?[jt]s$|^vitest\.workspace\./u, Jest: /^jest\.config\./u });
+const unitRunnerConfigured = (runner, name) => runnerNamed(runner).pins.config.some((pattern) => pattern.test(name));
 
 /** The Vitest or Jest step a package runs, as its tokens, or null. */
 async function unitRunnerStep(commands, directory, reads) {
   for (const command of commands.filter((entry) => (entry.workingDirectory ?? '.') === directory)) {
     for (const run of (await resolved(command, reads)).runs) {
       const tokens = unwrapRunner(run.tokens);
-      const name = LAUNCHER_RUNNERS[launcherName(tokens[0])];
+      const name = runnerNameOfLauncher(launcherName(tokens[0]));
       if (name === 'Vitest' || name === 'Jest') return { name, tokens };
     }
   }
@@ -332,7 +327,7 @@ async function collectionChecks(root, commands, { planned = [], reads }) {
     if (!unit) continue;
     const entries = await reads.list(directory);
     const manifest = parsedManifest(await reads.read(joined(directory, 'package.json')));
-    const configNames = entries.filter((entry) => UNIT_RUNNER_CONFIGS[unit.name].test(entry.name)).map((entry) => entry.name);
+    const configNames = entries.filter((entry) => unitRunnerConfigured(unit.name, entry.name)).map((entry) => entry.name);
     const configs = await Promise.all(configNames.map((name) => reads.read(joined(directory, name))));
     if (configs.some((text) => limitsCollection(text, unit.name)) || (unit.name === 'Jest' && limitsCollection(JSON.stringify(manifest?.jest ?? null), 'Jest'))) continue;
     // A script that already names where its tests are (`vitest run src`) keeps them apart.
@@ -409,7 +404,7 @@ async function browserChecks(commands, { environment, reads }) {
 async function usesVitestDomStorage(root, directory, commands, reads) {
   const unit = await unitRunnerStep(commands, directory, reads);
   if (unit?.name !== 'Vitest') return false;
-  const names = (await reads.list(directory)).filter((entry) => UNIT_RUNNER_CONFIGS.Vitest.test(entry.name)).map((entry) => entry.name);
+  const names = (await reads.list(directory)).filter((entry) => unitRunnerConfigured('Vitest', entry.name)).map((entry) => entry.name);
   const texts = await Promise.all(names.map((name) => reads.read(joined(directory, name))));
   if (!texts.some((text) => /\benvironment\s*:\s*['"](?:jsdom|happy-dom)['"]/u.test(String(text ?? '')))) return false;
   const files = await repositoryFiles(root, directory, { limit: 200, accept: (file) => /\.[cm]?[jt]sx?$/u.test(file) });

@@ -6,17 +6,8 @@
  * tests that never ran. A configuration is tokenized, never imported or run, and only plain literals count: what
  * this cannot read comes back as `unread`, so the refusal can say this may be why and keep the person's route.
  */
+import { TEST_RUNNERS } from './test-runners.mjs';
 import { tokenizeJavaScript } from './verification/javascript-declarations.mjs';
-
-const JAVASCRIPT_CONFIG = (stem) => new RegExp(`^${stem}\\.config\\.[cm]?[jt]s$`, 'u');
-// `within` is the block a runner's options live in; `opaque` are options that move them out of reach of a plain read.
-const SOURCES = Object.freeze({
-  vitest: { names: [JAVASCRIPT_CONFIG('vitest'), JAVASCRIPT_CONFIG('vite')], first: true, within: 'test', keys: ['include', 'exclude', 'dir'], opaque: ['projects', 'workspace'] },
-  jest: { names: [JAVASCRIPT_CONFIG('jest'), /^jest\.config\.json$/u], packageKey: 'jest', keys: ['testMatch', 'testRegex', 'roots', 'testPathIgnorePatterns'], opaque: ['projects', 'preset', 'rootDir'] },
-  playwright: { names: [JAVASCRIPT_CONFIG('playwright')], keys: ['testDir', 'testMatch', 'testIgnore'], opaque: [] },
-  mocha: { names: [/^\.mocharc\.(?:json|c?js)$/u], packageKey: 'mocha', keys: ['spec', 'ignore'], opaque: [], unreadable: /^\.mocharc\.ya?ml$/u }
-});
-const PYTEST_FILES = Object.freeze([['pytest.ini', '[pytest]'], ['pyproject.toml', '[tool.pytest'], ['tox.ini', '[pytest]'], ['setup.cfg', '[tool:pytest]']]);
 
 const clean = (value) => String(value).replaceAll('\\', '/').replace(/^<rootDir>\/?/u, '').replace(/^\.\//u, '').replace(/\/+$/u, '');
 const within = (file, folder) => !folder || folder === '.' || file === folder || file.startsWith(`${folder}/`);
@@ -124,7 +115,7 @@ function accepts(runner, values) {
 
 /** `testpaths` of the first pytest configuration file with a section, which is the one pytest reads. */
 function pytestLimit(names, read) {
-  for (const [name, header] of PYTEST_FILES) {
+  for (const [name, header] of TEST_RUNNERS.pytest.collection.sections) {
     if (!names.includes(name)) continue;
     const lines = String(read(name) ?? '').split(/\r?\n/u);
     const start = lines.findIndex((line) => line.trim().toLowerCase().startsWith(header));
@@ -147,7 +138,7 @@ function pytestLimit(names, read) {
  */
 export function collectionLimit(runner, names, read) {
   if (runner === 'pytest') return pytestLimit(names, read);
-  const source = SOURCES[runner];
+  const source = TEST_RUNNERS[runner]?.collection;
   if (!source) return null;
   const files = [];
   for (const pattern of source.names) files.push(...names.filter((name) => pattern.test(name)));
@@ -178,8 +169,8 @@ export function collectionLimit(runner, names, read) {
 
 /** The names `collectionLimit` would read for a runner among a folder's file names, so a caller reads only those. */
 export function collectionConfigNames(runner, names) {
-  if (runner === 'pytest') return PYTEST_FILES.map(([name]) => name).filter((name) => names.includes(name));
-  const source = SOURCES[runner];
+  if (runner === 'pytest') return TEST_RUNNERS.pytest.collection.sections.map(([name]) => name).filter((name) => names.includes(name));
+  const source = TEST_RUNNERS[runner]?.collection;
   if (!source) return [];
   return names.filter((name) => source.names.some((pattern) => pattern.test(name)) || (source.packageKey && name === 'package.json'));
 }

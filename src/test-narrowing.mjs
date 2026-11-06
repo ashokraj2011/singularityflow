@@ -35,6 +35,7 @@ import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { collectionConfigNames, collectionLimit } from './test-collection-limits.mjs';
 import { commandTokens, launcherName, packageScriptName, shellSegments } from './test-command-pins.mjs';
+import { selectingRunner, SELECTING_RUNNERS } from './test-runners.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { tokenizeJavaScript } from './verification/javascript-declarations.mjs';
 
@@ -42,28 +43,11 @@ const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_FOCUS_FILES = 256;
 const JAVASCRIPT = /\.(?:[cm]?[jt]sx?)$/iu;
 const SUITES = new Set(['describe', 'context', 'suite', 'it', 'test', 'specify']);
-// The options that select a subset of a runner's tests [TCE:REQ-021]. `--project` is a person's
+// The options that select a subset of a runner's tests [TCE:REQ-021], from its row. `--project` is a person's
 // choice in a configured or accepted command, and a narrowing only in a guessed one.
-const FILTERS = Object.freeze({
-  jest: ['-t', '--testNamePattern', '--testPathPattern', '--testPathPatterns', '--shard', '-o', '--onlyChanged', '--changedSince',
-    '--findRelatedTests', '--onlyFailures', '--selectProjects'],
-  vitest: ['-t', '--testNamePattern', '--shard', '--changed', '--related', '--project'],
-  mocha: ['-g', '--grep', '-f', '--fgrep', '--invert'],
-  playwright: ['-g', '--grep', '--grep-invert', '--shard', '--project', '--only-changed', '--last-failed'],
-  cypress: ['--spec'],
-  pytest: ['-k', '-m', '--lf', '--last-failed', '--deselect', '--sw', '--stepwise'],
-  maven: ['-Dtest', '-Dit.test', '-Dgroups', '-DexcludedGroups'],
-  gradle: ['--tests'],
-  go: ['-run', '-skip', '-short'],
-  dotnet: ['--filter'],
-  node: ['--test-name-pattern', '--test-skip-pattern', '--test-only', '--test-shard'],
-  generic: ['--grep', '--testNamePattern', '--testPathPattern', '--shard', '--only', '--filter', '--tests', '--test-name-pattern', '--test-only']
-});
-const VALUELESS = new Set(['-o', '--onlyChanged', '--onlyFailures', '--lf', '--last-failed', '--sw', '--stepwise', '--test-only', '--only',
-  '--invert', '-short', '--changed', '--only-changed']);
-const RUNNERS = Object.freeze({ jest: 'jest', 'react-scripts': 'jest', vitest: 'vitest', mocha: 'mocha', playwright: 'playwright', cypress: 'cypress',
-  pytest: 'pytest', 'py.test': 'pytest', tox: 'pytest', nox: 'pytest', mvn: 'maven', mvnw: 'maven', gradle: 'gradle', gradlew: 'gradle',
-  go: 'go', dotnet: 'dotnet', node: 'node' });
+const GENERIC_FILTERS = Object.freeze(['--grep', '--testNamePattern', '--testPathPattern', '--shard', '--only', '--filter', '--tests', '--test-name-pattern', '--test-only']);
+const FILTERS = Object.freeze({ ...Object.fromEntries(Object.entries(SELECTING_RUNNERS).map(([key, row]) => [key, row.filters])), generic: GENERIC_FILTERS });
+const VALUELESS = new Set([...Object.values(SELECTING_RUNNERS).flatMap((row) => row.valueless), '--only']);
 
 /** The runner one command runs and the arguments it receives; `script` for npm/pnpm/yarn/bun scripts. */
 function runnerOf(tokens) {
@@ -78,7 +62,7 @@ function runnerOf(tokens) {
     const at = tokens.findIndex((token, index) => tokens[index - 1] === '-m');
     return tokens[at] === 'pytest' ? { runner: 'pytest', args: tokens.slice(at + 1) } : { runner: 'generic', args: tokens.slice(1) };
   }
-  return { runner: RUNNERS[name] ?? 'generic', args: tokens.slice(1) };
+  return { runner: selectingRunner(name) ?? 'generic', args: tokens.slice(1) };
 }
 
 function optionFilters(args, runner, source, { inferred }) {
@@ -252,8 +236,8 @@ export async function narrowingFacts(root, command, { scripts = [], testPaths = 
 // Options select by name and these by place, and `jest src/one` looked to the check exactly like
 // `vitest run src`: no option, no filter, and in bin-opr no decision saw it.
 
-// What a runner reads as a word of its own before its operands.
-const RUNNER_VERBS = Object.freeze({ vitest: ['run', 'watch', 'dev', 'related'], playwright: ['test'], go: ['test'], jest: [], mocha: [], pytest: [], node: [] });
+// What a runner reads as a word of its own before its operands, for the runners whose paths this reads.
+const RUNNER_VERBS = Object.freeze(Object.fromEntries(Object.entries(SELECTING_RUNNERS).filter(([, row]) => row.verbs).map(([key, row]) => [key, row.verbs])));
 // Options that take a separate value, which is then no operand; the ones that are themselves a place stay one.
 const PLACE_OPTIONS = new Set(['--dir', '--roots', '--rootDir']);
 const VALUE_OPTIONS = new Set([...PLACE_OPTIONS, '-c', '--config', '--reporter', '-r', '--root', '--outputFile', '--environment', '--pool', '--maxWorkers', '--minWorkers',
@@ -265,11 +249,9 @@ for (const option of Object.values(FILTERS).flat()) if (!VALUELESS.has(option)) 
 // Options known to take no value, so the word after them is a place for certain.
 const FLAG_OPTIONS = new Set(['--test', '--json', '-json', '--ci', '--coverage', '--verbose', '-v', '-q', '-x', '-s', '--silent', '--passWithNoTests', '--runInBand', '-i', '--no-cache',
   '-race', '-cover', '--headed', '--forbid-only', '--globals', '--run']);
-const JAVASCRIPT_TEST_FILE = /(?:^|\/)__tests__\/.+\.[cm]?[jt]sx?$|\.(?:test|spec)\.[cm]?[jt]sx?$/u;
-const TEST_FILES = Object.freeze({ vitest: JAVASCRIPT_TEST_FILE, jest: JAVASCRIPT_TEST_FILE, mocha: JAVASCRIPT_TEST_FILE, playwright: /\.(?:test|spec)\.[cm]?[jt]sx?$/u,
-  node: /(?:^|\/)test\/.+\.[cm]?[jt]s$|\.test\.[cm]?[jt]s$/u, pytest: /(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$/u, go: /_test\.go$/u });
+const TEST_FILES = Object.freeze(Object.fromEntries(Object.entries(SELECTING_RUNNERS).filter(([, row]) => row.testFiles).map(([key, row]) => [key, row.testFiles])));
 // What a runner matches an operand against: part of the path, or the path itself.
-const MATCHES_ANYWHERE = new Set(['vitest', 'jest', 'playwright']);
+const MATCHES_ANYWHERE = new Set(Object.entries(SELECTING_RUNNERS).filter(([, row]) => row.matchesAnywhere).map(([key]) => key));
 const SKIPPED_FOLDER = /(?:^|\/)(?:node_modules|dist|build|coverage)\//u;
 const MAX_LISTED_DROPS = 20;
 const MAX_DROP_CANDIDATES_READ = 200;
@@ -330,7 +312,7 @@ function operandSelects(runner, operand, file) {
 }
 
 // Where a runner looks with no operand. Mocha reads ./test alone, so a test file elsewhere was never its to drop.
-const DEFAULT_PLACE = Object.freeze({ mocha: ['test'] });
+const DEFAULT_PLACE = Object.freeze(Object.fromEntries(Object.entries(SELECTING_RUNNERS).filter(([, row]) => row.defaultPlace).map(([key, row]) => [key, row.defaultPlace])));
 
 /** Which of the base commit's test files one runner reaches with these operands; with none, wherever it looks by default or its configuration says. */
 function selectedBy(runner, operands, files, limit = null) {

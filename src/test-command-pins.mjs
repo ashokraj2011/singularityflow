@@ -44,6 +44,7 @@ import {
   SCRIPT_RUNNERS, commandTokens, launcherName, nodeTestRun, packageScriptChain, packageScriptName, repositoryRelative, resolveTestCommand,
   shellSegments, unwrapRunner
 } from './test-command-resolution.mjs';
+import { runnerOfLauncher } from './test-runners.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export { commandTokens, launcherName, packageScriptChain, packageScriptName, shellSegments };
@@ -58,18 +59,6 @@ const PYTHON_RUNNERS = new Set(['python', 'python3', 'py', 'pytest', 'py.test', 
 // Runner configuration a Node module's tests resolve through, wherever its scripts point.
 const NODE_RUNNER_CONFIG = /^(?:(?:jest|vitest|vite|playwright|cypress|karma)\.(?:config|conf)\.[cm]?[jt]s|jest\.config\.json|vitest\.workspace\.(?:[cm]?[jt]s|json)|\.mocharc\.(?:[cm]?js|jsonc?|ya?ml))$/u;
 const PACKAGE_RUNNER_KEYS = ['jest', 'mocha', 'ava'];
-// What can select each runner's tests [TCE:REQ-011]. A runner not named here pins everything, as it may read any of it.
-const JAVASCRIPT_CONFIG = (name) => new RegExp(`^${name}\\.config\\.[cm]?[jt]s$`, 'u');
-const KARMA_CONFIG = { config: [/^karma\.(?:config|conf)\.[cm]?[jt]s$/u], keys: [] };
-const JEST_CONFIG = { config: [JAVASCRIPT_CONFIG('jest'), /^jest\.config\.json$/u], keys: ['jest'] };
-const RUNNER_DEFINITIONS = Object.freeze({
-  vitest: { config: [JAVASCRIPT_CONFIG('vitest'), JAVASCRIPT_CONFIG('vite'), /^vitest\.workspace\.(?:[cm]?[jt]s|json)$/u], keys: [] },
-  jest: JEST_CONFIG, 'react-scripts': JEST_CONFIG,
-  mocha: { config: [/^\.mocharc\.(?:[cm]?js|jsonc?|ya?ml)$/u], keys: ['mocha'] },
-  playwright: { config: [JAVASCRIPT_CONFIG('playwright')], keys: [] },
-  cypress: { config: [JAVASCRIPT_CONFIG('cypress')], keys: [] },
-  karma: KARMA_CONFIG, ng: KARMA_CONFIG
-});
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 // Line endings are a checkout's choice (core.autocrlf), never a change to what runs.
@@ -236,7 +225,8 @@ function runnersReached(runs) {
   const keys = new Set();
   for (const run of runs) {
     if (nodeTestRun(run.tokens)) continue;
-    const known = RUNNER_DEFINITIONS[launcherName(unwrapRunner(run.tokens)[0])];
+    // What can select each runner's tests is its row's [TCE:REQ-011]; one with no such column may read anything.
+    const known = runnerOfLauncher(launcherName(unwrapRunner(run.tokens)[0]))?.pins;
     if (!known) return null;
     config.push(...known.config);
     for (const key of known.keys) keys.add(key);

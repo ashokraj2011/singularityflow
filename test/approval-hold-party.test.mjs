@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { approvalHold } from '../src/approval-check.mjs';
+import { approvalHold, approvalHoldOwner } from '../src/approval-check.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 
@@ -57,4 +57,20 @@ test('the whole message is kept, <WORK-ID> is filled, and a list lead never ends
   const two = refusal('APPROVAL_INTENT_AMENDMENT_PENDING', { scopePhase: 'planning' }, 'Approving implementation waits for 2 intent amendments to be decided.\nIntent amendment AMD-001 changes one.\nIntent amendment AMD-002 changes two.');
   const { packet } = listFor(two, { facts: { pending: { intentAmendments: [{ id: 'AMD-001', status: 'proposed' }, { id: 'AMD-002', status: 'proposed' }] } } });
   assert.deepEqual(packet.items.filter((item) => item.kind === 'intent-amendment').map((item) => item.holdsApproval), [true, true]);
+});
+
+test('a refusal nothing here knows says so and goes to recover, never reject', () => {
+  const unknown = refusal('A_CODE_NOBODY_LISTED');
+  assert.equal(approvalHoldOwner(unknown), 'unknown');
+  const { hold, packet } = listFor(unknown);
+  assert.equal(hold.who, 'Singularity Flow cannot say who clears this');
+  assert.equal(hold.action.command, 'singularity-flow recover W-1 --phase implementation --json');
+  assert.doesNotMatch(JSON.stringify(packet), /singularity-flow reject|The author revises it/u);
+  // A refusal with no code at all is the same; one that names its own route keeps it.
+  assert.equal(listFor(new SingularityFlowError('Uncoded.')).hold.owner, 'unknown');
+  const named = listFor(refusal('A_CODE_NOBODY_LISTED', { nextAction: { command: 'singularity-flow nextsteps W-1 --json', label: 'See.' } }));
+  assert.equal(named.hold.action.command, 'singularity-flow nextsteps W-1 --json');
+  // Only a code known to be the author's still names the return.
+  assert.equal(listFor(refusal('STORY_REVIEW_SOURCE_CHANGED')).hold.who, 'The author revises it');
+  assert.match(listFor(refusal('STORY_REVIEW_SOURCE_CHANGED')).hold.action.command, /^singularity-flow reject implementation /u);
 });

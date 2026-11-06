@@ -47,7 +47,7 @@ test('who clears a hold follows what it says', () => {
   assert.equal(approvalHoldOwner(error('APPROVAL_CHECKLIST_INCOMPLETE')), 'you-decide');
   assert.equal(approvalHoldOwner(error('IMPLEMENTATION_BINDING_DECISION_INVALID')), 'you-decide');
   assert.equal(approvalHoldOwner(error('STORY_PUBLICATION_PENDING')), 'machine');
-  assert.equal(approvalHoldOwner(error('A_CODE_NOBODY_LISTED')), 'author-repairs');
+  assert.equal(approvalHoldOwner(error('A_CODE_NOBODY_LISTED')), 'unknown', 'nothing about it says the author clears it');
 });
 
 test('a real Story: the preview lists every hold in gate order, and recording refuses with the first', async (t) => {
@@ -72,7 +72,7 @@ test('a real Story: the preview lists every hold in gate order, and recording re
   assert.equal(held.ready, false);
   assert.deepEqual(held.holds.map((hold) => [hold.code, hold.owner]),
     [['STORY_REVIEW_SOURCE_CHANGED', 'author-repairs'], ['STORY_REVIEW_INTERVENING_COMMIT', 'author-repairs']]);
-  assert.ok(held.holds.every((hold) => hold.who && hold.summary && !hold.unclassified));
+  assert.ok(held.holds.every((hold) => hold.who && hold.summary));
   const shown = JSON.parse(cli('phase', 'show', 'planning', '--json').stdout).approvalCheck;
   assert.deepEqual(shown.holds.map((hold) => hold.code), held.holds.map((hold) => hold.code), 'phase show reads the same check');
   const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'planning', '--work-id', WORK, '--yes', '--json'], { allowFailure: true });

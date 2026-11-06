@@ -612,7 +612,8 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
  * Who can clear each refusal approval can raise [SPEC-OAP M1]: the approver now (`you-decide`),
  * another person or group (`someone-decides`), the author with a fresh submission (`author-repairs`),
  * or Singularity Flow itself (`machine`). Every code the gate throws is listed; the guard in
- * test/oap-m1-approval-check.test.mjs fails on a new one.
+ * test/oap-m1-approval-check.test.mjs fails on a new one. A code not listed here is `unknown`: nothing
+ * about it says who clears it, so nothing claims to.
  */
 export const APPROVAL_HOLD_OWNERS = Object.freeze({
   ARA_REVIEW_REQUIRED: 'you-decide',
@@ -667,9 +668,10 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs'
 });
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);
+const CANNOT_SAY = 'Singularity Flow cannot say who clears this';
 const MAX_HOLD_MESSAGE = 4000;
 const OWNER_WORDS = Object.freeze({ 'you-decide': 'You decide', 'someone-decides': 'Someone else decides',
-  'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it' });
+  'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it', unknown: CANNOT_SAY });
 
 /** Who clears a refusal, by its code and what it says: a pending amendment or a lapsed test-run risk waits for a person. */
 export function approvalHoldOwner(error) {
@@ -683,13 +685,14 @@ export function approvalHoldOwner(error) {
       && ['unimplemented', 'withdrawnButClaimed', 'invalidEvidence'].every(key => Array.isArray(coverage[key]) && coverage[key].length === 0)) {
     return 'someone-decides'; // The plan's approvers account for scope; no code rewrite is owed.
   }
-  return APPROVAL_HOLD_OWNERS[code] ?? OWNER_PREFIXES.find(([prefix]) => code.startsWith(prefix))?.[1] ?? 'author-repairs';
+  return APPROVAL_HOLD_OWNERS[code] ?? OWNER_PREFIXES.find(([prefix]) => code.startsWith(prefix))?.[1] ?? 'unknown';
 }
 
 /**
  * The way through a hold: the route its refusal names for itself (its next action, recovery command,
  * test-run risk renewal or first action), else the one its owner implies: work the author revises is
- * returned for changes, and what Singularity Flow finishes is inspected with recover.
+ * returned for changes, and what Singularity Flow finishes and a refusal nothing here knows are
+ * inspected with recover. Only a known author-repairs code ever offers reject.
  */
 function holdRoute(error, owner, workflow, phase) {
   const details = error.details ?? {};
@@ -708,6 +711,7 @@ function holdRoute(error, owner, workflow, phase) {
     command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` };
   const recover = `singularity-flow recover ${workId} --phase ${phase.id} --json`;
   if (owner === 'machine') return { label: 'See what Singularity Flow finishes first.', command: recover };
+  if (owner === 'unknown') return { label: 'See what recovery can say about this refusal.', command: recover };
   return null;
 }
 
@@ -732,8 +736,7 @@ export function approvalHold(error, workflow, phase) {
     summary,
     ...(message.slice(0, MAX_HOLD_MESSAGE) !== summary ? { message: message.slice(0, MAX_HOLD_MESSAGE) } : {}),
     ...(route ? { action: route } : {}),
-    ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
-    ...(APPROVAL_HOLD_OWNERS[error.code] || OWNER_PREFIXES.some(([prefix]) => String(error.code ?? '').startsWith(prefix)) ? {} : { unclassified: true })
+    ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {})
   };
 }
 

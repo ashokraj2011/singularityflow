@@ -2,7 +2,7 @@
  * The one write of a narrow plan amendment [E2G-012]: `decision plan` and a choice recorded from the
  * decision list both come here, so the authority check, the record and the commit are the same.
  */
-import { rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { requireApprovalAuthority } from '../approval-authority.mjs';
@@ -76,7 +76,7 @@ export async function commitPlanAmendment(root, config, workflow, { changes, rea
  * amendment cannot be recorded, the file goes again and nothing changed. An amendment that already lists
  * the file stands, and only the file is created: a plan amended by hand must not need a second reason.
  */
-export async function commitNodePin(root, config, workflow, { version, reason }, { actor, agent = null }) {
+export async function commitNodePin(root, config, workflow, { version, reason, replaces = null }, { actor, agent = null }) {
   const { NODE_PIN_CLASS, NODE_PIN_FILE, installedNodeOfMajor, nodePinVersion } = await import('../node-pin.mjs');
   const major = nodePinVersion(version);
   const node = major ? await installedNodeOfMajor(major) : null;
@@ -84,11 +84,16 @@ export async function commitNodePin(root, config, workflow, { version, reason },
     throw new SingularityFlowError(`Node ${String(version).slice(0, 20)} is not installed here, so it cannot be pinned. Nothing was changed; install it with your version manager, or choose again.`, { code: 'NODE_PIN_NOT_INSTALLED' });
   }
   const file = path.join(root, NODE_PIN_FILE);
-  try { await writeFile(file, `${major}\n`, { flag: 'wx' }); }
-  catch (error) {
+  // Replacing what a person was shown, and nothing else: a file that has changed since is theirs.
+  const before = await readFile(file, 'utf8').catch(() => null);
+  try {
+    if (replaces && before?.trim() === replaces) await writeFile(file, `${major}\n`);
+    else await writeFile(file, `${major}\n`, { flag: 'wx' });
+  } catch (error) {
     if (error.code !== 'EEXIST') throw error;
     throw new SingularityFlowError(`${NODE_PIN_FILE} already exists in this checkout, so it was left as it is and nothing was recorded. Its version is what SFlow runs the tests on; change it by hand if it is wrong.`, { code: 'NODE_PIN_FILE_EXISTS' });
   }
+  const undo = () => (before == null ? rm(file, { force: true }) : writeFile(file, before)).catch(() => null);
   const listed = (workflow.planAmendments ?? []).find((record) => (record.changes ?? []).some((change) => change.path === NODE_PIN_FILE));
   if (listed) return { id: listed.id, file: NODE_PIN_FILE, version: major, node };
   try {
@@ -97,7 +102,7 @@ export async function commitNodePin(root, config, workflow, { version, reason },
     }, { actor, agent });
     return { ...amendment, file: NODE_PIN_FILE, version: major, node };
   } catch (error) {
-    await rm(file, { force: true }).catch(() => null);
+    await undo();
     throw error;
   }
 }

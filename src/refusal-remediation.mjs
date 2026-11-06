@@ -315,7 +315,7 @@ function requiredTestFailureSteps(argv, error) {
     `singularity-flow tests node --work-id ${context.workId} --phase ${context.phaseId} --node ${version}`, 'diagnostic');
   return [
     ...(pin && context?.workId ? [step('pin-node-version',
-      `A person chooses Pin Node ${pin.version}: ${pin.words} Node ${pin.node} is installed here. Choosing it creates ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
+      `A person chooses ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`}: ${pin.words} Node ${pin.node} is installed here. Choosing it ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
       `singularity-flow decisions ${context.workId}`, 'remediation', '/sf-decide'),
     tryNode(pin.version)] : []),
     // What clears a failed test is repairing it here and running the same gate, so that comes before any read.
@@ -2312,7 +2312,7 @@ export function refusalDetails(details) {
   if (Array.isArray(details.unclaimedPaths)) projected.unclaimedPaths = details.unclaimedPaths.map(String).slice(0, 20);
   if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };
   if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
-  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null };
+  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null, ...(details.nodePin.replaces ? { replaces: details.nodePin.replaces } : {}) };
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
     applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',

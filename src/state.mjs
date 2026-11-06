@@ -4295,8 +4295,8 @@ async function attachRequiredTestExecution(error, root, command, check, { workId
     // The Node here is what stops it, and another is installed: the way through is one person's choice.
     const pin = await (await import('./node-pin.mjs')).nodePinOffer(root, [command], { attempts: [{ commandId: command.id, status: check?.status ?? 'failed', cause: refusal.details?.testRunRisk ?? refusal.details?.testRunCause ?? null }] }).catch(() => null);
     if (pin) {
-      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words };
-      refusal.message += ` ${pin.words} A person can choose Pin Node ${pin.version} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It creates ${pin.file} and amends the plan in one step.`;
+      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words, ...(pin.replaces ? { replaces: pin.replaces } : {}) };
+      refusal.message += ` ${pin.words} A person can choose ${pin.replaces ? `to change ${pin.file} to Node ${pin.version}` : `Pin Node ${pin.version}`} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It ${pin.replaces ? 'changes' : 'creates'} ${pin.file} and amends the plan in one step.`;
     } else {
       // Nothing here says the Node is at fault, but another one is installed: a command answers that, with no chain of shell commands.
       const other = await (await import('./node-pin.mjs')).otherInstalledNode(root, command).catch(() => null);

@@ -8,7 +8,8 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -26,8 +27,8 @@ async function fakeNode(directory, version) {
 
 const posix = process.platform === 'win32' ? { skip: 'the fake Nodes are shell scripts' } : {};
 
-async function failingOnThisNode(t) {
-  const repo = await repository(t, { files: { 'package.json': JSON.stringify({ type: 'module', private: true, engines: { node: '>=20 <25' }, scripts: { test: 'node --test' } }) },
+async function failingOnThisNode(t, files = {}) {
+  const repo = await repository(t, { files: { ...files, 'package.json': JSON.stringify({ type: 'module', private: true, engines: { node: '>=20 <25' }, scripts: { test: 'node --test' } }) },
     implementCommands: false });
   const { root, sflow } = repo;
   const home = path.join(repo.base, 'home');
@@ -113,4 +114,52 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   const published = run('phase', 'publish', 'implement');
   assert.equal(published.status, 0, published.stdout + published.stderr);
   assert.match(published.stderr, /Using Node 22\.14\.0 from nvm for this run: \.nvmrc asks for 22\./u);
+});
+
+test('a .nvmrc naming a Node not installed here offers to change it to one that is, or to install it', { ...posix, ...slowLane({ timeout: 480_000 }) }, async (t) => {
+  const { root, run, json } = await failingOnThisNode(t, { '.nvmrc': '18\n' });
+  const before = json('decisions', 'QF-1').value.data;
+  const offered = before.items.find((item) => item.kind === 'node-pin');
+  assert.ok(offered, JSON.stringify(before.items.map((item) => item.kind)));
+  assert.equal(offered.details.replaces, '18');
+  assert.equal(offered.details.version, '22');
+  assert.equal(offered.options[0].label, 'Change .nvmrc from 18 to Node 22 and amend the plan');
+  assert.match(offered.why, /\.nvmrc asks for Node 18, and no installed Node matches\./u);
+  assert.match(offered.why, /or install Node 18 and there is nothing to choose/u);
+
+  // The gate's own refusal says the same, and its first route is that choice.
+  const gate = json('phase', 'publish', 'implement');
+  assert.notEqual(gate.status, 0);
+  assert.equal(gate.value.error.details?.nodePin?.replaces, '18', JSON.stringify(gate.value.error.details));
+  assert.equal(gate.value.remediationPlan.steps[0].id, 'pin-node-version');
+  assert.match(gate.value.remediationPlan.steps[0].label ?? gate.value.remediationPlan.steps[0].reason ?? JSON.stringify(gate.value.remediationPlan.steps[0]), /to change \.nvmrc to Node 22/u);
+
+  const fresh = json('decisions', 'QF-1').value.data;
+  const id = fresh.items.find((entry) => entry.kind === 'node-pin').id;
+  const reason = 'Node 18 is not installed here and the package asks for 20 or later.';
+  const recorded = json('decisions', 'record', 'QF-1', '--choose', `${id}=pin-node`, '--reason', `${id}=${reason}`, '--confirm', fresh.packetSha256);
+  assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '22\n');
+  assert.equal(json('decisions', 'QF-1').value.data.items.some((entry) => entry.kind === 'node-pin'), false, 'the choice is gone once made');
+  const published = run('phase', 'publish', 'implement');
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  assert.match(published.stderr, /Using Node 22\.14\.0 from nvm for this run: \.nvmrc asks for 22\./u);
+});
+
+test('a pin replaces only the version a person was shown', { ...posix }, async (t) => {
+  const { commitNodePin } = await import('../src/commands/decision-plan-amendment.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pin-replace-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'home');
+  await fakeNode(path.join(home, '.nvm', 'versions', 'node', 'v22.14.0', 'bin'), '22.14.0');
+  const saved = { HOME: process.env.HOME, NVM_DIR: process.env.NVM_DIR };
+  Object.assign(process.env, { HOME: home, NVM_DIR: path.join(home, '.nvm') });
+  t.after(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  await writeFile(path.join(root, '.nvmrc'), '20\n');
+  await assert.rejects(commitNodePin(root, {}, {}, { version: '22', replaces: '18', reason: 'r' }, { actor: {} }), (error) => error.code === 'NODE_PIN_FILE_EXISTS');
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '20\n', 'a file changed since it was shown stays as it is');
+  // The amendment cannot be recorded here: what was replaced comes back.
+  await writeFile(path.join(root, '.nvmrc'), '18\n');
+  await assert.rejects(commitNodePin(root, {}, {}, { version: '22', replaces: '18', reason: 'r' }, { actor: {} }));
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '18\n');
 });

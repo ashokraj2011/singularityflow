@@ -55,6 +55,17 @@ test('publishing unchanged says so and records nothing, and a changed draft publ
   assert.match(text, /Already published as generation 1/u);
   assert.equal(commits(), before, 'no commit from text mode either');
 
+  // Asked plainly, prepublish does not offer it again either: its next step is the route.
+  for (const flags of [[], ['--for-agent']]) {
+    const plain = sflowJson('phase', 'prepublish', 'intake', ...flags);
+    assert.equal(plain.status, 0, JSON.stringify(plain.value));
+    assert.equal(plain.value.commands.publish, null, JSON.stringify(plain.value.commands));
+    assert.equal(plain.value.commandGuidance.publish, null);
+    assert.notEqual(plain.value.act?.state, 'publish', JSON.stringify(plain.value.act));
+    assert.ok(plain.value.commands.next, JSON.stringify(plain.value.commands));
+    assert.doesNotMatch(JSON.stringify([plain.value.commands.next, plain.value.act?.do]), /phase publish/u);
+  }
+
   // A real change still publishes the next generation.
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace('change the exported constant', 'change the exported constant to 2'));
   const changed = publish();

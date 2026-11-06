@@ -435,17 +435,18 @@ function nodePinItem(workflow, context, pin) {
   const name = stepName(workflow, pin.phase);
   const workId = workflow.workItem.id;
   const tryIt = `singularity-flow tests node --work-id ${workId} --phase ${pin.phase} --node ${pin.version}`;
+  const { replaces = null } = pin;
   return {
     kind: 'node-pin',
     title: `${name}'s tests need another Node`,
-    why: `${pin.words} Node ${pin.node} is installed here. ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} Pinning it creates ${pin.file} and amends the plan; the code and its tests stay as they are.`,
+    why: `${pin.words} Node ${pin.node} is installed here. ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} ${replaces ? `Changing ${pin.file} to it amends the plan, or install Node ${replaces} and there is nothing to choose` : `Pinning it creates ${pin.file} and amends the plan`}; the code and its tests stay as they are.`,
     options: [option(workflow, context, {
-      id: 'pin-node', label: `Pin Node ${pin.version}: create ${pin.file} and amend the plan`,
-      words: `Creates ${pin.file} holding ${pin.version} in this checkout and lists it in the plan as a supporting change (${NODE_PIN_CLASS}) with your reason. SFlow then runs this repository's tests on Node ${pin.node}.`,
-      effects: [{ kind: 'node-pin', phase: pin.phase, file: pin.file, version: pin.version, class: NODE_PIN_CLASS }],
+      id: 'pin-node', label: replaces ? `Change ${pin.file} from ${replaces} to Node ${pin.version} and amend the plan` : `Pin Node ${pin.version}: create ${pin.file} and amend the plan`,
+      words: `${replaces ? `Replaces ${replaces} with ${pin.version} in ${pin.file}` : `Creates ${pin.file} holding ${pin.version}`} in this checkout and lists it in the plan as a supporting change (${NODE_PIN_CLASS}) with your reason. SFlow then runs this repository's tests on Node ${pin.node}.`,
+      effects: [{ kind: 'node-pin', phase: pin.phase, file: pin.file, version: pin.version, class: NODE_PIN_CLASS, ...(replaces ? { replaces } : {}) }],
       needs: { reason: textNeed('', SUPPORTING_REASON) }
     })],
-    details: { phase: pin.phase, file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, stage: pin.stage, commandId: pin.commandId ?? null,
+    details: { phase: pin.phase, file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, stage: pin.stage, commandId: pin.commandId ?? null, ...(replaces ? { replaces } : {}),
       commands: [`singularity-flow decisions record ${workId}`, tryIt] }
   };
 }
@@ -1243,7 +1244,7 @@ export function effectWords(workflow, effect, values = {}) {
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `${(effect.changes ?? [effect.change]).map(words).join(', ')} (plan amendment)`;
   }
-  if (effect.kind === 'node-pin') return `create ${effect.file} holding ${effect.version} and list it as a supporting change, ${effect.class} (Node pin and plan amendment)`;
+  if (effect.kind === 'node-pin') return `${effect.replaces ? `change ${effect.file} from ${effect.replaces} to ${effect.version}` : `create ${effect.file} holding ${effect.version}`} and list it as a supporting change, ${effect.class} (Node pin and plan amendment)`;
   if (effect.kind === 'scope-disposition') return `record scope item ${effect.item} as ${effect.disposition}${values.clause?.length ? `, carried by ${values.clause.map((id) => clauseName(workflow, id)).join(', ')}` : ''} (scope decision)`;
   if (effect.kind === 'completeness-review') return 'record that you reviewed the scope for completeness (completeness review)';
   if (effect.kind === 'applicability') return `record that ${effect.responsibility} does not apply to this Story (applicability decision)`;

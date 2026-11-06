@@ -429,7 +429,12 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
     const cwd = path.join(root, directory);
     const requested = await requestedNodeVersion({ cwd, root, environment }).catch(() => null);
     if (requested?.status === 'not-installed' || requested?.status === 'not-a-version') {
-      found.push(check('node-version', nodeVersionNote(requested), `Install the version it asks for, or change ${requested.file}.`, { file: requested.file }));
+      // A version file naming what is not installed is answered by installing it, or by a person changing it to what is.
+      const here = requested.status === 'not-installed' && requested.file === '.nvmrc' ? await installedNodeVersions(environment).catch(() => []) : [];
+      const asks = parsedManifest(await reads.read(joined(directory, 'package.json')))?.engines?.node;
+      const newest = here.find((version) => typeof asks !== 'string' || nodeRangeAccepts(asks, version) !== false);
+      found.push(check('node-version', nodeVersionNote(requested), `Install the version it asks for, or change ${requested.file}.`,
+        { file: requested.file, ...(newest ? { pin: { file: '.nvmrc', version: String(major(newest)), node: newest, replaces: requested.wanted } } : {}) }));
       continue;
     }
     // SFlow runs tests on what a version file asks for, so the Node below is only for a repository with none.

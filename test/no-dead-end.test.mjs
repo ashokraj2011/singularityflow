@@ -66,6 +66,13 @@ const SCENARIOS = Object.freeze([
     reasons: { CONFORMANCE_BLOCKING_VERDICTS: { mustNotMatch: /raise one against/u, mustMatch: /reads it satisfied/u, because: 'the record reads these clauses satisfied, so nothing shows the step before it at fault' } } },
   { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
     setup: onTheWrongNode, start: PREPUBLISH, reached: published },
+  { id: 'nvmrc-names-a-node-not-here', meets: 'CODE_TEST_FAILED', real: 'the .nvmrc is the answer already, and names a Node this machine does not have',
+    setup: async (story) => {
+      await onTheWrongNode(story);
+      await story.write('.nvmrc', `${OTHER_MAJOR + 50}\n`);
+      const why = 'The repository says which Node its tests need.';
+      story.cli('decision', 'plan', WORK, '--add-supporting', '.nvmrc=build-configuration', '--supporting-reason', why, '--reason', why);
+    }, start: PREPUBLISH, reached: published },
   // /sf-appeal with nothing to appeal: it said to go back to /sf-code, which could not change the Node either.
   { id: 'appeal-with-none-open', meets: 'next', real: 'a real Story: the chain /sf-code, /sf-appeal, /sf-code on a Node only a person can pin',
     setup: async (story) => { await onTheWrongNode(story); story.raw(PREPUBLISH.split(' ').slice(1), story.env); },

@@ -328,7 +328,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
   }
   if (effect.kind === 'node-pin') {
     const { commitNodePin } = await import('./decision-plan-amendment.mjs');
-    return commitNodePin(root, config, workflow, { version: effect.version, reason: step.values.reason }, { actor, agent });
+    return commitNodePin(root, config, workflow, { version: effect.version, replaces: effect.replaces ?? null, reason: step.values.reason }, { actor, agent });
   }
   if (effect.kind === 'obligation-risk') {
     const { commitRiskDecision } = await import('./decision-obligation-risk.mjs');

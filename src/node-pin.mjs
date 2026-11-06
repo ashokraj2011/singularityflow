@@ -74,10 +74,10 @@ export async function nodePinOffer(root, commands, { attempts = [], environment 
   const { runnerFamily, nodeVersion } = await import('./test-toolchain.mjs');
   const nodeCommands = commands.filter((command) => runnerFamily(command) === 'node');
   if (!nodeCommands.length) return null;
-  // The version file is the answer already: a person changes it by hand, as they wrote it.
-  if (await lstat(path.join(root, NODE_PIN_FILE)).then(() => true, () => false)) return null;
   const { nodeVersionChecks, fileReads } = await import('./test-plan.mjs');
   const check = (await nodeVersionChecks(root, nodeCommands, { environment, reads: fileReads(root) })).find((entry) => entry.pin) ?? null;
+  // The version file is the answer already, unless it names a Node this machine does not have.
+  if (await lstat(path.join(root, NODE_PIN_FILE)).then(() => true, () => false) && !check?.pin?.replaces) return null;
   const failed = latestFailed(attempts, new Set(nodeCommands.map((command) => command.id)));
   if (check) return { ...check.pin, running: check.node, words: check.words, stage: failed ? 'failed' : 'early', commandId: failed?.commandId ?? nodeCommands[0].id };
   if (!failed || !runtimeCause(failed.cause)) return null;

@@ -689,7 +689,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   if (nodePin) {
     actions.unshift(action({
       id: `pin-node-version:${phase.id}`, mode: 'manual',
-      detail: `${nodePin.words} A person chooses Pin Node ${nodePin.pin.version} (Node ${nodePin.pin.node} is installed here): it creates ${nodePin.pin.file} and amends the plan in one step, with their reason. It stops nothing until the tests do. singularity-flow tests node --work-id ${workflow.workItem.id} --phase ${phase.id} --node ${nodePin.pin.version} says whether the tests pass on it and records nothing.`,
+      detail: `${nodePin.words} A person chooses ${nodePin.pin.replaces ? `to change ${nodePin.pin.file} to Node ${nodePin.pin.version}` : `Pin Node ${nodePin.pin.version}`} (Node ${nodePin.pin.node} is installed here): it ${nodePin.pin.replaces ? 'changes' : 'creates'} ${nodePin.pin.file} and amends the plan in one step, with their reason. It stops nothing until the tests do. singularity-flow tests node --work-id ${workflow.workItem.id} --phase ${phase.id} --node ${nodePin.pin.version} says whether the tests pass on it and records nothing.`,
       command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide'
     }));
   }

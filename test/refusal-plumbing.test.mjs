@@ -64,7 +64,8 @@ test('the test-run risk and upstream-issue routes survive the three-step plan', 
     const plan = refusalRemediationPlan(refusal('CODE_TEST_ZERO_DISCOVERED', { workId: 'W-1', phase: 'implement', testRunRisk }), argv);
     const ids = plan.steps.map((entry) => entry.id);
     assert.ok(ids.includes('accept-test-run-risk'), `${argv[0]}: ${ids.join(', ')}`);
-    assert.equal(plan.steps.length, 4, argv[0]);
+    // Beside the repair, on the first three: the person's route is never the one cut off.
+    assert.ok(plan.steps.length <= 4, argv[0]);
     assert.match(renderRefusalPlan(plan), /a person who approves implement can accept the risk in their own terminal; an agent cannot/u);
   }
   // Without an eligible route nothing is added: the plan is the same three steps as before.

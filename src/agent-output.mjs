@@ -1003,7 +1003,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
       const chunks = long && !inPlan ? lineRanges(text) : [];
       const files = textFiles[key].map((entry) => (isNeeded(needs, entry.field) ? { ...entry, need: true } : entry));
       // A whole field longer than one read is a range the guard refuses. Named as `lines`, agents
-      // asked for it over the read plan beside it: 32 of 38 refused reads of a kept result
+      // asked for it over the plan beside it: most of 43 refused reads of a kept result
       // (2026-10-25 to 11-06). So a named range is always one that comes back.
       return [key, { field: key, bytes: bytes(text),
         ...(document && long ? {} : { lines: range ?? null }),

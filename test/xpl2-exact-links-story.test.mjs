@@ -143,14 +143,17 @@ test('a real approved implementation reaches every surface as exact bound lines,
     assert.match(entry.text, /It is bound to one exact test declaration and reached its own occurrence observed in a local run\./u);
   }
   assert.equal(implementation.relationships.filter((edge) => edge.type === 'test-occurrence-in-run').length, 2);
-  assert.ok(implementation.statements.some((entry) => entry.kind === 'test-attempt' && /\(submission\) of .* passed, 2 passed, 0 failed, 0 skipped; it follows attempt TA-/u.test(entry.text)));
+  // Submission reuses the run on the same code (owner, 2026-11-06: "dont rerun if the code has not changed").
+  const recordedRuns = implementation.statements.filter((entry) => entry.kind === 'test-attempt');
+  assert.equal(recordedRuns.length, 1, JSON.stringify(recordedRuns));
+  assert.match(recordedRuns[0].text, /\(preflight\) of .* passed, 2 passed, 0 failed, 0 skipped; no earlier attempt/u);
 
   // A bound changed line names its binding; the generation lists its attempts in their lineage.
   const line = explain('--subject', 'line', '--path', 'src/value.mjs', '--line', '3');
   assert.ok(line.derived.some((entry) => entry.kind === 'line-binding' && /binds to XL-1:AC-001, XL-1:AC-002\./u.test(entry.text)));
   const generation = explain('--subject', 'generation', '--work-id', WORK, '--phase', 'implementation', '--gen', '1');
   const attempts = generation.derived.filter((entry) => entry.kind === 'test-attempt');
-  assert.ok(attempts.length >= 2, 'the preflight and submission attempts');
+  assert.equal(attempts.length, 1, 'the preflight run, which submission reused');
   assert.match(generation.derived.map((entry) => entry.text).join('\n'), /The prompt log on this machine is off/u);
 
   // The snapshot VS Code leases carries the same exact links.

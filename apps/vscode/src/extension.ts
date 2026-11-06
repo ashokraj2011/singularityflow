@@ -6963,7 +6963,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The engine refuses these in Git: SFlow cannot read them for secrets, so asking would only lead to a refusal.
       const unreadable = paths.filter(unreadableInGit);
       if (unreadable.length) {
-        void vscode.window.showInformationMessage(`${unreadable.map((file) => path.basename(file)).join(', ')} will stay on this machine: SFlow cannot read PDFs, images or archives for secrets, and the repository must never hold one.`);
+        void showCompactInformationMessage(`${unreadable.map((file) => path.basename(file)).join(', ')} will stay on this machine: SFlow cannot read PDFs, images or archives for secrets, and the repository must never hold one.`);
         return 'local';
       }
       const options = [{
@@ -9047,7 +9047,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!stillCurrent() || (runsFewerTests(current, choice.scope) && reason === undefined)) return;
       try {
         await client.run(testScopeArgs(workId, choice.scope, reason));
-        void vscode.window.showInformationMessage(`${workId} now runs ${TEST_SCOPE_LABELS[choice.scope].toLowerCase()}. Runs already recorded stay as they are.`);
+        void showCompactInformationMessage(`${workId} now runs ${TEST_SCOPE_LABELS[choice.scope].toLowerCase()}. Runs already recorded stay as they are.`);
         await store.refresh();
       } catch (error) {
         showRefusal(error, { headline: 'Could not change the test scope' });

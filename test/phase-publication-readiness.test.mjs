@@ -1,3 +1,4 @@
+import { excludeAlwaysLocalNames } from '../src/git.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -130,6 +131,8 @@ test('required clarification holds back only the agent route, and a human public
 test('explicit recovery inspects an unpublished active phase without making ordinary status reads heavier', async t => {
   const f = await fixture(t, 'specification');
   f.phase.clarification = { mode: 'required' };
+  // Recovery's one write, so a person's .env never reads as a change: the checkout's own ignore list, once.
+  excludeAlwaysLocalNames(f.root);
   const before = await tree(f.root);
   const lightweight = await recoveryPlan(f.root, f.config, f.workflow);
   assert.equal(lightweight.phaseId, null);

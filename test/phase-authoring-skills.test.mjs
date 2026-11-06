@@ -28,9 +28,10 @@ test('existing implementation is completed through summary, planned assertions a
   assert.match(code, /finish behavior\/tests\/artifact\/Agent brief and bindings/);
   assert.match(code, /Keep planned tests; assert behavior, never fake tags/);
   assert.match(code, /`argvWithheld: true` means configured, not missing/);
-  // Development test runs are allowed while authoring (d6074584); they never replace publication's.
+  // Development test runs are allowed while authoring (d6074584). Publication runs the tests unless a
+  // recorded run already passed on this exact code (owner, 2026-11-06); a person's own pass never counts.
   assert.match(code, /Development tests allowed/);
-  assert.match(code, /Publication still runs fresh governed tests; manual passes never advance/);
+  assert.match(code, /Publication runs tests unless passed on this code; manual passes never advance/);
   assert.match(code, /commands\.publish` once when ready/);
   assert.match(code, /--publish-if-ready/);
   assert.match(code, /once when ready unless `publishIfReady\.published`/);

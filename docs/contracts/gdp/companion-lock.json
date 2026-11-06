@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "94aae60193b4c96d6f62717aedc9d57b4d912c0f",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-05-SPEC-STUDIO-RECORDS.md",
+    "reviewedAtCommit": "609c449e28c563136b13087ffef0b950adcb2cc3",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-06-AUTO-GATE-RUN.md",
     "companionIds": [
-      "migration-registry"
+      "candidate-custody"
     ]
   },
   "companions": [
@@ -79,7 +79,7 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:262e2465b186372c381224b2f3eb568cefa00968d41a3cccf6fd6a8a1f7d1161"
+      "sha256": "sha256:206b5cf73df93351a844d9d7c1c461ad928755092a1480cffd8a04ff28e47a51"
     },
     {
       "id": "publication-unit-of-work",

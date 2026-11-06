@@ -558,11 +558,11 @@ test('.env is refused by name for sources and document upload alike, and says wh
   const example = path.join(repo.root, '.env.example');
   await writeFile(example, 'API_KEY=abc123xyz987LMN\n');
   assert.equal(repo.fail('source', specId, '--file', example).code, 'SECRET_DETECTED');
-  for (const line of ['PASSWORD=hunter2', 'CALLBACK=https://x.io/done?token=Zq7vK2mPx9LtR4wNf8Bc', 'SIGNING_SALT=Zq7vK2mPx9LtR4wNf8Bc1234', 'ENCRYPTION_KEY=Zq7vK2mPx9']) {
+  for (const line of ['# API_KEY=abc123xyz987LMN', 'PASSWORD=hunter2', 'CALLBACK=https://x.io/done?token=Zq7vK2mPx9LtR4wNf8Bc', 'SIGNING_SALT=Zq7vK2mPx9LtR4wNf8Bc1234', 'ENCRYPTION_KEY=Zq7vK2mPx9']) {
     await writeFile(example, line + '\n');
     assert.equal(repo.fail('source', specId, '--file', example).code, 'SECRET_DETECTED', line);
   }
-  for (const line of ['API_KEY=your-key-here', 'API_KEY=', 'API_KEY=<KEY>', 'API_KEY=${API_KEY}', 'LOG_LEVEL=debug', '# API_KEY=abc123xyz987LMN', 'API_KEY=abc123xyz987LMN # sflow-allow-secret: a sample',
+  for (const line of ['API_KEY=your-key-here', 'API_KEY=', 'API_KEY=<KEY>', 'API_KEY=${API_KEY}', 'LOG_LEVEL=debug', '# API_KEY=your-key-here', 'API_KEY=abc123xyz987LMN # sflow-allow-secret: a sample',
     // What an example file ordinarily holds: an address, a path, a name that only contains a credential's letters.
     'DB_URL=postgres://localhost/app', 'AUTH_URL=https://login.x.io/authorize', 'AUTHOR=someone', 'KEYBOARD=us', 'TOKEN_TTL=3600', 'KEY_PATH=/etc/ssl/app.pem', 'AUTH_MODE=oauth', 'AUTH_ENABLED=yes', 'BUCKET=my-company-prod-assets-us-east-1', 'CONFIG_DIR=/var/lib/application/config/current']) {
     await writeFile(example, line + '\n');

@@ -151,6 +151,12 @@ export function publishedRetainedEvidence(workflow, { approvedOnly = false, exce
   });
 }
 
+/** Whether a step's delivery recorded `file` present for `clauseId`: until one does, a witness of it is refused (unpublishedWitnessRefusal). */
+export function retainedEvidenceDelivered(workflow, clauseId, file) {
+  return Object.values(workflow?.phases ?? {}).some((phase) => Number(phase?.generation) > 0 && fulfillmentEntries(phase).some((entry) => entry?.clauseId === clauseId
+    && entry.fulfillment === 'evidence' && (entry.paths ?? []).some((item) => item?.path === file && item.state === 'present')));
+}
+
 /** The step whose published delivery recorded `file` for `clauseId` other than present, and what it recorded. */
 function unpublishedDelivery(workflow, clauseId, file) {
   for (const [phaseId, phase] of Object.entries(workflow?.phases ?? {})) {

@@ -219,6 +219,7 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   assert.deepEqual(owed.scopeItems, [], 'the code step defines no scope');
   assert.deepEqual(owed.witnesses.map((entry) => [entry.clauseId, entry.slot, entry.files, entry.owners]),
     [[ac(6), 'retained-evidence', [SCREEN], ['implementation']]]);
+  assert.equal(owed.witnesses[0].available, true, 'its delivery recorded the image, so it can be signed off');
   assert.match(owed.witnesses[0].command, new RegExp(`decision witness .*--file ${SCREEN.replace(/[.]/gu, '\\.')} `, 'u'));
   assert.match(cli('status', W, '--submission-readiness').stdout, /Owed sign-offs \(1, human only, not blocking this step\)/u);
   assert.match(cli('phase', 'show', 'implementation').stdout, /Owed sign-offs \(1/u);

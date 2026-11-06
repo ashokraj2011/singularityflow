@@ -14,8 +14,9 @@ import test from 'node:test';
 import { agentAct } from '../src/agent-output.mjs';
 import { approvalHold, approvalHoldOwner } from '../src/approval-check.mjs';
 import { decisionPacket, pendingSummary } from '../src/decision-list.mjs';
-import { approvalCheckLines } from '../src/owed-decisions.mjs';
+import { approvalCheckLines, owedDecisionLines } from '../src/owed-decisions.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
+import { retainedEvidenceDelivered } from '../src/verification/witness-records.mjs';
 import { CLI, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
 const AT = '2026-11-06T00:00:00.000Z';
@@ -279,4 +280,29 @@ test('a dirty checkout holds the check, the list and the packet first; the door 
   run(process.execPath, [CLI, ...setAside.argv ?? setAside.command.split(' ').slice(1)]);
   assert.deepEqual(readiness().approvalCheck.holds, [], 'what the route said clears it');
   cli('approve', 'planning', '--work-id', WORK, '--yes', '--json');
+});
+
+test('a witness with no file, or nothing published yet, says so', () => {
+  const workflow = story({ status: 'in_progress' });
+  const witness = (extra) => decisionPacket(workflow, { phaseId: 'implementation', pending: { owed: [{ kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: [], owners: ['implementation'],
+    command: 'singularity-flow decision witness --file <EVIDENCE-PATH>', ...extra }] } }, { authorities: AUTHORITIES, actor: ME, at: AT }).items[0];
+  const noFile = witness({});
+  assert.equal(noFile.why, 'An approver of Implementation signs it off, naming the file they inspected: the plan names none. The Story cannot end without it.');
+  assert.doesNotMatch(noFile.why, / {2}/u);
+  assert.ok(noFile.options[0].action.humanReview);
+  const unpublished = witness({ files: ['shots/home.png'], available: false });
+  assert.match(unpublished.why, /It cannot be signed off yet: nothing has published shots\/home\.png for AC-001\. Implementation publishes it with its delivery; sign it off after that\./u);
+  assert.equal(unpublished.options[0].available, false);
+  assert.equal(unpublished.options[0].action.humanReview, undefined, 'no review is opened for what its command would refuse');
+  const lines = owedDecisionLines({ status: 'owed', more: { witnesses: 0, scopeItems: 0 }, scopeItems: [],
+    witnesses: [{ clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: ['shots/home.png'], available: false, command: 'c' }, { clauseId: 'W-1:AC-002', slot: 'visual', method: 'visual', files: [], command: 'd' }] });
+  assert.match(lines[1], /nothing has published it yet; once its step does, inspect it, then:$/u);
+  assert.match(lines[3], /\(visual: the plan names no file\) — inspect it first, then:$/u);
+  // Available once a delivery recorded that very file present for that clause, as the witness itself requires.
+  const delivered = (state, clauseId = 'W-1:AC-001') => ({ phases: { implementation: { generation: 1, deliveryEvidence: { fulfillment: [
+    { clauseId, fulfillment: 'evidence', paths: [{ path: 'shots/home.png', state }] }] } } } });
+  assert.equal(retainedEvidenceDelivered(delivered('present'), 'W-1:AC-001', 'shots/home.png'), true);
+  assert.equal(retainedEvidenceDelivered(delivered('missing'), 'W-1:AC-001', 'shots/home.png'), false);
+  assert.equal(retainedEvidenceDelivered(delivered('present', 'W-1:AC-002'), 'W-1:AC-001', 'shots/home.png'), false);
+  assert.equal(retainedEvidenceDelivered({ phases: { implementation: { generation: 0 } } }, 'W-1:AC-001', 'shots/home.png'), false);
 });

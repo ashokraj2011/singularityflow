@@ -9,7 +9,7 @@
  * its exact command. Nothing here blocks, records or decides: only the authorized person may.
  */
 import { stepResponsibilities } from './phase-roles.mjs';
-import { WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
+import { retainedEvidenceDelivered, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
 
@@ -44,6 +44,9 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
       const files = slot.method === 'inspection' ? [slot.witness.path]
         : (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);
       const unique = [...new Set(files)];
+      // Retained evidence no delivery recorded yet: its witness is refused until the step that owes it publishes it.
+      const retained = (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);
+      const available = !retained.length || retained.some(file => retainedEvidenceDelivered(workflow, clauseId, file));
       const shell = safeCommandGuidance({ executable: 'singularity-flow', argv: ['decision', 'witness',
         '--work-id', workflow.workItem.id, '--criterion', clauseId, '--slot', slot.slot,
         '--file', unique.length === 1 ? unique[0] : '<EVIDENCE-PATH>', '--reason', '<review-reason>',
@@ -54,7 +57,7 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
         copilotReason: 'Use the human witness terminal or VS Code witness review. /sf-decide does not implement decision witness.' };
       witnesses.push({ clauseId, clauseText: (graph.records.indexes ?? []).flatMap(index => index.clauses ?? []).find(clause => clause.id === clauseId)?.body ?? null, slot: slot.slot, method: slot.method, status, files: unique, owners,
         checklist: WITNESS_CHECKLIST, commandGuidance: command, humanRequired: true,
-        availableAfterPublication: true, availableAfterSubmission: true, contractClassificationIsWitness: false,
+        available, availableAfterPublication: true, availableAfterSubmission: true, contractClassificationIsWitness: false,
         detail: 'After submission pins fresh candidate/test evidence, an authorized human must inspect the published candidate and exact file before confirming every checklist item. No agent may answer this checklist.' });
     }
   }
@@ -122,7 +125,7 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
       .filter((witness) => witness.status !== 'met' && witness.owners.includes(phaseId)))
       .filter((witness) => !seen.has(`${witness.clauseId}\u0000${witness.slot}`) && seen.add(`${witness.clauseId}\u0000${witness.slot}`))
       .map((witness) => ({ clauseId: witness.clauseId, clauseText: witness.clauseText, slot: witness.slot, method: witness.method, status: witness.status,
-        files: witness.files, owners: witness.owners, humanRequired: true, command: witness.commandGuidance.command ?? null }));
+        files: witness.files, owners: witness.owners, available: witness.available, humanRequired: true, command: witness.commandGuidance.command ?? null }));
     const scopeItems = !scoping.length ? []
       : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope);
     if (!witnesses.length && !scopeItems.length) return null;
@@ -144,7 +147,7 @@ export function owedDecisionLines(owed) {
   if (witnessCount) {
     lines.push(`Owed sign-offs (${witnessCount}, human only, not blocking this step):`);
     for (const witness of owed.witnesses) {
-      lines.push(`  ${witness.clauseId} ${witness.slot} (${witness.method}${witness.files.length ? `: ${witness.files.join(', ')}` : ''}) — inspect it first, then:`,
+      lines.push(`  ${witness.clauseId} ${witness.slot} (${witness.method}${witness.files.length ? `: ${witness.files.join(', ')}` : ': the plan names no file'}) — ${witness.available === false ? 'nothing has published it yet; once its step does, inspect it, then:' : 'inspect it first, then:'}`,
         `    ${witness.command ?? 'singularity-flow evidence matrix --json'}`);
     }
     if (owed.more.witnesses) lines.push(`  …and ${owed.more.witnesses} more: singularity-flow evidence matrix --json`);

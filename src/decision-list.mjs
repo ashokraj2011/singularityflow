@@ -332,7 +332,7 @@ function evidenceItem(workflow, context, entry) {
   const options = [
     ...entry.witnesses.map((witness) => {
       const owed = (context.facts.pending?.owed ?? []).find(row => row.kind === 'witness' && row.clauseId === entry.criterion && row.slot === witness.slot);
-      const words = 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.';
+      const words = owed?.available === false ? notPublishedYet(workflow, owed) : 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.';
       const step = personalStep({
       id: `witness-${witness.slot}`,
       label: witness.files.length === 1 ? `I checked ${witness.files[0]}: witness it` : `I checked the ${witness.method} evidence for slot ${witness.slot}: witness it`,
@@ -340,7 +340,7 @@ function evidenceItem(workflow, context, entry) {
       words,
       decidedBy: stepDecidedBy(workflow, context, owed?.groups ?? witness.groups ?? [...new Set((owed?.owners ?? []).flatMap(id => approvers(workflow, id)))], words)
       });
-      return owed ? { ...step,
+      return owed && owed.available !== false ? { ...step,
         action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
           files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
     }),
@@ -468,6 +468,7 @@ function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
 function stepItem(workflow, context, { kind, title, why, groups = [], forAnyone = false, options, details }) {
   const steps = options.map((entry) => ({ ...personalStep(entry),
     ...(entry.humanReview ? { action: { command: entry.command, humanReview: entry.humanReview } } : {}),
+    ...(entry.available === false ? { available: false } : {}),
     decidedBy: forAnyone ? anyone(entry.words) : stepDecidedBy(workflow, context, groups, entry.words) }));
   return { kind, title, why, options: steps, details: { ...details, commands: steps.map((entry) => entry.action.command) } };
 }
@@ -545,17 +546,32 @@ function appealItem(workflow, context, appeal) {
   });
 }
 
+/** Why a witness of evidence no step has published cannot be recorded yet (WITNESS_EVIDENCE_UNPUBLISHED). */
+function notPublishedYet(workflow, entry) {
+  const owners = listWords(entry.owners.map((id) => stepName(workflow, id)));
+  return `It cannot be signed off yet: nothing has published ${listWords(entry.files)} for ${clauseName(workflow, entry.clauseId)}. ${owners} publishes it with its delivery; sign it off after that.`;
+}
+
+/** What a sign-off asks, in what the plan and the deliveries say of its evidence. */
+function witnessWhy(workflow, entry) {
+  const who = `An approver of ${listWords(entry.owners.map((id) => stepName(workflow, id)))}`;
+  if (entry.available === false) return `${who} signs it off; the Story cannot end without it. ${notPublishedYet(workflow, entry)}`;
+  return entry.files.length ? `${who} inspects ${listWords(entry.files)} and signs it off; the Story cannot end without it.`
+    : `${who} signs it off, naming the file they inspected: the plan names none. The Story cannot end without it.`;
+}
+
 /** A sign-off or scope disposition an approved step owes the Story's ending; it does not hold this step. */
 function owedItem(workflow, context, entry) {
   const witness = entry.kind === 'witness';
+  const notYet = witness && entry.available === false;
   return stepItem(workflow, context, {
     kind: 'owed-decision', title: witness ? `Sign off ${clauseName(workflow, entry.clauseId)} (${entry.method})` : `Decide scope item ${entry.id}`,
-    why: witness ? `An approver of ${listWords(entry.owners.map((id) => stepName(workflow, id)))} inspects ${listWords(entry.files)} and signs it off; the Story cannot end without it.`
+    why: witness ? witnessWhy(workflow, entry)
       : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
     groups: entry.groups ?? (witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : []),
-    options: [{ id: witness ? 'witness' : 'disposition', label: witness ? 'Sign it off after inspecting it' : 'Include it, or say it exists, naming its clauses',
-      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.',
-      ...(witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
+    options: [{ id: witness ? 'witness' : 'disposition', label: notYet ? 'Sign it off once it is published' : witness ? 'Sign it off after inspecting it' : 'Include it, or say it exists, naming its clauses',
+      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: notYet ? notPublishedYet(workflow, entry) : 'Only a person records it; an agent never answers it.',
+      ...(notYet ? { available: false } : witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
         files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
       words: 'Only a person records it; an agent never answers it.' }] : [])],

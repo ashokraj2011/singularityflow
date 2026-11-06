@@ -191,7 +191,7 @@ for (const [event, action] of Object.entries(expectedHooks)) {
   }
 }
 if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== '.*'
-    || hooksJson.hooks?.postToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|exec_command|write_stdin') {
+    || hooksJson.hooks?.postToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|exec_command|write_stdin|ask_user|vscode_askQuestions') {
   fail('plugin/hooks.json explicit-turn mutation guard must cover edit payloads and post-terminal detection');
 }
 checked.push('plugin/hooks.json');

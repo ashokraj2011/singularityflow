@@ -109,6 +109,7 @@ async function removeMutationRecord(file) {
   if (!file) return;
   const mutation = file.replace(/\.json$/u, '.mutation.json');
   await removeRecord(mutation);
+  await removeRecord(file.replace(/\.json$/u, '.answers.json'));
   // A scanner holding an advisory hint must not block native chat or reopen an ended turn.
   // The authority record is already gone; the next explicit capture retries this cleanup.
   await rm(`${mutation}.issued`, { recursive: true, force: true }).catch(() => {});

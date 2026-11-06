@@ -7,9 +7,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
-import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueSpecStudioStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
+import { hookAnswerForEveryHost, recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn, repositoryPostToolGuard, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
+import { ANSWER_BOUND_TURNS, answerOfQuestion, wordsOfCommand } from '../src/copilot-answer-binding.mjs';
+import { ANSWER_BOUND_SKILLS, captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueSpecStudioStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
+import { copilotModeFile } from '../src/copilot-mode.mjs';
 import { hookCliLine, setCopilotPaused, setHookCli } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
 import { readFileSync } from 'node:fs';
@@ -545,8 +547,13 @@ test('/sf-run-app and /sf-test turns run the declared application and tests; no 
   assert.match(unbind.permissionDecisionReason, /OPERATION_NOT_ALLOWED: environment values are bound and removed only by the person.*env unbind <ENV> --json/u);
 });
 
+/** The person answered in this turn, as Copilot CLI and VS Code's agent host hand it to the post-tool hook. */
+const personSaid = (payload, ...words) => mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' },
+  toolResult: { textResultForLlm: `User responded: ${words.join(', ')}`, resultType: 'success' } });
+
 test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-decide PMC-1');
+  await personSaid(payload, 'The person chose to ship', 'Skip ahead', 'Covered by the parent', 'Out of scope', 'Reviewed', 'Belongs to AC-001', 'The test script needs it', 'The test script needs this entry', 'The person dismissed it', 'The tests are the whole delivery');
   assert.equal(mutationTurnMode('sf-decide'), 'decision-only');
   assert.equal(mutationTurnMode('sflow-decide'), 'decision-only');
   assert.equal(f.contract('decision-only').allow.application, false);
@@ -602,6 +609,7 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
   assert.deepEqual(await mutationToolGuard(approval), {}, 'a failed decision ended an approval turn');
   // The CLI boundary ends the turn when a decision command is refused.
   const fresh = await f.enter('/sf-decide PMC-1', 'decider-2');
+  await personSaid(fresh, 'The person chose to ship.');
   const freshChoose = () => mutationToolGuard({ ...fresh, toolName: 'bash', toolArgs: { command: choose, cwd: f.root } });
   assert.deepEqual(await freshChoose(), {});
   const refused = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url)), '--no-model',
@@ -616,6 +624,7 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
   const f = await fixture(t);
   const digest = `sha256:${'c'.repeat(64)}`;
   const decide = await f.enter('/sf-decide PMC-1', 'list-decider');
+  await personSaid(decide, 'Yes, record it', 'Not a defect in what was delivered.');
   const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   for (const command of ['singularity-flow decisions PMC-1 --json', 'singularity-flow decisions PMC-1 --choose d1=reuse --json',
     `singularity-flow decisions record PMC-1 --choose d1=accept-risk --expires d1=2026-11-18 --confirm ${digest} --json`,
@@ -924,6 +933,7 @@ test('every step only a person takes in their own terminal is refused in every t
   }
   // What a /sf-decide turn may record keeps its route there; asking for a test command stays the agent's.
   const decide = await f.enter('/sf-decide PMC-1', 'own-terminal-decider');
+  await personSaid(decide, 'Yes, record it', 'Already handled.');
   const chat = `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=return --confirm ${digest}`;
   const issue = 'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."';
   for (const command of [chat, issue]) {
@@ -1072,6 +1082,7 @@ test('a person\'s decision is refused in every turn but the one they start for i
   // A chain in the turn that owns the decision keeps the person's answers: run them one at a time.
   const chain = 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "Not a defect." && singularity-flow story adjudicate CF-2 --disposition dismissed --reason "Nor this."';
   const converging = await f.enter('/sf-converge', 'converger');
+  await personSaid(converging, 'Not a defect.');
   const inOwnTurn = await repositoryToolGuard({ ...converging, toolName: 'bash', toolArgs: { command: chain, cwd: f.root } });
   assert.equal(inOwnTurn.permissionDecision, 'deny', 'a chain is still refused, so each command is checked alone');
   assert.match(inOwnTurn.permissionDecisionReason, /nothing was recorded because these commands were chained/u);
@@ -1282,6 +1293,7 @@ test('a command that only reads needs no shell baseline, even when its pre-tool 
 test('a routing decision that moves the step is not stopped afterwards by the read-only turn it made [audit 1]', async t => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-decide PMC-1', 'decide-moves');
+  await personSaid(payload, 'The person chose to ship.');
   const choose = { ...payload, toolName: 'bash', toolArgs: { cwd: f.root,
     command: 'singularity-flow decision choose PMC-1 --option ship --reason "The person chose to ship." --expected k1' } };
   assert.deepEqual(await mutationToolGuard(choose), {});
@@ -2944,4 +2956,123 @@ test('a person\'s own step that a turn refuses shows that exact command for thei
   assert.equal(denied.next[0].copilotCommand, null);
   assert.match(denied.next[0].command, /^singularity-flow decision witness PMC-1 /u);
   assert.match(denied.permissionDecisionReason, /- Copilot: no verified equivalent\n- Shell: singularity-flow decision witness PMC-1/u);
+});
+
+// A chat decision carries what the person answered [study: decisions across surfaces, Stage 4].
+const CHOOSE = 'singularity-flow decision choose PMC-1 --fetch --option ship --reason "The person chose to ship." --expected k1';
+const ADJUDICATE = 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "Not a defect."';
+const AGENT_HOST_REPLY = 'The user is not available to answer your question. Choose a pragmatic option best aligned with the context of the request.';
+const LOCAL_CHAT_REPLY = 'The user is not available to respond and will review your work later. Work autonomously and make good decisions.';
+const UNBOUND = /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\./u;
+
+test('Copilot CLI and the agent host: a decision command carries what the person answered, in their words', async t => {
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // No question asked: the model's own reason is nobody's word.
+  const unasked = await f.enter('/sf-decide PMC-1', 'unasked');
+  const refused = await run(unasked, CHOOSE);
+  assert.equal(refused.permissionDecision, 'deny');
+  assert.match(refused.permissionDecisionReason, UNBOUND);
+  assert.match(refused.permissionDecisionReason, /No person answered a question in this turn/u);
+  assert.match(refused.permissionDecisionReason, /sflowDecide or sflow_decide/u, 'the card is offered');
+  assert.equal(refused.recoverable, true, 'the turn carries on');
+  assert.equal(hookAnswerForEveryHost('boundary-guard', refused).hookSpecificOutput.permissionDecision, 'deny', 'VS Code reads a refusal only there');
+  // Asked and answered: exactly their words pass, whatever the case or spacing or a closing full stop.
+  await repositoryPostToolGuard({ ...unasked, toolName: 'ask_user', toolArgs: { message: 'Which route?' }, toolResult: { resultType: 'success', textResultForLlm: 'User responded: option=ship, reason=The person  chose to SHIP' } });
+  assert.deepEqual(await run(unasked, CHOOSE), {});
+  // The same words in a different turn are not an answer in this one.
+  const later = await f.enter('/sf-decide PMC-1', 'unasked');
+  assert.match((await run(later, CHOOSE)).permissionDecisionReason, UNBOUND);
+  // Anything else is not what they said, and they need not be asked again.
+  const answered = await f.enter('/sf-converge', 'converge-answered');
+  await personSaid(answered, 'disposition=dismissed', 'reason=part of playright setup');
+  const reworded = await run(answered, 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "Part of the Playwright setup."');
+  assert.match(reworded.permissionDecisionReason, /is not what the person answered\. Run it again with exactly their words; their answer stands/u);
+  assert.match(reworded.permissionDecisionReason, /part of the playwright setup/u);
+  assert.deepEqual(await run(answered, 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "part of playright setup"'), {});
+  // A chain is still refused for what it is, not for this.
+  assert.match((await run(answered, `${ADJUDICATE} && ${ADJUDICATE}`)).permissionDecisionReason, /these commands were chained/u);
+  // A rework needs no reason, and still a person's answer.
+  const quiet = await f.enter('/sf-converge', 'converge-quiet');
+  assert.match((await run(quiet, 'singularity-flow story adjudicate CF-1 --disposition rework')).permissionDecisionReason, UNBOUND);
+  await personSaid(quiet, 'disposition=rework');
+  assert.deepEqual(await run(quiet, 'singularity-flow story adjudicate CF-1 --disposition rework'), {});
+});
+
+test('the host\'s canned reply is refused, in a plain answer and in every field of a form', async t => {
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  for (const reply of [AGENT_HOST_REPLY, `User responded: reason=${AGENT_HOST_REPLY}, disposition=${AGENT_HOST_REPLY}`]) {
+    const payload = await f.enter('/sf-converge', `canned-${reply.length}`);
+    await repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: {}, toolResult: { textResultForLlm: reply, resultType: 'success' } });
+    for (const command of [ADJUDICATE, `singularity-flow story adjudicate CF-1 --disposition dismissed --reason "${AGENT_HOST_REPLY}"`]) {
+      const refused = await run(payload, command);
+      assert.match(refused.permissionDecisionReason, UNBOUND, command);
+      assert.match(refused.permissionDecisionReason, /The host answered the question itself/u);
+      assert.match(refused.permissionDecisionReason, /Do not choose for them/u);
+    }
+  }
+  // A person answering after it is what counts.
+  const payload = await f.enter('/sf-converge', 'canned-then-person');
+  await repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: {}, toolResult: { textResultForLlm: AGENT_HOST_REPLY, resultType: 'success' } });
+  await personSaid(payload, 'Not a defect.');
+  assert.deepEqual(await run(payload, ADJUDICATE), {});
+});
+
+test('what cannot be told apart refuses nothing: a question whose answer never arrived, and words the person typed with the skill', async t => {
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const asked = await f.enter('/sf-decide PMC-1', 'no-delivery');
+  assert.notEqual((await repositoryToolGuard({ ...asked, toolName: 'ask_user', toolArgs: { question: 'Why?' } })).permissionDecision, 'deny');
+  assert.deepEqual(await run(asked, CHOOSE), {}, 'it asked, and this hook never saw the answer');
+  const typed = await f.enter('/sf-converge dismiss CF-1: Not a defect.', 'typed-with-skill');
+  assert.deepEqual(await run(typed, ADJUDICATE), {});
+  assert.match((await run(typed, 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "Something else entirely."')).permissionDecisionReason, UNBOUND);
+});
+
+test('VS Code\'s own chat: an answer that arrives binds the command, and with none it is left as it was', async t => {
+  const f = await fixture(t);
+  const local = (payload, fields) => ({ session_id: payload.sessionId, cwd: payload.cwd, hook_event_name: fields.tool_response === undefined ? 'PreToolUse' : 'PostToolUse', ...fields });
+  const run = (payload, command) => repositoryToolGuard(local(payload, { tool_name: 'run_in_terminal', tool_input: { command, cwd: f.root } }));
+  const said = (payload, answers) => repositoryPostToolGuard(local(payload, { tool_name: 'vscode_askQuestions', tool_input: { questions: [] }, tool_use_id: 't1', tool_response: JSON.stringify({ answers }) }));
+  const nothing = await f.enter('/sf-decide PMC-1', 'local-none');
+  assert.notEqual((await run(nothing, CHOOSE)).permissionDecision, 'deny', 'nothing shows this chat\'s hooks see its question tool, so no answer proves nothing');
+  const answered = await f.enter('/sf-decide PMC-1', 'local-answered');
+  await said(answered, { Route: { selected: ['ship'], freeText: null, skipped: false }, Reason: { selected: [], freeText: 'The person chose to ship.', skipped: false } });
+  assert.notEqual((await run(answered, CHOOSE)).permissionDecision, 'deny');
+  assert.match((await run(answered, 'singularity-flow decision choose PMC-1 --fetch --option ship --reason "My own idea." --expected k1')).permissionDecisionReason, UNBOUND);
+  const canned = await f.enter('/sf-decide PMC-1', 'local-canned');
+  await said(canned, { Reason: { selected: [], freeText: LOCAL_CHAT_REPLY, skipped: false } });
+  assert.match((await run(canned, CHOOSE)).permissionDecisionReason, /The host answered the question itself/u);
+  const skipped = await f.enter('/sf-decide PMC-1', 'local-skipped');
+  await said(skipped, { Reason: { selected: [], freeText: null, skipped: true } });
+  assert.match((await run(skipped, CHOOSE)).permissionDecisionReason, /No person answered/u);
+});
+
+test('only the turns that own these decisions are held to it, and only these commands', async t => {
+  assert.deepEqual([...ANSWER_BOUND_SKILLS].sort(), [...ANSWER_BOUND_TURNS].sort());
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const decide = await f.enter('/sf-decide PMC-1', 'bound-reads');
+  for (const command of ['singularity-flow decision show PMC-1 --json', 'singularity-flow decisions PMC-1 --for-agent --json', 'singularity-flow evidence scope PMC-1 --json']) {
+    assert.deepEqual(await run(decide, command), {}, command);
+  }
+  // A typed /sf-approve keeps its own confirmation; nothing asks it for an ask_user answer.
+  const approving = await f.enter('/sf-approve', 'bound-approve');
+  assert.doesNotMatch(String((await run(approving, 'singularity-flow approve custom-step --work-id PMC-1 --fetch')).permissionDecisionReason), UNBOUND);
+  // An ended turn leaves no answers behind.
+  const ledgers = async () => (await readdir(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries'))).filter((name) => name.endsWith('.answers.json')).length;
+  const before = await ledgers();
+  await endRepositoryBoundaryTurn(decide);
+  assert.equal(await ledgers(), before - 1);
+});
+
+test('a question\'s answer reads the same however the host words it', () => {
+  assert.deepEqual(answerOfQuestion({ toolResult: { textResultForLlm: 'User responded: disposition=accepted-deviation, reason=part of test setup' } }), { texts: ['disposition=accepted-deviation, reason=part of test setup'], canned: false });
+  assert.deepEqual(answerOfQuestion({ toolResult: { textResultForLlm: 'User declined to answer' } }), { texts: [], canned: false });
+  assert.deepEqual(answerOfQuestion({ tool_response: JSON.stringify({ answers: { A: { selected: ['Yes'], freeText: 'Because.', skipped: false }, B: { selected: [], freeText: null, skipped: true } } }) }), { texts: ['yes', 'because'], canned: false });
+  assert.deepEqual(answerOfQuestion({ toolResult: { textResultForLlm: AGENT_HOST_REPLY } }), { texts: [], canned: true });
+  assert.deepEqual(answerOfQuestion({ tool_response: JSON.stringify({ answers: { A: { selected: [], freeText: LOCAL_CHAT_REPLY, skipped: false } } }) }), { texts: [], canned: true });
+  assert.equal(answerOfQuestion({}), null, 'no result: nothing arrived');
+  assert.deepEqual(wordsOfCommand({ reason: ['d1=Not a defect.', 'd2=Nor this'], cause: 'd1=No browser here', 'supporting-reason': 'The test script.' }), ['not a defect', 'nor this', 'the test script', 'no browser here']);
 });

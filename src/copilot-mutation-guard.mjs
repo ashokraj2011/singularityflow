@@ -10,6 +10,9 @@ import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } fro
 // The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
+const answerBinding = () => import('./copilot-answer-binding.mjs');
+// The turns whose decision commands are held to the person's answers (ANSWER_BOUND_TURNS, a test pins the two equal).
+export const ANSWER_BOUND_SKILLS = new Set(['decide', 'converge']);
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
@@ -285,6 +288,7 @@ export async function captureMutationTurn(payload, record, {
 } = {}) {
   const file = recordFile(payload);
   if (!file) return;
+  if (ANSWER_BOUND_SKILLS.has(skillName(record.skill))) await answerBinding().then(binding => binding.startAnswerLedger(file, record, payload.prompt)).catch(() => {});
   let root = null;
   try {
     const candidate = await resolveRoot(payload);
@@ -1620,6 +1624,29 @@ async function noteTaskQuestion(payload, record) {
   } catch { /* Advisory tracking cannot change this tool's permission decision. */ }
 }
 
+/**
+ * In a turn that owns a person's decision, its command carries what they answered. A question being
+ * asked is counted, so one whose answer never reaches the post-tool hook is known to refuse nothing.
+ */
+async function answerBoundDenial(payload, record) {
+  if (!ANSWER_BOUND_SKILLS.has(skillName(record.skill))) return null;
+  const toolCalls = calls(payload);
+  const file = recordFile(payload);
+  if (toolCalls.some(call => QUESTION_TOOLS.has(call.name))) {
+    await answerBinding().then(binding => binding.noteQuestionAsked(file, record)).catch(() => {});
+    return null;
+  }
+  for (const call of toolCalls) {
+    const step = personStepOfCall(call, payload.cwd);
+    if (!step) continue;
+    const binding = await answerBinding();
+    if (!binding.answerBoundStep(step)) continue;
+    const reason = await binding.unboundAnswerReason(file, record, parseCli(step.argv).options, { localChat: typeof payload.tool_name === 'string' }).catch(() => null);
+    if (reason) return { permissionDecision: 'deny', next: [], recoverable: true, permissionDecisionReason: reason };
+  }
+  return null;
+}
+
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
   if (!record) return personStepDenial(payload) ?? {};
@@ -1629,6 +1656,11 @@ export async function mutationToolGuard(payload = {}) {
   const personal = turnPersonDecisionDenial(payload, record);
   if (personal) return personal;
   const decision = await mutationToolDecision(payload, record);
+  // Only what this turn would run: a command refused for what it is keeps that refusal.
+  if (decision.permissionDecision !== 'deny') {
+    const unbound = await answerBoundDenial(payload, record);
+    if (unbound) return unbound;
+  }
   if (decision.permissionDecision !== 'deny' && record.taskCompletionRequested) await noteTaskQuestion(payload, record);
   if (decision.permissionDecision !== 'deny' && record.taskCompletionRequested) {
     // Only the chat that requested the entry receives its completion checkpoint. CLI issuers
@@ -1966,6 +1998,10 @@ async function shellSnapshot(root, contract) {
 
 export async function mutationPostToolGuard(payload = {}) {
   const record = await turn(payload);
+  if (record && ANSWER_BOUND_SKILLS.has(skillName(record.skill)) && calls(payload).some(call => QUESTION_TOOLS.has(call.name))) {
+    await answerBinding().then(binding => binding.noteQuestionAnswered(recordFile(payload), record, payload)).catch(() => {});
+    return {};
+  }
   const terminals = calls(payload).filter(call => TERMINALS.has(call.name));
   if (!record || !terminals.length) return {};
   // A turn with no Story contract has no baseline to compare and nothing to go stale: its pre-tool

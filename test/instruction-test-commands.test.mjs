@@ -131,8 +131,8 @@ test('a runner inference supports, called directly, is completed through the scr
   // What is not a test run is not a candidate at all.
   for (const text of ['ng build', 'npx cypress open', 'npx react-scripts build']) assert.equal(await complete({ scripts: { test: 'jest' } }, text), null, text);
   // Tools inference does not read keep their reason, and a script's list of runners names the ones it does.
-  assert.match((await complete({ scripts: { test: 'jest' } }, 'phpunit')).reason, /does not complete phpunit/u);
-  assert.match((await complete({ scripts: { test: 'custom-tool' } }, 'npm test')).reason, /\(Jest, Vitest, Mocha, Angular Karma, Playwright, Cypress, node --test\)/u);
+  assert.match((await complete({ scripts: { test: 'jest' } }, 'tox')).reason, /does not complete tox/u);
+  assert.match((await complete({ scripts: { test: 'custom-tool' } }, 'npm test')).reason, /\(Jest, Vitest, Mocha, Angular Karma, Playwright, Cypress, Bun, node --test\)/u);
   assert.match((await complete({ scripts: { test: 'ava' } }, 'npm test')).reason, /The 'test' script runs ava, whose results SFlow cannot read yet/u);
 });
 

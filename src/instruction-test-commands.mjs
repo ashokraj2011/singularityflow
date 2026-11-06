@@ -31,7 +31,7 @@ import { readRepositoryManifest, repositoryManifestExists } from './repository-m
 import { classifyVariable, looksSecretName, looksSecretValue } from './secret-looking.mjs';
 import { blockedPath, EXCLUDED_DIRECTORIES, recognizeFormat } from './team-import/formats.mjs';
 import { declaredGradleProjects } from './test-module-markers.mjs';
-import { DIRECT_REPORTERS } from './test-runners.mjs';
+import { DIRECT_REPORTERS, TEST_RUNNERS } from './test-runners.mjs';
 
 const LIMITS = Object.freeze({ files: 200, fileBytes: 256 * 1024, candidates: 200, skillDepth: 3, nxDirectories: 2_000 });
 const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su;
@@ -40,7 +40,7 @@ const RESULTS = '.sflow/results';
 const TEST_REPORTERS = DIRECT_REPORTERS;
 export const DIRECT_RUNNER_REPORTERS = TEST_REPORTERS;
 const NODE_SYSTEMS = ['node', 'nx'];
-const UNSUPPORTED_TOOLS = new Set(['karma', 'jasmine', 'ava', 'tap', 'tox', 'nox', 'detox', 'phpunit', 'rspec']);
+const UNSUPPORTED_TOOLS = new Set(['karma', 'jasmine', 'ava', 'tap', 'tox', 'nox', 'detox']);
 // Runners inference reads only from the package script that runs them, with the word that makes each a test run.
 const SCRIPT_RUNNERS = Object.freeze({ mocha: null, cypress: 'run', ng: 'test', 'react-scripts': 'test' });
 const PACKAGE_COMMANDS = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'audit', 'link',
@@ -241,6 +241,8 @@ function recognize(argv, scripts) {
     return { reason: 'It runs a Python program that is not pytest; give the command in full with its reporter.' };
   }
   if (['uv', 'poetry', 'pipenv', 'pdm', 'hatch', 'rye'].includes(first) && argv[1] === 'run') return recognizeTool(argv, 2);
+  // Bundler runs what it names; `bundle` itself is no runner.
+  if (first === 'bundle' && argv[1] === 'exec') return recognizeTool(argv, 2);
   return recognizeTool(argv, 0);
 }
 
@@ -258,6 +260,11 @@ function recognizeTool(argv, at) {
   if (tool === 'dotnet') return sub === 'test' ? { runner: 'dotnet', at } : { skip: true };
   if (tool === 'swift') return sub === 'test' ? { runner: 'swift', at } : { skip: true };
   if (tool === 'nx') return { runner: 'nx', at };
+  // A runner its row reports directly, by what a build file implies.
+  if (tool === 'phpunit') return { runner: 'row', key: tool, at };
+  if (tool === 'deno') return ['test', 'task'].includes(sub) ? { runner: 'row', key: tool, at } : { skip: true };
+  if (['rspec', 'bazel'].includes(tool) && (tool === 'rspec' || sub === 'test')) return { reason: TEST_RUNNERS[tool].proposal.words };
+  if (tool === 'bazel') return { skip: true };
   if (tool === 'node') {
     return argv.slice(at + 1).some((value) => value === '--test' || value.startsWith('--test='))
       ? { runner: 'node-test', at } : { reason: 'It runs a Node program, not node --test; SFlow cannot see which tests it runs.' };
@@ -402,7 +409,7 @@ async function completeRecognized(root, command, recognized, { platform, package
       }
       const unread = (await import('./test-module-markers.mjs')).unreadRunnerOfScript(manifest.scripts[recognized.script]);
       return { reason: unread ? `The '${recognized.script}' script runs ${unread}, whose results SFlow cannot read yet; give the command in full with a reporter SFlow reads.`
-        : `The '${recognized.script}' script does not run a test runner SFlow reads results from (Jest, Vitest, Mocha, Angular Karma, Playwright, Cypress, node --test).`, notes };
+        : `The '${recognized.script}' script does not run a test runner SFlow reads results from (Jest, Vitest, Mocha, Angular Karma, Playwright, Cypress, Bun, node --test).`, notes };
     }
     case 'script-runner': {
       const module = await moduleOf(root, directory, NODE_SYSTEMS);
@@ -423,6 +430,11 @@ async function completeRecognized(root, command, recognized, { platform, package
     case 'playwright': case 'jest': case 'vitest': {
       return record({ argv: nodeRunnerArgv(recognized.runner, argv, recognized.at, result(recognized.runner).path, notes, { packageScript }),
         workingDirectory: directory, result: result(recognized.runner) }, await roots(NODE_SYSTEMS, 'Node'));
+    }
+    case 'row': {
+      const report = result(recognized.key);
+      return record({ argv: [...argv, ...TEST_REPORTERS[recognized.key].arguments(report.path)], workingDirectory: directory, result: report },
+        await roots([TEST_RUNNERS[recognized.key].module.system], TEST_RUNNERS[recognized.key].name));
     }
     case 'node-test': return record({ argv: [...argv], workingDirectory: directory,
       result: { adapter: 'node-tap', path: `${RESULTS}/node-tests.tap`, minimumDiscovered: 1 } }, await roots(NODE_SYSTEMS, 'Node'));

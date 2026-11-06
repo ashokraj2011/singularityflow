@@ -20,6 +20,14 @@
  * - `selection`: what narrows a run (src/test-narrowing.mjs): `filters`, those of them that take no value
  *   (`valueless`), the `verbs` it reads before its operands, which files are its tests (`testFiles`), how it
  *   matches an operand (`matchesAnywhere`) and where it looks with none (`defaultPlace`).
+ * - `script`: a runner a package script starts by its program and verb, and the report arguments SFlow adds.
+ * - `module`: a runner a build file implies, read at a gate like any other: which files, what says they mean this
+ *   runner (`holds`), and its command. It must write a report SFlow reads with no change to the repository.
+ * - `proposal`: a runner SFlow can name and cannot complete alone: it needs a gem, a person's choice or a target.
+ *   Setup and the refusal offer the command with what is `missing`, and nothing runs until a person approves it.
+ *
+ * Flags of runners not installed where this was written (PHPUnit, Bun, Deno, RSpec, minitest, Bazel, Nx) come from
+ * their documentation; test/real-test-tools.test.mjs runs each where it is installed, and skips visibly where not.
  */
 const javascriptConfig = (stem) => new RegExp(`^${stem}\\.config\\.[cm]?[jt]s$`, 'u');
 const JAVASCRIPT_TEST_FILE = /(?:^|\/)__tests__\/.+\.[cm]?[jt]sx?$|\.(?:test|spec)\.[cm]?[jt]sx?$/u;
@@ -69,10 +77,50 @@ export const TEST_RUNNERS = Object.freeze({
     selection: { filters: ['-run', '-skip', '-short'], valueless: ['-short'], verbs: ['test'], testFiles: /_test\.go$/u } },
   dotnet: { name: '.NET', ecosystem: 'dotnet', programSaysEcosystem: true, launchers: ['dotnet'], adapter: 'dotnet-trx', onPath: { dotnet: '.NET' },
     direct: { adapter: 'dotnet-trx', extension: null, arguments: (directory) => ['--logger', 'trx', '--results-directory', directory] }, selection: { filters: ['--filter'], valueless: [] } },
-  cargo: { name: 'Cargo', ecosystem: 'rust', programSaysEcosystem: true, launchers: ['cargo'], adapter: 'cargo-json', onPath: { cargo: 'Cargo' }, buildFiles: ['Cargo.toml'] },
+  cargo: { name: 'Cargo', ecosystem: 'rust', programSaysEcosystem: true, launchers: ['cargo'], adapter: 'cargo-json', onPath: { cargo: 'Cargo' }, buildFiles: ['Cargo.toml'],
+    // Stable cargo refuses its JSON format, so a person chooses: that flag on a stable compiler, or nextest's JUnit report.
+    proposal: { files: [/^Cargo\.toml$/u], holds: () => true, runner: 'cargo',
+      words: 'Stable cargo writes no structured report. Choose one: RUSTC_BOOTSTRAP=1 with its JSON format, which reads each result, or cargo-nextest with a JUnit profile, which needs that tool. Either is a person\'s choice.',
+      command: () => ({ argv: ['cargo', 'test', '--', '-Z', 'unstable-options', '--format', 'json'], env: { RUSTC_BOOTSTRAP: '1' }, result: { adapter: 'cargo-json', path: '.sflow/results/rust-tests.jsonl' } }),
+      missing: ['which of the two'], choices: ['RUSTC_BOOTSTRAP=1 cargo test -- -Z unstable-options --format json', 'cargo nextest run --profile ci, with [profile.ci.junit] path = "junit.xml" in .config/nextest.toml; its report is target/nextest/ci/junit.xml'] } },
   swiftpm: { name: 'SwiftPM', ecosystem: 'swift', programSaysEcosystem: true, launchers: ['swift'], onPath: { swift: 'Swift' }, buildFiles: ['Package.swift'] },
   xcode: { name: 'Xcode', ecosystem: 'swift', launchers: ['xcodebuild'], onPath: { xcodebuild: 'Xcode' } },
-  nx: { name: 'Nx', ecosystem: 'node', launchers: ['nx'], buildFiles: ['project.json', 'nx.json'] }
+  nx: { name: 'Nx', ecosystem: 'node', launchers: ['nx'], buildFiles: ['project.json', 'nx.json'],
+    // That @nx/vite:test hands these to Vitest is unproven here: no real Nx has run it, so a person approves it first.
+    proposal: { files: [/^project\.json$/u], holds: (text) => /["']@nx\/vite:test["']/u.test(text), runner: 'Vitest under @nx/vite:test',
+      words: 'SFlow has not seen this executor pass a report option to Vitest, so it does not run this by itself. If its report is written, approve it as this project\'s test command.',
+      command: (text) => ({ argv: ['npx', '--no-install', 'nx', 'run', `${/"name"\s*:\s*"([^"]+)"/u.exec(text)?.[1] ?? '<project>'}:test`, '--skip-nx-cache', '--run', '--reporters=json', '--outputFile=.sflow/results/vitest-tests.json'],
+        result: { adapter: 'vitest-json', path: '.sflow/results/vitest-tests.json' } }), missing: [] } },
+  phpunit: { name: 'PHPUnit', ecosystem: 'php', programSaysEcosystem: true, launchers: ['phpunit'], buildFiles: ['phpunit.xml', 'phpunit.xml.dist', 'composer.json'],
+    pins: { config: [/^phpunit\.xml(?:\.dist)?$/u], keys: [] },
+    direct: { adapter: 'junit-xml', extension: 'xml', arguments: (report) => ['--log-junit', report] },
+    selection: { filters: ['--filter', '--group', '--exclude-group', '--testsuite'], valueless: [], verbs: [], testFiles: /Test\.php$/u },
+    module: { system: 'php', files: [/^phpunit\.xml(?:\.dist)?$/u, /^composer\.json$/u], holds: (name, text) => name !== 'composer.json' || /["']phpunit\/phpunit["']/u.test(text),
+      command: (report) => ({ argv: ['vendor/bin/phpunit', '--log-junit', report], extension: 'xml', adapter: 'junit-xml' }) } },
+  bun: { name: 'Bun', ecosystem: 'node', launchers: ['bun'], onPath: { bun: 'Bun' }, pins: { config: [/^bunfig\.toml$/u], keys: [] },
+    script: { verb: 'test', adapter: 'junit-xml', arguments: (report) => ['--reporter=junit', `--reporter-outfile=${report}`], notAGate: /^--(?:watch|hot|reporter|reporter-outfile)(?:=|$)/u },
+    selection: { filters: ['-t', '--test-name-pattern', '--only'], valueless: ['--only'], verbs: ['test'], testFiles: /[._](?:test|spec)\.[cm]?[jt]sx?$/u, matchesAnywhere: true } },
+  deno: { name: 'Deno', ecosystem: 'node', programSaysEcosystem: true, launchers: ['deno'], onPath: { deno: 'Deno' }, buildFiles: ['deno.json', 'deno.jsonc'],
+    pins: { config: [/^deno\.jsonc?$/u], keys: [] },
+    direct: { adapter: 'junit-xml', extension: 'xml', arguments: (report) => [`--junit-path=${report}`] },
+    selection: { filters: ['--filter'], valueless: [], verbs: ['test', 'task'], testFiles: /(?:^|[/_.])test\.[cm]?[jt]sx?$/u },
+    module: { system: 'deno', files: [/^deno\.jsonc?$/u], holds: () => true,
+      // A repository's own test task keeps the permissions it names; a bare `deno test` has none.
+      command: (report, text) => ({ argv: ['deno', ...(/["']tasks["'][\s\S]*?["']test["']\s*:/u.test(text) ? ['task', 'test'] : ['test']), `--junit-path=${report}`], extension: 'xml', adapter: 'junit-xml' }) } },
+  rspec: { name: 'RSpec', ecosystem: 'ruby', programSaysEcosystem: true, launchers: ['rspec'], pins: { config: [/^\.rspec$/u], keys: [] },
+    selection: { filters: ['-e', '--example', '--tag', '--only-failures', '--next-failure'], valueless: ['--only-failures', '--next-failure'], verbs: [], testFiles: /_spec\.rb$/u },
+    proposal: { files: [/^Gemfile$/u], holds: (text) => /["']rspec(?:-[a-z]+)?["']/u.test(text), runner: 'RSpec',
+      words: 'SFlow reads results from JUnit reports, and RSpec writes one only through a formatter gem. Add rspec_junit_formatter to the test group, or ask a person to accept a Story-only command.',
+      command: () => ({ argv: ['bundle', 'exec', 'rspec', '--format', 'RspecJunitFormatter', '--out', '.sflow/results/ruby-tests.xml'], result: { adapter: 'junit-xml', path: '.sflow/results/ruby-tests.xml' } }), missing: ['the rspec_junit_formatter gem'] } },
+  minitest: { name: 'minitest', ecosystem: 'ruby', launchers: ['minitest'],
+    selection: { filters: ['-n', '--name', '-e', '--exclude'], valueless: [], verbs: [], testFiles: /(?:^|[/_])test(?:_[^/]*)?\.rb$|_test\.rb$/u },
+    proposal: { files: [/^Gemfile$/u, /^Rakefile$/u], holds: (text) => /\bminitest\b|Rake::TestTask/u.test(text), runner: 'minitest',
+      words: 'SFlow reads results from JUnit reports, and minitest writes one only through a reporter gem. Add minitest-reporters and use its JUnitReporter, or ask a person to accept a Story-only command.',
+      command: () => ({ argv: ['bundle', 'exec', 'rake', 'test'], result: { adapter: 'junit-xml', path: 'test/reports' } }), missing: ['the minitest-reporters gem with its JUnitReporter'] } },
+  bazel: { name: 'Bazel', launchers: ['bazel'], onPath: { bazel: 'Bazel' }, pins: { config: [/^\.bazelrc$/u], keys: [] }, selection: { filters: ['--test_filter', '--test_tag_filters'], valueless: [] },
+    proposal: { files: [/^MODULE\.bazel$/u, /^WORKSPACE(?:\.bazel)?$/u], holds: () => true, runner: 'Bazel',
+      words: 'Bazel writes each test target\'s JUnit report under bazel-testlogs. Which targets to run is a person\'s choice, and SFlow does not guess it.',
+      command: () => ({ argv: ['bazel', 'test', '//...', '--test_output=errors'], result: { adapter: 'junit-xml', path: 'bazel-testlogs' } }), missing: ['the targets, if not //...'] } }
 });
 
 const rows = Object.entries(TEST_RUNNERS);
@@ -114,3 +162,12 @@ export const ecosystemOfProgram = (program) => ECOSYSTEM_OF_PROGRAM.get(program)
 
 /** The reporter of each runner a person can call directly, by the name a written command uses. */
 export const DIRECT_REPORTERS = Object.freeze(Object.fromEntries(rows.filter(([, row]) => row.direct).map(([key, row]) => [key, row.direct])));
+
+/** The rows a build file implies, and the rows SFlow can only propose. */
+export const MODULE_RUNNERS = Object.freeze(rows.filter(([, row]) => row.module).map(([key, row]) => ({ key, ...row })));
+export const PROPOSED_RUNNERS = Object.freeze(rows.filter(([, row]) => row.proposal).map(([key, row]) => ({ key, ...row })));
+/** The row of a build system a `module` column names, or null. */
+export const moduleRunnerOfSystem = (system) => MODULE_RUNNERS.find((row) => row.module.system === system) ?? null;
+/** The program and verb a package script starts a runner by. */
+export const scriptRunnerOf = (program, verb) => (verb && TEST_RUNNERS[program]?.script?.verb === verb ? program : null);
+export const SCRIPT_RUNNER_REFUSALS = Object.freeze(Object.fromEntries(rows.filter(([, row]) => row.script).map(([key, row]) => [key, row.script.notAGate])));

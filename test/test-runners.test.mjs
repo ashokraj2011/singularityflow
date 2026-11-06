@@ -3,10 +3,22 @@
  * drives is pinned by that consumer's own tests; a row that drifted from them would fail there.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
+import { isTestSourceName, parseTestResult, resolveAffectedModule, testCommandCoversPath, testCommandEcosystem } from '../src/code-delivery-tests.mjs';
 import { TEST_RESULT_ADAPTERS } from '../src/external-command-policy.mjs';
-import { isRunnerConfigurationName, runnerNameOfAdapter, runnerNameOfLauncher, runnerNamed, runnerOfLauncher, selectingRunner, TEST_RUNNERS, TOOLS_ON_PATH } from '../src/test-runners.mjs';
+import { completeWrittenTestCommand } from '../src/instruction-test-commands.mjs';
+import { inferRepositoryTestCommands } from '../src/repository-test-command-inference.mjs';
+import { inspectRepositoryTestSetup } from '../src/repository-test-setup.mjs';
+import { commandDefinition } from '../src/test-command-pins.mjs';
+import { moduleTestCommands } from '../src/test-module-markers.mjs';
+import { commandFilters, pathOperands } from '../src/test-narrowing.mjs';
+import { profileForCommand } from '../src/verification/profiles.mjs';
+import { isRunnerConfigurationName, runnerNameOfAdapter, runnerNameOfLauncher, runnerNamed, runnerOfLauncher, scriptRunnerOf, selectingRunner, TEST_RUNNERS, TOOLS_ON_PATH } from '../src/test-runners.mjs';
 
 test('every row has a person\'s word and the programs that start it, and no two rows claim one program', () => {
   const seen = new Set();
@@ -29,7 +41,115 @@ test('what consumers ask of it', () => {
   assert.equal(selectingRunner('tox'), 'pytest', 'tox runs pytest for you');
   assert.equal(selectingRunner('nx'), null, 'a runner with no selection column reads the generic options');
   assert.equal(TOOLS_ON_PATH.mvn, 'Maven');
+  assert.equal(scriptRunnerOf('bun', 'test'), 'bun');
+  assert.equal(scriptRunnerOf('bun', undefined), null, 'a program with nothing after it starts no runner');
+  assert.equal(scriptRunnerOf('eslint', undefined), null);
   assert.equal(isRunnerConfigurationName('playwright.config.ts'), true);
   assert.equal(isRunnerConfigurationName('conftest.py'), true);
   assert.equal(isRunnerConfigurationName('package.json'), false);
+});
+
+const makeRepository = async (t, files) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-runner-rows-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), text);
+  }
+  return root;
+};
+const gate = async (root, file) => moduleTestCommands(root, await resolveAffectedModule(root, file));
+const shown = (commands) => commands.map((command) => [command.id, command.argv, command.result.adapter, command.result.path]);
+
+test('PHPUnit: a project that names it runs it with a JUnit report, and a Composer project that does not is still refused', async (t) => {
+  const root = await makeRepository(t, { 'composer.json': JSON.stringify({ 'require-dev': { 'phpunit/phpunit': '^11' } }), 'phpunit.xml': '<phpunit/>', 'src/App.php': '', 'tests/AppTest.php': '' });
+  const expected = [['.-php-tests', ['vendor/bin/phpunit', '--log-junit', '.sflow/results/php-tests.xml'], 'junit-xml', '.sflow/results/php-tests.xml']];
+  assert.deepEqual(shown(await gate(root, 'src/App.php')), expected);
+  assert.deepEqual(shown(await inferRepositoryTestCommands(root)), expected, 'readiness and setup at the root read the same row');
+  assert.equal(testCommandEcosystem((await gate(root, 'src/App.php'))[0]), 'php');
+  assert.equal(testCommandCoversPath({ ...(await gate(root, 'src/App.php'))[0], provenance: 'inferred' }, 'src/App.php'), true);
+  assert.equal(isTestSourceName('tests/AppTest.php'), true);
+  // The configuration is pinned; the installed binary is a dependency, so installing it changes nothing.
+  const [command] = await gate(root, 'src/App.php');
+  assert.deepEqual((await commandDefinition(root, command)).entries.map((entry) => entry.path), ['phpunit.xml']);
+  // What narrows it reads as anywhere else.
+  assert.deepEqual(commandFilters(['vendor/bin/phpunit', '--filter', 'one', '--log-junit', 'r.xml']).map((entry) => [entry.option, entry.value]), [['--filter', 'one']]);
+  const plain = await makeRepository(t, { 'composer.json': JSON.stringify({ require: { php: '^8' } }), 'src/App.php': '' });
+  await assert.rejects(gate(plain, 'src/App.php'), /a PHP Composer build with no supported structured test runner/u);
+  // Beside a package.json it owns only PHP files.
+  const both = await makeRepository(t, { 'composer.json': JSON.stringify({ 'require-dev': { 'phpunit/phpunit': '^11' } }), 'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }), 'src/App.php': '', 'src/a.js': '' });
+  assert.equal((await gate(both, 'src/App.php'))[0].id, '.-php-tests');
+  assert.equal((await gate(both, 'src/a.js'))[0].id, '.-node-tests');
+});
+
+test('Bun: `bun test` in a package script gets its JUnit report, and a watching script is no gate\'s', async (t) => {
+  const manifest = (test) => JSON.stringify({ name: 'x', scripts: { test } });
+  const root = await makeRepository(t, { 'package.json': manifest('bun test'), 'bun.lock': '', 'src/a.test.ts': '' });
+  const [command] = await gate(root, 'src/a.test.ts');
+  assert.deepEqual([command.id, command.argv, command.result.adapter, command.result.path],
+    ['.-node-tests', ['bun', 'run', 'test', '--', '--reporter=junit', '--reporter-outfile=.sflow/results/node-tests.xml'], 'junit-xml', '.sflow/results/node-tests.xml']);
+  assert.equal(testCommandEcosystem(command), 'node');
+  assert.equal(profileForCommand(command), 'module-counts-v1', 'its report has no profile yet, so a criterion rests on the whole suite, and it says so');
+  assert.deepEqual(await gate(await makeRepository(t, { 'package.json': manifest('bun test --watch'), 'src/a.test.ts': '' }), 'src/a.test.ts'), []);
+  const npm = await makeRepository(t, { 'package.json': manifest('bun test'), 'package-lock.json': '{}', 'src/a.test.ts': '' });
+  assert.deepEqual((await gate(npm, 'src/a.test.ts'))[0].argv, ['npm', 'test', '--', '--reporter=junit', '--reporter-outfile=.sflow/results/node-tests.xml']);
+  // A filter the Story adds to the script reads as a filter, and a path as a path.
+  assert.deepEqual(commandFilters(['bun', 'test', '-t', 'one']).map((entry) => entry.option), ['-t']);
+  assert.deepEqual(pathOperands(['bun', 'test', 'src/one']).operands, ['src/one']);
+});
+
+test('Deno: a deno.json runs its own test task when it has one, with a JUnit report; package.json beside it keeps Node', async (t) => {
+  const plain = await makeRepository(t, { 'deno.json': '{ "imports": {} }', 'src/a_test.ts': '' });
+  assert.deepEqual(shown(await gate(plain, 'src/a_test.ts')), [['.-deno-tests', ['deno', 'test', '--junit-path=.sflow/results/deno-tests.xml'], 'junit-xml', '.sflow/results/deno-tests.xml']]);
+  const task = await makeRepository(t, { 'deno.jsonc': '{ // comment\n "tasks": { "test": "deno test --allow-read" } }', 'src/a_test.ts': '' });
+  assert.deepEqual((await gate(task, 'src/a_test.ts'))[0].argv, ['deno', 'task', 'test', '--junit-path=.sflow/results/deno-tests.xml']);
+  assert.deepEqual((await commandDefinition(task, (await gate(task, 'src/a_test.ts'))[0])).entries.map((entry) => entry.path), ['deno.jsonc']);
+  const both = await makeRepository(t, { 'deno.json': '{}', 'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }), 'src/a.test.ts': '' });
+  assert.equal((await gate(both, 'src/a.test.ts'))[0].id, '.-node-tests');
+});
+
+test('RSpec, minitest, Bazel, cargo and @nx/vite:test are proposals: setup shows the command and what a person must add, and nothing is guessed', async (t) => {
+  const setup = async (files) => (await inspectRepositoryTestSetup(await makeRepository(t, files))).diagnostics.find((entry) => entry.proposal);
+  const rspec = await setup({ Gemfile: "gem 'rspec-rails'\n", '.rspec': '--require spec_helper\n', 'spec/a_spec.rb': '' });
+  assert.deepEqual([rspec.code, rspec.proposal.argv.slice(0, 5), rspec.proposal.missing], ['TEST_RUNNER_PROPOSED', ['bundle', 'exec', 'rspec', '--format', 'RspecJunitFormatter'], ['the rspec_junit_formatter gem']]);
+  assert.match(rspec.message, /I found RSpec \(Gemfile\)\. SFlow reads results from JUnit reports.*Add rspec_junit_formatter.*Nothing was run\./u);
+  const minitest = await setup({ Gemfile: "gem 'minitest'\n", 'test/a_test.rb': '' });
+  assert.deepEqual([minitest.proposal.argv, minitest.proposal.missing], [['bundle', 'exec', 'rake', 'test'], ['the minitest-reporters gem with its JUnitReporter']]);
+  const bazel = await setup({ 'MODULE.bazel': 'module(name = "x")\n' });
+  assert.deepEqual([bazel.proposal.argv, bazel.proposal.result.path], [['bazel', 'test', '//...', '--test_output=errors'], 'bazel-testlogs']);
+  const cargo = await setup({ 'Cargo.toml': '[package]\nname = "x"\n' });
+  assert.equal(cargo.code, 'RUST_TEST_ADAPTER_REQUIRED');
+  assert.deepEqual([cargo.proposal.env, cargo.proposal.choices.length], [{ RUSTC_BOOTSTRAP: '1' }, 2], 'a person\'s choice between the two');
+  // At a gate a Gemfile was already refused: the same refusal now says what it found and offers the command.
+  const ruby = await makeRepository(t, { Gemfile: "gem 'rspec'\n", 'lib/a.rb': '' });
+  await assert.rejects(gate(ruby, 'lib/a.rb'), (error) => error.code === 'TEST_MODULE_UNCOVERED' && /I found RSpec there/u.test(error.message) && error.details.proposal.argv[2] === 'rspec');
+  const vite = await makeRepository(t, { 'nx.json': '{}', 'package.json': '{}', 'apps/web/project.json': JSON.stringify({ name: 'web', targets: { test: { executor: '@nx/vite:test' } } }) });
+  const { diagnostics } = await inspectRepositoryTestSetup(vite, { sourceRoots: ['apps/web'] });
+  const proposed = diagnostics.find((entry) => entry.proposal);
+  assert.deepEqual(proposed?.proposal.argv.slice(0, 5), ['npx', '--no-install', 'nx', 'run', 'web:test'], JSON.stringify(diagnostics));
+});
+
+test('a written command: phpunit and deno test complete from their rows; bundle exec rspec says what it needs, not that bundle is no runner', async (t) => {
+  const php = await makeRepository(t, { 'composer.json': JSON.stringify({ 'require-dev': { 'phpunit/phpunit': '^11' } }) });
+  const written = await completeWrittenTestCommand(php, { text: 'vendor/bin/phpunit' });
+  assert.deepEqual([written.command?.argv, written.command?.result.path, written.command?.affectedRoots], [['vendor/bin/phpunit', '--log-junit', '.sflow/results/phpunit-tests.xml'], '.sflow/results/phpunit-tests.xml', ['.']], JSON.stringify(written));
+  const deno = await makeRepository(t, { 'deno.json': '{}' });
+  assert.deepEqual((await completeWrittenTestCommand(deno, { text: 'deno test --allow-read' })).command.argv, ['deno', 'test', '--allow-read', '--junit-path=.sflow/results/deno-tests.xml']);
+  assert.match((await completeWrittenTestCommand(php, { text: 'bundle exec rspec' })).reason, /rspec_junit_formatter/u);
+  assert.match((await completeWrittenTestCommand(php, { text: 'bazel test //...' })).reason, /bazel-testlogs/u);
+});
+
+test('the JUnit a runner with no installed tool writes, as its documentation shows it, reads per file: nested suites, no root count', async (t) => {
+  // Hand-written from each tool's documentation, so a shape change there would not be seen here; test/real-test-tools.test.mjs runs the tools where installed.
+  const reports = {
+    phpunit: '<?xml version="1.0"?><testsuites><testsuite name="" tests="2" assertions="2" errors="0" failures="1" skipped="0" time="0.1"><testsuite name="AppTest" file="tests/AppTest.php" tests="2" assertions="2" errors="0" failures="1" skipped="0" time="0.1"><testcase name="testA" file="tests/AppTest.php" line="5" class="AppTest" classname="AppTest" assertions="1" time="0.01"/><testcase name="testB" file="tests/AppTest.php" line="9" class="AppTest" classname="AppTest" assertions="1" time="0.01"><failure type="x">boom</failure></testcase></testsuite></testsuite></testsuites>',
+    bun: '<?xml version="1.0" encoding="UTF-8"?><testsuites name="bun test" tests="2" assertions="2" failures="1" skipped="0" time="0.1"><testsuite name="a.test.ts" file="a.test.ts" tests="2" assertions="2" failures="1" skipped="0" time="0.1" hostname="h"><testcase name="one" classname="" time="0.01" file="a.test.ts" assertions="1"/><testcase name="two" classname="" time="0.01" file="a.test.ts" assertions="1"><failure type="AssertionError"/></testcase></testsuite></testsuites>',
+    deno: '<?xml version="1.0" encoding="UTF-8"?><testsuites name="deno test" tests="2" failures="1" errors="0" time="0.1"><testsuite name="./a_test.ts" tests="2" disabled="0" errors="0" failures="1"><testcase name="one" classname="./a_test.ts" time="0.01" line="1" col="1"/><testcase name="two" classname="./a_test.ts" time="0.01" line="2" col="1"><failure message="boom">boom</failure></testcase></testsuite></testsuites>'
+  };
+  for (const [runner, xml] of Object.entries(reports)) {
+    const root = await makeRepository(t, { 'r.xml': xml });
+    const parsed = await parseTestResult(root, { id: runner, kind: 'test', argv: [runner], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'junit-xml', path: 'r.xml', minimumDiscovered: 1 } }, { startedAt: '2000-01-01T00:00:00.000Z' });
+    assert.deepEqual([parsed.tests.discovered, parsed.tests.passed, parsed.tests.failed], [2, 1, 1], runner);
+  }
 });

@@ -24,7 +24,7 @@ const SUPPORTING_BASENAMES = /^(?:readme(?:\.[^.]+)?|(?:playwright|cypress|jest|
 const SUPPORTING_EXTENSIONS = /\.(?:snap|snapshot|golden|md|mdx|txt|csv|tsv|json|ya?ml|xml|toml|properties)$/i;
 const TEST_SOURCE_NAMES = [
   /(?:^|[._-])(?:test|tests|spec|e2e)(?:[._-]|$)/i,
-  /(?:Test|Tests|Spec)\.(?:java|kt|kts|scala|cs|fs|vb|swift)$/,
+  /(?:Test|Tests|Spec)\.(?:java|kt|kts|scala|cs|fs|vb|swift|php)$/,
   /[a-z\d]IT(?:Case)?\.(?:java|kt|groovy|scala)$/,
   /^(?:test_.+|.+_test)\.py$/i,
   /_test\.go$/i,
@@ -32,7 +32,7 @@ const TEST_SOURCE_NAMES = [
 ];
 const TEST_SOURCE_EXTENSIONS = new Set([
   '.c', '.cc', '.cjs', '.cpp', '.cs', '.cts', '.cxx', '.fs', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
-  '.mjs', '.mts', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx', '.vb'
+  '.mjs', '.mts', '.php', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx', '.vb'
 ]);
 // Jest's default testMatch runs every script below a `__tests__` folder, whatever it is called
 // (`__tests__/value.js`); its fixtures, mocks and snapshots are support, and a declaration file is not a test.
@@ -478,10 +478,14 @@ export async function inferModuleTestCommand(root, module, {
       affectedRoots: [module.root], modelPolicy: 'never',
       result: { adapter: 'go-test-json', path: resultBase + '.jsonl', minimumDiscovered: 1 }
     };
-    case 'rust': throw new SingularityFlowError(
-      `Rust module '${module.root}' requires an explicit argv-form test command with a structured result adapter; stable cargo test output does not provide testcase counts.`,
-      { code: 'RUST_TEST_ADAPTER_REQUIRED' }
-    );
+    case 'rust': {
+      const { proposedRunner } = await import('./test-module-markers.mjs');
+      const offered = await proposedRunner(root, module.root);
+      throw new SingularityFlowError(
+        `Rust module '${module.root}' requires an explicit argv-form test command with a structured result adapter; stable cargo test output does not provide testcase counts.${offered ? ` ${offered.words}` : ''}`,
+        { code: 'RUST_TEST_ADAPTER_REQUIRED', ...(offered ? { details: { proposal: offered.proposal } } : {}) }
+      );
+    }
     case 'dotnet': {
       if (module.manifest && !await at(module.manifest)) throw new SingularityFlowError(
         `The selected .NET build manifest is missing: ${module.manifest}.`, { code: 'TEST_MODULE_UNCOVERED' }

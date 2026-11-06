@@ -30,7 +30,7 @@ const COMMAND_FIRST = new RegExp([
   String.raw`^(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run\s`, String.raw`^nx\s+[a-z][\w:@/.-]*`,
   String.raw`^node\s+[\w./-]+\.(?:js|mjs|cjs|ts)\b`, String.raw`^node(?:\s+--?[\w-]+(?:=\S+)?)*\s+--test(?=[\s=]|$)`,
   String.raw`^(?:tox|nox|jest|vitest|mocha|cypress|playwright|phpunit|rspec|rake|ruff|eslint|tsc|mypy|flake8|pylint|black|prettier|gofmt|swiftlint|ktlint|detekt)\b`,
-  String.raw`^make(?:\s|$)`, String.raw`^go\s+(?:test|build|vet|run|fmt)\b`, String.raw`^dotnet\s+(?:test|build|run|format|publish)\b`,
+  String.raw`^make(?:\s|$)`, String.raw`^(?:bazel|deno)\s+test\b`, String.raw`^go\s+(?:test|build|vet|run|fmt)\b`, String.raw`^dotnet\s+(?:test|build|run|format|publish)\b`,
   String.raw`^cargo\s+(?:test|build|clippy|fmt|run)\b`, String.raw`^bundle\s+exec\b`, String.raw`^composer\s+(?:test|run|install)\b`,
   String.raw`^(?:swift\s+(?:test|build)|xcodebuild\b|flutter\s+(?:test|build|analyze)|dart\s+(?:test|analyze))`,
   String.raw`^(?:docker(?:-compose)?|kubectl|helm|terraform|ansible-playbook|fastlane|firebase|az|aws|gcloud)\s`,

@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveAffectedModule, testReceiptPassing } from '../src/code-delivery-tests.mjs';
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { inspectRepositoryTestSetup } from '../src/repository-test-setup.mjs';
-import { moduleTestCommands } from '../src/test-module-markers.mjs';
+import { moduleTestCommands, proposedRunner } from '../src/test-module-markers.mjs';
 import { addedPathNarrowing } from '../src/test-narrowing.mjs';
 import { earlyTestChecks } from '../src/test-plan.mjs';
 import { gateTestEnvironment } from '../src/test-run-environment.mjs';
@@ -173,6 +173,86 @@ test('real gradle: at a multi-project root each project\'s own report is read, a
   assert.equal(whole.status, 0, whole.stderr);
   assert.equal(existsSync(path.join(root, 'build/test-results/test')), false);
   assert.equal(existsSync(path.join(root, 'lib/build/test-results/test/TEST-LibTest.xml')), true);
+});
+
+// A tool under a moved HOME still needs the developer's own home for its toolchain and caches.
+const homeOf = (...names) => Object.fromEntries(names.map(([variable, folder]) => [variable, path.join(os.userInfo().homedir, folder)]));
+const installed = (tool, args = ['--version'], env = {}) => {
+  const result = spawnSync(tool, args, { encoding: 'utf8', timeout: childTimeout(30_000), env: { ...process.env, NODE_TEST_CONTEXT: undefined, ...env } });
+  return !result.error && result.status === 0;
+};
+
+test('real cargo: the proposal a person can choose runs on a stable compiler, and its report reads each test', LANE, async (t) => {
+  const env = homeOf(['RUSTUP_HOME', '.rustup'], ['CARGO_HOME', '.cargo']);
+  if (!installed('cargo', ['--version'], env)) return absent(t, 'cargo is not installed');
+  const root = await repository(t, { 'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n',
+    'lib.rs': '#[cfg(test)]\nmod tests {\n  #[test]\n  fn adds() { assert_eq!(1 + 1, 2); }\n}\n' });
+  const { proposal } = await proposedRunner(root, '.');
+  const command = { id: 'rust', ...proposal, modelPolicy: 'never', result: { ...proposal.result, minimumDiscovered: 1 } };
+  const ran = await gateRun(root, command, { env });
+  if (ran.attempt.exitCode !== 0 && /could not find|no such command|error: toolchain/iu.test(ran.output)) return absent(t, `cargo cannot run here: ${ran.output.slice(0, 200)}`);
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  assert.equal(ran.attempt.tests.passed, 1);
+});
+
+test('real phpunit: the command a Composer project with PHPUnit gets, its report read', LANE, async (t) => {
+  if (!installed('php') || !installed('phpunit')) return absent(t, 'php or phpunit is not installed');
+  const root = await repository(t, { 'composer.json': JSON.stringify({ 'require-dev': { 'phpunit/phpunit': '*' } }),
+    'tests/AppTest.php': '<?php\nuse PHPUnit\\Framework\\TestCase;\nfinal class AppTest extends TestCase { public function testAdds(): void { $this->assertSame(2, 1 + 1); } }\n' });
+  await mkdir(path.join(root, 'vendor/bin'), { recursive: true });
+  await symlink(spawnSync('which', ['phpunit'], { encoding: 'utf8' }).stdout.trim(), path.join(root, 'vendor/bin/phpunit'));
+  const [command] = await commandFor(root, 'tests/AppTest.php');
+  const ran = await gateRun(root, { ...command, argv: [...command.argv, 'tests'] });
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  assert.equal(ran.attempt.tests.passed, 1);
+});
+
+test('real bun: `bun test` in a script writes the JUnit report SFlow asks for, and it is read', LANE, async (t) => {
+  if (!installed('bun')) return absent(t, 'bun is not installed');
+  const root = await repository(t, { 'package.json': JSON.stringify({ private: true, scripts: { test: 'bun test' } }), 'bun.lock': '',
+    'a.test.ts': "import { test, expect } from 'bun:test';\ntest('adds', () => expect(1 + 1).toBe(2));\n" });
+  const [command] = await commandFor(root, 'a.test.ts');
+  const ran = await gateRun(root, command);
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  assert.equal(ran.attempt.tests.passed, 1);
+});
+
+test('real deno: `deno test` writes the JUnit report SFlow asks for, and it is read', LANE, async (t) => {
+  if (!installed('deno')) return absent(t, 'deno is not installed');
+  const root = await repository(t, { 'deno.json': '{}', 'a_test.ts': "Deno.test('adds', () => { if (1 + 1 !== 2) throw new Error('no'); });\n" });
+  const [command] = await commandFor(root, 'a_test.ts');
+  const ran = await gateRun(root, command);
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  assert.equal(ran.attempt.tests.passed, 1);
+});
+
+test('real rspec: the proposal runs once rspec_junit_formatter is there', LANE, async (t) => {
+  if (!installed('bundle', ['exec', 'rspec', '--version'])) return absent(t, 'rspec is not installed through bundler');
+  const root = await repository(t, { Gemfile: "gem 'rspec'\ngem 'rspec_junit_formatter'\n", 'spec/a_spec.rb': "RSpec.describe('x') { it('adds') { expect(1 + 1).to eq(2) } }\n" });
+  const { proposal } = await proposedRunner(root, '.');
+  const ran = await gateRun(root, { id: 'ruby', ...proposal, modelPolicy: 'never', result: { ...proposal.result, minimumDiscovered: 1 } });
+  if (ran.attempt.exitCode !== 0 && /Could not find|cannot load such file/iu.test(ran.output)) return absent(t, 'rspec_junit_formatter is not installed');
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+});
+
+test('real bazel: what the proposal names writes a JUnit report under bazel-testlogs', LANE, async (t) => {
+  if (!installed('bazel')) return absent(t, 'bazel is not installed');
+  const root = await repository(t, { 'MODULE.bazel': 'module(name = "x")\nbazel_dep(name = "rules_shell", version = "0.3.0")\n',
+    'BUILD.bazel': 'load("@rules_shell//shell:sh_test.bzl", "sh_test")\nsh_test(name = "adds", srcs = ["adds.sh"])\n', 'adds.sh': '#!/bin/sh\nexit 0\n' });
+  const { proposal } = await proposedRunner(root, '.');
+  const run = await runQualityCommand(proposal.argv[0], proposal.argv.slice(1), { cwd: root, env: process.env, timeoutMs: childTimeout(150_000) });
+  if (run.status !== 0) return absent(t, `the Bazel fixture could not run here: ${String(run.stderr).slice(0, 200)}`);
+  assert.equal(existsSync(path.join(root, 'bazel-testlogs/adds/test.xml')), true);
+});
+
+test('real nx: whether @nx/vite:test hands its report options to Vitest, which is why it is only a proposal', LANE, async (t) => {
+  const modules = installedModules('nx', 'vitest');
+  if (!modules || !existsSync(path.join(modules, '@nx/vite'))) return absent(t, 'nx with @nx/vite is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder that has them');
+  const root = await repository(t, { 'nx.json': '{}', 'package.json': JSON.stringify({ private: true, name: 'w' }),
+    'project.json': JSON.stringify({ name: 'web', root: '.', targets: { test: { executor: '@nx/vite:test' } } }), 'a.test.js': "import { test } from 'vitest'\ntest('adds', () => {})\n" }, { modules });
+  const { proposal } = await proposedRunner(root, '.');
+  const ran = await gateRun(root, { id: 'web', ...proposal, modelPolicy: 'never', result: { ...proposal.result, minimumDiscovered: 1 } });
+  assert.equal(testReceiptPassing(ran.attempt), true, `the proposal does not work with this Nx: ${ran.output}`);
 });
 
 test('real mvn: at a reactor root the gate\'s own command runs each module, and its report is read', LANE, async (t) => {

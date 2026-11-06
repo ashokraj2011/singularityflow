@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { inferModuleTestCommand, resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
-import { moduleTestCommands, unreadRunnerOfPackage } from './test-module-markers.mjs';
+import { moduleTestCommands, proposedRunner, unreadRunnerOfPackage } from './test-module-markers.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'vendor', 'target', 'build', 'dist', 'out', 'coverage', 'venv', '__pycache__', 'bin', 'obj']);
@@ -69,6 +69,9 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
             && entry.workingDirectory === command.workingDirectory)) suggestions.push(command);
       }
       if (!commands.length) {
+        // A runner SFlow can name and cannot complete alone: the command, and what a person must add or choose.
+        const offered = await proposedRunner(root, directory);
+        if (offered) { diagnostics.push({ path: directory, code: 'TEST_RUNNER_PROPOSED', message: `I found ${offered.runner} (${offered.file}). ${offered.words} Nothing was run. The command to complete: ${offered.proposal.argv.join(' ')}.`, proposal: offered.proposal }); continue; }
         const named = await unreadRunnerOfPackage(root, directory);
         diagnostics.push({ path: directory, code: 'TEST_CONFIGURATION_PENDING', message: named
           ? `${named.words}, whose results SFlow cannot read yet. Provide the command and a reporter SFlow reads, or select the exact nested application directory.`

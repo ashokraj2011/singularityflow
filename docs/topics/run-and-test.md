@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 10
+version: 11
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -110,6 +110,8 @@ The early checks start no test and download nothing. `dependencies-not-installed
 A pin binds what can select its command's tests: its script chain and the configuration of the runners it reaches, so changing `playwright.config.js` no longer refuses a Vitest command. A script SFlow cannot follow keeps every configuration pinned, and a pin recorded under earlier rules keeps them until a person's re-pin. A changed file no plan names stays out of the run, so its pin reads the file as the run sees it, at the last commit.
 
 Files that changed together for how tests run (a runner's configuration or setup file, with the manifest and lockfile beside it) are one decision on the decision list and in the convergence table: one row, one reason, and each file is still recorded by name. A manifest and lockfile alone are not grouped, and a test or application source never is.
+
+Beside the runners above: PHPUnit runs when `phpunit.xml` or a Composer dependency names it, with `--log-junit`. `bun test` in a package script gets `--reporter=junit`. A `deno.json` runs `deno test`, or its own `test` task, with `--junit-path`. Each reports counts, so a criterion rests on the whole suite. RSpec, minitest, Bazel, cargo and Nx's `@nx/vite:test` are proposals: setup and the refusal show the command and what a person must add or choose (a formatter gem, the targets, stable cargo's flag or nextest), and nothing runs until a person approves it. `@nx/vite:test` stays a proposal until a real Nx proves it hands Vitest its report options.
 
 A failed run may not be the Story's: `singularity-flow tests base --work-id ID` compares it with the Story's base commit (see test-recovery). A gate never starts it. A refused publication names it, and VS Code's Test summary page offers it as a button on a failed run.
 

@@ -80,6 +80,19 @@ async function inferOtherRepositoryTestCommands(root, { unitOnly, platform, diag
       });
     }]
   ];
+  // A runner a root build file implies, by its row: it stands as any other system here, and beside another reads as one.
+  const { MODULE_RUNNERS } = await import('./test-runners.mjs');
+  for (const row of MODULE_RUNNERS) {
+    systems.push([row.module.system, async () => {
+      const names = (await readdir(root).catch(() => [])).filter((name) => row.module.files.some((pattern) => pattern.test(name)));
+      const { readRepositoryManifest } = await import('./repository-manifest.mjs');
+      for (const name of names) {
+        if (!row.module.holds(name, (await readRepositoryManifest(root, name)).bytes.toString('utf8'))) continue;
+        return async () => (await import('./test-module-markers.mjs')).moduleTestCommands(root, { root: '.', system: row.module.system, manifest: name }, { platform });
+      }
+      return false;
+    }]);
+  }
   const found = [];
   // The systems with tests to run: a command, or a refusal to say why there is none (a tooling package.json is neither).
   const suites = [];

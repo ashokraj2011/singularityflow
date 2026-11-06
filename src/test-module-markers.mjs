@@ -14,6 +14,7 @@ import { declaredMavenModules, inferModuleTestCommand, nearestWrapper, nodePacka
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { exists, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { androidTestVariant, gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
+import { MODULE_RUNNERS, moduleRunnerOfSystem, PROPOSED_RUNNERS, SCRIPT_RUNNER_REFUSALS, scriptRunnerOf, TEST_RUNNERS } from './test-runners.mjs';
 import { acceptanceTagsAboveLine, acceptanceTagsInComment } from './verification/tags.mjs';
 
 // [name, the ecosystem it builds, what it is]. Alone in a directory one owns everything below it; beside
@@ -48,6 +49,14 @@ async function markerHolds(root, directory, name) {
  */
 export async function foreignBuildModule(root, directory, relative, names, manifests) {
   const where = directory || '.';
+  const text = (name) => packageText(root, directory ? `${directory}/${name}` : name);
+  // A runner a build file plainly implies, with a report SFlow reads and nothing to add to the repository.
+  for (const row of MODULE_RUNNERS) {
+    if ((manifests.length && sourceEcosystem(relative) !== row.ecosystem) || manifests.some((entry) => entry.system === row.ecosystem)) continue;
+    for (const name of names.filter((entry) => row.module.files.some((pattern) => pattern.test(entry)))) {
+      if (row.module.holds(name, await text(name))) return { root: where, system: row.module.system, manifest: name, configured: false };
+    }
+  }
   for (const [pattern, ecosystem, label] of FOREIGN_MARKERS) {
     if ((manifests.length && sourceEcosystem(relative) !== ecosystem) || manifests.some((entry) => entry.system === ecosystem)) continue;
     const name = names.find((entry) => pattern.test(entry));
@@ -62,12 +71,34 @@ export async function foreignBuildModule(root, directory, relative, names, manif
         missing: ['scheme', 'destination', 'result.path']
       });
     }
+    // A runner it names that needs something only a person can add: the refusal offers the command.
+    const offered = await proposedRunner(root, where);
+    if (offered) {
+      throw new SingularityFlowError(`Changed path '${relative}' belongs to ${manifest}. I found ${offered.runner} there. ${offered.words} Nothing was run, and an unrelated manifest's tests never count as its coverage.`,
+        { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: name, system: ecosystem, proposal: offered.proposal }) });
+    }
     throw new SingularityFlowError(
       `Changed path '${relative}' belongs to ${manifest}, ${label} build with no supported structured test runner, `
       + 'so no inferred test command covers it; an unrelated manifest\'s tests never count as its coverage. '
       + 'Configure an approved test command for it (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
       { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: name, system: ecosystem }) }
     );
+  }
+  return null;
+}
+
+/** The first runner a folder's build files name that SFlow can only propose, with the command a person would approve; null when none. */
+export async function proposedRunner(root, directory = '.') {
+  let names = [];
+  try { names = await readdir(path.join(root, directory)); } catch { return null; }
+  for (const row of PROPOSED_RUNNERS) {
+    for (const name of names.filter((entry) => row.proposal.files.some((pattern) => pattern.test(entry)))) {
+      const text = await packageText(root, path.posix.join(directory === '.' ? '' : directory, name));
+      if (!row.proposal.holds(text)) continue;
+      const { argv, result, env } = row.proposal.command(text);
+      return { key: row.key, runner: row.proposal.runner, file: name, words: row.proposal.words, proposal: { kind: 'test', argv, ...(env ? { env } : {}), workingDirectory: directory, affectedRoots: [directory],
+        result, missing: row.proposal.missing, ...(row.proposal.choices ? { choices: row.proposal.choices } : {}) } };
+    }
   }
   return null;
 }
@@ -144,6 +175,12 @@ export async function assertNodeTestFiles(root, tests) {
 export async function moduleTestCommands(root, module, { platform = process.platform, unitOnly = false } = {}) {
   const aggregated = await aggregatedTestCommands(root, module, { platform, unitOnly });
   if (aggregated) return aggregated;
+  const implied = moduleRunnerOfSystem(module.system);
+  if (implied) {
+    const report = `.sflow/results/${module.system}-tests.${implied.module.command('', '').extension}`;
+    const { argv, adapter } = implied.module.command(report, await packageText(root, path.posix.join(module.root === '.' ? '' : module.root, module.manifest ?? '')));
+    return [{ id: `${module.root}-${module.system}-tests`, kind: 'test', argv, workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never', result: { adapter, path: report, minimumDiscovered: 1 } }];
+  }
   if (module.system === 'node') {
     const cwd = module.root === '.' ? '' : module.root;
     const manifestPath = path.posix.join(cwd, 'package.json');
@@ -188,6 +225,7 @@ const LEVELS = ['unit', 'e2e', 'component'];
 const EXEC = Object.freeze({ npm: ['npx', '--no-install'], pnpm: ['pnpm', 'exec'], yarn: ['yarn'] });
 // Interactive, watching, listing or report-redirecting runs are never a gate's command.
 const NOT_A_GATE = Object.freeze({
+  ...SCRIPT_RUNNER_REFUSALS,
   jest: /^--(?:watch|watchAll|json|outputFile|listTests|showConfig)(?:=true)?$/u,
   vitest: /^(?:-w|--(?:watch|ui|reporter|outputFile)(?:[.=].*)?|watch|dev|bench|init|list|related)$/u,
   mocha: /^(?:-w|--watch)$/u, ng: /^--watch(?:=true)?$/u, playwright: /^--(?:ui|debug|list)$/u, cypress: /^$/u
@@ -262,7 +300,7 @@ function stepRunner(words) {
     const runner = name === 'node' && words.slice(index + 1).some((word) => /^--test(?:=|$)/u.test(word)) ? 'node-test'
       : ['jest', 'vitest', 'mocha'].includes(name) || name === '_mocha' ? name.replace('_', '')
         : ['react-scripts', 'craco', 'react-app-rewired'].includes(name) && next === 'test' ? 'react-scripts'
-          : (name === 'ng' || name === 'playwright') && next === 'test' ? name : name === 'cypress' && next === 'run' ? 'cypress' : null;
+          : (name === 'ng' || name === 'playwright') && next === 'test' ? name : name === 'cypress' && next === 'run' ? 'cypress' : scriptRunnerOf(name, next);
     if (runner) {
       const launchers = words.slice(start, index);
       // `npx x` without --no-install downloads a runner the package does not install.
@@ -410,6 +448,7 @@ async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
   if (['playwright', 'cypress'].includes(runner) && (step.bareNpx || !Object.keys(dependencies).some((name) => name === runner
     || (runner === 'playwright' && (name === '@playwright/test' || name.startsWith('@playwright/experimental-ct-')))))) return null;
   const { config, selection } = runnerArguments(words, from);
+  const scripted = TEST_RUNNERS[runner]?.script ?? null;
   let level = runner === 'cypress' && words.includes('--component') ? 'component' : ['playwright', 'cypress'].includes(runner) ? 'e2e' : 'unit';
   if (runner === 'playwright') {
     const configs = config ? [config] : ['ts', 'js', 'mts', 'mjs', 'cts', 'cjs'].map((extension) => `playwright.config.${extension}`);
@@ -424,10 +463,10 @@ async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
   const invokes = runner === 'node-test' ? (step.entries.has('test') ? 'test' : step.script) : step.last && !ownReporter ? step.script : null;
   return {
     level, runner: builder === 'jest' ? 'ng-jest' : runner, script: step.script, config, selection, step, invokes,
-    adapter: runner === 'node-test' ? 'node-tap' : runner === 'playwright' ? 'playwright-json' : runner === 'cypress' || (runner === 'mocha' && junitMocha) ? 'junit-xml'
+    adapter: scripted ? scripted.adapter : runner === 'node-test' ? 'node-tap' : runner === 'playwright' ? 'playwright-json' : runner === 'cypress' || (runner === 'mocha' && junitMocha) ? 'junit-xml'
       : runner === 'mocha' ? 'mocha-json' : runner === 'vitest' ? 'vitest-json' : builder === 'karma' ? 'karma-text' : 'jest-json',
     build(report) {
-      const args = runner === 'jest' || runner === 'react-scripts' ? [
+      const args = scripted ? scripted.arguments(report) : runner === 'jest' || runner === 'react-scripts' ? [
         ...(runner === 'react-scripts' && !words.includes('--watchAll=false') ? ['--watchAll=false'] : []), '--json', '--outputFile', report]
         : runner === 'vitest' ? ['--reporter=json', `--outputFile=${report}`]
           : runner === 'mocha' ? (junitMocha ? ['--reporter', 'mocha-junit-reporter', '--reporter-options', `mochaFile=${report}`]

@@ -270,7 +270,7 @@ export async function commandDefinition(root, command, {
     for (const run of resolved.runs) if (!nodeTestRun(run.tokens) && NODE_RUNNERS.has(launcherName(run.tokens[0]))) contexts.add(run.directory);
     const reaches = version > RESOLVED_VERSION ? runnersReached(resolved.runs) : null;
     const keys = reaches ? PACKAGE_RUNNER_KEYS.filter((key) => reaches.keys.has(key)) : PACKAGE_RUNNER_KEYS;
-    const pinsConfig = (name) => NODE_RUNNER_CONFIG.test(name) && (!reaches || reaches.config.some((pattern) => pattern.test(name)));
+    const pinsConfig = (name) => (reaches ? reaches.config.some((pattern) => pattern.test(name)) : NODE_RUNNER_CONFIG.test(name));
     for (const context of [...contexts].sort()) {
       const manifestPath = join(context, 'package.json');
       const manifestText = await read(manifestPath);
@@ -311,11 +311,16 @@ export async function commandDefinition(root, command, {
     const config = argvFlag(argv, ['-c', '--config-file']);
     const relative = config ? repositoryRelative(directory, config) : null;
     if (relative) await named(relative);
+  } else if (version > RESOLVED_VERSION && runnerOfLauncher(launcher)?.pins) {
+    // A runner only its row knows: the configuration its row names, beside the command.
+    const { config } = runnerOfLauncher(launcher).pins;
+    for (const entry of await list(directory)) if (!entry.directory && config.some((pattern) => pattern.test(entry.name))) await whole(join(directory, entry.name));
   }
   if (!nodeLauncher) {
     // A repository script the command runs (`./scripts/test.sh`, `bash scripts/test.sh`).
     const scriptFile = ['bash', 'sh', 'zsh'].includes(launcher) ? argv.slice(1).find((value) => !value.startsWith('-')) : argv[0];
-    const relative = scriptFile && /[/\\]|\.(?:sh|mjs|cjs|js|py|ps1)$/u.test(scriptFile) && !['mvnw', 'gradlew'].includes(launcher)
+    // A runner installed below the repository (vendor/bin/phpunit) is a dependency, not a script the repository wrote.
+    const relative = scriptFile && /[/\\]|\.(?:sh|mjs|cjs|js|py|ps1)$/u.test(scriptFile) && !runnerOfLauncher(launcher)
       ? repositoryRelative(directory, scriptFile) : null;
     if (relative) await named(relative);
   }

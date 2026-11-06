@@ -23,6 +23,7 @@ import { resolveAffectedModule, testReceiptPassing } from '../src/code-delivery-
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { inspectRepositoryTestSetup } from '../src/repository-test-setup.mjs';
 import { moduleTestCommands } from '../src/test-module-markers.mjs';
+import { addedPathNarrowing } from '../src/test-narrowing.mjs';
 import { earlyTestChecks } from '../src/test-plan.mjs';
 import { gateTestEnvironment } from '../src/test-run-environment.mjs';
 import { recordTestAttempt } from '../src/verification/attempts.mjs';
@@ -191,6 +192,24 @@ test('real vitest: its own reporter beside SFlow\'s, a run with no test files, a
   assert.deepEqual(await earlyTestChecks(collide, [unit], { environment: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: modules } }), []);
   const apart = await gateRun(collide, unit, { changedPaths: ['e2e/a.spec.js'] });
   assert.equal(testReceiptPassing(apart.attempt), true, apart.output);
+});
+
+test('real vitest: the test files SFlow says a path leaves out are the ones it really does not run', LANE, async (t) => {
+  const modules = installedModules('vitest');
+  if (!modules) return absent(t, 'vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
+  const passing = (name) => `import { test } from 'vitest'\ntest('${name}', () => {})\n`;
+  const manifest = (script) => JSON.stringify({ private: true, type: 'module', scripts: { test: script }, devDependencies: { vitest: '4' } });
+  const root = await repository(t, { 'package.json': manifest('vitest run'), 'src/one/a.test.js': passing('kept'), 'src/two/b.test.js': passing('left out') }, { modules });
+  const git = (...args) => spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', ...args], { cwd: root, encoding: 'utf8' });
+  await writeFile(path.join(root, '.gitignore'), 'node_modules\n');
+  git('add', '.'); git('commit', '-qm', 'base');
+  const baseCommit = git('rev-parse', 'HEAD').stdout.trim();
+  await writeFile(path.join(root, 'package.json'), manifest('vitest run src/one'));
+  const [command] = await commandFor(root, 'src/one/a.test.js');
+  const [entry] = addedPathNarrowing(root, command, { scripts: [{ source: 'package.json#scripts.test', text: 'vitest run src/one' }], baseCommit, inferred: true });
+  assert.deepEqual(entry.dropped, ['src/two/b.test.js']);
+  const ran = await gateRun(root, command);
+  assert.deepEqual(names(ran), [['kept', 'passed']], ran.output);
 });
 
 test('real vitest with jsdom: the early check about Node\'s own localStorage says what this Node really does', LANE, async (t) => {

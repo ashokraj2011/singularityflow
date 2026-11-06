@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 34
+version: 35
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -289,6 +289,8 @@ singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a pers
 The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused).
 
 The refusal and the request show each change before and after, in `testCommandPin.diff` and on the decision list: a script's whole text (before `vitest run`, after `vitest run src`), or a configuration file's changed lines, bounded and redacted. Earlier text is shown only when its digest is the pin's; `known: false` says the Story's history no longer holds it. They also say whether tests were dropped: a path the script now names is compared with the test files of that folder on the base commit, and `dropped` names what falls outside it. SFlow cannot tell from a configuration file, and says so; the pin's first passing count still refuses a later run with fewer tests.
+
+The same comparison runs at every gate, also before a first pin. A path a script now names that drops nothing (`vitest run src` with every test under `src`) is recorded on the attempt as `narrowing.paths`, shown by `tests summary`, and refuses nothing. One that drops test files the base commit has (`jest src/one`) is `CODE_TEST_NARROWED`, naming them, and a person who approves the step decides with `decision test-narrowing` as for any filter. A re-pin a person accepted showed them the same paths, so it is not asked again. A test file the Story removed, a suite the Story added, and another runner's spec are not dropped tests.
 
 A suite the Story pinned that its module no longer declares is refused the same way, as `removed`: deleting `test:node` from a package that also runs Jest would otherwise leave Jest's pin unchanged and drop the node:test suite unseen, since each command's own counts cannot show a missing command. The same `--repin <COMMAND-ID>` then asks that the suite no longer run, naming its pin by digest; once a person who approves the step accepts it, the step publishes with the suites that remain. A module the change does not touch is not a removal (its suites are simply not selected), nor is a suite the module still declares that the gate chose not to run, a module an approved configured command owns, or a suite the base commit never had. Configured and Story-only commands leave a gate only through the configuration or a person's decision, so their absence is never read as a removal. Pins from before these rules are not checked for removal. The next gate run records it as the command's pin, naming the pin it replaces and the request. Each test attempt carries the pin it ran under, and the receipt replays only against a pin recorded on the Story. Line endings and the per-platform wrapper spelling (`./mvnw` or `.\mvnw.cmd`, `python3` or `py -3`) are not changes.
 

@@ -3,14 +3,14 @@
  * and how it replays. The whole-Story walks are test/test-narrowing-flow.
  */
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
-  commandFilters, focusedDeclarations, gateNarrowing, narrowingCovers, narrowingFacts, observedNarrowing, recordTestNarrowing,
+  addedPathNarrowing, commandFilters, focusedDeclarations, gateNarrowing, narrowingCovers, narrowingFacts, narrowingWords, observedNarrowing, pathNarrowingWords, pathOperands, recordTestNarrowing,
   recordTestNarrowingRevocation, testNarrowingBinding, testNarrowingReplayProblem
 } from '../src/test-narrowing.mjs';
 import { run } from '../src/util.mjs';
@@ -135,4 +135,103 @@ test('a narrowed run replays only with the acceptance it was let through by, whi
   const none = attempt(observedNarrowing(facts(), { discovered: 3, skipped: 3 }), { status: 'failed' });
   assert.equal(testNarrowingReplayProblem(workflow, { testRunRisk: { id: 'TRR-001' } }, none, options), null);
   assert.equal(gateNarrowing({ testNarrowings: [] }, { id: 'implement' }, none, { at }), null);
+});
+
+test('the paths a command names are read per runner, and an option\'s value is not one', () => {
+  const read = (...tokens) => { const { runner, operands, unsure } = pathOperands(tokens); return [runner, operands, unsure]; };
+  assert.deepEqual(read('vitest', 'run', 'src'), ['vitest', ['src'], []]);
+  assert.deepEqual(read('vitest', 'run', '--reporter', 'verbose', '--config=x.js'), ['vitest', [], []]);
+  assert.deepEqual(read('vitest', '--dir', 'src'), ['vitest', ['src'], []]);
+  assert.deepEqual(read('jest', 'src/one', '--json', '--outputFile', 'r.json'), ['jest', ['src/one'], []]);
+  assert.deepEqual(read('jest', '--bail', '1'), ['jest', [], ['1']], 'an option this cannot read may be taking the word');
+  assert.deepEqual(read('npx', '--no-install', 'playwright', 'test', 'e2e/login'), ['playwright', ['e2e/login'], []]);
+  assert.deepEqual(read('python3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider', 'tests/unit', '--junitxml=r.xml'), ['pytest', ['tests/unit'], []]);
+  assert.deepEqual(read('go', 'test', '-json', './...'), ['go', [], []], './... is every package');
+  assert.deepEqual(read('go', 'test', './pkg/...'), ['go', ['pkg/...'], []]);
+  assert.deepEqual(read('node', '--test', 'test/unit'), ['node', ['test/unit'], []]);
+  assert.equal(pathOperands(['node', 'scripts/run.js']), null);
+  assert.equal(pathOperands(['npm', 'test']), null);
+  assert.equal(pathOperands(['eslint', 'src']), null);
+});
+
+/** A repository with the base commit's scripts and tests, then the Story's script. */
+async function pathRepository(t, files, script) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-paths-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q'], { cwd: root });
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    writeFileSync(path.join(root, file), text);
+  }
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base'], { cwd: root });
+  const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const manifest = JSON.parse(files['package.json'] ?? '{}');
+  writeFileSync(path.join(root, 'package.json'), JSON.stringify({ ...manifest, scripts: { ...manifest.scripts, ...script } }));
+  const scripts = Object.entries(script).map(([name, text]) => ({ source: `package.json#scripts.${name}`, text }));
+  return { root, baseCommit, scripts };
+}
+const unitCommand = { id: 'unit', kind: 'test', argv: ['npm', 'test', '--', '--reporter=json'], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'vitest-json', path: 'r.json' } };
+
+test('a path the Story adds that drops nothing is recorded and refused by nothing; one that drops tests is a filter a person decides', async (t) => {
+  const base = { 'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }), 'src/a.test.js': '', 'src/deep/b.test.js': '' };
+  // bin-opr: every test under src. Recorded, shown, no reason to refuse.
+  const fine = await pathRepository(t, base, { test: 'vitest run src' });
+  const clean = await narrowingFacts(fine.root, unitCommand, { scripts: fine.scripts, baseCommit: fine.baseCommit, inferred: true });
+  assert.deepEqual(clean.filters, []);
+  assert.deepEqual(clean.paths.map((entry) => [entry.operands, entry.tests, entry.droppedCount]), [[['src'], 2, 0]]);
+  const recorded = observedNarrowing(clean, { discovered: 2, passed: 2, skipped: 0 });
+  assert.deepEqual(recorded.reasons, []);
+  assert.deepEqual(recorded.paths.map((entry) => entry.operands), [['src']]);
+  assert.match(pathNarrowingWords(recorded.paths[0]), /Every test file it ran at the base commit \(2\) is still selected, so none are dropped/u);
+
+  // jest src/one: one file left out, which a person decides like any filter.
+  const narrow = await pathRepository(t, { ...base, 'package.json': JSON.stringify({ scripts: { test: 'jest' } }), 'src/one/c.test.js': '' }, { test: 'jest src/one' });
+  const facts = await narrowingFacts(narrow.root, unitCommand, { scripts: narrow.scripts, baseCommit: narrow.baseCommit, inferred: true });
+  assert.deepEqual(facts.filters.map((entry) => [entry.option, entry.value, entry.source, entry.droppedCount]), [['path', 'src/one', 'package.json#scripts.test', 2]]);
+  const observed = observedNarrowing(facts, { discovered: 1, passed: 1, skipped: 0 });
+  assert.deepEqual(observed.reasons, ['filter']);
+  assert.match(narrowingWords(observed), /path src\/one \(package\.json#scripts\.test\) leaves out 2 of the 3 test files of the base commit: src\/a\.test\.js, src\/deep\/b\.test\.js/u);
+  // The same paths in a re-pin a person accepted are not asked of them again; a further one is.
+  const seen = await narrowingFacts(narrow.root, unitCommand, { scripts: narrow.scripts, baseCommit: narrow.baseCommit, inferred: true, acceptedPaths: [{ runner: 'jest', operands: ['src/one'] }] });
+  assert.deepEqual(seen.filters, []);
+  const further = await narrowingFacts(narrow.root, unitCommand, { scripts: narrow.scripts, baseCommit: narrow.baseCommit, inferred: true, acceptedPaths: [{ runner: 'jest', operands: ['src'] }] });
+  assert.equal(further.filters.length, 1);
+});
+
+test('what is not a dropped test: a path already on the base, a suite the Story added, a browser spec, a test the Story removed, an option\'s value', async (t) => {
+  const facts = async (files, script, command = unitCommand) => {
+    const { root, baseCommit, scripts } = await pathRepository(t, files, script);
+    return addedPathNarrowing(root, command, { scripts, baseCommit, inferred: true });
+  };
+  const manifest = (scripts) => JSON.stringify({ scripts });
+  assert.deepEqual(await facts({ 'package.json': manifest({ test: 'vitest run src' }), 'lib/a.test.js': '' }, { test: 'vitest run src' }), [], 'the team\'s own path');
+  assert.deepEqual(await facts({ 'package.json': manifest({ test: 'vitest run' }), 'src/a.test.js': '' }, { 'test:e2e': 'playwright test e2e' }), [], 'the Story added this suite');
+  const browser = await facts({ 'package.json': manifest({ test: 'vitest run' }), 'src/a.test.js': '', 'e2e/x.spec.js': "import { test } from '@playwright/test';\n" }, { test: 'vitest run src' });
+  assert.equal(browser[0].droppedCount, 0, 'Vitest never ran a Playwright spec, so it did not drop it');
+  const option = await facts({ 'package.json': manifest({ test: 'jest' }), 'src/a.test.js': '' }, { test: 'jest --bail 1' });
+  assert.deepEqual(option, []);
+  // Moved by the Story: the file is gone from the checkout, so the path did not leave it out.
+  const moved = await pathRepository(t, { 'package.json': manifest({ test: 'vitest run' }), 'lib/a.test.js': '', 'src/b.test.js': '' }, { test: 'vitest run src' });
+  rmSync(path.join(moved.root, 'lib/a.test.js'));
+  assert.equal(addedPathNarrowing(moved.root, unitCommand, { scripts: moved.scripts, baseCommit: moved.baseCommit, inferred: true })[0].droppedCount, 0);
+  // Mocha looks in ./test by default, so a test file elsewhere was never its to drop.
+  const mocha = await facts({ 'package.json': manifest({ test: 'mocha' }), 'test/unit/a.test.js': '', 'test/b.test.js': '', 'src/c.test.js': '' }, { test: 'mocha test/unit' });
+  assert.deepEqual(mocha[0].dropped, ['test/b.test.js']);
+  // With no base commit to read there is nothing to compare, and nothing is refused.
+  const { root, scripts } = await pathRepository(t, { 'package.json': manifest({ test: 'vitest run' }), 'src/a.test.js': '' }, { test: 'vitest run src' });
+  assert.deepEqual(addedPathNarrowing(root, unitCommand, { scripts, baseCommit: null, inferred: true }), []);
+});
+
+test('a guessed command carrying the path in its argv reads the same; SFlow\'s own node --test file list is no narrowing', async (t) => {
+  const manifest = JSON.stringify({ scripts: { test: 'vitest run' } });
+  const { root, baseCommit, scripts } = await pathRepository(t, { 'package.json': manifest, 'src/a.test.js': '', 'lib/b.test.js': '' }, { test: 'vitest run src' });
+  const carried = { ...unitCommand, argv: ['npx', '--no-install', 'vitest', 'run', 'src', '--reporter=json', '--outputFile=r.json'] };
+  const [entry] = addedPathNarrowing(root, carried, { scripts: [], baseCommit, inferred: true });
+  assert.deepEqual([entry.source, entry.operands, entry.dropped], ['argv', ['src'], ['lib/b.test.js']]);
+  assert.deepEqual(addedPathNarrowing(root, carried, { scripts: [], baseCommit, inferred: false }), [], 'a configured command is a person\'s');
+  const nodeFiles = { ...unitCommand, argv: ['node', '--test', 'src/a.test.js'] };
+  assert.deepEqual(addedPathNarrowing(root, nodeFiles, { scripts: [], baseCommit, inferred: true }), []);
+  const scoped = { ...carried, testScope: { mode: 'new-and-changed', files: ['src/a.test.js'] } };
+  assert.deepEqual(addedPathNarrowing(root, scoped, { scripts, baseCommit, inferred: true }), [], 'a person chose this Story\'s test scope');
 });

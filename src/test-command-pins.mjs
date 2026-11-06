@@ -737,7 +737,10 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
     const recorded = storyPin(workflow, candidate);
     const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
     // What narrows the run before it runs: filters, focused tests, and the pin's baseline [TCE:REQ-021].
-    const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred', baseCommit });
+    // The paths a person saw in an accepted re-pin of this pin are already their decision.
+    const repinnedBy = acceptedBy ?? (recorded?.sha256 === candidate.sha256 ? recorded.acceptedBy : null);
+    const acceptedPaths = repinnedBy ? storyTestCommandState(workflow, repinnedBy)?.request?.repin?.pathNarrowing ?? [] : [];
+    const narrowing = await narrowingFacts(root, command, { scripts, testPaths, baseline, inferred: candidate.source.kind === 'inferred', baseCommit, acceptedPaths });
     prepared.set(command.id, { candidate, reference, acceptedBy, restoredToBase, restoration, scripts, baseline, narrowing });
   }
   // A suite the Story pinned that no longer runs at all is refused too: per-command counts cannot see it [TCE:REQ-012].

@@ -428,12 +428,14 @@ function attemptGroups(attempts) {
 }
 
 /** What a reader must not take this run for: a run of this step, or the whole suite [TCE:REQ-083, REQ-094]. */
-function testRunNote(attempt, workflow, phaseId) {
+function testRunNote(attempt, workflow, phaseId, narrowed = null) {
   const source = attempt.reusedFrom ?? (attempt.phase !== phaseId ? attempt : null);
   const reused = source ? `Not run again: this is ${source.attemptId} recorded by ${source.phase}, on the same code.` : null;
   const scoped = attempt.testScope?.files ? `Only this Story's new and changed tests ran (${attempt.testScope.files.join(', ')}); its existing tests did not.`
     : attempt.testScope?.whole ? `Ran whole although the Story runs only its new and changed tests: ${attempt.testScope.whole}.` : null;
-  return [reused, scoped].filter(Boolean).join(' ') || null;
+  // A path the Story's script names is shown even when it dropped nothing and nobody was asked.
+  const paths = narrowed ? (attempt.narrowing?.paths ?? []).map(narrowed.pathNarrowingWords).join(' ') : '';
+  return [reused, scoped, paths].filter(Boolean).join(' ') || null;
 }
 
 async function storySummary(root, options, { localRunId = null } = {}) {
@@ -468,7 +470,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   }
   if (!group) return summary.buildTestSummary({ scope, run: null, entries: [], history });
   const entries = [];
-  const narrowed = group.members.some((attempt) => attempt.narrowing?.reasons?.length) ? await import('../test-narrowing.mjs') : null;
+  const narrowed = group.members.some((attempt) => attempt.narrowing?.reasons?.length || attempt.narrowing?.paths?.length) ? await import('../test-narrowing.mjs') : null;
   for (const attempt of group.members) {
     const contents = await rawReportContents(root, attempt, workflow.workItem.id);
     const locations = await rawReportLocations(attempt, contents);
@@ -477,7 +479,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
       ? narrowed.coveringTestNarrowing(workflow, { phaseId, attempt, at: new Date().toISOString() }) : null;
     entries.push({
       receipt: attempt, kind: 'test', locations, ...(messages ? { messages } : {}), ...await attemptMeaning(attempt, declaration),
-      ...(testRunNote(attempt, workflow, phaseId) ? { note: testRunNote(attempt, workflow, phaseId) } : {}),
+      ...(testRunNote(attempt, workflow, phaseId, narrowed) ? { note: testRunNote(attempt, workflow, phaseId, narrowed) } : {}),
       ...(narrowed && attempt.narrowing?.reasons?.length ? { narrowing: { reasons: attempt.narrowing.reasons, words: narrowed.narrowingWords(attempt.narrowing),
         accepted: accepted ? { id: accepted.id, reason: accepted.reason, actor: accepted.actor } : null } } : {}),
       clauses: await summary.occurrenceClauses(root, { occurrences: attempt.occurrences ?? [], profile: attempt.profile, locations })

@@ -24,7 +24,7 @@ const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url
  * A quick-fix Story opened at its code step, with `scripts` as the package's scripts on the base
  * branch and `storyScripts`, when given, as the Story's own change to them.
  */
-async function quickFix(t, { scripts, storyScripts = null, prefix }) {
+async function quickFix(t, { scripts, storyScripts = null, prefix, baseFiles = {} }) {
   const base = await mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -67,6 +67,7 @@ async function quickFix(t, { scripts, storyScripts = null, prefix }) {
   await chmod(path.join(root, 'node_modules/.bin/mocha'), 0o755);
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
   await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\ntest('value', () => assert.equal(value, 1));\n");
+  for (const [file, text] of Object.entries(baseFiles)) await writeFile(path.join(root, file), text);
   sflow('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
@@ -174,4 +175,26 @@ test('a filter the Story adds to the script behind npm test refuses the gate, na
     '--reason', 'The module names its suite by pattern; CI runs the same script.');
   story.sflow('phase', 'publish', 'implement');
   assert.equal((await story.stored()).phases.implement.deliveryEvidence.preflightAttempts.at(-1).testNarrowing.id, 'TNR-001');
+});
+
+test('a path the Story adds to the script: one that drops nothing publishes and is shown, one that drops a test is a person\'s decision', slowLane({ timeout: 600_000 }), async (t) => {
+  const more = "import test from 'node:test';\ntest('more', () => {});\n";
+  // Every test the base commit has is still selected: nobody is asked, and the summary says what the script now names.
+  const quiet = await quickFix(t, { scripts: { test: 'node --test' }, storyScripts: { test: 'node --test test/*.test.mjs' }, prefix: 'sflow-path-kept-', baseFiles: { 'test/more.test.mjs': more } });
+  await quiet.writeTests("test('value', () => assert.equal(value, 2));");
+  quiet.sflow('phase', 'publish', 'implement');
+  const summary = quiet.json('tests', 'summary', '--work-id', 'QF-1', '--phase', 'implement');
+  assert.match(JSON.stringify(summary), /now names test\/\*\.test\.mjs\. Every test file it ran at the base commit \(2\) is still selected, so none are dropped/u);
+
+  // One is left out: refused, naming it, before anyone relies on the smaller run.
+  const narrow = await quickFix(t, { scripts: { test: 'node --test' }, storyScripts: { test: 'node --test test/value.test.mjs' }, prefix: 'sflow-path-dropped-', baseFiles: { 'test/more.test.mjs': more } });
+  await narrow.writeTests("test('value', () => assert.equal(value, 2));");
+  const refused = narrow.refused('phase', 'publish', 'implement');
+  assert.equal(refused.error.code, 'CODE_TEST_NARROWED', JSON.stringify(refused.error));
+  assert.match(refused.error.message, /path test\/value\.test\.mjs \(package\.json#scripts\.test\) leaves out 1 of the 2 test files of the base commit: test\/more\.test\.mjs/u);
+  // A person who approves the step decides it like any other filter.
+  narrow.asReviewer('decision', 'test-narrowing', 'QF-1', '--phase', 'implement', '--command', '.-node-tests',
+    '--reason', 'The other test moves to its own suite in the next Story of this Epic.');
+  narrow.sflow('phase', 'publish', 'implement');
+  assert.equal((await narrow.stored()).phases.implement.deliveryEvidence.preflightAttempts.at(-1).testNarrowing.id, 'TNR-001');
 });

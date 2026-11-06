@@ -21,7 +21,7 @@ import YAML from 'yaml';
 
 import { recordableInApproval } from '../src/approval-decisions.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
-import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationPostToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { recordRepositoryBoundaryTurn, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
 import { ISSUE_ONLY_OPTIONS } from '../src/decision-list.mjs';
@@ -90,6 +90,7 @@ const COMMANDS = Object.freeze({
   'configuration-approve': ['singularity-flow configuration approve sflow/config-change/workflow/studio-x --yes', 'singularity-flow configuration approve --json'],
   'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
   'adjudication-answers': ['singularity-flow story adjudicate --answers /tmp/a.json --expect sha256:abc --work-id PMC-1'],
+  'adjudication-table': ['singularity-flow story adjudicate --work-id PMC-1', 'singularity-flow story adjudicate'],
   'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
   'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
     'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."'],
@@ -102,6 +103,10 @@ const COMMANDS = Object.freeze({
   'sf-guard-person-step': ['singularity-flow guard register', 'singularity-flow guard rotate --key SHA256:abc', 'singularity-flow guard recover --key SHA256:abc',
     'singularity-flow guard revoke approver-0123456789ab --reason "Left the team."', 'singularity-flow guard enable --remote-check sf-guard-verify', 'singularity-flow guard disable --reason "Moving to another signer."',
     'singularity-flow guard exception add approver-0123456789ab', 'singularity-flow guard exception revoke EXC-001 --reason "Now on a Mac."'],
+  // New since this record was first taken: a person's choice on the list, a plan amendment over several paths, and the Node pin.
+  'decision-list-record-new': [`singularity-flow decisions record PMC-1 --choose d1=pin-node --confirm ${digest}`, `singularity-flow decisions record PMC-1 --choose d1=include --reason d1=Why --confirm ${digest}`],
+  'plan-amendment-batch': ['singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --add-location PMC-1:AC-001=src/b.mjs --add-supporting test/h.mjs=test-support --supporting-reason "A helper." --reason "One reason for them all."'],
+  'tests-node': ['singularity-flow tests node --work-id PMC-1 --node 22', 'singularity-flow tests node --work-id PMC-1 --node 22 --phase custom-step --json'],
   // Who a record is credited to.
   'authorship-claim': ['singularity-flow phase publish custom-step --authored human --channel manual-in-place --json', 'singularity-flow phase publish custom-step --json', 'singularity-flow phase publish custom-step --authored external-tool'],
   'agent-publication': ['singularity-flow phase publish custom-step --authored governed-agent --json'],
@@ -181,6 +186,26 @@ async function turnMatrix(t, status, turns) {
   });
 }
 
+/**
+ * The steps a chat decision must carry the person's answer for ("A chat decision must carry what the
+ * person answered"): with nobody's answer the matrix above shows them refused, and once the person
+ * has answered, here, their own turn runs them. So that rule only tightened who may run them.
+ */
+async function answeredTurns(t, status) {
+  const { root, enter } = await fixture(t, status);
+  const rows = [];
+  const turnOf = { 'story-decision': '/sf-decide PMC-1', 'convergence-adjudication': '/sf-converge', 'upstream-issue-decision': '/sf-decide PMC-1', 'decision-list-record-chat': '/sf-decide PMC-1' };
+  for (const [id, turn] of Object.entries(turnOf)) {
+    for (const command of COMMANDS[id]) {
+      const words = [...command.matchAll(/--(?:supporting-)?reason "([^"]+)"/gu)].map((match) => match[1]).join(' ') || 'yes, record it';
+      const payload = await enter(turn, `answered-${rows.length}`);
+      await mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' }, toolResult: { textResultForLlm: `User responded: ${words}` } });
+      rows.push({ id, command, turn, outcome: outcome(await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: root } }), root) });
+    }
+  }
+  return rows;
+}
+
 /** The tables themselves, and what each answers for a command: routes, signing and review effects. */
 function tablesToday() {
   const allCommands = Object.values(COMMANDS).flat();
@@ -208,7 +233,7 @@ function packed(found) {
   const [inProgress, awaitingApproval] = [rows(found.inProgress), rows(found.awaitingApproval)];
   const lines = (list) => `[\n${list.map((row) => `  ${JSON.stringify(row)}`).join(',\n')}\n]`;
   return `{\n"turns": ${JSON.stringify(found.turns)},\n"turnGroups": ${JSON.stringify(Object.fromEntries([...groups].map(([key, name]) => [name, JSON.parse(key)])), null, 0)},\n`
-    + `"inProgress": ${lines(inProgress)},\n"awaitingApproval": ${lines(awaitingApproval)},\n"tables": ${JSON.stringify(found.tables, null, 1)}\n}\n`;
+    + `"inProgress": ${lines(inProgress)},\n"awaitingApproval": ${lines(awaitingApproval)},\n"answered": ${lines(found.answered)},\n"tables": ${JSON.stringify(found.tables, null, 1)}\n}\n`;
 }
 
 function unpacked({ turnGroups, ...record }) {
@@ -221,7 +246,8 @@ test('every person\'s step, against every turn: who may run it and how it refuse
   const names = (Array.isArray(skills) ? skills : Object.keys(skills)).map((entry) => (typeof entry === 'string' ? entry : entry.id ?? entry.name)).map((name) => String(name).replace(/^sflow-/u, 'sf-'));
   const turns = [...new Set(names.map((name) => `/${name}`)), '/sf-decide PMC-1', ...SPECIAL_TURNS].sort();
   assert.ok(turns.length > 50, String(turns.length));
-  const found = { turns, inProgress: await turnMatrix(t, 'in_progress', turns), awaitingApproval: await turnMatrix(t, 'awaiting_approval', turns), tables: tablesToday() };
+  const found = { turns, inProgress: await turnMatrix(t, 'in_progress', turns), awaitingApproval: await turnMatrix(t, 'awaiting_approval', turns),
+    answered: await answeredTurns(t, 'awaiting_approval'), tables: tablesToday() };
   // A new own-terminal step is held to this too: name its command above.
   assert.deepEqual(OWN_TERMINAL_STEPS.map((step) => step.id).filter((id) => !Object.hasOwn(COMMANDS, id)), []);
   if (process.env.SINGULARITY_FLOW_GOLDEN_WRITE === '1') writeFileSync(GOLDEN, packed(found));
@@ -233,5 +259,6 @@ test('every person\'s step, against every turn: who may run it and how it refuse
     assert.deepEqual(moved.map((row) => ({ now: row, was: before.get(row.command) })), [], `${field}: a person's step changed who may run it or how it refuses`);
     assert.deepEqual(golden[field].map((row) => row.command).filter((command) => !list.some((row) => row.command === command)), [], `${field}: a command form was dropped`);
   }
+  assert.deepEqual(found.answered, golden.answered, 'what a person\'s answer lets their own turn run changed');
   assert.deepEqual(found.tables, golden.tables, 'a table of person steps changed');
 });

@@ -92,7 +92,7 @@ test('each item is a row in plain words: recommended first, its own choices as b
   assert.equal(model.decisionPacketFrom({ data: { ...packet(), packetSha256: 'not-a-digest' } }), null);
 });
 
-test('the page draws buttons only for options the person may choose, with the editable needs and their defaults', () => {
+test('the page draws buttons only for options the person may choose, with the needs they fill in and no answer filled in', () => {
   const html = decisionListHtml(model.buildDecisionListView(packet()));
   assert.match(html, /Decisions · DECIDE-1/u);
   assert.match(html, /data-digest="sha256:8{64}"/u);
@@ -102,8 +102,10 @@ test('the page draws buttons only for options the person may choose, with the ed
   assert.match(d1, /<button type="button" class="dl-option" data-option="dismiss" aria-pressed="false">/u);
   assert.doesNotMatch(d1, /data-option="reuse"/u, 'reuse is shown, never as a pressable choice');
   assert.match(d1, /<button type="button" class="dl-option" disabled aria-disabled="true">\s*<strong>Accept Code&#39;s recorded run[^<]*<\/strong><span class="pill ok">Recommended<\/span><small>The Quality reviewers decide this\.<\/small>/u);
-  assert.match(d1, /data-needs-for="accept-risk" hidden>[\s\S]*type="date" data-field="expires" value="2026-11-18" max="2027-01-16"[\s\S]*data-field="reason"[^>]*>Accepted as a risk until the date: AC-001/u);
-  assert.match(d1, /data-needs-for="dismiss" hidden>[\s\S]*Dismissed: AC-001 is delivered completely by Code\.<\/textarea>/u);
+  // A suggestion is placeholder text, and a date is the person's: as on the card, nothing is filled in for them.
+  assert.match(d1, /data-needs-for="accept-risk" hidden>[\s\S]*type="date" data-field="expires" value="" max="2027-01-16"[\s\S]*data-field="reason"[^>]*placeholder="Accepted as a risk until the date: AC-001[^>]*><\/textarea>/u);
+  assert.match(d1, /data-needs-for="dismiss" hidden>[\s\S]*placeholder="Dismissed: AC-001 is delivered completely by Code\."[^>]*><\/textarea>/u);
+  assert.doesNotMatch(d1, /The suggested wording is yours to change/u);
   assert.doesNotMatch(d2, /data-option=/u, 'no buttons for an item that is not the person\'s');
   assert.match(d2, /The Quality reviewers decide this\./u);
   assert.match(d2, /Share this with them:<\/span> <code>\/sf-decide DECIDE-1<\/code>/u);

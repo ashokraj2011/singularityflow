@@ -5,24 +5,29 @@ import type { DecisionItemRow, DecisionListView, DecisionOptionRow } from './dec
 function needsHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   const chosen = item.chosen?.option === option.id ? item.chosen : null;
   const fields: string[] = [];
-  const { reason, cause, expires } = option.needs;
+  const { reason, cause, expires, clause } = option.needs;
+  if (clause) {
+    fields.push(`<label class="field dl-field"><span>The clauses that carry it</span>
+      <input data-field="clause" required placeholder="${escape((clause.known ?? []).slice(0, 4).join(', ') || 'Their IDs, separated by commas')}" value="${escape(chosen?.clause ?? '')}"
+        aria-label="${escape(`${item.title}: the clauses that carry it`)}"></label>`);
+  }
   if (expires) {
     fields.push(`<label class="field dl-field"><span>Until</span>
-      <input type="date" data-field="expires" value="${escape(chosen?.expires ?? expires.default)}" max="${escape(expires.latest)}" required
+      <input type="date" data-field="expires" value="${escape(chosen?.expires ?? '')}" max="${escape(expires.latest)}" required
         aria-label="${escape(`${item.title}: until`)}">
       <small>It needs a decision again after this date; ${escape(expires.latest)} at the latest.</small></label>`);
   }
   if (cause) {
     fields.push(`<label class="field dl-field"><span>What stops the tests</span>
-      <textarea data-field="cause" minlength="${cause.minimum}" maxlength="${cause.maximum}" rows="2" required
-        aria-label="${escape(`${item.title}: what stops the tests`)}">${escape(chosen?.cause ?? cause.default)}</textarea>
+      <textarea data-field="cause" minlength="${cause.minimum}" maxlength="${cause.maximum}" rows="2" required placeholder="${escape(cause.default)}"
+        aria-label="${escape(`${item.title}: what stops the tests`)}">${escape(chosen?.cause ?? '')}</textarea>
       <small>${cause.minimum} to ${cause.maximum} characters.</small></label>`);
   }
   if (reason) {
     fields.push(`<label class="field dl-field"><span>Reason</span>
-      <textarea data-field="reason" minlength="${reason.minimum}" maxlength="${reason.maximum}" rows="3" required
-        aria-label="${escape(`${item.title}: reason`)}">${escape(chosen?.reason ?? reason.default)}</textarea>
-      <small>Recorded with your name; ${reason.minimum} to ${reason.maximum} characters. The suggested wording is yours to change.</small></label>`);
+      <textarea data-field="reason" minlength="${reason.minimum}" maxlength="${reason.maximum}" rows="3" required placeholder="${escape(reason.default || 'Your reason')}"
+        aria-label="${escape(`${item.title}: reason`)}">${escape(chosen?.reason ?? '')}</textarea>
+      <small>In your own words, recorded with your name; ${reason.minimum} to ${reason.maximum} characters.</small></label>`);
   }
   if (!fields.length) return '';
   return `<div class="dl-needs" data-needs-for="${escape(option.id)}"${chosen ? '' : ' hidden'}>${fields.join('')}</div>`;

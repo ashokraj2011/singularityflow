@@ -7,6 +7,7 @@
  */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
+import { showCompactInformationMessage } from '../compact-message.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { booleanField, integerField, registerMessageRouter, stringField } from './messages.ts';
@@ -95,7 +96,7 @@ export class TestSummaryPanel implements vscode.Disposable {
     const target = this.target;
     if (target.kind !== 'story' || this.baseBusy) return;
     const go = 'Run on the base commit';
-    const chosen = await vscode.window.showInformationMessage(`Run ${target.workId}'s tests on its base commit?`,
+    const chosen = await showCompactInformationMessage(`Run ${target.workId}'s tests on its base commit?`,
       { modal: true, detail: 'Each test command runs once on the commit this Story started from, in a throwaway checkout with this checkout\'s dependencies. The answer is kept per base commit, command and Node. It is a fact for you: it records no evidence and refuses nothing.' }, go);
     if (chosen !== go) return;
     this.baseBusy = true; this.baseError = null; this.render();

@@ -11,8 +11,8 @@
     { "entry": "src/commands/logs.mjs", "maximumModules": 32 },
     { "entry": "src/commands/session-open-local.mjs", "maximumModules": 225,
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/commands/session.mjs", "src/context-broker.mjs", "src/model-runner.mjs", "src/session-remote-url-discovery.mjs", "src/session-story-discovery.mjs"] },
-    { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 65,
-      "note": "61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder that the guard corrects misread result paths to. 62: SDA M1 (fa3094b83) added outcome-classes.mjs through util.mjs, constants with no import, without a recorded raise. 63: SDA M3 lease-liveness.mjs, read by every subject lock. The commit policy (4c79a2b8d) took git-isolation-paths.mjs out and put package-root.mjs in, through util.mjs." }
+    { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 66,
+      "note": "61: agent-output-folder.mjs, a leaf on Node built-ins only, names the checkout's agent results folder that the guard corrects misread result paths to. 62: SDA M1 (fa3094b83) added outcome-classes.mjs through util.mjs, constants with no import, without a recorded raise. 63: SDA M3 lease-liveness.mjs, read by every subject lock. The commit policy (4c79a2b8d) took git-isolation-paths.mjs out and put package-root.mjs in, through util.mjs. 65: SPEC-ENVF v2's local-config-policy.mjs and config-values.mjs. 66: person-step-catalog.mjs, data with no import, the one list of a person's steps the guard reads." }
   ],
   "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/model-runner.mjs", "src/model-provider.mjs", "src/jira.mjs", "src/initiative.mjs"],
   "bundleBudgets": "benchmarks/dx/vscode-bundle-budgets.json"

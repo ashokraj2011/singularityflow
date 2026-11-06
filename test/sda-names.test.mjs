@@ -102,7 +102,7 @@ export const SDA_NAMES = Object.freeze({
   'released-leases.jsonl': ['src/subject-lock.mjs'],
   LOCK_COMMAND_INVALID: ['src/commands/lock.mjs'],
   'sflow-lock-': ['src/commands/lock.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
-  "'lock-release'": ['src/command-skills.mjs'],
+  "'lock-release'": ['src/person-step-catalog.mjs'],
   // M3 leftover: lease identity for shared and restored homes (the hardware digest file follows the machine ID file).
   // The Authority Store's lock owner (v3) records the same identity as every other owner record.
   // A cache lease owner (v3, sweep batch 4: A5) records the same identity, so it is judged the same way.
@@ -165,7 +165,7 @@ export const SDA_NAMES = Object.freeze({
   syncOnPreviousLaptop: ['src/commands/session-takeover.mjs'],
   'workspace-repository-missing': ['src/commands/session-current.mjs'],
   remapAction: ['src/cli.mjs', 'src/organisation.mjs', 'src/refusal-remediation.mjs'],
-  'configuration-approve': ['src/command-skills.mjs', 'src/commands/push.mjs', 'src/copilot-mutation-guard.mjs'],
+  'configuration-approve': ['src/commands/push.mjs', 'src/copilot-mutation-guard.mjs', 'src/person-step-catalog.mjs'],
   maximumDrafts: ['src/local-backup.mjs'],
   savedConfigurationDrafts: ['src/factory-reset.mjs'],
   // M4 leftover: cancellation inside a transition. Cancelled after its commit, before its push: retained.

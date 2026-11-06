@@ -54,7 +54,7 @@ test('accept all, then the row it cannot reach gets its own answer and reason', 
     { itemId: 'CF-1', disposition: 'accepted-deviation', reason: 'Test support.', clauseIds: [] },
     { itemId: 'CF-2', disposition: 'accepted-deviation', reason: 'Test support.', clauseIds: [] },
     { itemId: 'CF-3', disposition: 'deferred', reason: 'After the next build.', clauseIds: [] }] }]);
-  assert.match(result.message, /3 recorded\. 1 still need/u);
+  assert.match(result.message, /^3 recorded\. src\/CF-1\.js: Accept as is\. .* 1 still need/u);
   assert.match(seen.asked.at(-1).message, /src\/CF-1\.js: Accept as is\. Reason: Test support\./u);
 });
 

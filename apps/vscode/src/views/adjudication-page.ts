@@ -166,6 +166,13 @@ export function adjudicationSummary(list: AdjudicationList, answers: readonly Ad
     ...(left.length ? ['', `Still undecided: ${left.map(itemName).join(', ')}`] : [])].join('\n');
 }
 
+/** What the person decided on each recorded row, in its own words, for whoever reports it back. */
+export function adjudicationDecided(list: AdjudicationList, answers: readonly AdjudicationAnswer[], recorded: readonly string[]): string[] {
+  const labels = new Map((list.dispositions ?? []).map((entry) => [entry.id, entry.label]));
+  const named = new Map([...list.items, ...(list.settled ?? [])].map((item) => [item.id, itemName(item)]));
+  return answers.filter((answer) => recorded.includes(answer.itemId)).map((answer) => `${named.get(answer.itemId)}: ${labels.get(answer.disposition) ?? answer.disposition}`);
+}
+
 export const ADJUDICATION_STYLE = `
 .adj { display:grid; gap:1rem; padding:1rem 0; max-width:72rem; }
 .adj h1 { margin:0 0 .25rem; }

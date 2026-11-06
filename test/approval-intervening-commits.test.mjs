@@ -232,21 +232,22 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.equal(readiness.classification, 'already-submitted');
   // A known hold replaces the refusing approval route with the owner's list (79e0fefa5).
   assert.equal(readiness.reasonCode, 'APPROVAL_HOLDS_REQUIRED');
-  assert.equal(readiness.nextCommand, `singularity-flow decisions ${WORK} --for-agent --json`);
+  assert.equal(readiness.nextCommand, `singularity-flow decisions ${WORK}`);
   assert.equal(readiness.blockingCommits, undefined, 'no commit is named as stale');
   assert.equal(readiness.approvalCheck.ready, false);
   assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command, hold.summary]),
     [['APPROVAL_INTENT_AMENDMENT_PENDING', 'someone-decides', STATUS, 'Approving planning waits for intent amendment AMD-001 to be decided.']]);
-  // Next steps offer that route where they offered the approval.
+  // Next steps offer the list where they offered the approval: its reject and approve are a choice,
+  // so the step sheet's next picks neither [study 6.1].
   const next = JSON.parse(cli('nextsteps', WORK, '--json').stdout);
   const nowActions = (next.actions ?? next.data?.actions ?? []).filter((entry) => entry.timing === 'now');
-  assert.equal(nowActions[0]?.command, STATUS, JSON.stringify(nowActions.map((entry) => entry.command)));
+  assert.equal(nowActions[0]?.command, `singularity-flow decisions ${WORK}`, JSON.stringify(nowActions.map((entry) => entry.command)));
   assert.ok(!(next.actions ?? next.data?.actions ?? []).some((entry) => entry.command?.startsWith('singularity-flow approve planning ')),
     'no approval is offered into a refusal');
   const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
   assert.equal(packet.begun, false, 'a known hold returns before any receipt or document packet (79e0fefa5)');
   assert.equal(packet.approvalPacket.review, null);
-  assert.deepEqual(packet.approvalPacket.readiness.approvalCheck.holds, readiness.approvalCheck.holds);
+  assert.deepEqual(packet.approvalPacket.sheet.holds.map((hold) => hold.code), readiness.approvalCheck.holds.map((hold) => hold.code));
   const shown = cli('phase', 'show', 'planning');
   assert.ok(shown.stderr.includes('An approver of Specification decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);
   assert.ok(shown.stderr.includes(`Shell: ${STATUS}`), shown.stderr);

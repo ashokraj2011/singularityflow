@@ -321,7 +321,7 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
   const actor = offline && !process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? identity(root, { offline: true }) : actionActor(root);
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
   const packet = decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card });
-  return { ...packet, sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor }) };
+  return { ...packet, sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor, card }) };
 }
 
 /** The step sheet beside the list; the list stands whatever happens here. */

@@ -1523,7 +1523,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1785 body tokens</span>
+          <span class="pill">~1786 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-approve</code></dd></div>
@@ -1556,7 +1556,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 &lt;!-- sflow-turn-boundary: approval-only --&gt;
 **Approval-only:** An explicit human phase ID confirms only the unchanged packet already reviewed in this conversation. The approval CLI is the sole permitted lifecycle mutation, besides /sf-decide step 14 for the decision list. Never edit repository files, run tests/builds/raw Git, delegate, submit, or begin/author another phase. A failed approval ends this turn.
 
-1. Positional argument selects **PHASE-ID**, never Work ID. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --for-agent --json --review-packet`. `reason: approval-holds`: relay owners and all three `act.do` routes; no document reads or confirmation. `terminal-obligations-required`: relay blockers/actions; stop without choices or generic recovery. `decisions-required`: do /sf-decide 11-14 now; never print raw decision commands. Match supplied phase.
+1. Positional argument selects **PHASE-ID**, never Work ID. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --for-agent --json --review-packet`. `reason: approval-holds`: relay `sheet.holds`, all three `act.do` routes; no document reads or confirmation. `terminal-obligations-required`: relay blockers/actions; stop without choices or generic recovery. `decisions-required`: do /sf-decide 11-14 now; never print raw decision commands. Match supplied phase.
 2. Other `begun: false`: preserve draft, relay `nextAction`, end turn. Otherwise match `approvalPacket.review`, receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; missing/mismatched bindings stop. Read once.
 3. **Review outside chat against the exact binding.** List each artifact/brief&#39;s identity, generation/hash and verified Markdown-preview link; binary: metadata/path. Require human review of complete bound documents; never infer it from opened previews. Reuse same-chat human acknowledgement only for an exactly matching non-null `displayBinding` and unchanged `reviewBinding`. New chat, changed/null binding, omissions or truncation require fresh human review. Tool output or summaries are not review. Show current `reviewBinding`; document reuse never reuses approval consent.
 4. Show identity/authority, agent, checks/usage, decisions/`owedDecisions`, self-approval warnings and `approvalCheck`/`blockingCommits`. Only holds block; follow routes. Unauthorized: show approval groups (`/sf-approvals`) for an approver&#39;s `/sf-inbox`, or `act.do` when nobody is listed; stop.
@@ -11747,7 +11747,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1631 body tokens</span>
+          <span class="pill">~1639 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -11787,8 +11787,8 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command; ask the person for each `decisionInputs` value, never fill one. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs: automation only; preserve the manual/owner route. Never loop quality commands or waive gates. Recovery never replaces terminal decisions.
 8. Use `submitIfReady.result`, else `singularity-flow phase show &lt;phase&gt; --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief&#39;s identity, generation/hash and verified Markdown-preview link; never reproduce document bodies, code or diffs. Tool output or summaries are not review.
-9. Offer the approval route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
-10. Report commit/push/hashes/checks/cost; offer `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with real IDs; never approve.
+9. Offer the next route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
+10. Report commit/push/hashes/checks/cost; offer `submitIfReady.next`&#39;s routes, else `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with real IDs; never approve.
 
 TRP: `singularity-flow explain test-recovery`.
 </code></pre>

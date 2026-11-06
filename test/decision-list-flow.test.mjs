@@ -247,6 +247,9 @@ test('the release-approval incident is one decision: recorded once, then approva
   const done = json(cliAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--confirm', packet.packetSha256, '--json'));
   assert.deepEqual(done.data.recorded.map((entry) => [entry.item, entry.kind, entry.record]),
     [['d1', 'evidence-reuse', 'ERU-001'], ['d1', 'upstream-issue-decision', 'UPI-002 accept-risk']]);
+  // Two records, one decision, and it says what was decided: what the card tells the agent to report.
+  assert.equal(done.data.decided.length, 1);
+  assert.match(done.data.decided[0].words, /reuse .*; then accept it as a risk until \d{4}-\d{2}-\d{2} \(decision on UPI-002\)/u);
   const after = await workflow();
   assert.deepEqual(after.evidenceReuses.map((entry) => [entry.id, entry.phase, entry.attempt.phase, entry.authorityGroup]),
     [['ERU-001', 'testing', 'implementation', 'quality-reviewers']]);

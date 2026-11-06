@@ -19,7 +19,7 @@ import {
   type StoryArtifact, type StoryApproval, type SubmissionReadiness,
   type DecisionInputSpec, type PendingDecisionView, type PendingListView
 } from '../cli/snapshot.ts';
-import { pendingListOf } from '../decisions.ts';
+import { pendingListOf, sheetNextIsTheList } from '../decisions.ts';
 import {
   phaseSubmissionPresentation, stepActionHoldLabel, storyArtifactPublicationLabel
 } from './submission-presentation.ts';
@@ -284,8 +284,9 @@ function storyJourneyOf(
     : null;
   const decisionInputs: DecisionInputSpec[] = readiness?.decisionInputs ?? [];
   // Decisions the approval would be refused for: the decision list is the next action, never an approval.
-  const held = currentPhase && readiness?.phaseId === currentPhase.id && readiness.classification === 'decisions-required'
-    && readiness.nextCommand ? routedCommandGuidance({ command: readiness.nextCommand, skill: '/sf-decide' }) : null;
+  const heldCommand = currentPhase && readiness?.phaseId === currentPhase.id
+    ? (readiness.classification === 'decisions-required' ? readiness.nextCommand : sheetNextIsTheList(readiness.sheet) ? `singularity-flow decisions ${workflow.workItem.id}` : null) : null;
+  const held = heldCommand ? routedCommandGuidance({ command: heldCommand, skill: '/sf-decide' }) : null;
   return {
     kind: 'story',
     id: workflow.workItem.id,
@@ -322,7 +323,7 @@ function storyJourneyOf(
       ? {
           command: held.command, executable: held.executable, argv: held.argv, copilotCommand: held.copilotCommand, copyable: held.copyable,
           ...(held.modelFreeCommand ? { modelFreeCommand: held.modelFreeCommand } : {}),
-          reason: readiness?.decisions?.headline ?? readiness?.reason ?? 'Decisions are needed before this step can be approved.',
+          reason: readiness?.decisions?.headline ?? readiness?.pending?.headline ?? readiness?.reason ?? 'Decisions are needed before this step can be approved.',
           label: 'Decide what blocks this step', execution: 'decide-list', skill: held.skill
         }
       : presentation?.kind === 'ready-to-submit' && actionRoutes

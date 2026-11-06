@@ -67,7 +67,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // joined submit.mjs's graph through evidence/risk-decisions.mjs, scope/decisions.mjs and the other family modules.
     // 468: SPEC-ENVF v2's config-values.mjs and local-config-policy.mjs, both import-light leaves, on the entry that was one under.
     // 469: the runner table (test-runners.mjs), an import-free leaf, which code-delivery-tests.mjs reads a report's language from.
-    assert.ok(closure.files.size <= 469, `${file} loads ${closure.files.size} local files (budget 469; retired graph 597)`);
+    // 470: person-step-catalog.mjs, one leaf holding what the guard, SF Guard and the review rules read of a person's steps.
+    // 471: step-sheet-route.mjs, the leaf that reads a sheet's next step as a route.
+    assert.ok(closure.files.size <= 471, `${file} loads ${closure.files.size} local files (budget 471; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -338,10 +340,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,524,400 (measured 9,524,302, commands/phase-lifecycle.mjs): the runner table's eager data, accepted for now (test-runners.mjs), with the decisions and fixes above.
     // 9,526,350 (measured 9,526,318, commands/phase-lifecycle.mjs): the Node-version failure offers one choice: its item (decision-list.mjs +1641), the refusal's first step (refusal-remediation.mjs +921, state.mjs +760), recovery's lead (recovery-plan.mjs +665). What reads and records it stays lazy (node-pin.mjs).
     // 9,527,700 (measured 9,527,624, commands/phase-lifecycle.mjs): a publish after a publish says so (phase-lifecycle.mjs +1120, phase-publish-if-ready's route stays lazy; the check itself is lazy, phase-publication-unchanged.mjs).
+    // 9,541,650 (measured 9,541,593, commands/phase-lifecycle.mjs): one catalog of a person's steps (person-step-catalog.mjs, less what moved out of command-skills.mjs, copilot-mutation-guard.mjs, copilot-answer-binding.mjs, presence/person-steps.mjs and state.mjs). A row per decision, read on every hook, so not lazy.
+    // 9,544,300 (measured 9,544,261, commands/phase-lifecycle.mjs): a held readiness and `act` give the step sheet's next (step-sheet-route.mjs, now read by agent-output.mjs). The sheet itself stays lazy.
+    // 9,544,400 (measured 9,544,375): a held route's reason leads with the list's headline (step-sheet-route.mjs +114).
     // 9,528,000 (measured 9,527,964, commands/phase-lifecycle.mjs): a decision with nobody's word behind it names the person's route (copilot-mutation-guard.mjs +264).
     // 9,529,700 (measured 9,529,648, commands/phase-lifecycle.mjs): a run reused on the same source tree keeps its evidence: read from its own record (phase-execution-evidence.mjs +1400, evidence-consistency.mjs +280), and the conformance refusal says what the record reads (upstream-routes.mjs, decision-list.mjs). The outlook itself stays lazy (evidence/clause-outlook.mjs).
     // 9,530,250 (measured 9,530,227, commands/phase-lifecycle.mjs): a failed test's first route is its repair, with the runtime question a command answers (refusal-remediation.mjs, state.mjs), and a gate under another Node on PATH says so (copilot-mutation-guard.mjs).
-    assert.ok(closure.bytes <= 9_530_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,546,700 (measured 9,546,659, commands/phase-lifecycle.mjs): the catalog and step sheet with the routes above, on one branch.
+    assert.ok(closure.bytes <= 9_546_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -514,7 +520,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,119,700 (measured 4,119,654): the same convergence-record family v6 as start.
   // 4,120,050 (measured 4,120,009): the same plan-amendments.mjs and plan-accounts.mjs as start.
   // 4,142,200 (measured 4,142,112): the same runner table and decisions.
-  assert.ok(current.bytes <= 4_142_200, `session current loads ${current.bytes} source bytes`);
+  // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
+  assert.ok(current.bytes <= 4_158_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

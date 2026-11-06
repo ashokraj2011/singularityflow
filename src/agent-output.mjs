@@ -24,6 +24,7 @@ import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitCommonDir, repoRoot } from './git-execution.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { ownTerminalStep } from './command-skills.mjs';
+import { blockingHolds, sheetForAgent } from './step-sheet-route.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
@@ -242,8 +243,9 @@ export function agentAct(result) {
     }
   }
   if (result.resultType === 'sflow-approval-packet' && result.begun === false && result.reason === 'approval-holds') {
-    return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness.approvalCheck', 'approvalPacket.readiness.owedDecisions'],
-      said: 'Approval has known holds. Show their owners and follow the returned route. Only approvalCheck.holds block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.' }, result.nextAction);
+    const holds = result.approvalPacket?.sheet ? 'approvalPacket.sheet' : 'approvalPacket.readiness.approvalCheck';
+    return withRoute({ state: 'blocked', do: null, read: [holds, 'approvalPacket.readiness.owedDecisions'],
+      said: `Approval has known holds. Show their owners and follow the returned route. Only ${holds === 'approvalPacket.sheet' ? 'approvalPacket.sheet.holds' : 'approvalCheck.holds'} block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.` }, result.nextAction);
   }
   if (result.resultType === 'sflow-approval-packet' && result.begun === false && result.preserveDraft === true) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness', 'nextAction'],
@@ -253,7 +255,7 @@ export function agentAct(result) {
   if (result.approvalPacket && result.approvalContext && result.ready !== undefined && !result.resultType) return { state: 'read', do: null, said: null,
     read: ['approvalPacket', 'approvalContext', 'choiceSets'] };
   if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {
-    return withRoute({ state: 'blocked', do: null, read: ['approvalCheck', 'owedDecisions', 'pending'],
+    return withRoute({ state: 'blocked', do: null, read: result.sheet ? ['sheet', 'owedDecisions'] : ['approvalCheck', 'owedDecisions', 'pending'],
       said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
   }
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
@@ -905,8 +907,13 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   try { result = JSON.parse(text); } catch { literal = 'not-json'; }
   if (!literal && (!result || typeof result !== 'object' || Array.isArray(result))) literal = Array.isArray(result) ? 'json-array' : 'not-json';
   if (literal) return bytes(text) <= budget ? text : literalEnvelope(text, { cwd, budget, now, literal });
-  // No agent reads the step sheet yet, so it costs no agent a token (study 6.6, S3).
-  delete result.sheet;
+  // A held readiness says its holds once, in the sheet's short form; elsewhere no agent reads the sheet,
+  // so it costs no agent a token.
+  if (result.resultType === 'sflow-submission-readiness' && result.sheet && blockingHolds(result.sheet).length) {
+    result.sheet = sheetForAgent(result.sheet);
+    delete result.approvalCheck;
+    delete result.pending;
+  } else delete result.sheet;
   if (result.data && typeof result.data === 'object') delete result.data.sheet;
   const { agentJson } = await import('./agent-packet-presentation.mjs');
   // The repository is resolved only when it is needed (a counted result or one to write), so the

@@ -11,12 +11,12 @@ import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } fro
 // or a staging refusal is written, never on the per-call path.
 const stagingPaths = () => import('./phase-staging-paths.mjs');
 const answerBinding = () => import('./copilot-answer-binding.mjs');
-// The turns whose decision commands are held to the person's answers (ANSWER_BOUND_TURNS, a test pins the two equal).
-export const ANSWER_BOUND_SKILLS = new Set(['decide', 'converge']);
+// The turns whose decision commands are held to the person's answers.
+export const ANSWER_BOUND_SKILLS = new Set(ANSWER_BOUND_TURNS);
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { adjudicationTableStep, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, planRowCorrectionStep } from './command-skills.mjs';
+import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep } from './person-step-catalog.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
@@ -60,12 +60,11 @@ const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', '
 // Copilot CLI's question tool and VS Code's vscode_askQuestions, as calls() spells them.
 const QUESTION_TOOLS = new Set(['ask_user', 'vscode_askquestions']);
 const FILE_READS = new Set(['read', 'read_file', 'readfile', 'read_text_file', 'view', 'get_file']);
-const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
 const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
-// The decision list's options that write only upstream-issue records (ISSUE_ONLY_OPTIONS in
-// src/decision-list.mjs; a test pins the two equal). A /sf-decide turn may record only these; the
-// routes read the same list (command-skills.mjs), so no surface sends another choice to that turn.
+// The decision list's options that write only upstream-issue records (person-step-catalog.mjs). A
+// /sf-decide turn may record only these; the routes read the same list, so no surface sends another
+// choice to that turn.
 export { DECISION_LIST_CHAT_OPTIONS };
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
@@ -1059,34 +1058,6 @@ function gitDirectoryOf(cwd) {
   }
 }
 
-const EPIC_COMMANDS = new Set(['initiative', 'epic']);
-const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];
-/**
- * A person's decision, recorded under an approval group, that only the skill turn the person starts
- * for it may run after asking them (`owners`, skill names without `sf-`); with no owner, only their
- * own terminal. Inside /sf-phase, /sf-recover and /sf-next every one of these passed the hook, since
- * a turn admits standalone SFlow commands and the CLI's authority check reads the Git identity the
- * agent runs under (2026-11-01).
- */
-const PERSON_DECISIONS = Object.freeze([
-  ['story-decision', ([command, sub]) => command === 'decision' && ['choose', 'applicability', 'scope', 'completeness', 'plan'].includes(sub), ['decide']],
-  ['story-reopen', ([command]) => command === 'reopen', ['reject']],
-  ['convergence-adjudication', ([command, sub]) => command === 'story' && sub === 'adjudicate', ['converge']],
-  ['source-review-decision', ([command, sub]) => command === 'review-source' && sub === 'decide', ['review-decide']],
-  ['constitution-exception', ([command, sub]) => command === 'constitution' && sub === 'except', ['constitution']],
-  ['repair-authorization', ([command, sub]) => command === 'repair' && sub === 'authorize', ['fix']],
-  ['telemetry-consent', ([command, sub]) => command === 'telemetry' && sub === 'enable', ['telemetry']],
-  ['epic-approval', ([command, sub]) => EPIC_COMMANDS.has(command) && sub === 'approve', ['initiative-approve']],
-  ['epic-story-decision', ([command, sub, verb]) => EPIC_COMMANDS.has(command) && sub === 'review' && ['approve', 'reject'].includes(verb), ['epic-review-decision']],
-  ['epic-completion', ([command, sub]) => EPIC_COMMANDS.has(command) && sub === 'complete', ['epic-complete']],
-  ['goal-plan-approval', ([command, sub, verb]) => command === 'goal' && sub === 'plan' && verb === 'approve', []],
-  ['sgos-ratification', ([command, sub], options) => (command === 'intent' && ['ratify', 'confirm'].includes(sub))
-    || (command === 'program' && sub === 'approve' && options.confirm !== undefined), []],
-  ['capability-break-glass', ([command, sub]) => command === 'capabilities' && sub === 'lease', []],
-  ['host-policy-assertion', ([command, sub], options) => command === 'ledger' && sub === 'deployment-check'
-    && HOST_POLICY_ASSERTIONS.some((flag) => options[flag] === true), []],
-  ['agent-trust', ([command, sub]) => command === 'agents' && sub === 'lock', []]
-].map(([id, matches, owners]) => Object.freeze({ id, matches, owners: Object.freeze(owners) })));
 const PERSON_DECISION_IDS = new Set(PERSON_DECISIONS.map((entry) => entry.id));
 // SFlow's own test suite sets these; with them a confirmation, a selection or an identity came from
 // the environment instead of the person.

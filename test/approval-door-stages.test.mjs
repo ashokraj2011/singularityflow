@@ -11,6 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
+import { agentAct } from '../src/agent-output.mjs';
 import { approvalAdvisories } from '../src/approval-check.mjs';
 import { run as guard } from '../src/commands/guard.mjs';
 import { approveCommand } from '../src/commands/approve.mjs';
@@ -158,6 +159,8 @@ test('SF Guard\'s door is in the check: the same refusal, its route, and nothing
   const packet = await loadApprovalPacket({ workId: WORK, cwd: root }, { runStep: async (argv) => { begun ||= argv[0] === 'choices'; return { ok: true, value }; } });
   assert.deepEqual([packet.begun, packet.reason, packet.nextAction.command, packet.nextAction.copilotCommand, begun],
     [false, 'approval-holds', `singularity-flow approve specification --work-id ${WORK}`, null, false]);
+  const act = agentAct(packet);
+  assert.deepEqual([act.state, act.do.shell, act.do.copilot], ['blocked', `singularity-flow approve specification --work-id ${WORK}`, null]);
 
   // Looking wrote nothing.
   assert.equal(git('rev-parse', 'HEAD'), head);
@@ -190,12 +193,13 @@ test('the Story\'s ending is in the check at its last step, the one evaluation r
   second.phases.planning.approvalPolicy.minimum = 2;
   assert.ok(!(await approvalAdvisories(root, definition, second, second.phases.planning, { readEnding: async () => open })).approvalCheck.holds.some((hold) => hold.code === 'STORY_COMPLETION_REFUSED'));
 
-  // This fixture's real evaluation cannot run (nothing delivered a claim map), and the check says so
-  // with its own refusal rather than "would pass every check", as readiness does: not who, but that.
+  // This fixture's real evaluation cannot run (nothing delivered a claim map). That is not a refusal,
+  // so nothing is held for it: the check says it could not tell, and approve reads it again.
   const expected = await evaluateTerminalReadiness(root, definition, last, { stage: 'approval' }).catch((error) => error);
   assert.equal(expected.code, 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED');
   const unavailable = (await approvalAdvisories(root, definition, last, last.phases.planning)).approvalCheck;
-  assert.deepEqual([unavailable.holds.at(-1).code, unavailable.holds.at(-1).clearedBy.kind, unavailable.ready], [expected.code, 'nobody', false]);
+  assert.equal(unavailable.holds.some((hold) => hold.code === expected.code), false);
+  assert.match(unavailable.warnings.join(' '), /The Story's ending could not be read here \(SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED\)/u);
 
   // One read per command, and a changed Story reads again.
   const once = terminalReadinessOnce(root, definition, last);

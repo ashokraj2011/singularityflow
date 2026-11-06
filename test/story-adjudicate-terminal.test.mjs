@@ -105,7 +105,7 @@ test('in a real terminal: one reason for all, then the exact list, then the one 
   term.type(term.number('Record these decisions'));
   assert.equal(await term.finished, 0);
   assert.match(term.screen, /RECORD sha256:abc \[\{"itemId":"CF-1","disposition":"accepted-deviation","reason":"All of it is test setup\.","clauseIds":\[\]\},\{"itemId":"CF-2",/u);
-  assert.match(term.screen, /2 recorded\. All decided\./u);
+  assert.match(term.screen, /2 recorded\. .*All decided\./su);
 });
 
 test('in a real terminal: Not now, a cancelled confirmation and input ending all record nothing', { skip: !hasRealTerminal }, async () => {

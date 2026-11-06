@@ -272,6 +272,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
   if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
   await show(decisionsTable(packet));
   const recorded = [];
+  // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
+  const decided = [];
   const asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   if (asked.cancelled) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
   if (asked.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(asked.refused) };
@@ -282,6 +284,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
     try {
       const result = await record(packet, answersDocument(packet, answers));
       recorded.push(...(result.recorded ?? []).map((entry) => entry.record ?? entry.item));
+      decided.push(...(result.decided ?? []).map((entry) => entry.words));
       answers = [];
     } catch (error) {
       // With SF Guard the signature is taken in the person's own terminal: one command, nothing to fill in, the same questions there.
@@ -307,11 +310,14 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
     const sign = await ask(witnessConfirm(current, answer));
     if (sign?.action === 'accept' && sign.content?.confirm === SIGN) {
       const result = await witness(packet, current, answer);
-      if (result?.record?.id) recorded.push(result.record.id);
+      if (result?.record?.id) {
+        recorded.push(result.record.id);
+        decided.push(`Signed off ${current.clauseId} · ${current.slot}`);
+      }
       packet = await read();
     }
   }
   const remaining = openRows(packet).map((item) => itemName(item));
-  return { status: recorded.length ? 'recorded' : 'cancelled', recorded, remaining,
-    message: `${recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}` };
+  return { status: recorded.length ? 'recorded' : 'cancelled', recorded, decided, remaining,
+    message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}` };
 }

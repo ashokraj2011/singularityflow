@@ -17,6 +17,7 @@
  */
 import { readFileSync } from 'node:fs';
 
+import { PERSON_STEP_FAMILIES } from '../person-step-catalog.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException } from './chain.mjs';
@@ -25,57 +26,7 @@ import {
 } from './person-records.mjs';
 import { presenceNonce } from './statement.mjs';
 
-const always = () => true;
-/**
- * The Story's person-decision families: where their records live and which entries are a person's
- * decision. Entries that are not (a test command request, which anyone may make) are never signed and
- * always count. A record's `id`, else what it revokes or accepts, names it on the card.
- */
-export const PERSON_STEP_FAMILIES = Object.freeze([
-  { id: 'risk', list: 'riskDecisions', action: 'decision.risk', label: 'Risk decision', isPerson: always },
-  { id: 'test-command', list: 'testCommandDecisions', action: 'decision.test-command', label: 'Test command decision',
-    isPerson: (entry) => Boolean(entry?.accepts || entry?.revokes) },
-  { id: 'test-narrowing', list: 'testNarrowings', action: 'decision.test-narrowing', label: 'Test narrowing decision', isPerson: always },
-  { id: 'test-run-risk', list: 'testRunRisks', action: 'decision.test-risk', label: 'Test-run risk decision', isPerson: always },
-  { id: 'evidence-reuse', list: 'evidenceReuses', action: 'decision.evidence-reuse', label: 'Evidence reuse decision', isPerson: always },
-  { id: 'visual-profile', list: 'visualProfileDecisions', action: 'decision.visual-profile', label: 'Visual profile decision', isPerson: always },
-  { id: 'witness', list: 'witnessRecords', action: 'decision.witness', label: 'Witness review', isPerson: always },
-  { id: 'witness-exception', list: 'witnessExceptionRenewals', action: 'decision.witness-exception', label: 'Witness exception renewal', isPerson: always },
-  { id: 'scope', list: 'scopeDispositions', action: 'decision.scope', label: 'Scope disposition', isPerson: always },
-  { id: 'completeness', list: 'completenessReviews', action: 'decision.completeness', label: 'Completeness review', isPerson: always },
-  { id: 'applicability', list: 'applicability', action: 'decision.applicability', label: 'Applicability decision', isPerson: always },
-  { id: 'upstream-issue', list: 'upstreamIssueDecisions', action: 'decision.upstream-issue', label: 'Upstream issue decision', isPerson: always },
-  { id: 'forward-amendment', list: 'forwardAmendmentDecisions', action: 'decision.forward-amendment', label: 'Forward amendment decision', isPerson: always },
-  { id: 'plan-amendment', list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always },
-  { id: 'amendment-revalidation', list: 'amendmentRevalidations', action: 'decision.revalidate', label: 'Amendment revalidation', isPerson: always },
-  // SPEC-PSS-v1 §10.12: an intent amendment's or a skill version's decision sits inside its summary. The
-  // command signs it before it is written; here it is read so every check counts it like the rest.
-  { id: 'intent-amendment', list: 'intentAmendments', action: 'decision.intent-amendment', label: 'Intent amendment decision', isPerson: always,
-    records: (container) => (container?.intentAmendments ?? []).map((entry) => entry?.decision).filter(Boolean) },
-  { id: 'skill-version', list: 'skillVersionAmendments', action: 'decision.skill-version', label: 'Skill version decision', isPerson: always,
-    records: (container) => (container?.skillVersionAmendments ?? []).flatMap((entry) => [...(entry?.approvals ?? []), ...(entry?.rejection ? [entry.rejection] : [])]) },
-  // SPEC-PSS-v1 §10.6: a constitution exception waives an article for the Story; a person's choice at a
-  // workflow decision routes it (a rule's routing is never a person's and is never signed).
-  { id: 'constitution-exception', list: 'constitutionExceptions', action: 'decision.constitution-exception', label: 'Constitution exception', isPerson: always },
-  { id: 'decision-choice', list: 'decisionLog', action: 'decision.choose', label: 'Decision', isPerson: (entry) => entry?.by === 'person' },
-  // SPEC-PSS-v1 §10.7: a live terminal review's decision keeps its signature in the record it writes. A
-  // quality risk, artifact risk or disputed finding (and its revocation) waives or restores a gate; an
-  // appeal decision accounts for scope. Each is signed in its own transaction, before its retained copy.
-  { id: 'quality-risk', list: 'qualityRiskDecisions', action: 'decision.quality-risk', label: 'Quality risk decision', isPerson: always },
-  { id: 'appeal-decision', list: 'phaseAppealDecisions', action: 'decision.appeal', label: 'Appeal decision', isPerson: always },
-  // SPEC-PSS-v1 §10.8: a test-policy amendment changes which tests a step runs, an approver refresh who may
-  // approve it. Their summaries are immutable, exact-key families, so each signature is kept beside the
-  // summary as a seal (`personSeals`) rather than inside it. A test selection and a test-run risk review
-  // (acceptance, re-attestation, revocation, a baseline re-review) keep theirs on the entry itself.
-  { id: 'test-command-amendment', list: 'testCommandAmendments', action: 'story.test-policy-apply', label: 'Test command amendment',
-    sealed: true, isPerson: (entry) => entry?.kind === 'test-command-adoption-summary' },
-  { id: 'approver-refresh', list: 'approverRefreshes', action: 'story.approvers-refresh', label: 'Approver refresh',
-    sealed: true, isPerson: (entry) => entry?.kind === 'approver-refresh-summary' },
-  { id: 'test-selection', list: 'testRecovery.selectionConfirmations', path: ['testRecovery', 'selectionConfirmations'],
-    action: 'story.test-selection', label: 'Test selection confirmation', isPerson: always },
-  { id: 'test-risk-review', list: 'testRecovery.riskReviews', path: ['testRecovery', 'riskReviews'],
-    action: 'story.test-risk', label: 'Test risk review', isPerson: always }
-]);
+export { PERSON_STEP_FAMILIES } from '../person-step-catalog.mjs';
 
 /** A family's records in `container` (a Story's aggregate, or the state file before the command ran). */
 export function familyRecords(container, family) {

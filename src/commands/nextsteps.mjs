@@ -279,7 +279,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
       modelMode,
       mcpHold,
-      pending
+      pending,
+      sheet
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root),

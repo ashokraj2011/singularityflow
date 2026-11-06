@@ -9,7 +9,7 @@ import YAML from 'yaml';
 
 import { resolveOperation } from '../src/command-registry.mjs';
 import { personAuthoredPublication, publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
-import { submitArguments } from '../src/commands/submit-if-ready.mjs';
+import { submitArguments, submitReport } from '../src/commands/submit-if-ready.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -46,6 +46,12 @@ test('only the exact publication command prepublish returns for the same phase i
     { nextSkill: '/sf-recover' }, { nextCommand: 'singularity-flow submit code --work-id A-1 --skip-checks' }, { nextCommand: 'singularity-flow submit other --work-id A-1' }]) {
     assert.equal(submitArguments({ ...ready, ...change }), null, JSON.stringify(change));
   }
+  // What submit did, not the end of what it printed: the commit comes first there, and its last lines give
+  // next steps from before the holds were read, so a model said nothing was committed.
+  const printed = ['', 'Submitted code phase for approval.', 'Commit: 1a2b3c4d — request approval (A-1)', 'Push: origin/a-1', 'Review packet: p.json (aaaaaaaaaaaa)',
+    ...Array.from({ length: 60 }, (_, index) => `[${index}] a document`), 'Submitted code for approval with 60 generated document(s).', '  NOW   Approve code', '        Shell: singularity-flow approve code'].join('\n');
+  assert.equal(submitReport(printed), 'Submitted code phase for approval.\nCommit: 1a2b3c4d — request approval (A-1)\nPush: origin/a-1\nReview packet: p.json (aaaaaaaaaaaa)\nSubmitted code for approval with 60 generated document(s).');
+  assert.equal(submitReport('something else\nentirely\n'), 'something else\nentirely');
   const status = (options) => resolveOperation({ requestedCommand: 'status', positionals: ['status', 'A-1'], options });
   assert.equal(status({ 'submission-readiness': true, json: true }).classification, 'read');
   assert.equal(status({ 'submission-readiness': true, json: true, 'submit-if-ready': true }).classification, 'mutation');

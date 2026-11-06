@@ -188,7 +188,7 @@ test('a real Story: the preview lists every hold in gate order, and recording re
   assert.equal(heldReadiness.classification, 'already-submitted');
   assert.equal(heldReadiness.reasonCode, 'APPROVAL_HOLDS_REQUIRED');
   // The author revises it: the way through is a return for changes, which /sf-decide never does.
-  assert.equal(heldReadiness.nextCommand, `singularity-flow reject planning --work-id ${WORK} --fetch --reason <REASON>`);
+  assert.equal(heldReadiness.nextCommand, `singularity-flow reject planning --work-id ${WORK} --fetch --reason <reason>`);
   assert.equal(heldReadiness.command, heldReadiness.nextCommand);
   assert.equal(heldReadiness.nextSkill, '/sf-reject');
   assert.equal(held.ready, false);

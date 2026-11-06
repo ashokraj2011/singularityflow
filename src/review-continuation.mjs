@@ -32,10 +32,11 @@ export async function reviewContinuation(root, config, workflow, phase, { change
       const recovery = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
       if (recovery.requiresRecovery) return phaseContinuation(workflow, { recovery });
     }
-    const readiness = await submissionReadiness(root, config, workflow, { phaseId: phase.id, changedPaths });
+    // A step awaiting approval reads the list, so a held one's next is the step sheet's, as everywhere else.
+    const readiness = await submissionReadiness(root, config, workflow, { phaseId: phase.id, changedPaths, pendingList: phase.status === 'awaiting_approval' });
     if (readiness.nextCommand) return phaseContinuation(workflow, { primary: {
       command: readiness.nextCommand, skill: readiness.nextSkill,
-      reason: readinessReason(readiness)
+      reason: readiness.approvalContinuation?.reason ?? readinessReason(readiness)
     } });
     return phaseContinuation(workflow);
   } catch {

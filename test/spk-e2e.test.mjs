@@ -439,7 +439,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     await answering.waitFor(/Record \d+ decisions? on [\s\S]*I reviewed this exact change\n[\s\S]*Choose 1-2: $/u);
     answering.type(answering.number('Record these decisions'));
     assert.equal(await answering.finished, 0, answering.screen);
-    assert.match(answering.screen, new RegExp(`${open.length} recorded\\. All decided\\.`));
+    assert.match(answering.screen, new RegExp(`${open.length} recorded\\. [^]*All decided\\.`));
     assert.deepEqual(adjudications().items.map((item) => [item.id, item.decision.disposition, item.decision.reason]),
       open.map((item, index) => [item.id, 'accepted-deviation', `This row's own reason, number ${index + 1}.`]));
     await writeFile(convergenceRecord, serializeConvergence(iteration));

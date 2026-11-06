@@ -303,6 +303,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const change = effect.change.kind === 'add-supporting' ? { ...effect.change, reason: step.values.reason } : effect.change;
     return (await commitPlanAmendment(root, config, workflow, { changes: [change], reason: step.values.reason }, { actor, agent })).amendment;
   }
+  if (effect.kind === 'obligation-risk') {
+    const { commitRiskDecision } = await import('./decision-obligation-risk.mjs');
+    return (await commitRiskDecision(root, config, workflow, { obligationId: effect.obligation, category: effect.category,
+      expires: step.values.expires, reason: step.values.reason }, { actor, agent })).record;
+  }
   if (effect.kind === 'visual-profile') {
     const { recordVisualProfileDecisionFor } = await import('./decision-visual-profile.mjs');
     return (await recordVisualProfileDecisionFor(root, config, workflow, { phaseId: effect.phase, profileId: effect.profileId,
@@ -335,6 +340,12 @@ function recordId(kind, record) {
   return record?.id ?? record?.accepts ?? record?.revokes ?? null;
 }
 
+function changedList(packet, confirm, phaseId) {
+  refused(`The decision list changed since it was reviewed (it was ${confirm.slice(0, 19)}…, it is ${packet.packetSha256.slice(0, 19)}…). Nothing was recorded. `
+    + 'Review the current list and choose again.', 'DECISIONS_PACKET_CHANGED', { packet, packetSha256: packet.packetSha256,
+    nextAction: { command: `singularity-flow decisions ${packet.workId}${phaseId ? ` --phase ${phaseId}` : ''}`, skill: '/sf-decide', label: 'Review the current decision list.' } });
+}
+
 async function record(root, options, workId, io) {
   const { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
   if (workflow.status !== 'in_progress') {
@@ -362,6 +373,8 @@ async function record(root, options, workId, io) {
       refused(`Choose at least one item with --choose ITEM=OPTION. ${packet.headline}`, 'DECISIONS_CHOICE_REQUIRED',
         { packet, record: packet.record });
     }
+    // Before the answers are read against this list: an item's number means something else on a changed one.
+    if (confirm && DIGEST.test(confirm) && confirm !== packet.packetSha256) changedList(packet, confirm, phaseId);
     const plan = decisionRecordPlan(packet, answers, { at });
     const preview = await previewOf(workflow, packet, plan);
     if (prompt) {
@@ -377,11 +390,6 @@ async function record(root, options, workId, io) {
           nextAction: { command: `singularity-flow decisions ${packet.workId}`, skill: '/sf-decide', label: 'Review the decision list and the summary of your choices.' } });
     }
     if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest: sha256:<64 hexadecimal characters>.', 'DECISIONS_OPTIONS_INVALID');
-    if (confirm !== packet.packetSha256) {
-      refused(`The decision list changed since it was reviewed (it was ${confirm.slice(0, 19)}…, it is ${packet.packetSha256.slice(0, 19)}…). Nothing was recorded. `
-        + 'Review the current list and choose again.', 'DECISIONS_PACKET_CHANGED', { packet, packetSha256: packet.packetSha256,
-        nextAction: { command: `singularity-flow decisions ${packet.workId}${phaseId ? ` --phase ${phaseId}` : ''}`, skill: '/sf-decide', label: 'Review the current decision list.' } });
-    }
     if (!plan.steps.length) {
       const only = plan.refused.map((entry) => `${entry.item} (${entry.title}): ${entry.words} Share this with them: ${entry.share}`).join(' ');
       refused(`Nothing was recorded: you may not decide what you chose. ${only}`, 'DECISIONS_NOT_YOURS', { refused: plan.refused });

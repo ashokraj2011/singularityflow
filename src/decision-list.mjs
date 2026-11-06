@@ -36,7 +36,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'obligation-risk', 'upstream-issue-decision']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 // `decision plan`'s own limits: a supporting change states its reason in at most 500 characters.
@@ -79,6 +79,7 @@ function effectGroups(workflow, effect) {
   if (effect.kind === 'upstream-issue') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
   if (effect.kind === 'plan-amendment') return planAuthorities(workflow);
+  if (effect.kind === 'obligation-risk') return effect.groups ?? [];
   return testRunRiskAuthorities(workflow, effect.phase);
 }
 
@@ -331,6 +332,9 @@ function personalStep({ id, label, command, words, decidedBy = nobodyNamed(words
     action: { command, alternativeCommands: [] }, decidedBy };
 }
 
+const RISK_CATEGORY_WORDS = Object.freeze({ 'external-dependency': 'it depends on something outside this change', 'known-failure': 'a known failure',
+  'assurance-shortfall': 'less assurance than was asked for', 'deferred-verification': 'it will be verified later', 'accepted-deviation': 'an accepted deviation' });
+
 /**
  * One item per criterion whose evidence approval waits on a person for: witness each slot after
  * looking at it, or accept the obligation as a dated risk. Both are the person's own commands.
@@ -353,16 +357,13 @@ function evidenceItem(workflow, context, entry) {
         action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
           files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
     }),
-    ...entry.risks.map((risk, index) => {
-      const words = `You record the risk with a category (${listWords(entry.categories)}), an expiry and a reason; nothing is decided here.`;
-      return personalStep({
-        id: entry.risks.length === 1 ? 'accept-obligation-risk' : `accept-obligation-risk-${index + 1}`,
-        label: 'Accept it as a risk until a date',
-        command: risk.command,
-        words,
-        decidedBy: stepDecidedBy(workflow, context, risk.groups ?? [], words)
-      });
-    })
+    ...entry.risks.flatMap((risk, index) => (risk.obligationId ? entry.categories : []).map((category) => option(workflow, context, {
+      id: `accept-obligation-risk-${category}${entry.risks.length === 1 ? '' : `-${index + 1}`}`,
+      label: `Accept it as a risk until a date: ${RISK_CATEGORY_WORDS[category] ?? category}`,
+      words: 'The verdict does not change; the obligation reads as excepted until that date, and a changed result needs a new decision.',
+      effects: [{ kind: 'obligation-risk', obligation: risk.obligationId, category, groups: risk.groups ?? [] }],
+      needs: { expires: expiryNeed(context.at, { endOfDay: true }), reason: textNeed('', REASON) }
+    })))
   ];
   return {
     kind: 'evidence-obligation',
@@ -1025,6 +1026,7 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'test-narrowing') return `accept that ${effect.commandId} ran narrowed for ${stepName(workflow, effect.phase)} (test-narrowing decision)`;
   if (effect.kind === 'test-command') return `run ${effect.request}'s command as ${stepName(workflow, effect.phase)}'s tests for this Story (test-command decision)`;
   if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
+  if (effect.kind === 'obligation-risk') return `accept the ${effect.category} risk of ${effect.obligation} until ${values.expires} (risk decision)`;
   if (effect.kind === 'plan-amendment') {
     return effect.change.kind === 'add-location' ? `add ${effect.change.path} to ${clauseName(workflow, effect.change.clauseId)} (plan amendment)`
       : `list ${effect.change.path} as a supporting change, ${effect.change.class} (plan amendment)`;

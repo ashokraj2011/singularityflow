@@ -14,7 +14,7 @@ import test from 'node:test';
 import { agentAct } from '../src/agent-output.mjs';
 import { promptDecisionAnswers } from '../src/commands/decisions.mjs';
 import { DECISION_LIST_CHAT_OPTIONS } from '../src/copilot-mutation-guard.mjs';
-import {
+import { effectWords,
   decisionGroups, decisionPacket, decisionRecordCommand, decisionRecordPlan, decisionRefusalLead, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, runDecisionPlan
 } from '../src/decision-list.mjs';
 import { terminalEvidenceDecisions, terminalRefusalMessage } from '../src/evidence/terminal.mjs';
@@ -440,26 +440,40 @@ test('the evidence approval waits for is the same witness and risk the refusal n
   assert.ok(entry.categories.includes('deferred-verification'));
 });
 
+const entryCategories = (evidence) => evidence[0].categories;
+
 test('an evidence item is the person\'s own step: the list shows its commands and never records it', () => {
   const workflow = story();
-  const evidence = terminalEvidenceDecisions('BIN-501', evaluation);
+  // With the story, as the list reads it: who may accept each risk comes with it.
+  const evidence = terminalEvidenceDecisions('BIN-501', evaluation).map((entry) => ({ ...entry, risks: entry.risks.map((risk) => ({ ...risk, groups: ['release-approvers'] })) }));
   const packet = packetOf(workflow, { gaps: [], issues: [], evidence });
   assert.equal(packet.status, 'decisions-needed');
   const item = packet.items.find((entry) => entry.kind === 'evidence-obligation');
   assert.ok(item, 'the obligation approval refuses on is on the list');
   assert.match(item.title, /AC-001/u);
   assert.match(item.why, /witness singularity\/work-items\/BIN-501\/evidence\/result\.png/u);
-  assert.deepEqual(item.options.map((option) => option.id), ['witness-result', 'accept-obligation-risk']);
-  for (const option of item.options) {
-    assert.equal(option.recordable, false);
-    assert.match(option.action.command, /^singularity-flow decision (?:witness|risk) /u);
+  assert.deepEqual(item.options.map((option) => option.id), ['witness-result', ...entryCategories(evidence).map((category) => `accept-obligation-risk-${category}`)]);
+  const [sign, ...risks] = item.options;
+  assert.equal(sign.recordable, false);
+  assert.match(sign.action.command, /^singularity-flow decision witness /u);
+  // Accepting its risk is a choice this list records: a category, a date and the person's own reason.
+  for (const option of risks) {
+    assert.equal(option.action, undefined);
+    assert.equal(option.effects[0].kind, 'obligation-risk');
+    assert.equal(option.recommended, false);
+    assert.equal(option.needs.reason.default, '', 'a reason is the person\'s, never suggested');
+    assert.ok(option.needs.expires.latest);
   }
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${item.id}=${risks[0].id}`] }), { at: AT }), /The reason for d\d+ must be 20 to 1000/u);
+  const accepted = decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${item.id}=${risks[0].id}`], reason: [`${item.id}=The browser farm is out until next week.`] }), { at: AT });
+  assert.equal(accepted.steps[0].effects[0].category, risks[0].effects[0].category);
+  assert.match(effectWords(workflow, accepted.steps[0].effects[0], accepted.steps[0].values), /risk of .* until \d{4}-\d{2}-\d{2} \(risk decision\)/u);
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${item.id}=witness-result`] }), { at: AT }));
   // With only such items left, the next step is the person's own command, never /sf-decide again:
   // /sf-decide recorded fact-01's gap and then routed back to itself for the witness (2026-10-26).
   assert.equal(packet.next.command, item.options[0].action.command);
   assert.equal(packet.next.copilotCommand, null);
-  for (const option of item.options) assert.equal(skillForCommandLine(option.action.command), null, option.action.command);
+  assert.equal(skillForCommandLine(sign.action.command), null, sign.action.command);
   for (const command of ['decision test-risk BIN-501', 'decision test-narrowing BIN-501', 'decision evidence-reuse BIN-501', 'decision visual-profile BIN-501']) {
     assert.equal(skillForCommandLine(`singularity-flow ${command}`), null, command);
   }

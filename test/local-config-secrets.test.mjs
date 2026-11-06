@@ -10,7 +10,7 @@ import { environmentFilesToolGuard } from '../src/copilot-environment-files-guar
 import { assertDocumentInputContainsNoSecret, assertNotPrivateEnvironmentName } from '../src/document-admission.mjs';
 import { matchEnvironmentLocalPath } from '../src/environment-declaration.mjs';
 import { excludeAlwaysLocalNames } from '../src/git.mjs';
-import { alwaysLocalName, configShapedPath } from '../src/local-config-policy.mjs';
+import { ALWAYS_LOCAL_EXCLUDE_COMMENT, ALWAYS_LOCAL_EXCLUDES, alwaysLocalName, configShapedPath } from '../src/local-config-policy.mjs';
 import { scanEntries, secretRefusal } from '../src/secrets.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
@@ -391,4 +391,20 @@ test('a private file moves out of the way with no declaration, so the refusal ne
   assert.equal(adopted.status, 0, adopted.stdout + adopted.stderr);
   assert.equal(await readFile(path.join(repo.root, 'app-secrets.yml'), 'utf8'), `password: ${VALUE}\n`, 'tests still find it');
   assert.equal(repo.git('status', '--porcelain'), '', 'Git no longer offers it');
+});
+
+test('a person\'s .env in a Story\'s checkout is never a change to review, and setting it aside is never offered', async (t) => {
+  const { startedSpecificationStory } = await import('./helpers/submitted-planning-story.mjs');
+  const { root, git, cli } = await startedSpecificationStory(t, 'ENVF-REVIEW-1');
+  // As in a new Story's checkout, before anything has listed these names.
+  const exclude = path.resolve(root, git('rev-parse', '--git-common-dir'), 'info', 'exclude');
+  const listed = new Set([ALWAYS_LOCAL_EXCLUDE_COMMENT, ...ALWAYS_LOCAL_EXCLUDES]);
+  await writeFile(exclude, (await readFile(exclude, 'utf8')).split('\n').filter((line) => !listed.has(line)).join('\n'));
+  await writeFile(path.join(root, '.env'), 'API_KEY=Xq7mA2pLz9vB4xT\n');
+  assert.match(git('status', '--short'), /\.env/u);
+  const entry = cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout;
+  assert.doesNotMatch(entry, /PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED/u);
+  assert.doesNotMatch(entry, /set-aside/u);
+  assert.doesNotMatch(git('status', '--short'), /\.env/u);
+  assert.match(await readFile(path.join(root, '.env'), 'utf8'), /API_KEY/u, 'the person\'s file stays where it is');
 });

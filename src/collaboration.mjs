@@ -1,7 +1,7 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { rm } from 'node:fs/promises';
 import {
-  branch, changedFiles, changes, fetchRemote, hasUpstream, head, indexLockState, pullFastForward,
+  branch, changedFiles, changes, excludeAlwaysLocalNames, fetchRemote, hasUpstream, head, indexLockState, pullFastForward,
   refreshIndexEntries, storyIndexDrift
 } from './git.mjs';
 import { currentPhase } from './phase-generation.mjs';
@@ -189,6 +189,9 @@ export function watchText(item) {
 // recovery never offers a model-authored retry to a run that has no model.
 export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, inspectActivePhase = false,
   modelEnabled = operationContext()?.modelMode?.enabled !== false } = {}) {
+  // A person's `.env` is never a change to review, and setting it aside would delete it. A new Story's checkout can
+  // get here before anything else has listed these names, and this read has to see them listed.
+  excludeAlwaysLocalNames(root);
   return withWorktreeReadScope(() => readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspectActivePhase, modelEnabled }));
 }
 

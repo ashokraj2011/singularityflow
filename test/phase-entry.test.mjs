@@ -508,6 +508,8 @@ test('a question that arises after the checkpoint joins the same record until th
     await stage(`Later question ${recorded}?`);
     const added = invokeJson(...checkpoint.newQuestionAction.commandGuidance.argv.filter(arg => arg !== '--json'));
     assert.equal(added.outcome.slots.responses, recorded + 1, 'earlier answers are kept');
+    // A real chat stopped here and the person had to ask for the step again: recording is not the end of the turn.
+    assert.match(added.act.said, /Carry on in this same turn/u);
     resumed = invokeJson('phase', 'enter', '--compose', '--for-agent');
   }
   assert.equal(resumed.authoringAllowed, true, 'a later question never reopens the checkpoint');

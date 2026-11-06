@@ -388,7 +388,7 @@ export function agentAct(result) {
     return { ...withRoute({ state: 'next', said: null, do: null }, action), read: ['data.preparation.scope'] };
   }
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
-  const said = oneLine(result.reason ?? result.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
+  const said = oneLine(result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
     ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
   return withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);

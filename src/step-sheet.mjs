@@ -73,7 +73,7 @@ function effectOf(item, command, option) {
 }
 
 /** One way through an item: an option of the list, as the command that takes it and where it may run. */
-function stepOf(workflow, packet, item, option, { rows = [] } = {}) {
+function stepOf(workflow, packet, item, option, { rows = [], card = true } = {}) {
   const workId = workflow.workItem.id;
   const needs = option.needs ?? {};
   // A choice recorded on the list has no command of its own: the list's record command for it.
@@ -86,9 +86,10 @@ function stepOf(workflow, packet, item, option, { rows = [] } = {}) {
     if (fill && need?.default) fill.default = need.default;
     if (fill && need?.latest) fill.latest = need.latest;
   }
-  // The list's own question: is this option one a /sf-decide turn takes, or only the person's terminal?
-  const alone = option.recordable === false ? typeof option.action?.command === 'string' && commandLineWithoutSkill(option.action.command)
-    : !DECISION_LIST_CHAT_OPTIONS.includes(option.id) && !option.chat;
+  // The list's own question: is this option one a /sf-decide turn takes, on its card or in chat, or only
+  // the person's terminal? A host with no card (`card: false`) records in chat only what that turn may.
+  const alone = option.recordable === false ? typeof option.action?.command === 'string' && commandLineWithoutSkill(option.action.command) && !(card && option.action.humanReview)
+    : !card && !DECISION_LIST_CHAT_OPTIONS.includes(option.id) && !option.chat;
   return { id: option.id, label: option.label, effect: effectOf(item, command, option), fills, command,
     where: { copilot: item.kind === 'approval' ? `/sf-approve ${packet.phase} --work-id ${workId}` : item.routeSkill ? `${item.routeSkill} ${workId}` : alone ? null : `/sf-decide ${workId}`,
       terminal: true, vscode: item.kind === 'approval' ? 'singularityFlow.approve' : 'singularityFlow.decisions' },
@@ -96,13 +97,13 @@ function stepOf(workflow, packet, item, option, { rows = [] } = {}) {
 }
 
 /** A list item as a hold: its title and why, who clears it, and each of its options as a step. */
-function holdOfItem(workflow, packet, item, registry, codes, partyKind) {
+function holdOfItem(workflow, packet, item, registry, codes, partyKind, card) {
   const code = item.details?.code ?? codes[0] ?? null;
   const rows = item.details?.planRows ?? [];
   const key = item.details?.path ? `${item.kind}:${item.details.path}` : `${item.kind}:${code ?? item.details?.amendment ?? item.details?.clause ?? item.details?.scopeItem
     ?? item.details?.key ?? item.details?.appeal ?? item.details?.request ?? item.details?.issue ?? item.id}`;
   return { key, code, codes, item: item.id, source: sourceOf(code, !codes.length), title: item.title, why: item.why, clearedBy: partyOf(item.decidedBy, registry, partyKind),
-    steps: item.options.map((option) => stepOf(workflow, packet, item, option, { rows })) };
+    steps: item.options.map((option) => stepOf(workflow, packet, item, option, { rows, card })) };
 }
 
 /** An answer the approval's own form takes, or its signature in the person's terminal: no item of its own. */
@@ -137,7 +138,7 @@ function carriedCodes(checkHolds, items) {
  * The sheet for one step, from the packet decisionPacket built and the approval check it read.
  * `counts` is SF Guard's predicate on a Story that requires it (null elsewhere).
  */
-export function stepSheet(workflow, packet, { approvalCheck = null, authorities = null, actor = null, counts = null } = {}) {
+export function stepSheet(workflow, packet, { approvalCheck = null, authorities = null, actor = null, counts = null, card = true } = {}) {
   const phase = workflow.phases?.[packet.phase] ?? null;
   let registry = null;
   try { registry = normalizeApprovalAuthorities(authorities ?? workflow.resolution?.approvalAuthorities); } catch { registry = null; }
@@ -150,9 +151,9 @@ export function stepSheet(workflow, packet, { approvalCheck = null, authorities 
   const checkHolds = awaiting ? approvalCheck?.holds ?? [] : [];
   const { byItem, free } = carriedCodes(checkHolds, items);
   const partyKindOf = (item) => checkHolds.find((hold) => (byItem.get(item.id) ?? []).includes(hold.code))?.clearedBy?.kind;
-  const holds = [...items.filter(stops).filter((item) => item.kind !== 'approval').map((item) => holdOfItem(workflow, packet, item, registry, byItem.get(item.id) ?? [], partyKindOf(item))),
+  const holds = [...items.filter(stops).filter((item) => item.kind !== 'approval').map((item) => holdOfItem(workflow, packet, item, registry, byItem.get(item.id) ?? [], partyKindOf(item), card)),
     ...free.map((hold) => holdOfAnswer(hold, workflow))];
-  const owedLater = open.filter((item) => !stops(item)).map((item) => holdOfItem(workflow, packet, item, registry, [], null));
+  const owedLater = open.filter((item) => !stops(item)).map((item) => holdOfItem(workflow, packet, item, registry, [], null, card));
 
   const policy = phase?.approvalPolicy ?? {};
   const active = (phase?.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved');
@@ -174,16 +175,17 @@ export function stepSheet(workflow, packet, { approvalCheck = null, authorities 
 
   const share = (party) => ({ id: 'share', label: party.words, effect: 'reads', fills: [], command: `singularity-flow decisions ${workflow.workItem.id}`,
     where: { copilot: party.share ?? `/sf-decide ${workflow.workItem.id}`, terminal: true, vscode: 'singularityFlow.decisions' }, available: true, whyNotYet: null });
-  // A hold with several ways through has no answer chosen for the person: its way on is the list, where they choose.
+  // A hold with several ways through has no answer chosen for the person, and one whose command only their
+  // terminal runs is reached through the card: either way on is the list, where they choose.
   const firstStep = (hold) => {
     const open = hold.steps.filter((step) => step.available);
-    if (open.length < 2) return open[0] ?? null;
+    if (open.length < 2 && !(open[0]?.where.copilot && commandLineWithoutSkill(open[0].command))) return open[0] ?? null;
     return { id: 'choose', label: hold.title, effect: 'reads', fills: [], command: `singularity-flow decisions ${workflow.workItem.id}`,
       where: { copilot: open.some((step) => step.where.copilot) ? `/sf-decide ${workflow.workItem.id}` : null, terminal: true, vscode: 'singularityFlow.decisions' }, available: true, whyNotYet: null };
   };
   const mine = blocking.find((hold) => hold.clearedBy.includesViewer && firstStep(hold));
   const theirs = blocking[0] ?? null;
-  const approveStep = approvalItem ? stepOf(workflow, packet, approvalItem, approvalItem.options[0]) : null;
+  const approveStep = approvalItem ? stepOf(workflow, packet, approvalItem, approvalItem.options[0], { card }) : null;
   const owedStep = owedLater.map((hold) => (hold.clearedBy.includesViewer ? firstStep(hold) : null)).find(Boolean) ?? null;
   let next = null;
   let waitingFor = null;

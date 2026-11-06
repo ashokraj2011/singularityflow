@@ -240,6 +240,31 @@ test('next: a hold you can clear, else who to ask and what to share, else the ap
   assert.ok(SHEET_ON_PURPOSE.includes('copilot-names-this-steps-route'));
 });
 
+test('a sign-off goes through the card /sf-decide opens, and a host with no card is told its own terminal, as the list says', () => {
+  const workflow = story();
+  const review = { kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual-1', method: 'visual', files: ['shots/home.png'], owners: ['implementation'] };
+  const facts = { phaseId: 'implementation', approvalCheck: { ready: false, holds: [] }, pending: { owed: [{ kind: 'witness', ...review, clauseText: 'It works', available: true, groups: ['engineering'], command: 'singularity-flow decision witness W-1 --criterion W-1:AC-001 --slot visual-1' }] } };
+  const read = (card) => {
+    const packet = decisionPacket(workflow, facts, { authorities: AUTHORITIES, actor: ME, at: AT, card });
+    return { packet, sheet: stepSheet(workflow, packet, { approvalCheck: facts.approvalCheck, authorities: AUTHORITIES, actor: ME, card }) };
+  };
+  const onCard = read(true);
+  const [owed] = onCard.sheet.owedLater;
+  assert.equal(owed.steps[0].where.copilot, '/sf-decide W-1', 'a person\'s own command, answered on the card');
+  assert.equal(onCard.packet.record.copilotCommand, '/sf-decide W-1');
+  const noCard = read(false);
+  assert.equal(noCard.sheet.owedLater[0].steps[0].where.copilot, null, 'nothing a chat could do: their own terminal');
+  assert.equal(noCard.packet.record.copilotCommand, null);
+  // Held by it, with the approval waiting: next is the list on a card, and the person's own command with none.
+  const held = { ...facts, approvalCheck: { ready: false, holds: [{ code: 'STORY_COMPLETION_REFUSED', owner: 'someone-decides', who: 'The decision list names who decides each', summary: 'It cannot finish yet.', clearedBy: { kind: 'listed' }, action: { label: '', command: 'singularity-flow evidence matrix W-1 --json' } }] } };
+  const readHeld = (card) => {
+    const packet = decisionPacket(workflow, held, { authorities: AUTHORITIES, actor: ME, at: AT, card });
+    return stepSheet(workflow, packet, { approvalCheck: held.approvalCheck, authorities: AUTHORITIES, actor: ME, card }).next;
+  };
+  assert.deepEqual([readHeld(true).id, readHeld(true).command, readHeld(true).where.copilot], ['choose', 'singularity-flow decisions W-1', '/sf-decide W-1']);
+  assert.deepEqual([readHeld(false).command, readHeld(false).where.copilot], ['singularity-flow decision witness W-1 --criterion W-1:AC-001 --slot visual-1', null]);
+});
+
 test('a blank is declared, with its limits and choices, and a value the system knows is filled', () => {
   assert.deepEqual(commandWithFills('singularity-flow decision plan W-1 --add-location <clause>=src/a.mjs --reason "<why>"',
     { needs: { reason: { minimum: 20, maximum: 1000 } }, choices: { clause: [{ id: 'W-1:REQ-001' }] } }), {

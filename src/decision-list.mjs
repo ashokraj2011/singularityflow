@@ -424,8 +424,8 @@ function testRiskItem(workflow, context, risk) {
 
 /**
  * One choice for a Node that does not suit the tests: a person pins an installed one, and that one
- * answer creates the file and accounts for it in the plan (src/node-pin.mjs). Before any run it is offered
- * beside what waits; after a failed run it is what the step waits on.
+ * answer creates the file and accounts for it in the plan (src/node-pin.mjs). Before any run it is listed
+ * and stops nothing; after a failed run it is what the step waits on.
  */
 function nodePinItem(workflow, context, pin) {
   const name = stepName(workflow, pin.phase);
@@ -961,7 +961,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(pending.appeals ?? []).map((appeal) => appealItem(workflow, context, appeal)),
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
-    ...(facts.nodePin?.stage === 'failed' ? [nodePinItem(workflow, context, facts.nodePin)] : []),
+    ...(facts.nodePin ? [nodePinItem(workflow, context, facts.nodePin)] : []),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
     ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
@@ -1004,8 +1004,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
   }
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
-  const offered = [...(facts.nodePin?.stage === 'early' ? [nodePinItem(workflow, context, facts.nodePin)] : []),
-    ...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : [])].map((item, index) => ({ id: `d${items.length + index + 1}`, ...item,
+  const offered = (facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []).map((item, index) => ({ id: `d${items.length + index + 1}`, ...item,
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false }));
   if (door) items.unshift({ id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true });
   // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
@@ -1030,7 +1029,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const decisions = items.filter((item) => item.kind !== 'approval' && !item.machine);
   // What stops this step: what holds its approval; before it is submitted, everything but a sign-off
   // owed to the Story's ending (a test-run risk stops the submission, a sign-off stops nothing here).
-  const stopsStep = (item) => item.holdsApproval || (!awaiting && item.kind !== 'owed-decision');
+  // A Node that would not suit the tests is said before any run, and nothing waits on it until one fails.
+  const stopsStep = (item) => item.holdsApproval || (!awaiting && item.kind !== 'owed-decision' && item.details?.stage !== 'early');
   const holdingAll = decisions.filter(stopsStep).length;
   const others = decisions.length - holdingAll;
   const headline = !decisions.length && awaiting ? `${stepName(workflow, phaseId)} has nothing left to decide; its approval is next.`

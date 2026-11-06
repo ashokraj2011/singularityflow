@@ -1,16 +1,5 @@
 {
   "walks": {
-    "node-version": {
-      "read-only-route:CODE_TEST_FAILED": "Its routes are /sf-recover and /sf-logs, which read. A .nvmrc would change the Node the tests run on, and no route names it.",
-      "loop:CODE_TEST_FAILED": "recover sends it back to publish with nothing changed, so the same test fails on the same state.",
-      "exhausted:CODE_TEST_FAILED": "SFlow escalates after the repeats, but the escalation names no command a person can run."
-    },
-    "chain-under-another-node": {
-      "loop:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "Refused in /sf-code with /sf-code as its route: the turn it names refuses the same call, and an agent has no allowed way to try another Node.",
-      "read-only-route:CODE_TEST_FAILED": "After the guard, the walk meets the same test failure as node-version, with the same read-only routes.",
-      "loop:CODE_TEST_FAILED": "After the guard, the walk meets the same loop as node-version.",
-      "exhausted:CODE_TEST_FAILED": "After the guard, the walk ends as node-version does, with no command for a person."
-    },
     "appeal-for-a-file-not-there-yet": {
       "read-only-route:PHASE_APPEAL_PATH_UNSUPPORTED": "Its routes are /sf-recover and /sf-phase-documents, which read. Neither says to create the file.",
       "goal-lost:PHASE_APPEAL_PATH_UNSUPPORTED": "recover leads to /sf-code, and publishing goes ahead without the pin the person chose: their choice is lost."
@@ -29,9 +18,6 @@
     },
     "dirty-checkout-at-approval": {
       "read-only-route:LIFECYCLE_WORKTREE_REVIEW_REQUIRED": "The refusal names only /sf-recover, and 3 of 3 real sessions ended there. recover does name the person's set-aside, one step later than it should."
-    },
-    "test-fails-for-a-real-bug": {
-      "read-only-route:CODE_TEST_FAILED": "The same refusal as node-version: its own routes read. Here recover then names /sf-code, and a fix there gets through, so the way out is one step later than it should be."
     },
     "ending-with-items-open": {
       "person-route-refused:STORY_TERMINAL_READINESS_REFUSED": "The preview says no unresolved blockers and to confirm this digest, and the confirmation is then refused by the final check. The person learns of the open obligations only after confirming."
@@ -77,12 +63,6 @@
         "CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED",
         "CHANGE_SET_POLICY_VIOLATION",
         "CLARIFICATION_MODE_OFF",
-        "CODE_TEST_FAILED",
-        "CODE_TEST_RESULT_REQUIRED",
-        "CODE_TEST_SKIPPED",
-        "CODE_TEST_SUPPRESSED",
-        "CODE_TEST_TIMEOUT",
-        "CODE_TEST_ZERO_DISCOVERED",
         "COMMAND_REMOVED",
         "CONFIGURATION_APPROVE_NOTHING",
         "CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED",
@@ -130,7 +110,6 @@
         "PRODUCT_ALIGNMENT_STEP_FAILED",
         "PRODUCT_ALIGNMENT_VERIFICATION_FAILED",
         "PUBLICATION_SET_ASIDE_REFUSED",
-        "QUALITY_COMMAND_SOURCE_MUTATION",
         "REMOTE_UNKNOWN",
         "REPAIR_BUDGET_EXHAUSTED",
         "REPOSITORY_ONBOARDING_MIGRATION_SOURCE_MISSING",

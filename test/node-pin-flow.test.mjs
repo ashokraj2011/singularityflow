@@ -49,11 +49,13 @@ async function failingOnThisNode(t) {
 test('a failed run on the wrong Node leads to one choice, and choosing it clears the gate', { ...posix, ...slowLane({ timeout: 480_000 }) }, async (t) => {
   const { root, run, json } = await failingOnThisNode(t);
 
-  // Early: the choice is offered, and nothing waits on it.
+  // Early: the choice is listed, and nothing waits on it.
   const early = json('decisions', 'QF-1').value.data;
-  assert.deepEqual(early.items.filter((item) => item.kind === 'node-pin'), []);
-  const offered = early.offered.find((item) => item.kind === 'node-pin');
-  assert.ok(offered, 'offered before any run');
+  const offered = early.items.find((item) => item.kind === 'node-pin');
+  assert.ok(offered, 'listed before any run');
+  assert.equal(offered.details.stage, 'early');
+  assert.equal(offered.holdsApproval, false);
+  assert.match(early.headline, /has 1 open decision; none holds its approval\./u, 'it stops nothing');
   assert.equal(offered.options.length, 1, 'one choice');
   assert.equal(offered.options[0].id, 'pin-node');
   assert.match(offered.options[0].label, /^Pin Node 22: create \.nvmrc and amend the plan$/u);
@@ -73,7 +75,11 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   assert.match(steps[0].copilotCommand, /^\/sf-decide/u);
   const listed = json('decisions', 'QF-1').value.data;
   const item = listed.items.find((entry) => entry.kind === 'node-pin');
-  assert.ok(item, 'after the failed run the step waits on it');
+  assert.equal(item.details.stage, 'failed', 'after the failed run the step waits on it');
+  assert.match(listed.headline, /needs 1 decision/u);
+  // Counted wherever a person looks, on the read paths that resolve no test command unless a run failed.
+  const nextSteps = json('nextsteps').value;
+  assert.match(JSON.stringify(nextSteps), /\/sf-decide QF-1|singularity-flow decisions QF-1/u, 'next steps lead to it');
 
   // Whether it passes can be asked, with nothing recorded and the checkout as it was.
   const tried = json('tests', 'node', '--work-id', 'QF-1', '--phase', 'implement', '--node', '22');
@@ -102,7 +108,6 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   const shown = json('decisions', 'QF-1').value.data;
   assert.ok(shown.recorded.some((entry) => /\.nvmrc accounted for/u.test(entry.summary)), JSON.stringify(shown.recorded));
   assert.equal(shown.items.some((entry) => entry.kind === 'node-pin'), false, 'the choice is gone once made');
-  assert.equal(shown.offered?.some((entry) => entry.kind === 'node-pin') ?? false, false);
 
   // The same gate now runs on the pinned Node and passes.
   const published = run('phase', 'publish', 'implement');

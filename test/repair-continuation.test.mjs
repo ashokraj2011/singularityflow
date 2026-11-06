@@ -69,7 +69,7 @@ test('publication failures expose a diagnosis/repair/verification loop and prese
   assert.equal(loop.status, 'diagnose');
   assert.equal(loop.currentTurnRepair, true);
   assert.equal(loop.mutationAuthorityGranted, false);
-  assert.equal(loop.nextCommand, 'singularity-flow recover W-1 --phase custom-delivery --json');
+  assert.equal(loop.nextCommand, 'singularity-flow phase prepublish custom-delivery --for-agent --json --publish-if-ready', 'the repair and the same gate, not a read');
   assert.equal(loop.automaticRiskAcceptance, false);
   const act = agentAct(envelope);
   assert.equal(act.state, 'repair');

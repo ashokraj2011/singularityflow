@@ -4323,6 +4323,10 @@ async function attachRequiredTestExecution(error, root, command, check, { workId
     if (pin) {
       refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words };
       refusal.message += ` ${pin.words} A person can choose Pin Node ${pin.version} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It creates ${pin.file} and amends the plan in one step.`;
+    } else {
+      // Nothing here says the Node is at fault, but another one is installed: a command answers that, with no chain of shell commands.
+      const other = await (await import('./node-pin.mjs')).otherInstalledNode(root, command).catch(() => null);
+      if (other) refusal.details.otherNode = other;
     }
   }
   return refusal;

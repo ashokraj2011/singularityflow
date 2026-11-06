@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -24,10 +25,24 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dead-ends.json'), 'utf8'));
 // Lowered as entries go. Raising one is a decision a reviewer sees, not a line in a long list.
-const CEILING = Object.freeze({ walks: 18, readOnlyFirstRoutes: 181 });
+const CEILING = Object.freeze({ walks: 10, readOnlyFirstRoutes: 174 });
 
 const MAJOR = process.versions.node.split('.')[0];
-const failingOnThisNode = `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.notEqual(process.versions.node.split('.')[0], '${MAJOR}'); });\n`;
+// A Node this machine does not run, as a small script that runs the real one (project-node-version.test.mjs), and a
+// package that asks for it: the run fails on the Node here and passes on that one, on any machine.
+const OTHER_MAJOR = Number(MAJOR) + 100;
+const onTheWrongNode = async (story) => {
+  const home = path.join(story.parent, 'other-node');
+  const directory = path.join(home, 'versions', 'node', `v${OTHER_MAJOR}.0.0`, 'bin');
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'node'), `#!/bin/sh\nif [ "$1" = --version ]; then echo v${OTHER_MAJOR}.0.0; exit 0; fi\nFAKE_NODE=${OTHER_MAJOR} exec '${process.execPath}' "$@"\n`);
+  await chmod(path.join(directory, 'node'), 0o755);
+  story.env = { NVM_DIR: home };
+  await story.write('package.json', JSON.stringify({ type: 'module', private: true, engines: { node: `>=${OTHER_MAJOR}` }, scripts: { test: 'node --test' } }));
+  await story.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.equal(process.env.FAKE_NODE, '${OTHER_MAJOR}'); });\n`);
+  const why = 'The package now says which Node its tests need.';
+  story.cli('decision', 'plan', WORK, '--add-supporting', 'package.json=build-configuration', '--supporting-reason', why, '--reason', why);
+};
 const published = (result) => result?.publishIfReady?.published === true || (result?.resultType === 'sflow-phase-publication' && result?.status === 'published');
 const PREPUBLISH = 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready';
 const prepared = (result) => Boolean(result?.data?.packet);
@@ -46,13 +61,13 @@ const SCENARIOS = Object.freeze([
     start: `singularity-flow approve release --work-id ${WORK} --yes --json`,
     reasons: { CONFORMANCE_BLOCKING_VERDICTS: { mustNotMatch: /raise one against/u, mustMatch: /reads it satisfied/u, because: 'the record reads these clauses satisfied, so nothing shows the step before it at fault' } } },
   { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
-    setup: (story) => story.write('test/value.test.mjs', failingOnThisNode), start: PREPUBLISH, reached: published },
+    setup: onTheWrongNode, start: PREPUBLISH, reached: published },
   { id: 'test-fails-for-a-real-bug', meets: 'CODE_TEST_FAILED', real: 'the same refusal when the code is at fault: a route that can change the state has a way through',
     setup: (story) => story.write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 3;\n`), start: PREPUBLISH, reached: published,
     writes: { '/sf-code': { 'src/value.mjs': `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 2;\n` } } },
   { id: 'chain-under-another-node', meets: 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED', real: 'a real Story: the same check, tried under another Node with a PATH prefix',
-    setup: (story) => story.write('test/value.test.mjs', failingOnThisNode), reached: published,
-    guard: { prompt: '/sf-code', toolArgs: { command: `PATH="/opt/tool/node@22/bin:$PATH" ${PREPUBLISH}` } } },
+    setup: onTheWrongNode, reached: published,
+    guard: { prompt: '/sf-code', toolArgs: { command: `PATH="/opt/tool/node@${OTHER_MAJOR}/bin:$PATH" ${PREPUBLISH}` } } },
   { id: 'plan-hold-on-unnamed-path', meets: 'ask-person', real: 'a changed path no plan row names', setup: unplannedHelper, start: PREPUBLISH, reached: published,
     answers: { CLAUSE: `${WORK}:AC-001`, why: 'The small helper implements the already approved return value.' } },
   { id: 'appeal-for-a-file-not-there-yet', meets: 'PHASE_APPEAL_PATH_UNSUPPORTED', real: 'a real Story: the person chose a pin, and the appeal blamed protected paths', reached: prepared,

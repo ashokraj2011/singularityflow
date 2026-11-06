@@ -748,11 +748,14 @@ export async function run(_argv, { positionals, options = {} }) {
     const result = await nodeStory(root, options);
     const { nodeTryWords } = await import('../node-pin.mjs');
     const told = await nodeTryWords(root, result.workId, result.version);
-    if (json) console.log(JSON.stringify({ ...result, passed: told?.passed === true, words: told?.words ?? null }, null, 2));
+    // What the answer leads to: a person's choice when it passes there, and the step's own repair when it does not.
+    const next = told?.passed ? [{ command: `singularity-flow decisions ${result.workId}`, skill: '/sf-decide', label: `A person chooses Pin Node ${result.version}.` }]
+      : [{ command: `singularity-flow phase prepublish ${result.phase} --for-agent --json --publish-if-ready`, skill: '/sf-code', label: 'It fails there too, so the Node is not what stops it: repair it in this step.' }];
+    if (json) console.log(JSON.stringify({ ...result, passed: told?.passed === true, words: told?.words ?? null, next }, null, 2));
     else {
       console.log(`${result.workId} step ${result.phase}, on Node ${result.node}. This is a fact for a person: it is not evidence and refuses nothing.`);
       for (const entry of result.results) console.log(`  ${entry.commandId}: ${entry.status}${entry.tests ? `, ${entry.tests.passed} of ${entry.tests.discovered} passed` : ''}${entry.why ? ` (${entry.why})` : ''}`);
-      if (told?.passed) console.log(`To run them on it from now on, a person chooses Pin Node ${result.version}: singularity-flow decisions ${result.workId}`);
+      console.log(next[0].label);
     }
     return result;
   }

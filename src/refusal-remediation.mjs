@@ -251,13 +251,22 @@ function requiredTestFailureSteps(argv, error) {
   const context = phaseRemediationContext(argv, error);
   const failure = requiredTestExecutionForRefusal(error)?.failure;
   const pin = error?.details?.nodePin;
+  const other = error?.details?.otherNode;
+  const tryNode = (version) => step('try-node-version',
+    `Find out whether the tests pass on Node ${version}: it runs them once on a throwaway copy of this checkout and records nothing as evidence.`,
+    `singularity-flow tests node --work-id ${context.workId} --phase ${context.phaseId} --node ${version}`, 'diagnostic');
   return [
     ...(pin && context?.workId ? [step('pin-node-version',
       `A person chooses Pin Node ${pin.version}: ${pin.words} Node ${pin.node} is installed here. Choosing it creates ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
       `singularity-flow decisions ${context.workId}`, 'remediation', '/sf-decide'),
-    step('try-node-version',
-      `Find out whether the tests pass on Node ${pin.version}: it runs them once on a throwaway copy of this checkout and records nothing as evidence.`,
-      `singularity-flow tests node --work-id ${context.workId} --phase ${context.phaseId} --node ${pin.version}`, 'diagnostic')] : []),
+    tryNode(pin.version)] : []),
+    // What clears a failed test is repairing it here and running the same gate, so that comes before any read.
+    step('repair-required-test',
+      failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
+      context?.phaseId ? `singularity-flow phase prepublish ${context.phaseId} --for-agent --json --publish-if-ready` : null, 'remediation', context?.phaseId ? '/sf-code' : null),
+    testRunRiskStep(error),
+    ...(!pin && other && context?.workId ? [tryNode(other.version)] : []),
+    baseComparisonStep(argv, error, context),
     step('recover-required-test',
       'Inspect the refused phase and its saved test evidence before changing or retrying it.',
       context?.recoveryCommand ?? 'singularity-flow recover --json',
@@ -265,12 +274,7 @@ function requiredTestFailureSteps(argv, error) {
     step('read-saved-test-log',
       'Read the saved error log for the exact failed execution; do not reconstruct a secret-bearing configured command.',
       'singularity-flow logs --level error --tail 20',
-      'diagnostic', '/sf-logs'),
-    step('repair-required-test',
-      failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
-      null, 'remediation'),
-    baseComparisonStep(argv, error, context),
-    testRunRiskStep(error)
+      'diagnostic', '/sf-logs')
   ].filter(Boolean);
 }
 
@@ -2242,6 +2246,7 @@ export function refusalDetails(details) {
         commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
         summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
   }
+  if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
   if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null };
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',

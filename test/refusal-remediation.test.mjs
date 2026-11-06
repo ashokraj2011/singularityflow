@@ -545,9 +545,12 @@ test('failed-test refusal points to saved diagnostics and permits same source on
   });
   const envelope = refusalEnvelope(error, ['phase', 'publish', 'implementation', '--json']);
   const plan = envelope.remediationPlan;
-  assert.equal(plan.steps[0].command, 'singularity-flow recover STORY-1 --phase implementation --json');
-  assert.equal(plan.steps[1].command, 'singularity-flow logs --level error --tail 20');
-  assert.match(plan.steps[2].label, /Install the repository-declared test dependencies/u);
+  // The first route changes the state: the repair and the same gate. What reads comes after it.
+  assert.equal(plan.steps[0].command, 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready');
+  assert.equal(plan.steps[0].skill, '/sf-code');
+  assert.match(plan.steps[0].label, /Install the repository-declared test dependencies/u);
+  const commands = plan.steps.map((step) => step.command);
+  assert.ok(commands.includes('singularity-flow recover STORY-1 --phase implementation --json'));
   assert.match(plan.retry.label, /same source may then be rechecked/u);
   assert.equal(plan.retry.automatic, false);
   assert.equal(envelope.error.requiredTestExecution.report.gateEligible, false);
@@ -572,7 +575,7 @@ test('source mutation diagnostic is projected and never presented as passing evi
   const envelope = refusalEnvelope(error, ['phase', 'submit', 'implementation', '--json']);
   assert.equal(envelope.error.requiredTestExecution.failure.kind, 'source-mutation');
   assert.equal(envelope.error.requiredTestExecution.report.gateEligible, false);
-  assert.match(envelope.remediationPlan.steps[2].label, /Review the exact source or test changes/u);
+  assert.match(envelope.remediationPlan.steps[0].label, /Review the exact source or test changes/u);
   assert.doesNotMatch(JSON.stringify(envelope), /private-argv/u);
 });
 

@@ -630,6 +630,8 @@ export function argvAllowed(argv, mode, value) {
     && typeof options.reason === 'string' && /^[a-f0-9]{64}$/u.test(options.confirm ?? '')
     && positionals.length === 3
     && Object.keys(options).every(key => ['work-id', 'finding', 'reason', 'confirm', 'json'].includes(key));
+  // A person deciding on the Node may ask whether the tests pass on it, or fail without the change: neither records anything.
+  if (mode === 'decision-only' && positionals[0] === 'tests' && ['node', 'base'].includes(positionals[1])) return !value.decisionEnded && (!options['work-id'] || options['work-id'] === value.contract.workId);
   // /sf-decide continues into the approval when only the approval is left [SPEC-OAP M4]: the same
   // receipt-bound commands a /sf-approve turn runs, for the bound Story, recording only the
   // upstream-issue options a chat turn may with the approval.
@@ -667,7 +669,7 @@ export function argvAllowed(argv, mode, value) {
   // application block draft `app suggest` issued to this turn (a local map, or a reviewed proposal).
   if (mode === 'run-and-test') return (positionals[0] === 'app-review' && ['start', 'inspect', 'accept', 'recheck', 'defer', 'close', 'feedback', 'repair', 'repair-result', 'capture', 'browser'].includes(positionals[1]))
     || (positionals[0] === 'app' && ['start', 'stop'].includes(positionals[1]))
-    || (positionals[0] === 'tests' && positionals[1] === 'run')
+    || (positionals[0] === 'tests' && ['run', 'base', 'node'].includes(positionals[1]))
     // Which tests a Story runs is anyone's to change, an agent's too (owner, 2026-11-06) [TCE:REQ-090].
     || (positionals[0] === 'story' && positionals[1] === 'test-policy' && positionals[2] === 'scope')
     || (positionals[0] === 'app' && positionals[1] === 'config' && positionals[2] === 'save-local' && positionals.length === 3
@@ -922,6 +924,19 @@ function signOff(positionals) {
   return positionals[0] === 'decision' && ['witness', 'risk', 'witness-exception'].includes(positionals[1]);
 }
 /** The denied command's own route, for the person's terminal: its Shell line and no Copilot route. */
+/** `PATH=".../node@22/bin:$PATH" singularity-flow ...`, for a turn on a Story: what it was asking, and the command that answers it. */
+function commandUnderAnotherNode(call, contract) {
+  const command = String(call.args?.command ?? call.args?.cmd ?? '');
+  const prefix = /^\s*(?:env\s+)?PATH=(?:"([^"]*)"|'([^']*)'|(\S*))\s+(?:[^\s=]+=\S*\s+)*singularity-flow\b/u.exec(command);
+  if (!prefix || !contract?.workId) return null;
+  const major = /(?:node@|node-?v?|\/v)(\d{1,4})(?=[./\\:]|$)/iu.exec(prefix[1] ?? prefix[2] ?? prefix[3] ?? '')?.[1] ?? null;
+  const route = major ? safeCommandGuidance({ argv: ['tests', 'node', '--work-id', contract.workId, ...(contract.phaseId ? ['--phase', contract.phaseId] : []), '--node', major] }) : null;
+  // This turn runs it: no other turn to go to.
+  return { routes: route ? [{ ...route, skill: null, copilotCommand: null }] : [],
+    reason: 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: another Node on PATH does not get past a gate; only its own run counts, on the Node this repository names. '
+      + `${major ? `To find out whether the tests pass on Node ${major}, run the command below: it records nothing as evidence.` : 'singularity-flow tests node --work-id <WORK-ID> --node <MAJOR> finds out whether the tests pass on another installed Node, and records nothing as evidence.'} A person pins it on /sf-decide` };
+}
+
 function personRoute(call, value) {
   const safe = verifiedShellForm(call, value);
   const guidance = safe ? safeCommandGuidance({ argv: safe.argv }) : null;
@@ -1935,6 +1950,9 @@ async function mutationToolDecision(payload, record) {
             OWN_ROUTE_TURNS.has(contract.turnMode) ? {} : { routes: [] });
         if (upstreamIssueDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');
+        // A gate under another Node on PATH: refused as ever, since only the gate's own run counts, with the command that answers what it was asking.
+        const otherNode = commandUnderAnotherNode(call, contract);
+        if (otherNode) return mutationDenial(contract, otherNode.reason, [], { routes: otherNode.routes });
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }

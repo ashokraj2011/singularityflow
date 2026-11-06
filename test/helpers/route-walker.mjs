@@ -293,7 +293,7 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
     // Every command accepts these, and only their output carries `act`.
     for (const flag of ['--for-agent', '--json']) if (!argv.includes(flag)) argv.push(flag);
     if (person) for (const flag of scenario.personFlags ?? []) if (!argv.includes(flag)) argv.push(flag);
-    const output = spawn(process.execPath, [CLI, '--no-model', ...argv], story.root);
+    const output = spawn(process.execPath, [CLI, '--no-model', ...argv], story.root, story.env ?? {});
     let parsed = parseOutput(output.stdout);
     if (parsed) { try { parsed = completeAgentResult(parsed); } catch { /* the view is what it returned */ } }
     return { output, parsed, filled };

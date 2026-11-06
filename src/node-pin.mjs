@@ -42,10 +42,15 @@ export async function keepNodeTry(root, workId, answer) {
   await writeFile(file, `${JSON.stringify(answer, null, 2)}\n`, { mode: 0o600 });
 }
 
+const nodeTry = async (root, workId) => {
+  const answer = await readFile(answerPath(root, workId), 'utf8').then(JSON.parse, () => null);
+  return Array.isArray(answer?.results) ? answer : null;
+};
+
 /** What `tests node` last found for this version, as a sentence for a person; null when nothing was asked. */
 export async function nodeTryWords(root, workId, version, { head = null } = {}) {
-  const answer = await readFile(answerPath(root, workId), 'utf8').then(JSON.parse, () => null);
-  if (answer?.version !== version || !Array.isArray(answer.results)) return null;
+  const answer = await nodeTry(root, workId);
+  if (answer?.version !== version) return null;
   const counts = answer.results.map((entry) => (entry.tests ? `${entry.tests.passed} of ${entry.tests.discovered} passed` : entry.status)).join(', ');
   const passed = answer.results.length > 0 && answer.results.every((entry) => entry.status === 'passed');
   const later = head && answer.head !== head ? ' The code has been committed since, so that answer may be out of date.' : '';
@@ -84,16 +89,40 @@ export async function nodePinOffer(root, commands, { attempts = [], environment 
     words: `The latest run of ${failed.commandId} stopped because the toolchain here is not the version the build needs${running ? `: this machine runs Node ${running}` : ''}.` };
 }
 
+/** Another major version installed here, for a Node runner's failed run; null when there is none or the repository already pins one. */
+export async function otherInstalledNode(root, command, { environment = process.env } = {}) {
+  const { runnerFamily, nodeVersion } = await import('./test-toolchain.mjs');
+  if (runnerFamily(command) !== 'node' || await lstat(path.join(root, NODE_PIN_FILE)).then(() => true, () => false)) return null;
+  const { installedNodeVersions } = await import('./project-node-version.mjs');
+  const running = await nodeVersion('node', { cwd: root, environment }).catch(() => null);
+  const other = (await installedNodeVersions(environment).catch(() => [])).find((version) => version.split('.')[0] !== String(running ?? '').split('.')[0]);
+  return other ? { version: other.split('.')[0], node: other } : null;
+}
+
 /** The pin to offer for an open code step of a Story, as the decision list and recovery read it; null when there is none. */
-export async function storyNodePin(root, config, workflow, phase, { environment = process.env, known = null } = {}) {
+export async function storyNodePin(root, config, workflow, phase, { environment = process.env, known = null, failedOnly = false } = {}) {
   if (phase?.status !== 'in_progress' || phase.generationIntent?.status !== 'open') return null;
-  const [{ resolveStoryLocalTestCommands }, { latestStepAttempts }, { workDirRelative }, { head }] = await Promise.all([
-    import('./local-test-runs.mjs'), import('./verification/attempts.mjs'), import('./story-paths.mjs'), import('./git.mjs')]);
-  const commands = known ?? (await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id }).catch(() => ({ commands: [] }))).commands;
+  const [{ latestStepAttempts }, { workDirRelative }, { head }] = await Promise.all([
+    import('./verification/attempts.mjs'), import('./story-paths.mjs'), import('./git.mjs')]);
   const workId = workflow.workItem.id;
   const latest = await latestStepAttempts(root, workDirRelative(config, workId), workId, phase.id).catch(() => new Map());
-  const offer = await nodePinOffer(root, commands, { attempts: [...latest.values()], environment });
-  if (!offer) return null;
-  const tried = await nodeTryWords(root, workId, offer.version, { head: head(root) }).catch(() => null);
-  return { ...offer, phase: phase.id, ...(tried ? { tried } : {}) };
+  const attempts = [...latest.values()];
+  // A count on a read path: nothing failed, so nothing waits on a pin, and no test command is resolved to say so.
+  if (failedOnly && !attempts.some((attempt) => attempt.status !== 'passed')) return null;
+  const { resolveStoryLocalTestCommands } = await import('./local-test-runs.mjs');
+  const commands = known ?? (await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id }).catch(() => ({ commands: [] }))).commands;
+  const offer = await nodePinOffer(root, commands, { attempts, environment });
+  const current = head(root);
+  if (offer) {
+    const tried = await nodeTryWords(root, workId, offer.version, { head: current }).catch(() => null);
+    return { ...offer, phase: phase.id, ...(tried ? { tried } : {}) };
+  }
+  // No file says the Node is at fault, but the same tests fail here and pass on another installed one: that is what `tests node` found.
+  const answer = await nodeTry(root, workId).catch(() => null);
+  const failed = answer?.head === current && attempts.find((attempt) => attempt.status !== 'passed' && answer.results.some((entry) => entry.commandId === attempt.commandId));
+  if (!failed || !answer.results.every((entry) => entry.status === 'passed') || await lstat(path.join(root, NODE_PIN_FILE)).then(() => true, () => false)) return null;
+  if (!await installedNodeOfMajor(answer.version, environment)) return null;
+  const tried = await nodeTryWords(root, workId, answer.version, { head: current }).catch(() => null);
+  return { file: NODE_PIN_FILE, version: answer.version, node: answer.node, running: null, stage: 'failed', commandId: failed.commandId, phase: phase.id, ...(tried ? { tried } : {}),
+    words: `The latest run of ${failed.commandId} failed here, and the same tests pass on Node ${answer.node}.` };
 }

@@ -239,7 +239,8 @@ export function repairContinuationForTestFailure(context, execution) {
     transition: context.operation, status: approval ? 'owner-action' : 'diagnose',
     commandId: execution.commandId, failureKind: execution.failure?.kind ?? 'unknown',
     reportSha256: execution.report?.sha256 ?? null,
-    nextCommand: context.recoveryCommand,
+    // What clears it is the repair and the same gate; recovery reads, and comes after (remediationPlan.steps).
+    nextCommand: approval ? context.recoveryCommand : `singularity-flow phase prepublish ${context.phaseId} --for-agent --json --publish-if-ready`,
     retryCommand: context.retryCommand ?? null,
     currentTurnRepair: !approval, mutationAuthorityGranted: false, testsPassed: false, phaseAdvanced: false,
     instruction: approval ? 'End this approval turn with the exact owner/return route. Diagnose and repair in an authorized authoring turn; never approve, reject or waive on behalf of the human.'

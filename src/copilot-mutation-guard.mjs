@@ -923,6 +923,13 @@ function signOff(positionals) {
   return positionals[0] === 'decision' && ['witness', 'risk', 'witness-exception'].includes(positionals[1]);
 }
 /** The denied command's own route, for the person's terminal: its Shell line and no Copilot route. */
+/** The first command of a chain, as a route; null when it is not one whole SFlow command. Quotes are kept whole. */
+function firstChainedCommand(call) {
+  const command = String(call.args?.command ?? call.args?.cmd ?? '');
+  const first = /^\s*((?:[^'"&;|\n]|'[^']*'|"(?:[^"\\]|\\.)*")+?)\s*(?:&&|\|\||;|\n)/u.exec(command)?.[1] ?? null;
+  return first && /^singularity-flow\s/u.test(first) ? safeCommandGuidance({ command: first }) : null;
+}
+
 /** `PATH=".../node@22/bin:$PATH" singularity-flow ...`, for a turn on a Story: what it was asking, and the command that answers it. */
 function commandUnderAnotherNode(call, contract) {
   const command = String(call.args?.command ?? call.args?.cmd ?? '');
@@ -1906,7 +1913,11 @@ async function mutationToolDecision(payload, record) {
         const chained = verifiedShellForm(call, value) ? null : personStepOfCall(call, payload.cwd);
         // The turn that owns the decision may record it, one command at a time. Calling a chain "never an
         // agent's" and "do not retry" lost four answers the person had just given (2026-11-06).
-        if (chained?.owners?.includes(skillName(record.skill))) return mutationDenial(contract, CHAINED_OWNED_STEP_DENIAL, [], own());
+        if (chained?.owners?.includes(skillName(record.skill))) {
+          // The first of them as a route of its own: words alone left only a model able to act on it.
+          const first = firstChainedCommand(call);
+          return mutationDenial(contract, CHAINED_OWNED_STEP_DENIAL, [], first ? { routes: [{ ...first, skill: null, copilotCommand: null }] } : own());
+        }
         if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained);
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded

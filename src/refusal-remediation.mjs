@@ -247,6 +247,45 @@ function phaseContainmentSteps(context) {
   return [recover, show].filter(Boolean);
 }
 
+const shellWord = (word) => (/^[A-Za-z0-9_./:@%+=,<>-]+$/u.test(word) ? word : `'${String(word).replaceAll("'", `'"'"'`)}'`);
+const retriedCommand = (argv, extra = []) => ['singularity-flow', ...argv.filter((word) => word !== '--for-agent' && word !== '--json'), ...extra].map(shellWord).join(' ');
+
+/** What an appeal still needs, from what was typed; a person's list where it holds the same question. */
+function appealNeedsSteps(argv, error) {
+  const details = error?.details ?? {};
+  const needs = details.needs ?? [];
+  const workId = safeWorkId(details.workId);
+  const list = workId ? step('decide-unclaimed-paths', 'A person says where each changed path belongs on the decision list, with their reason; it records the plan amendment.',
+    `singularity-flow decisions ${workId}`, 'remediation', '/sf-decide') : null;
+  if (needs.includes('changes')) {
+    const phase = lowerKebab(details.phase);
+    const unclaimed = details.unclaimedPaths?.length > 0;
+    return [unclaimed ? list : null, step('name-appeal-location', 'Name the clause a changed path serves, and why the plan changes. It only prepares a packet for review: nothing is recorded.',
+      `singularity-flow appeal prepare${phase ? ` --phase ${phase}` : ''} --add-location <CLAUSE>=<PATH> --reason <REASON>`, 'remediation', '/sf-appeal'),
+    unclaimed ? null : phase ? step('continue-the-step', 'Nothing here needs an appeal: carry on with the step and its own check.',
+      `singularity-flow phase prepublish ${phase} --for-agent --json --publish-if-ready`, 'remediation', '/sf-code') : null];
+  }
+  if (needs.includes('supporting-reason')) {
+    return [step('name-appeal-supporting-reason', 'The same command, with the reason each supporting path needs.', retriedCommand(argv, ['--supporting-reason', '<WHY>']), 'remediation', '/sf-appeal'), list];
+  }
+  return [];
+}
+
+/** A file an appeal names that is not there yet: a person's pin where that is what it is, else create it and run the same command. */
+function appealMissingFileSteps(argv, error) {
+  const details = error?.details ?? {};
+  if (!details.missingPath) return [];
+  const pin = details.nodePin;
+  const workId = safeWorkId(details.workId);
+  return [pin && workId ? step('pin-node-version', `A person chooses Pin Node ${pin.version}: it creates ${pin.file} and amends the plan in one step, with their reason. An agent cannot record it.`,
+    `singularity-flow decisions ${workId}`, 'remediation', '/sf-decide') : null,
+  step('rerun-appeal-once-created', `Create ${details.missingPath}, then run this again: an appeal accounts for a change, and that file is not one yet.`, retriedCommand(argv), 'remediation', '/sf-appeal'),
+  // Who creates it: the turn that edits code.
+  Object.freeze({ ...step('create-appealed-file', `Create ${details.missingPath} in this step's own code turn.`, null, 'remediation'), skill: '/sf-code', copilotCommand: '/sf-code' })];
+}
+
+const APPEAL_ROUTES = Object.freeze({ PHASE_APPEAL_INVALID: appealNeedsSteps, PHASE_APPEAL_PATH_UNSUPPORTED: appealMissingFileSteps });
+
 function requiredTestFailureSteps(argv, error) {
   const context = phaseRemediationContext(argv, error);
   const failure = requiredTestExecutionForRefusal(error)?.failure;
@@ -1863,7 +1902,7 @@ export function refusalRemediationPlan(error, argv = []) {
   }
   const configurationProblemsBlocked = Array.isArray(error?.details?.configurationProblems)
     && error.details.configurationProblems.length > 0;
-  const known = (configurationProblemsBlocked ? configurationProblemSteps(error) : KNOWN[code]?.(argv, error) ?? []).filter(Boolean);
+  const known = (configurationProblemsBlocked ? configurationProblemSteps(error) : KNOWN[code]?.(argv, error) ?? APPEAL_ROUTES[code]?.(argv, error) ?? []).filter(Boolean);
   const sessionTransportBlocked = code === 'SESSION_STATE_REFRESH_UNAVAILABLE';
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   // A producer action that repeats a known step's exact command adds a second label, not a route.
@@ -2250,6 +2289,8 @@ export function refusalDetails(details) {
         commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
         summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
   }
+  if (Array.isArray(details.needs)) projected.needs = details.needs.map(String).slice(0, 5);
+  if (Array.isArray(details.unclaimedPaths)) projected.unclaimedPaths = details.unclaimedPaths.map(String).slice(0, 20);
   if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };
   if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
   if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null };

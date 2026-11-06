@@ -25,7 +25,7 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dead-ends.json'), 'utf8'));
 // Lowered as entries go. Raising one is a decision a reviewer sees, not a line in a long list.
-const CEILING = Object.freeze({ walks: 8, readOnlyFirstRoutes: 173 });
+const CEILING = Object.freeze({ walks: 0, readOnlyFirstRoutes: 173 });
 
 const MAJOR = process.versions.node.split('.')[0];
 // A Node this machine does not run, as a small script that runs the real one (project-node-version.test.mjs), and a
@@ -72,10 +72,14 @@ const SCENARIOS = Object.freeze([
     answers: { CLAUSE: `${WORK}:AC-001`, why: 'The small helper implements the already approved return value.' } },
   { id: 'appeal-for-a-file-not-there-yet', meets: 'PHASE_APPEAL_PATH_UNSUPPORTED', real: 'a real Story: the person chose a pin, and the appeal blamed protected paths', reached: prepared,
     start: "singularity-flow appeal prepare --phase implementation --add-supporting .nvmrc=build-configuration --supporting-reason 'Tests fail on this Node, so the repository pins one.' --reason 'The person chose a pinned Node version for this Story.' --for-agent --json",
+    writes: { PHASE_APPEAL_PATH_UNSUPPORTED: { '.nvmrc': '22\n' } },
     reasons: { PHASE_APPEAL_PATH_UNSUPPORTED: { mustMatch: /does not exist/u, mustNotMatch: /Protected paths/u, because: 'nothing here is protected: the file does not exist yet' } } },
   { id: 'appeal-with-no-changes-listed', meets: 'PHASE_APPEAL_INVALID', real: 'a real Story: a bare appeal prepare, which lost the choice', reached: prepared,
-    start: 'singularity-flow appeal prepare --phase implementation --for-agent --json' },
-  { id: 'appeal-with-no-supporting-reason', meets: 'SINGULARITY_FLOW_ERROR', real: 'SINGULARITY_FLOW_ERROR: 12 dead-end hits, the code with no plan of its own', reached: prepared,
+    setup: unplannedHelper, start: 'singularity-flow appeal prepare --phase implementation --for-agent --json',
+    answers: { CLAUSE: `${WORK}:AC-001`, PATH: 'src/helper.mjs', REASON: 'The small helper implements the already approved return value.' },
+    reasons: { PHASE_APPEAL_INVALID: { mustMatch: /needs what to account for[^]*src\/helper\.mjs/u, because: 'a bare prepare names what it needs and which paths' } } },
+  { id: 'appeal-with-no-supporting-reason', meets: 'PHASE_APPEAL_INVALID', real: 'SINGULARITY_FLOW_ERROR: 12 dead-end hits, the code with no plan of its own', reached: prepared,
+    setup: (story) => story.write('.nvmrc', '22\n'), answers: { WHY: 'Tests fail on this Node, so the repository pins one.' },
     start: "singularity-flow appeal prepare --phase implementation --add-supporting .nvmrc=build-configuration --reason 'The person chose a pinned Node version for this Story.' --for-agent --json" },
   { id: 'chain-in-the-decision-turn', meets: 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED', real: 'a chain refused inside the turn that owns the decision',
     guard: { prompt: `/sf-decide ${WORK}`, toolArgs: { command: `singularity-flow decision plan ${WORK} --add-location ${WORK}:AC-001=src/a.mjs --reason "The first file implements the clause." && singularity-flow decision plan ${WORK} --add-location ${WORK}:AC-001=src/b.mjs --reason "The second file implements the clause."` } } },

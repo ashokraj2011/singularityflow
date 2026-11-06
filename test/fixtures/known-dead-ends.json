@@ -1,22 +1,5 @@
 {
-  "walks": {
-    "appeal-for-a-file-not-there-yet": {
-      "read-only-route:PHASE_APPEAL_PATH_UNSUPPORTED": "Its routes are /sf-recover and /sf-phase-documents, which read. Neither says to create the file.",
-      "goal-lost:PHASE_APPEAL_PATH_UNSUPPORTED": "recover leads to /sf-code, and publishing goes ahead without the pin the person chose: their choice is lost."
-    },
-    "appeal-with-no-changes-listed": {
-      "read-only-route:PHASE_APPEAL_INVALID": "Its routes read, and none says which changes to list or where the list comes from.",
-      "goal-lost:PHASE_APPEAL_INVALID": "recover leads to /sf-code, and publishing goes ahead without the appeal that was asked for."
-    },
-    "appeal-with-no-supporting-reason": {
-      "read-only-route:SINGULARITY_FLOW_ERROR": "A missing option gets the generic code and plan, and its routes read. Only the message says what was missing.",
-      "goal-lost:SINGULARITY_FLOW_ERROR": "recover leads to /sf-code, and publishing goes ahead without the appeal that was asked for."
-    },
-    "chain-in-the-decision-turn": {
-      "no-route:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "The reason says in words to run the commands one at a time. Nothing returned names a command, so only a model can act on it.",
-      "exhausted:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "With no route returned, the walk ends where it started."
-    }
-  },
+  "walks": {},
   "readOnlyFirstRoutes": [
     {
       "route": "/sf-recover",

@@ -21,7 +21,7 @@ function riskRequest(options) {
     findings: optionStrings(options, 'finding'), evidence: optionStrings(options, 'evidence-file'),
     reason: optionString(options, 'reason'), confirm: optionString(options, 'confirm') };
 }
-function request(options) {
+function request(options, workId = null) {
   const split = (value, flag) => {
     const at = value.indexOf('=');
     if (at < 1) throw new SingularityFlowError(`${flag} needs an exact identity=path or path=class.`, { code: 'PHASE_APPEAL_INVALID' });
@@ -32,7 +32,10 @@ function request(options) {
     ...optionStrings(options, 'add-location').map(value => { const [clauseId, path] = split(value, '--add-location'); return { kind: 'add-location', clauseId, path }; }),
     ...optionStrings(options, 'add-supporting').map((value, index) => { const [path, kind] = split(value, '--add-supporting'); return { kind: 'add-supporting', path, class: kind, reason: reasons[index] ?? '' }; })
   ];
-  if (reasons.length !== changes.filter(entry => entry.kind === 'add-supporting').length) throw new SingularityFlowError('Give exactly one --supporting-reason for each supporting path.');
+  if (reasons.length !== changes.filter(entry => entry.kind === 'add-supporting').length) {
+    throw new SingularityFlowError(`Give exactly one --supporting-reason for each supporting path: ${changes.filter(entry => entry.kind === 'add-supporting').length} path(s), ${reasons.length} reason(s).`,
+      { code: 'PHASE_APPEAL_INVALID', details: { needs: ['supporting-reason'], workId } });
+  }
   return { phaseId: optionString(options, 'phase') ?? undefined, changes, reason: optionString(options, 'reason') ?? '', confirm: optionString(options, 'confirm') };
 }
 
@@ -100,7 +103,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (action === 'checkpoint') data = await withSubjectLock(root, { kind: 'story', id: workflow.workItem.id },
     () => createPhaseCheckpoint(root, config, workflow, phase));
   if (action === 'checkpoint-show') data = await inspectPhaseCheckpoint(root, workflow, phase, positionals[2]);
-  if (action === 'prepare') data = { status: 'review-required', packet: await preparePhaseAppeal(root, config, workflow, request(options)), stateChanged: false };
+  if (action === 'prepare') data = { status: 'review-required', packet: await preparePhaseAppeal(root, config, workflow, request(options, workflow.workItem.id)), stateChanged: false };
   if (action === 'submit') data = await submitPhaseAppeal(root, config, workflow, request(options));
   if (action === 'list') data = await phaseAppealStatus(root, config, workflow, optionString(options, 'phase') ? phase : null);
   if (action === 'show') {
@@ -128,6 +131,12 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     data = { ...inspection, journey: continuation.journey, continuation: {
       status: continuation.status, next: continuation.next, continuationAllowed: continuation.continuationAllowed,
       consumed: continuation.consumed, attemptsRemaining: continuation.attemptsRemaining } };
+    // No appeal is open, and a person's choice is what clears this step: say so, not /sf-code again (bin-opr2).
+    if (!data.appeals?.active?.length) {
+      const pin = await (await import('../node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: true }).catch(() => null);
+      if (pin) data = { ...data, nextStep: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide', copilotCommand: `/sf-decide ${workflow.workItem.id}`,
+        reason: `No appeal is open. What stops this step is a person's choice: ${pin.words} Pin Node ${pin.version} creates ${pin.file} and amends the plan in one step.` } };
+    }
   }
   const changed = data.stateChanged === true;
   const postState = action.startsWith('resolve') && action !== 'resolve'
@@ -139,6 +148,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       : { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'task-checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },
     ...(data.status === 'owner-required' ? { restState: 'blocked' } : {}),
+    ...(data.nextStep ? { next: [nextAction({ id: 'appeal.preflight.next', command: data.nextStep.command, skill: data.nextStep.skill, label: data.nextStep.reason, rank: 'NOW' })] } : {}),
     ...(action.startsWith('task-') && data.commandGuidance ? { next: [nextAction({ id: `task.${action}.next`,
       command: data.commandGuidance.command, skill: data.commandGuidance.skill,
       label: data.status === 'confirmation-required' ? 'Review the exact task metadata recovery.' : 'Resume the current task from fresh bindings.', rank: 'NOW' })] } : {}),

@@ -24,7 +24,13 @@ export async function helpCommand(positionals, options) {
       return console.log(renderCommandHelp(requested));
     }
   }
-  const document = await loadHelpDocument(requested);
+  // A documentation topic is a topic, whichever command asked: `help phase-appeals` was refused while `explain phase-appeals` had its page.
+  const document = await loadHelpDocument(requested).catch(async (error) => {
+    const { resolveHelp } = await import('../help-service.mjs');
+    const known = requested ? await Promise.resolve(resolveHelp(requested)).catch(() => null) : null;
+    if (!known?.topic?.id || known.topic.id !== requested) throw error;
+    return { selectedTopic: requested, content: `This topic is served by explain: singularity-flow explain ${requested}\n` };
+  });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(document, null, 2));
   else process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
 }

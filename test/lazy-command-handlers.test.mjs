@@ -347,7 +347,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,529,700 (measured 9,529,648, commands/phase-lifecycle.mjs): a run reused on the same source tree keeps its evidence: read from its own record (phase-execution-evidence.mjs +1400, evidence-consistency.mjs +280), and the conformance refusal says what the record reads (upstream-routes.mjs, decision-list.mjs). The outlook itself stays lazy (evidence/clause-outlook.mjs).
     // 9,530,250 (measured 9,530,227, commands/phase-lifecycle.mjs): a failed test's first route is its repair, with the runtime question a command answers (refusal-remediation.mjs, state.mjs), and a gate under another Node on PATH says so (copilot-mutation-guard.mjs).
     // 9,546,700 (measured 9,546,659, commands/phase-lifecycle.mjs): the catalog and step sheet with the routes above, on one branch.
-    assert.ok(closure.bytes <= 9_546_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,547,900 (measured 9,547,846, commands/phase-lifecycle.mjs): a dirty checkout, an appeal and a chain each name the route that clears them (refusal-remediation.mjs, copilot-mutation-guard.mjs, lifecycle-worktree.mjs).
+    assert.ok(closure.bytes <= 9_547_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

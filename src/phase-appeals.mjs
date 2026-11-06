@@ -127,6 +127,14 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
     fail('Scope appeals require the current open code-delivery generation. For published/submitted work, inspect recovery and create an authorized successor; do not rewrite history.', 'PHASE_APPEAL_LIFECYCLE',
       { recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phaseId ?? workflow.currentPhase} --json` });
   }
+  // A bare prepare names what it needs, and what is there to name: the path list is what a person's choice was lost for.
+  if (!changes?.length) {
+    const { unreconciledCandidatePaths } = await import('./candidate-scope.mjs');
+    const unclaimed = await unreconciledCandidatePaths(root, config, workflow, phase).catch(() => []);
+    fail(`appeal prepare needs what to account for: --add-location CLAUSE=PATH for a path that serves an approved clause, or --add-supporting PATH=CLASS with --supporting-reason TEXT for a supporting file, and --reason TEXT for why the plan changes. ${unclaimed.length
+      ? `Changed paths no plan row names: ${unclaimed.slice(0, 8).join(', ')}.` : 'Every changed path here is already in the plan, so nothing needs an appeal.'}`, 'PHASE_APPEAL_INVALID',
+    { needs: ['changes', 'reason'], phase: phaseId, workId: workflow.workItem.id, unclaimedPaths: unclaimed.slice(0, 20) });
+  }
   const parsed = z.object({ changes: z.array(change).min(1).max(50), reason: text }).strict().safeParse({ changes, reason });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -151,7 +159,11 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
     const selected = set.entries.find(item => item.newPath === entry.path);
     // Not a policy matter: an appeal accounts for a change, and a file not yet written is no change.
     if (!selected && !existsSync(path.join(root, entry.path))) {
-      fail(`'${entry.path}' does not exist yet, so there is no change to account for. Create the file first, then run this appeal prepare again.`, 'PHASE_APPEAL_PATH_UNSUPPORTED');
+      // A Node pin is one choice on the list, the file and the amendment together, where a person has one to make.
+      const pin = (await import('./node-pin-names.mjs')).NODE_PIN_FILE === entry.path
+        ? await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase).catch(() => null) : null;
+      fail(`'${entry.path}' does not exist yet, so there is no change to account for. Create the file first, then run this appeal prepare again.${pin ? ` Or a person chooses Pin Node ${pin.version} on the decision list, which creates it and amends the plan in one step.` : ''}`, 'PHASE_APPEAL_PATH_UNSUPPORTED',
+        { missingPath: entry.path, phase: phaseId, workId: workflow.workItem.id, ...(pin ? { nodePin: { file: pin.file, version: pin.version, node: pin.node, words: pin.words } } : {}) });
     }
     if (!selected || !['added', 'modified'].includes(selected.status) || selected.newContent?.kind !== 'regular-file'
         || protectedViolations.some(item => item.path === entry.path) || outside.some(item => item.path === entry.path)) {

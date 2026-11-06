@@ -85,7 +85,7 @@ function decisionCards(inbox: Inbox, pending: PendingListView | null = null): st
       <div class="card-foot">
         ${approval.kind === 'output' || approval.artifactPath
     ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
-        ${approval.heldBy
+        ${approval.heldBy || approval.decideNext
     ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
     : approval.approvalHolds?.length ? '' : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
         <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>
@@ -351,7 +351,7 @@ export class InboxPanel {
       approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       'open-approval': (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open-approval', approval }); },
-      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy) onMessage({ type: 'decide-list', approval }); },
+      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); },
       decide: (message) => {
         const workId = stringField(message, 'id');
         if (workId && this.currentInbox().decision?.workId === workId) onMessage({ type: 'decide', workId });

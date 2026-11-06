@@ -75,7 +75,7 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
     ${approval.heldBy ? `<p class="muted">${escape(approval.heldBy.headline)}</p>` : ''}
     ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds) : ''}
       ${approval.standing === 'yours'
-    ? `${approval.heldBy ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
+    ? `${approval.heldBy || approval.decideNext ? `<button data-decide-list="${escape(approval.id)}">Decide what blocks this step</button>`
       : approval.approvalHolds?.length ? '' : `<button data-approve="${escape(approval.id)}">Approve…</button>`}
          <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>`
     : ''}
@@ -193,7 +193,7 @@ export class ApprovalsPanel {
       approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
       reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
       open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); },
-      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy) onMessage({ type: 'decide-list', approval }); }
+      'decide-list': (message) => { const approval = approvalFor(message); if (approval?.heldBy || approval?.decideNext) onMessage({ type: 'decide-list', approval }); }
     });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through

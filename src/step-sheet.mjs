@@ -125,8 +125,10 @@ function carriedCodes(checkHolds, items) {
   const free = [];
   for (const hold of checkHolds) {
     const item = holdItemKind(hold) === 'approval' ? null : carriedBy(hold);
-    if (item) byItem.set(item.id, [...(byItem.get(item.id) ?? []), hold.code]);
-    else free.push(hold);
+    // One refusal, one item per path it names.
+    const carriers = !item ? [] : hold.unclaimedPaths?.length ? items.filter((entry) => entry.kind === 'plan-accounting') : [item];
+    for (const carrier of carriers) byItem.set(carrier.id, [...(byItem.get(carrier.id) ?? []), hold.code]);
+    if (!item) free.push(hold);
   }
   return { byItem, free };
 }
@@ -172,7 +174,13 @@ export function stepSheet(workflow, packet, { approvalCheck = null, authorities 
 
   const share = (party) => ({ id: 'share', label: party.words, effect: 'reads', fills: [], command: `singularity-flow decisions ${workflow.workItem.id}`,
     where: { copilot: party.share ?? `/sf-decide ${workflow.workItem.id}`, terminal: true, vscode: 'singularityFlow.decisions' }, available: true, whyNotYet: null });
-  const firstStep = (hold) => hold.steps.find((step) => step.available) ?? null;
+  // A hold with several ways through has no answer chosen for the person: its way on is the list, where they choose.
+  const firstStep = (hold) => {
+    const open = hold.steps.filter((step) => step.available);
+    if (open.length < 2) return open[0] ?? null;
+    return { id: 'choose', label: hold.title, effect: 'reads', fills: [], command: `singularity-flow decisions ${workflow.workItem.id}`,
+      where: { copilot: open.some((step) => step.where.copilot) ? `/sf-decide ${workflow.workItem.id}` : null, terminal: true, vscode: 'singularityFlow.decisions' }, available: true, whyNotYet: null };
+  };
   const mine = blocking.find((hold) => hold.clearedBy.includesViewer && firstStep(hold));
   const theirs = blocking[0] ?? null;
   const approveStep = approvalItem ? stepOf(workflow, packet, approvalItem, approvalItem.options[0]) : null;
@@ -189,7 +197,7 @@ export function stepSheet(workflow, packet, { approvalCheck = null, authorities 
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) => entry.phase === packet.phase && Number(entry.generation) === generation);
   const sheet = {
     schema: STEP_SHEET_SCHEMA, story: workflow.workItem.id,
-    step: { id: packet.phase, label: packet.phaseLabel, generation, status: phase?.status ?? null, packetSha256: submission?.packetSha256 ?? null, evidenceCommit: submission?.commit ?? null },
+    step: { id: packet.phase, label: packet.phaseLabel, generation, status: phase?.status ?? null, packetSha256: submission?.packetSha256 ?? null },
     viewer: { email: actor?.email ?? null, login: actor?.login ?? null, known: Boolean(actor?.email || actor?.login) },
     approval, holds, owedLater, next, waitingFor,
     notes: approvalCheck?.notes ?? [], warnings: approvalCheck?.warnings ?? [], unavailable: packet.unavailable ?? []

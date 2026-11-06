@@ -77,7 +77,8 @@ export function approvalHoldsHtml(holds: readonly ApprovalHoldView[], { except =
     ? `<p class="muted">${escape(hold.action.label)}</p><pre><code>${escape(hold.action.command)}</code></pre>` : '';
   return `<section class="approval-held" aria-label="Holds on this approval">
     <h2>Approval would be refused</h2>
-    ${shown.map((hold, index) => `<p><strong>${escape(hold.who)}:</strong> ${escape(hold.summary)}</p>${routeHtml(hold, index)}`).join('')}
+    ${shown.map((hold, index) => `${hold.forViewer ? `<p><strong>${escape(hold.summary)}</strong></p><p class="muted">${escape(hold.who)}</p>`
+    : `<p><strong>${escape(hold.who)}:</strong> ${escape(hold.summary)}</p>`}${routeHtml(hold, index)}`).join('')}
     <p class="muted">Advisory: the approval gate checks again when approval is recorded.</p>
   </section>`;
 }

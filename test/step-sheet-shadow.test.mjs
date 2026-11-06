@@ -36,8 +36,10 @@ const VIEWERS = [ME, OTHER, NOBODY];
  *   list's `next` is the first hold whoever looks; the sheet's is the viewer's own first (rule 3).
  * - `copilot` differs when the list's route is one turn for all its items and this item's own step is
  *   the person's terminal: the sheet says so of that step, where the list says /sf-decide for all.
+ * - `next` chooses nothing: with several ways through a hold it is the list, where the list's `next`
+ *   gave the first option's command (a routing choice's first option, say).
  */
-const SHEET_ON_PURPOSE = Object.freeze(['next-prefers-the-viewers-hold', 'copilot-names-this-steps-route']);
+const SHEET_ON_PURPOSE = Object.freeze(['next-prefers-the-viewers-hold', 'copilot-names-this-steps-route', 'next-chooses-nothing']);
 
 /** Undo a sheet command's blanks to compare it with the older text, where a blank was a `<...>`. */
 const withoutBlanks = (command) => String(command).replace(/(["']?)(?:<[^<>\n]+>|\{[a-z0-9-]+\})\1/gu, '_');
@@ -53,7 +55,7 @@ function disagreements(workflow, packet, check, sheet) {
   const approval = items.find((item) => item.kind === 'approval');
 
   // Every refusal the check names is on the sheet, in its order, and nothing is lost to a list item.
-  say('every check hold is on the sheet', holdsOld.map((hold) => hold.code).sort(), sheet.holds.flatMap((hold) => hold.codes).sort());
+  say('every check hold is on the sheet', holdsOld.map((hold) => hold.code).sort(), [...new Set(sheet.holds.flatMap((hold) => hold.codes))].sort());
   // Every item that holds the approval is one hold, and every other open item owed later.
   const held = items.filter((item) => item.kind !== 'approval' && (item.holdsApproval || (!awaiting && item.kind !== 'owed-decision')));
   say('holding items', held.map((item) => item.id), sheet.holds.filter((hold) => hold.item).map((hold) => hold.item));
@@ -97,11 +99,12 @@ function disagreements(workflow, packet, check, sheet) {
     const first = items.find((item) => item.id === packet.next.item);
     const expected = sheet.next.effect === 'approves' && packet.next.kind === 'approval' ? packet.next.command : null;
     if (expected) say('next command', withoutBlanks(expected), withoutBlanks(sheet.next.command));
-    // The hold it names is the list's own first when that hold is this person's.
-    if (first?.decidedBy?.allowed === true && first.kind !== 'approval' && first.options[0]?.available !== false) {
-      const option = first.options.find((entry) => entry.available !== false);
-      const command = option?.chat?.command ?? option?.action?.command;
-      if (command) say('next is the first hold that is this person\'s', withoutBlanks(command.replaceAll('<WORK-ID>', workflow.workItem.id)), withoutBlanks(sheet.next.command));
+    // The hold it names is the list's own first when that hold is this person's; with several ways through, the list.
+    if (first?.decidedBy?.allowed === true && first.kind !== 'approval') {
+      const ways = first.options.filter((entry) => entry.available !== false);
+      const command = ways[0]?.chat?.command ?? ways[0]?.action?.command;
+      if (ways.length > 1) say('next with several ways through is the list', `singularity-flow decisions ${workflow.workItem.id}`, sheet.next.command);
+      else if (ways.length && command) say('next is the first hold that is this person\'s', withoutBlanks(command.replaceAll('<WORK-ID>', workflow.workItem.id)), withoutBlanks(sheet.next.command));
     }
   }
   if (awaiting && !sheet.next) out.push('a step awaiting approval has no next');
@@ -321,4 +324,27 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.equal(after.sheet.step.id, workflow.currentPhase);
   assert.equal(after.sheet.approval.mayApproveNow, false, 'the next step does not await approval');
   assert.deepEqual(disagreements(workflow, after, null, after.sheet), []);
+});
+
+test('VS Code reads the sheet: who clears a hold for the person looking, a way on, and what is part of approving is no hold', async () => {
+  const { sheetHolds } = await import('../apps/vscode/src/views/approvals-model.ts');
+  const { approvalHoldsHtml } = await import('../apps/vscode/src/views/webview.ts');
+  const workflow = story();
+  const refusal = new SingularityFlowError('SPEC_COVERAGE_INCOMPLETE refused.', { code: 'SPEC_COVERAGE_INCOMPLETE', details: { coverage: { unclaimedChangedPaths: ['src/a.mjs'], unimplemented: [], withdrawnButClaimed: [], invalidEvidence: [] },
+    planRows: [{ clauseId: 'W-1:REQ-001', result: 'It works' }, { clauseId: 'W-1:REQ-002', result: 'It still works' }], nextAction: { command: 'singularity-flow decision plan W-1 --fetch --add-location <clause>=src/a.mjs --reason "<why>"' } } });
+  const form = new SingularityFlowError('Answer the checklist.', { code: 'APPROVAL_CHECKLIST_INCOMPLETE' });
+  const card = new SingularityFlowError('Run it in your terminal.', { code: 'PSS_CARD_NOT_SHOWN', details: { nextAction: { command: 'singularity-flow approve implementation --work-id W-1' } } });
+  const check = { ready: false, holds: [refusal, form, card].map((error) => approvalHold(error, workflow, workflow.phases.implementation)) };
+  const packet = decisionPacket(workflow, { phaseId: 'implementation', pending: {}, approvalCheck: check }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  const sheet = stepSheet(workflow, packet, { approvalCheck: check, authorities: AUTHORITIES, actor: ME });
+  assert.deepEqual(disagreements(workflow, packet, check, sheet), []);
+  const views = sheetHolds(JSON.parse(JSON.stringify(sheet)));
+  assert.deepEqual(views.map((view) => [view.code, view.owner]), [['SPEC_COVERAGE_INCOMPLETE', 'approvers']]);
+  assert.equal(views[0].summary, 'Say where src/a.mjs belongs');
+  assert.equal(views[0].action, null, 'the plan\'s two rows and a supporting change are a choice; no card picks one');
+  // No step of this fixture holds the plan, so nobody here can say; the way on is still the list.
+  assert.deepEqual([sheet.next.id, sheet.next.where.vscode, sheet.next.effect, sheet.next.command], ['share', 'singularityFlow.decisions', 'reads', 'singularity-flow decisions W-1']);
+  const html = approvalHoldsHtml(views);
+  assert.match(html, /<strong>Say where src\/a\.mjs belongs<\/strong>/u);
+  assert.equal(sheetHolds({ schema: 'something-else', holds: [] }), null, 'an older CLI\'s result reads as before');
 });

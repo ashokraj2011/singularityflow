@@ -62,8 +62,10 @@ export interface PendingApproval {
    * the card offers the decision list first instead of an approval the engine would refuse.
    */
   heldBy?: { count: number; headline: string } | null;
-  /** What else the approval would be refused for, and who clears it (submission readiness `approvalCheck`). */
+  /** What else the approval would be refused for, and who clears it (the step sheet, or `approvalCheck` from an older CLI). */
   approvalHolds?: ApprovalHoldView[];
+  /** The step sheet's next is on the decision list: the card offers it, so a hold is never left with only Request changes. */
+  decideNext?: boolean;
 }
 
 export interface Approvals {
@@ -219,7 +221,9 @@ export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
 }
 
 /** One reason approval would be refused, and who clears it (`approvalCheck.holds` from the CLI). */
-export interface ApprovalHoldView { code: string; owner: string; who: string; summary: string; action: { label: string; command: string } | null }
+export interface ApprovalHoldView { code: string; owner: string; who: string; summary: string; action: { label: string; command: string } | null;
+  /** `who` is a whole sentence for the person looking (the step sheet), not a phrase that leads the summary. */
+  forViewer?: boolean }
 
 /**
  * The holds an approval would be refused for that someone other than the approver clears, from an
@@ -238,6 +242,40 @@ export function approvalHolds(value: unknown): ApprovalHoldView[] {
     return [{ code: text(hold.code, 80) ?? 'unknown', owner, who: text(hold.who, 80) ?? owner, summary,
       action: command?.startsWith('singularity-flow ') ? { label: text(action?.label, 2000) ?? '', command } : null }];
   });
+}
+
+/** A blank in a sheet's command, as a person reads it in a command they will type. */
+const shownCommand = (command: string) => command.replace(/\{([a-z0-9-]+)\}/gu, '<$1>');
+
+/**
+ * What the step sheet holds this approval for, from an untrusted CLI result, bounded: who clears each,
+ * for the person looking, and the first way through. What the approval's own form asks and the
+ * signature its terminal takes are part of approving, so neither is shown as a hold.
+ */
+export function sheetHolds(value: unknown): ApprovalHoldView[] | null {
+  const sheet = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  if (sheet?.schema !== 'sflow-step-sheet/v1' || !Array.isArray(sheet.holds)) return null;
+  const text = (entry: unknown, limit = 400) => (typeof entry === 'string' && entry.trim() ? entry.slice(0, limit) : null);
+  return sheet.holds.slice(0, 20).flatMap((entry) => {
+    const hold = entry && typeof entry === 'object' ? entry as Record<string, unknown> : null;
+    const party = hold?.clearedBy && typeof hold.clearedBy === 'object' ? hold.clearedBy as Record<string, unknown> : null;
+    const title = text(hold?.title);
+    const kind = text(party?.kind, 40);
+    if (!hold || !title || !kind || kind === 'viewer-form' || hold.code === 'PSS_CARD_NOT_SHOWN') return [];
+    const steps = Array.isArray(hold.steps) ? hold.steps as Array<Record<string, unknown>> : [];
+    // Several ways through are a choice: the decision list asks it, and no card picks one to show first.
+    const open = steps.filter((candidate) => candidate?.available !== false && typeof candidate?.command === 'string');
+    const step = open.length === 1 ? open[0] : null;
+    const command = text(step?.command, 2000);
+    return [{ code: text(hold.code, 80) ?? 'unknown', owner: kind, who: text(party?.words, 600) ?? '', summary: title, forViewer: true,
+      action: command?.startsWith('singularity-flow ') ? { label: text(step?.label, 2000) ?? '', command: shownCommand(command) } : null }];
+  });
+}
+
+/** Whether the sheet's one next step is on the decision list. */
+function decideNext(value: unknown): boolean {
+  const next = value && typeof value === 'object' ? (value as { next?: { effect?: unknown; where?: { vscode?: unknown } } | null }).next : null;
+  return next?.effect !== 'approves' && next?.where?.vscode === 'singularityFlow.decisions';
 }
 
 /** One person per decision, keyed as the engine keys them: GitHub login, then email, then name. */
@@ -353,7 +391,10 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       submittedSourceCommit: sourceCommit,
       afterApproval: afterApprovalText(snapshot, workflow, phase.id),
       heldBy: heldByDecisions(snapshot, phase.id),
-      approvalHolds: snapshot.submissionReadiness?.phaseId === phase.id ? approvalHolds(snapshot.submissionReadiness.approvalCheck) : []
+      // An older CLI carries no sheet: its check, read as before.
+      approvalHolds: snapshot.submissionReadiness?.phaseId === phase.id
+        ? sheetHolds(snapshot.submissionReadiness.sheet) ?? approvalHolds(snapshot.submissionReadiness.approvalCheck) : [],
+      decideNext: snapshot.submissionReadiness?.phaseId === phase.id && decideNext(snapshot.submissionReadiness.sheet)
     }],
     obstacles: [],
     empty: null

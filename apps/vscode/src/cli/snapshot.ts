@@ -490,6 +490,8 @@ export interface SubmissionReadiness {
   decisions?: { count: number; headline: string; copilotCommand?: string };
   /** Whether approving the step awaiting approval would pass, and who clears each hold (SPEC-OAP M1). */
   approvalCheck?: unknown;
+  /** The one read model of this step (src/step-sheet.mjs): who clears each hold, how, and what is next. */
+  sheet?: unknown;
   /** The one decision list's count and first item (SPEC-OAP M3); every surface shows these. */
   pending?: PendingListView;
   reason?: string;

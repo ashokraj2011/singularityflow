@@ -349,7 +349,7 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(code, /Missing runner \(`CODE_DELIVERY_TEST_COMMAND_REQUIRED`\)/);
   assert.match(code, /never edit protected config, disable hooks or fabricate results/i);
   assert.match(code, /Development tests allowed/u);
-  assert.match(code, /Publication still runs fresh governed tests/u);
+  assert.match(code, /Publication runs tests unless passed on this code/u);
   assert.match(code, /No VS Code task is required/u);
   assert.match(code, /toolProtocol.localVerification/u);
   assert.doesNotMatch(code, /Publication runs fresh tests, no pre-run/u);
@@ -463,7 +463,7 @@ test('code skill distinguishes read-only readiness from publication-time test ex
   assert.match(content, /Follow `testExecution.handoff`/);
   assert.match(content, /`argvWithheld: true` means configured, not missing/);
   assert.match(content, /No adoption\/amendment for redaction\/inference/);
-  assert.match(content, /Publication still runs fresh governed tests/);
+  assert.match(content, /Publication runs tests unless passed on this code/);
   assert.match(content, /report the exact failure/);
   assert.match(content, /report argv\/cwd\/exit\/failures/);
   assert.match(content, /Require open intent/);
@@ -516,7 +516,7 @@ test('generic phase skill reviews valid preparation context without a redundant 
 test('runner policy adoption stays a reviewed recovery action outside the coding turn', async () => {
   const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   const recover = await readFile(path.join(pluginRoot, 'skills', 'sflow-recover', 'SKILL.md'), 'utf8');
-  assert.match(code, /`runnerStatus: blocked`: fix that delivery finding first/);
+  assert.match(code, /`runnerStatus: blocked`: fix that finding first/);
   assert.match(code, /No adoption\/amendment for redaction\/inference/);
   assert.match(recover, /Missing policy: `singularity-flow story test-policy amend <WORK-ID> --reason "<reason>" --json`/);
   assert.match(recover, /approved-pin adoption, not config repair/);

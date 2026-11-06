@@ -39,7 +39,9 @@ test('adopted backend review survives metadata commits and accepts only after re
   const cliPlan = repo.sflowJson('app-review', 'plan', '--work-id', 'QF-1', '--for-agent');
   assert.equal(cliPlan.status, 0); assert.equal(cliPlan.value.resultType, 'sflow-application-review');
   assert.equal(cliPlan.value.results.ready, true); assert.equal(cliPlan.value.snapshot, undefined, 'Copilot never receives a whole source manifest.');
-  assert.ok(created.session.target.results.attempts.every(attempt => attempt.purpose === 'submission'));
+  // What the submission bound: publication's run, which submission reuses on the same code [TCE:REQ-080].
+  const submitted = JSON.parse(await readFile(path.join(repo.root, 'singularity/work-items/QF-1/workflow.json'), 'utf8')).phases.implement.deliveryEvidence.testExecutions;
+  assert.deepEqual(created.session.target.results.attempts.map(attempt => attempt.attemptId).sort(), submitted.map(entry => entry.attemptId).sort());
   assert.equal((await startApplicationReview(repo.root, { workId: 'QF-1', actionId: 'host-start-action' })).replay, true);
   const initial = await read(id);
   assert.equal(initial.state, 'inspecting');

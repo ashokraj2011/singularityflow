@@ -64,6 +64,7 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
       sourceTreeSha256: check.sourceTreeSha256 ?? null, testInputSha256: check.testInputSha256 ?? null,
       ...(check.testRuntime ? { recordedRuntimeSha256: check.testRuntime.sha256 ?? null } : {}),
       startedAt: check.startedAt ?? null, completedAt: check.completedAt ?? null,
+      ...(check.reusedFrom ? { reusedFrom: { attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase } } : {}),
       binding, commandSuccessReusable: processPassed && binding === 'matched',
       criterionVerdict: 'not-established-by-command-success' };
   });

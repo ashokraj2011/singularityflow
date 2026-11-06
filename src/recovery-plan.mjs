@@ -23,7 +23,7 @@ import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generat
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, storyTestScope } from './code-delivery-policy.mjs';
 import { unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
@@ -467,7 +467,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           // path no command covers (an inferred one covers only its own ecosystem), is a missing runner now.
           let refusal = null;
           const prospective = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: planned },
-            { executionMode: workflow.resolution?.testExecutionMode }).catch((error) => { refusal = error; return []; })).filter(isTestCommand);
+            { executionMode: storyTestScope(workflow) }).catch((error) => { refusal = error; return []; })).filter(isTestCommand);
           const uncovered = prospective.length && workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false
             ? uncoveredTestDeliveryPaths(planned, phase.sourceBoundary, prospective.map((command) =>
               ({ ...command, provenance: testCommandProvenance(phase, command) }))) : [];
@@ -479,7 +479,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
       } else {
         testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
           ...phase, deliveryEvidence
-        }, { executionMode: workflow.resolution?.testExecutionMode }) : phase.qualityCommands ?? []).filter(isTestCommand);
+        }, { executionMode: storyTestScope(workflow) }) : phase.qualityCommands ?? []).filter(isTestCommand);
         const normalized = testCommands.map((command, index) =>
           normalizeRequiredTestCommand(command, index));
         if (!testCommands.length) throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });

@@ -87,6 +87,8 @@ const FAMILIES = Object.freeze([
     // A gate's test run environment and toolchain record, loaded by publication and submission; test command
     // pins and narrowed runs, read at every gate run, receipt replay and decision list [TCE:REQ-010, REQ-020, REQ-030].
     'test-run-environment.mjs', 'test-toolchain.mjs', 'project-node-version.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs',
+    // Loaded by the same gates when a Story runs only its new and changed tests [TCE:REQ-093].
+    'verification/test-scope-selection.mjs',
     // An APM project's lock and workflow.yml `apm` block, read by agent discovery in any command once a
     // repository has apm.lock.yaml [APM A3]; unclaimed, every such command loaded compatibility and models.
     'apm-lock.mjs', 'apm-configuration.mjs',

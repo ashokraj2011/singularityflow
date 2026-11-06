@@ -132,6 +132,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Story test-command amendment is ${slot(s.status)}. No Story policy changed and no test ran.`,
     preserves: true
   },
+  'story.test-policy.scope-inspected': {
+    headline: (s) => `Test scope: ${slot(s.status)}. No Story policy changed and no test ran.`,
+    preserves: true
+  },
+  'story.test-policy.scope-changed': {
+    headline: (s) => `Test scope is now ${slot(s.status)}. Recorded runs stay as they are; no test ran.`,
+    preserves: false
+  },
   'story.test-policy.selection-planned': {
     headline: (s) => `Story test selection is ${slot(s.status)}. No test ran or scope was confirmed. Use --json for the exact cohort and legal actions.`,
     preserves: true

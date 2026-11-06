@@ -1,3 +1,4 @@
+import { currentTestScope, TEST_SCOPE_LABELS } from './test-scope.ts';
 import { compareStoryCreation, storyCreatorName } from '../../../../src/story-presentation.mjs';
 /**
  * The lifecycle tree, as data.
@@ -1198,6 +1199,10 @@ function storyWorkflowNode(
               kind: 'action' as const, id: `story:${phase.id}:test-recovery`, label: 'Test policy and recovery',
               description: 'inspect policy, repair runner, restore review', icon: 'beaker',
               runCommand: 'singularityFlow.reviewStoryTestRecovery', contextValue: 'sflow.story.test-recovery'
+            }, {
+              kind: 'action' as const, id: `story:${phase.id}:test-scope`, label: 'Change which tests run',
+              description: TEST_SCOPE_LABELS[currentTestScope(workflow)], icon: 'filter',
+              runCommand: 'singularityFlow.changeTestScope', contextValue: 'sflow.story.test-scope'
             }] : [])
           ]
         };

@@ -1,4 +1,5 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
+import { storyTestScope } from '../../code-delivery-policy.mjs';
 import { createDocumentReadSession } from '../../documents-read.mjs';
 import { measureCommandSpan } from '../../dx-timing-context.mjs';
 import { phaseDocumentVersionMatches, phaseDisplayBinding } from '../../review-display.mjs';
@@ -20,6 +21,19 @@ async function reusedTestEvidence(root, config, workflow, phase) {
   if (!(workflow.evidenceReuses ?? []).some((entry) => !entry.revokes && entry.phase === phase.id)) return {};
   const reuse = await (await import('../../evidence-reuse.mjs')).evidenceReuseFor(root, config, workflow, phase.id);
   return { reusedTestEvidence: [...reuse.active, ...reuse.lapsed] };
+}
+
+/** What a reviewer must not read as a run of this step or as the whole suite. Absent when neither applies. */
+function testRunsReview(workflow, phase) {
+  const reused = (phase.checks ?? []).filter((check) => check.reusedFrom).map((check) => ({
+    commandId: check.id, attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase, commit: check.reusedFrom.commit, counts: check.reusedFrom.counts ?? null,
+    words: `reused: ${check.reusedFrom.attemptId} recorded by ${check.reusedFrom.phase} at ${String(check.reusedFrom.commit).slice(0, 12)}; the code has not changed since, so ${check.id} was not run again` }));
+  const scope = storyTestScope(workflow);
+  const change = workflow.testScopeChanges?.at(-1);
+  const words = scope === 'new-and-changed'
+    ? `This Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}. Its existing tests were not run.`
+    : change ? `This Story's test scope is ${scope} (${change.id}, ${change.actor}${change.reason ? `: ${change.reason}` : ''}).` : null;
+  return { ...(reused.length ? { reusedTestRuns: reused } : {}), ...(words ? { testScope: { scope, words, changes: workflow.testScopeChanges ?? [] } } : {}) };
 }
 
 /**
@@ -177,6 +191,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     } : null,
     // Runs an earlier step recorded that this step's approvers decided to reuse, labelled as theirs.
     ...await reusedTestEvidence(root, config, workflow, phase),
+    // Runs that stood because the code had not changed, and which tests the Story runs at all [TCE:REQ-083, REQ-094].
+    ...testRunsReview(workflow, phase),
     evidenceConsistency,
     witnessReview,
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).

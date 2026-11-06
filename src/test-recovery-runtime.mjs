@@ -1,4 +1,5 @@
 /** Production TRP adapter. Authenticated failure and unavailable outcomes never become passes. */
+import { storyTestScope } from './code-delivery-policy.mjs';
 import { constants } from 'node:fs';
 import { mkdir, open, readdir, lstat, realpath, stat } from 'node:fs/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -175,7 +176,7 @@ async function candidateContext(root, config, workflow, selection) {
   const phase = workflow.phases[selection.subject.phaseId];
   const { resolveDeliveryQualityCommands } = await import('./delivery-evidence.mjs');
   const commands = (await resolveDeliveryQualityCommands(root, phase,
-    { executionMode: workflow.resolution?.testExecutionMode })).filter(command => command?.kind === 'test');
+    { executionMode: storyTestScope(workflow) })).filter(command => command?.kind === 'test');
   const exactCases = selection.selectedTestIds.length > 0;
   const declaration = commands.length === 1 ? trpCaseInventoryDeclaration(workflow, phase, commands[0]) : null;
   const adapter = declaration?.adapter ?? 'node-test-junit-v1';

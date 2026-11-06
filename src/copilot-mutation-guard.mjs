@@ -653,6 +653,8 @@ export function argvAllowed(argv, mode, value) {
   if (mode === 'run-and-test') return (positionals[0] === 'app-review' && ['start', 'inspect', 'accept', 'recheck', 'defer', 'close', 'feedback', 'repair', 'repair-result', 'capture', 'browser'].includes(positionals[1]))
     || (positionals[0] === 'app' && ['start', 'stop'].includes(positionals[1]))
     || (positionals[0] === 'tests' && positionals[1] === 'run')
+    // Which tests a Story runs is anyone's to change, an agent's too (owner, 2026-11-06) [TCE:REQ-090].
+    || (positionals[0] === 'story' && positionals[1] === 'test-policy' && positionals[2] === 'scope')
     || (positionals[0] === 'app' && positionals[1] === 'config' && positionals[2] === 'save-local' && positionals.length === 3
       && typeof options['application-file'] === 'string' && path.isAbsolute(options['application-file'])
       && (value.appDraftStaging ?? []).includes(path.resolve(options['application-file']))

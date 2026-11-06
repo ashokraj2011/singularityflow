@@ -5,7 +5,7 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { storyIntakeBody, type IntakeDocumentPreview } from './story-intake-page.ts';
 
-export type StoryIntakeAction = 'refresh' | 'evidence' | 'tests';
+export type StoryIntakeAction = 'refresh' | 'evidence' | 'tests' | 'test-scope';
 /** A specification slice to open in the Spec Studio: `SPEC-ID@N` and its clause IDs. */
 export interface StoryIntakeSlice { revision: string; clauses: string[] }
 export function showStoryIntakeDetails(workflow: StoryWorkflow, preview: IntakeDocumentPreview,
@@ -19,7 +19,7 @@ export function showStoryIntakeDetails(workflow: StoryWorkflow, preview: IntakeD
     `document.addEventListener('click', event => { const button = event.target.closest('[data-action]'); if (button) window.__sfVscode.postMessage({type: button.dataset.action, revision: button.dataset.revision, clauses: button.dataset.clauses}); });`);
   const router = registerMessageRouter('singularityFlow.storyIntake', {
     navigate: raw => { const target = navigationTarget(raw); if (target) void navigateTo(target); },
-    refresh: () => onAction('refresh'), evidence: () => onAction('evidence'), tests: () => onAction('tests'),
+    refresh: () => onAction('refresh'), evidence: () => onAction('evidence'), tests: () => onAction('tests'), 'test-scope': () => onAction('test-scope'),
     'spec-studio': message => {
       const revision = stringField(message, 'revision');
       if (revision) onSlice({ revision, clauses: (stringField(message, 'clauses') ?? '').split(' ').filter(Boolean) });

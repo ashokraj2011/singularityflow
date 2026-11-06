@@ -181,7 +181,7 @@ const entries = {
     'sf-start',
     'sf-inspect', 'sf-story-start', 'sf-story-inbox', 'sf-story-fetch', 'sf-story-branch',
     'sf-story-checks', 'sf-work-interval', 'sf-story-skill-version', 'sf-return', 'sf-reject',
-    'sf-converge', 'sf-submit', 'sf-finalize', 'sf-mcp'
+    'sf-converge', 'sf-submit', 'sf-finalize', 'sf-mcp', 'sf-test-scope'
   ],
   workspace: [
     'sf-workspace', 'sf-workspace-bootstrap', 'sf-workspaces', 'sf-workspace-session',
@@ -419,7 +419,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'prepare-worktree': 'sf-story-start',
     'discard-worktree': 'sf-story-start',
     'references materialize': null,
-    'test-policy confirm': null
+    'test-policy confirm': null,
+    'test-policy scope': 'sf-test-scope'
   }),
   workspace: route('sf-workspace', {
     create: 'sf-workspace-bootstrap',

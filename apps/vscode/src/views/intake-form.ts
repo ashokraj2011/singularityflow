@@ -1293,6 +1293,7 @@ function storyChecksHtml(form: IntakeForm): string {
     ${!form.testRecovery?.enabled ? `<fieldset><legend>Testing for this Story</legend>
       <label><input type="radio" name="story-test-scope" data-story-test-scope value="changed-and-affected" ${form.testExecutionMode === 'changed-and-affected' ? 'checked' : ''}> Changed and affected tests</label>
       <label><input type="radio" name="story-test-scope" data-story-test-scope value="all-configured" ${form.testExecutionMode === 'all-configured' ? 'checked' : ''}> All configured tests</label>
+      <label><input type="radio" name="story-test-scope" data-story-test-scope value="new-and-changed" ${form.testExecutionMode === 'new-and-changed' ? 'checked' : ''}> Only new and changed tests (other tests never run)</label>
       <p class="meta">Existing failures are repaired in this Story by default. Accepting known failures requires an exact observed baseline and an authorized risk decision; deferral is not acceptance.</p>
     </fieldset>` : ''}` : ''}
   </section>`;

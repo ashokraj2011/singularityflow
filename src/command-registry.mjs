@@ -491,7 +491,7 @@ const STORY_SKILL_VERSION_ACTIONS = Object.freeze(['status', 'preview', 'propose
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
 const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
-const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
+const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'scope', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
 const STORY_SUBCOMMANDS = Object.freeze([
   'converge', 'clone', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy', 'target-origin',
   'approvers', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
@@ -1079,8 +1079,9 @@ function resolveStoryOperation(definition, positionals, options) {
       return unknownSubcommand('story test-policy', action, STORY_TEST_POLICY_ACTIONS, 'action');
     }
     const mutation = action === 'confirm' || (['repair', 'baseline'].includes(action) && optionBoolean(options, 'run'))
+      || (action === 'scope' && Boolean(optionString(options, 'to')))
       || (STORY_TEST_POLICY_REVIEW_ACTIONS.includes(action) && optionBoolean(options, 'apply'));
-    return never(`story.test-policy.${action}${['repair', 'baseline', ...STORY_TEST_POLICY_REVIEW_ACTIONS].includes(action) && !mutation ? '.preview' : ''}`,
+    return never(`story.test-policy.${action}${['repair', 'baseline', 'scope', ...STORY_TEST_POLICY_REVIEW_ACTIONS].includes(action) && !mutation ? '.preview' : ''}`,
       definition, mutation ? 'mutation' : 'read');
   }
   return unknownSubcommand('story', subcommand, STORY_SUBCOMMANDS);
@@ -2230,8 +2231,9 @@ export function operationCatalog() {
     ...['show', 'plan', 'risks'].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'read')),
     never('story.test-policy.repair.preview', storyDefinition, 'read'),
     never('story.test-policy.baseline.preview', storyDefinition, 'read'),
+    never('story.test-policy.scope.preview', storyDefinition, 'read'),
     ...STORY_TEST_POLICY_REVIEW_ACTIONS.map((name) => never(`story.test-policy.${name}.preview`, storyDefinition, 'read')),
-    ...['confirm', 'repair', 'baseline', ...STORY_TEST_POLICY_REVIEW_ACTIONS].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'mutation')),
+    ...['confirm', 'repair', 'baseline', 'scope', ...STORY_TEST_POLICY_REVIEW_ACTIONS].map((name) => never(`story.test-policy.${name}`, storyDefinition, 'mutation')),
     ...STORY_REFERENCE_ACTIONS
       .map((name) => never(`story.references.${name}`, storyDefinition,
         name === 'materialize' ? 'mutation' : 'read')),

@@ -22,6 +22,19 @@ found each of those can fail today. This spec states the model and the work to f
    Playwright/Cypress modelling (projects, the app under test, per-test results) and the review
    screens follow in a later version.
 
+## Owner decisions (2026-11-06)
+
+On "sf-code generates tests and runs it, now next phases also run it": "dont rerun if the code has not
+changed". Asked what weakens evidence, the owner chose:
+
+1. **Anyone may switch a Story to fewer tests,** an agent included. The switch is recorded with its reason
+   and shown to the reviewer. This covers the open setting only (M9); decision 2 above still refuses a filter or
+   `.only` added to the tests themselves.
+2. **On only new and changed tests, existing tests never run,** at any step, and the review says so.
+3. **A recorded `tests run` counts for publish** when its command, code and environment are the same. It
+   amends the RUN M2 rule that a local run never satisfies a gate. A decision or a test-run risk still never
+   reads one.
+
 ## What the audit found (main 1ae8518b)
 
 Only SFlow's own CLI produces gate evidence (publish preflight, submit, runner epoch through
@@ -211,6 +224,44 @@ still fill an uncovered module, and that command is pinned on first use.
   projects infer pytest; pytest JUnit results are per test.
 - `[TCE:REQ-075]` Android device tests, Xcode and anything needing a device or scheme are proposed,
   never guessed silently; cargo reports read JSON lines.
+
+## Phase 3 — no reruns, and a scope that changes
+
+### M8 Runs that still stand `[TCE:REQ-080]`
+
+Measured on a real Story at main 74fc3317c: on one source digest the tests ran at publish, at submit and at
+the later step's submit, and again on each retried publish. Conformance, approval and the final gates run none.
+
+- `[TCE:REQ-080]` A gate reuses the latest recorded run of the same command on the same code, whichever step
+  made it, when that run passed with a report that replays. Nothing is decided by a person.
+- `[TCE:REQ-081]` "The same" means the application source digest, the separately hashed test inputs, program and
+  arguments with the working folder and report form, the command's pin, and `environmentSha256`: `CI`, removed
+  variables, declared variables, `NODE_OPTIONS` and toolchain versions. Anything else runs again, with a line
+  saying why. A run given an environment's values, the test-recovery pilot and a runner amendment's epoch
+  always run.
+- `[TCE:REQ-082]` A passing `tests run` counts as such a run (owner decision 3). A `tests run` itself always runs.
+- `[TCE:REQ-083]` A reused run never reads as a run of the reusing step: the check carries `reusedFrom` and the
+  times of the run that happened. Publish then submit binds the one attempt; a new generation or a local run gets
+  an attempt of this step and generation naming it in `reusedFrom`, so replay's binding rules did not change.
+  A later non-code step's own repository run is recorded as an attempt too, so it is not repeated either.
+
+### M9 A test scope that changes `[TCE:REQ-090]`
+
+- `[TCE:REQ-090]` `story test-policy scope [WORK-ID] [--to SCOPE] [--reason TEXT]`, Copilot `/sf-test-scope`, and
+  VS Code **Change which tests run** show and change the scope while the Story is open. Each change appends to
+  `workflow.testScopeChanges`; a move to fewer tests needs a reason. The sealed policy and recorded runs do
+  not change. The test-recovery pilot seals its own scope.
+- `[TCE:REQ-091]` The intake choice reaches the gates. `resolution.testExecutionMode` was set on a local copy and
+  dropped when the Story's resolution was built, so **All configured tests** was sealed and then ran the same as the
+  default. New Stories pin it; a Story started before this keeps what it ran, and can change scope.
+- `[TCE:REQ-092]` `new-and-changed` is a third scope, available at intake and later.
+- `[TCE:REQ-093]` On it, each guessed command gets the delivery's `testPaths` (changed, carried from an
+  earlier generation, or planned as existing) the way its runner takes them, as `attempt.testScope.files`.
+  It is no narrowing reason: the pin stays the whole command's and its baseline is not compared. Focused tests and added
+  skip markers are still reasons. A named command, a module with no new test, one with several runners, and a
+  runner that cannot be told files run whole, with `attempt.testScope.whole` saying why.
+- `[TCE:REQ-094]` On it a later step's `repositoryTests: run` records a note instead of running, and each step's
+  review states that existing tests were not run.
 
 ## Acceptance
 

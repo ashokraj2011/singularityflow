@@ -12,11 +12,16 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  * - the Story accepted known failures, or its code step's tests did not pass here. Running them
  *   again could not pass and would hold a step no rework can fix, so a note says why instead.
  *
+ * A command the code step already ran on this same code is not run again: qualityChecks reuses that
+ * run [TCE:REQ-080], so this adds only what has not run. On only its new and changed tests a Story
+ * runs nothing here and says so [TCE:REQ-094].
+ *
  * A repository with no test command sflow can find gets a note naming how to add one, and a run
  * that could not start (its launcher is not installed here) is recorded as not run. Neither holds
  * the step. A run that fails does not refuse the submission either: the step waits for review,
  * and its reviewer returns it to the step that repairs it.
  */
+import { storyTestScope } from '../code-delivery-policy.mjs';
 import { isTestQualityCommand, reviewCodeSource } from '../delivery-evidence.mjs';
 import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
 import { nowIso } from '../util.mjs';
@@ -41,6 +46,12 @@ export async function verificationRepositoryTests(root, config, workflow, phase,
   const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase.id) ?? null;
   const none = { commands: [], notes: [] };
   if (pinned?.repositoryTests !== 'run' || pinned.testEvidenceFrom || configured.some(isTestQualityCommand)) return none;
+  // Owner, 2026-11-06: on only its new and changed tests a Story never runs the others, and the review says so [TCE:REQ-094].
+  if (storyTestScope(workflow) === 'new-and-changed') {
+    const change = workflow.testScopeChanges?.at(-1);
+    return { commands: [], notes: [note('repository-tests', `Not run: this Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}, `
+      + 'so its existing tests were not run.', at)] };
+  }
   const sealed = await readSealedStoryTestPolicy(root, config, workflow);
   if (sealed?.record?.baselineFailures === 'accept-pre-existing'
       || workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {

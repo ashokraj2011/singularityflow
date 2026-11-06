@@ -12,6 +12,8 @@ the person's machine, and that run counts as evidence for the Story, labelled as
 1. **Where the commands live.** The start commands and the capability's test selection live in
    `singularity/capabilities.yml`, edited through the normal reviewed capability proposal.
 2. **Local runs as evidence.** A local run of an integration test counts as evidence for the Story.
+   **Amended (owner, 2026-11-06):** a passing `tests run` for a Story step also stands for the step's next
+   publication while its code, command and environment are the same [TCE:REQ-082].
    Local resources live in folders that may change on the person's machine and are never committed,
    and secrets never reach Git. This amends `docs/ENVIRONMENT-BINDINGS.md`, which kept
    environment-bound commands blocked until an isolated runner existed (see "Amendment" below).

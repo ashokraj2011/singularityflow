@@ -6,6 +6,7 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { storyTestScope } from './code-delivery-policy.mjs';
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, testCommandProvenance } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand, parseTestResult, structuredTestCommandRequiredError } from './code-delivery-tests.mjs';
 import { evaluateExternalCommandForModelMode, withCommandLiteralEnvironment } from './external-command-policy.mjs';
@@ -172,7 +173,7 @@ export async function resolveStoryLocalTestCommands(root, config, workflow, { ph
   const deliveryEvidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase)
     .catch(() => phase.deliveryEvidence ?? null);
   const resolved = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryEvidence ?? undefined },
-    { executionMode: workflow.resolution?.testExecutionMode }))
+    { executionMode: storyTestScope(workflow) }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
     .map((command, index) => ({
       ...normalizeRequiredTestCommand(command, index),
@@ -186,5 +187,8 @@ export async function resolveStoryLocalTestCommands(root, config, workflow, { ph
         minimumPassed: Math.max(command.result.minimumPassed, workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1)
       }
     }));
+  if (storyTestScope(workflow) === 'new-and-changed') {
+    return { phase, commands: await (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, resolved, deliveryEvidence?.testPaths ?? []) };
+  }
   return { phase, commands: resolved };
 }

@@ -36,7 +36,7 @@ const SECOND_OPERAND = Object.freeze({
     'test-risk', 'test-command', 'evidence-reuse', 'visual-profile']
 });
 // `story test-policy <action> [WORK-ID]`.
-const STORY_TEST_POLICY_ACTIONS = new Set(['show', 'plan', 'confirm', 'repair', 'baseline', 'amend', 'attest',
+const STORY_TEST_POLICY_ACTIONS = new Set(['show', 'scope', 'plan', 'confirm', 'repair', 'baseline', 'amend', 'attest',
   'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
 
 /** Every command with a declared Work ID operand; cli-entry.mjs loads this module only for these or --work-id. */

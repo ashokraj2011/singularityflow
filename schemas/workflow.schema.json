@@ -821,6 +821,25 @@
         "additionalProperties": false
       }
     },
+    "testScopeChanges": {
+      "description": "Append-only changes of which tests the Story's gates run (story test-policy scope) [TCE:REQ-090]. The last entry is the scope in force; each records who changed it and, when it moved to fewer tests, why. Recorded runs are not touched.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "from", "to", "narrowing", "actor", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TSC-\\d{3,}$" },
+          "from": { "enum": ["all-configured", "changed-and-affected", "new-and-changed"] },
+          "to": { "enum": ["all-configured", "changed-and-affected", "new-and-changed"] },
+          "narrowing": { "type": "boolean" },
+          "phase": { "type": ["string", "null"] },
+          "reason": { "type": "string" },
+          "actor": { "type": "string" },
+          "at": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
     "testNarrowings": {
       "description": "Append-only decisions by a step's approvers that a narrowed run of one of its test commands (filters, focused tests, skipped tests, fewer tests than the pin's baseline) is enough, and their revocations [TCE:REQ-023]. A decision is bound to the command's pin and the narrowing it saw, and covers later runs whose narrowing is the same or smaller, until it expires or is revoked.",
       "type": "array",

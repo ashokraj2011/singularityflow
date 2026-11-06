@@ -939,7 +939,7 @@ export class IntakePanel {
     storyTestScope: (message) => {
       if (this.form.busy || this.form.baselineRunning) return;
       const value = stringField(message, 'value');
-      if (!['changed-and-affected', 'all-configured'].includes(value ?? '')) return;
+      if (!['changed-and-affected', 'all-configured', 'new-and-changed'].includes(value ?? '')) return;
       this.update({ testExecutionMode: value as IntakeForm['testExecutionMode'] });
       return this.scheduleIdentifierPreflight();
     },

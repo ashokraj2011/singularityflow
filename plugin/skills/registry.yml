@@ -185,6 +185,7 @@ skills:
   sflow-spec-author: { class: guided, executionBoundary: repository }
   sflow-run-app: { class: guided, executionBoundary: repository, maximumTokenOverride: 1190, exception: "It carries start, debug, status, stop and the suggest-preview-propose flow with its secret and whole-block rules; never trim those to fit." }
   sflow-test: { class: guided, executionBoundary: repository }
+  sflow-test-scope: { class: guided, executionBoundary: repository }
   sflow-hook: { class: mutation }
   sflow-implement: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
   sflow-inbox: { class: interactive, executionBoundary: repository }

@@ -9,7 +9,7 @@ import { renderPlatformCommand } from './safe-command-guidance.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, storyTestScope } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
   configuredTestModuleOverrides, isAllowedTestAutomationPath, isExecutableTestSourcePath,
@@ -1500,7 +1500,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       .map((candidate) => candidate.line)));
   const witnessDiscovery = await discoverAcceptanceWitnesses(root, phase, {
     testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings,
-    othersTag, executionMode: workflow.resolution?.testExecutionMode
+    othersTag, executionMode: storyTestScope(workflow)
   });
   reportAll(witnessDiscovery.errors, witnessDiscovery.errorFindings);
   // A tag naming a criterion the specification does not hold is refused while this generation is
@@ -2195,7 +2195,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
         }
         const phase = testRecovery.workflow.phases?.[receipt.phase];
         const commands = await resolveDeliveryQualityCommands(root, phase,
-          { executionMode: testRecovery.workflow.resolution?.testExecutionMode });
+          { executionMode: storyTestScope(testRecovery.workflow) });
         const command = commands.find(item => item?.kind === 'test' && item.id === execution.commandId);
         if (!command || canonicalJson(command.affectedRoots) !== canonicalJson(execution.affectedRoots)) {
           throw new Error('risk observation command coverage differs from the approved command contract');

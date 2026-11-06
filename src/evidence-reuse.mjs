@@ -458,7 +458,8 @@ export async function prepareEvidenceReuse(root, config, workflow, { phaseId, at
     });
   }
   if (observed.sourceTreeSha256 !== source.treeSha256 || (observed.testInputSha256 ?? null) !== (source.testInputSha256 ?? null)) {
-    const changed = await changedApplicationPaths(root, config, workflow, source.commit);
+    // A run of the publication's preflight sat just before that generation's commit, with the same tree.
+    const changed = await changedApplicationPaths(root, config, workflow, producer.generationCommit ?? source.commit);
     const routes = await reuseRoutes(workflow, consumer, producer);
     const named = changed.paths.length
       ? `: ${changed.paths.join(', ')}${changed.omitted ? ` and ${changed.omitted} more` : ''}`

@@ -1,7 +1,7 @@
 import { escape } from './webview.ts';
 
 export type BaselineDisposition = 'fix' | 'accept-known-failures';
-export type TestExecutionMode = 'changed-and-affected' | 'all-configured';
+export type TestExecutionMode = 'changed-and-affected' | 'all-configured' | 'new-and-changed';
 export type TestBaselineScope = 'reuse' | 'targeted' | 'all-configured';
 
 /** Engine-owned projection. This is display data, never a decision receipt or authority claim. */

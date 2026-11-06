@@ -5,7 +5,7 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 
 import { verifyClarificationRecord } from '../clarifications.mjs';
-import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, storyTestScope } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
@@ -1659,7 +1659,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         );
         assertAutoCandidateMatches(candidate, candidateObservation);
         const commands = await resolveDeliveryQualityCommands(worktree, phase,
-          { executionMode: workflow.resolution?.testExecutionMode });
+          { executionMode: storyTestScope(workflow) });
         candidateVerification = await verifyAutoCandidate(worktree, candidate, {
           commands, pathContext: applicationPathContext(definition, workflow),
           testRuntime: workflow.resolution?.testRuntime

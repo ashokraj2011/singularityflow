@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 90
+version: 91
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -313,6 +313,9 @@ no longer only what the author wrote. Set `repositoryTests: off` in a work type'
 `phaseOverrides` to rely on the code step's tests alone. Code steps already run their tests, so the
 setting changes nothing there.
 
+- **Already passed on this code:** when the code step's run is the same command on the same code, in the
+  same environment, it is reused and not run again; the review says so. See "When tests do not run
+  again" in `singularity-flow explain test-recovery`.
 - **Pass:** the run is recorded with the step's checks and shown in its review.
 - **Fail:** the submission still completes, and the warning says so. Its reviewer cannot approve the
   step (`PHASE_VALIDATION_FAILED`) and returns it with `reject --to <step>` to the step that

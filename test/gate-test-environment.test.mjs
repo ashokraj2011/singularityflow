@@ -48,11 +48,12 @@ test('a gate test run sees CI=1 and no inherited selection variable, and its att
   const env = { ...repo.env, ...NARROWING };
   const run = (...args) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: root, env, encoding: 'utf8', timeout: childTimeout(240_000) });
 
-  // The Story's local run, publication's preflight and submission run the same clean environment.
-  const local = run('tests', 'run', '--work-id', 'QF-1', '--json');
-  assert.equal(local.status, 0, local.stdout + local.stderr);
+  // Publication's preflight and the Story's local run get the same clean environment. Submission then
+  // reuses the local run, so its attempt carries what that run saw [TCE:REQ-080].
   const published = run('phase', 'publish', 'implement');
   assert.equal(published.status, 0, published.stdout + published.stderr);
+  const local = run('tests', 'run', '--work-id', 'QF-1', '--json');
+  assert.equal(local.status, 0, local.stdout + local.stderr);
   const submitted = run('submit', 'implement');
   assert.equal(submitted.status, 0, submitted.stdout + submitted.stderr);
 
@@ -63,7 +64,9 @@ test('a gate test run sees CI=1 and no inherited selection variable, and its att
     const { host, ...ran } = attempt.environment;
     assert.equal(host, `node ${process.versions.node}`);
     // The inferred command is `npm test`: Node and npm are its runner family.
-    const { toolchain, ...shaped } = ran;
+    // NODE_OPTIONS stays for what is not selection, and only its digest is recorded, so a change of it is seen [TCE:REQ-081].
+    const { toolchain, nodeOptionsSha256, ...shaped } = ran;
+    assert.match(nodeOptionsSha256, /^sha256:[a-f0-9]{64}$/u);
     assert.deepEqual(shaped, { platform: process.platform, arch: process.arch, ci: '1', removed: REMOVED, declaredSha256: null }, attempt.purpose);
     assert.deepEqual(Object.keys(toolchain), ['node', 'npm']);
     assert.equal(toolchain.node, process.versions.node);

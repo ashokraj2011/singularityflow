@@ -218,8 +218,8 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   assert.equal(staged.length, 1);
   await assert.rejects(readdir(path.join(root, 'singularity/work-items/QF-1/context/code-delivery/tests/attempts/implement')), { code: 'ENOENT' });
 
-  // Publication runs its own preflight and admits every kept attempt, the local one included. Run
-  // from a host that sets its own variables too: the preflight's tests never see them either.
+  // The passing local run stands for publication [TCE:REQ-082], which admits every kept attempt, the local
+  // one included. Run from a host that sets its own variables too: they change nothing the run saw.
   const published = spawnSync(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement'], {
     cwd: root, encoding: 'utf8', timeout: childTimeout(240_000),
     env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: root }) }
@@ -231,10 +231,12 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   assert.deepEqual(records.map((record) => record.purpose).sort(), ['local', 'preflight']);
   const afterPublish = sflowJson('tests', 'summary', '--work-id', 'QF-1').value;
   assert.equal(afterPublish.run.evidenceClass, 'governed');
-  assert.equal(afterPublish.run.label, 'Run by publication');
+  const reused = `Reused from ${records.find((record) => record.purpose === 'local').attemptId}, on the same code`;
+  assert.equal(afterPublish.run.label, reused);
   assert.equal(afterPublish.run.countsForStep, true);
   assert.deepEqual(afterPublish.history.map((entry) => [entry.evidenceClass, entry.label]), [
-    ['governed', 'Run by publication'], ['local-preview', 'Local run, not evidence: publication and submission run the tests again']
+    ['governed', reused], ['local-preview', 'Local run, not evidence itself: a passing one stands for the next publication while nothing it ran on changes']
   ]);
+  assert.match(afterPublish.commands[0].note, /^Not run again: this is TA-[a-f0-9]{20} recorded by implement, on the same code\.$/u);
   assert.equal(sflowJson('tests', 'summary', '--work-id', 'QF-1', '--run', 'RUN-20200101T000000Z-00000000').value.error.code, 'TESTS_RUN_NOT_FOUND');
 });

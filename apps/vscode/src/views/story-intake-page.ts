@@ -1,4 +1,5 @@
 import type { StoryArtifact, StoryWorkflow } from '../cli/snapshot.ts';
+import { currentTestScope, TEST_SCOPE_LABELS } from './test-scope.ts';
 import { escape } from './webview.ts';
 
 export interface IntakeDocumentPreview {
@@ -80,6 +81,7 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
       ['Capability', capability.label ?? capability.name ?? capability.id], ['Created', work.createdAt],
       ['Source', source?.type ?? object(work.source).type], ['Source reference', source?.url ?? source?.key ?? source?.stableId],
       ['Recorded test execution mode', resolution.testExecutionMode],
+      ['Tests that run now', TEST_SCOPE_LABELS[currentTestScope(workflow)]],
       ['Quality gates', resolution.qualityGateMode ?? 'hard']
     ].map(([label, value]) => row(String(label), value)).join('')}</tbody></table>
       <p class="muted">Test policies can be amended after intake. Use Test policy and recovery to inspect current commands, baseline dispositions and risk decisions; absent records are not inferred.</p></section>
@@ -94,5 +96,6 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
     <section><h2>Currently attached evidence</h2><p class="muted">This catalog includes later uploads. It is not presented as the original attachment history.</p>${evidence.length ? `<table><thead><tr><th>Document</th><th>Type</th><th>Status</th></tr></thead><tbody>${evidence.map(document => `<tr><td>${escape(document.name ?? document.label ?? document.id ?? 'Document')}</td><td>${escape(document.type ?? '')}</td><td>${escape(document.availability ?? document.status ?? 'Recorded')}</td></tr>`).join('')}</tbody></table>` : '<p>No supporting evidence is reported in the current catalog.</p>'}</section>
     <button class="secondary" data-action="evidence">View evidence &amp; designs</button>
     <button class="secondary" data-action="tests">Test policy and recovery</button>
+    <button class="secondary" data-action="test-scope">Change which tests run</button>
     <button class="secondary" data-action="refresh">Refresh intake details</button>`;
 }

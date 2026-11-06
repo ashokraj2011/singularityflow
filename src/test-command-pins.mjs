@@ -599,7 +599,7 @@ async function removedSuite(root, workflow, phase, commands, attempts, deliveryE
 
 /** The first passing gate run of a pin in this step, the narrowed-run check's baseline. */
 function firstPassingRun(attempts, sha) {
-  const attempt = attempts.find((entry) => entry.purpose !== 'local' && entry.pin?.sha256 === sha
+  const attempt = attempts.find((entry) => entry.purpose !== 'local' && entry.pin?.sha256 === sha && !entry.testScope?.files
     && entry.status === 'passed' && Number.isInteger(entry.tests?.discovered));
   return attempt ? { discovered: attempt.tests.discovered, skipped: Number(attempt.tests.skipped) || 0, attemptId: attempt.attemptId } : null;
 }

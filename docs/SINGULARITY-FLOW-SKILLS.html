@@ -98,10 +98,10 @@
     <h1>Singularity Flow Skill Catalog</h1>
     <p>Every packaged Copilot skill, its invocation and execution policy, and its complete reviewed instruction source. This file is generated from the repository and uses no external scripts, fonts, trackers, or network resources.</p>
     <div class="stats">
-      <span class="stat"><strong>190</strong> skills</span>
+      <span class="stat"><strong>191</strong> skills</span>
       <span class="stat"><strong>0</strong> automatic</span>
-      <span class="stat"><strong>190</strong> explicit only</span>
-      <span class="stat"><strong>182</strong> never-model operations</span>
+      <span class="stat"><strong>191</strong> explicit only</span>
+      <span class="stat"><strong>183</strong> never-model operations</span>
     </div>
   </header>
   <section class="toolbar" aria-label="Catalog filters">
@@ -813,6 +813,10 @@
     <span>sflow-test</span>
     <small>guided</small>
   </a>
+  <a href="#sflow-test-scope" data-skill-link="sflow-test-scope">
+    <span>sflow-test-scope</span>
+    <small>guided</small>
+  </a>
   <a href="#sflow-test-setup" data-skill-link="sflow-test-setup">
     <span>sflow-test-setup</span>
     <small>interactive</small>
@@ -874,7 +878,7 @@
     <small>interactive</small>
   </a></nav>
     <main>
-      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">190 shown</p></div>
+      <div class="result-row"><h2>Packaged skills</h2><p id="result-count" aria-live="polite">191 shown</p></div>
       <div id="empty" class="empty">No skill matches these filters.</div>
       <section id="catalog">
   <article class="skill-card" id="sflow-about"
@@ -2390,7 +2394,7 @@ Run `singularity-flow check --for-agent --json` once. Report freshness, mode, in
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2521 body tokens</span>
+          <span class="pill">~2520 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -2427,7 +2431,7 @@ Blocked: relay `resolution.issues[].choices`. Eligible risk needs reason/expiry 
 4. Follow `clarification.checkpoint`; off skips. Reuse same-binding human replies; ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop; stage chat replies). File-edit `{&quot;responses&quot;:[...]}` at `clarification.responseStagingPath`; run `checkpoint.recordAction` alone. On refusal preserve replies/staging; repair recording, not questions. Remove staging only on success; record before code mutation; refresh entry once. Stage JSON, never governed records. New question: if this person can decide it, `ask_user`, stage only that reply, run `checkpoint.newQuestionAction` alone. Otherwise or none returned: keep coding on the most conservative reading, list under `## Upstream discrepancies`, run `singularity-flow upstream-issue raise --from-artifact`.
 5. Refuse invalid/dirty references. `generation &gt; 0`: `singularity-flow revision status --for-agent --json`. Source edits need `codeAuthoringReady: true`, context/clarification. Preserve code/tests; prepare missing artifact via `authoringProgress`. Preparation is not authoring.
 6. Native file-edit tool: finish behavior/tests/artifact/Agent brief and bindings. Keep planned tests; assert behavior, never fake tags. Preserve managed blocks. Document APIs; tags aren&#39;t docs. Exclude fixtures/docs/deletions/symlinks. Use native comments. Product: `@clause:&lt;WORK-ID&gt;:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); tests: `@ac:&lt;WORK-ID&gt;:AC-001` above the test. Honor pinned test-only opt-outs. Follow `toolProtocol.localVerification`/`mutationContract.artifacts` for tests/app/evidence. Missing capture: ask start/setup/upload. No VS Code task is required.
-7. Follow `testExecution.handoff`; `argvWithheld: true` means configured, not missing; never infer it. No adoption/amendment for redaction/inference or reporter flags. Development tests allowed; report argv/cwd/exit/failures. Publication still runs fresh governed tests; manual passes never advance. `runnerStatus: blocked`: fix that delivery finding first. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
+7. Follow `testExecution.handoff`; `argvWithheld: true` means configured, not missing; never infer it. No adoption/amendment for redaction/inference or reporter flags. Development tests allowed; report argv/cwd/exit/failures. Publication runs tests unless passed on this code; manual passes never advance. `runnerStatus: blocked`: fix that finding first. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
 8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json --publish-if-ready` (includes draft-check). Follow `correction.class`/`sameTurn`, `traceabilityRepair.actions`; verify hashes, repair tags without asking. Never invent, pad, delete markers, nest models or overwrite producers. `ready` is not test success. Follow `repairContinuation`/`repairLoop.protocol`; no unchanged retries or resets; same findings after a change: correct differently. Exhausted `correction.maximumChangedFingerprints`: preserve work, return manual/owner routes.
 9. Use returned `commands.publish` once when ready unless `publishIfReady.published`. Advisories/`requiredBefore: approve` don&#39;t hold. Absent: relay `commands.next`, stop. Refusal: `repairContinuation`; verify, retry; report the exact failure. Nonzero exit fails despite passing JUnit. No test ran: relay `testRunRisk.command` to a step approver; never run it. `/sf-recover`: proven runtime repair permits retry without source changes. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once. Never submit/approve.
 10. Published: read `outcomeReview.agentCommand` once; ask `validation.question`/`choices` now (`sflowDeliveryValidation` or `ask_user`). Only the chosen route may run; no acceptance/submission/approval. `afterReview`=lifecycle. Read errors keep publication.
@@ -11868,7 +11872,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">guided</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~826 body tokens</span>
+          <span class="pill">~849 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-test</code></dd></div>
@@ -11900,8 +11904,64 @@ The commands are the ones the capability selects, else the ones the Story&#39;s 
 
 1. Run `singularity-flow tests run --json` with the scope, commands and environment in `$ARGUMENTS`. Without `--work-id` it is a local preview for the capability that owns this checkout; add `--work-id &lt;ID&gt; --phase &lt;PHASE&gt;` when the person wants the run to count for that Story step.
 2. A command that needs an environment: pick the one named, else the only one allowed, else ask with `ask_user` which of the allowed ones, showing each binding status. For one that is not bound, give the person `singularity-flow env bind &lt;ENV&gt; --stdin` to run in their own terminal from their own secret helper; never ask for, type or pipe a value, and never run `singularity-flow env bind` yourself.
-3. Run `singularity-flow tests summary --run &lt;RUN-ID&gt; --json` with the run the result names. Report the totals, each failed case (name, `file:line`), the untagged count and each command&#39;s note, and the run&#39;s `label` exactly as returned. Say a run counts for a Story step only when `countsForStep` is true; a local preview never does.
+3. Run `singularity-flow tests summary --run &lt;RUN-ID&gt; --json` with the run the result names. Report the totals, each failed case (name, `file:line`), the untagged count and each command&#39;s note, and the run&#39;s `label` exactly as returned. Say a run counts for a Story step only when `countsForStep` is true; a local preview never does. A passing Story-step run also stands for that step&#39;s next publication while nothing changes.
 4. Do not edit tests or code in this turn. Report failures with their cases, and the next action from the result.
+</code></pre>
+      </div>
+    </details>
+  </article>
+  <article class="skill-card" id="sflow-test-scope"
+    data-name="sflow-test-scope"
+    data-class="guided"
+    data-boundary="repository"
+    data-invocation="explicit"
+    data-model="never">
+    <details>
+      <summary>
+        <span class="skill-number">176</span>
+        <span class="skill-title"><strong>sflow-test-scope</strong><span>Show or change which tests this Story runs, all configured, changed and affected, or only new and changed, at any step while it is open.</span></span>
+        <span class="chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="skill-content">
+        <div class="pills" aria-label="Skill policy">
+          <span class="pill ">explicit only</span>
+          <span class="pill">guided</span>
+          <span class="pill">repository boundary</span>
+          <span class="pill">model: never</span>
+          <span class="pill">~762 body tokens</span>
+        </div>
+        <dl>
+          <div><dt>Command</dt><dd><code>/sflow-test-scope</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[WORK-ID] [all-configured|changed-and-affected|new-and-changed] [why]</code></dd></div>
+          <div><dt>Model-capable operations</dt><dd>none</dd></div>
+          <div><dt>Source</dt><dd><code>plugin/skills/sflow-test-scope/SKILL.md</code></dd></div>
+        </dl>
+        <div class="source-heading">
+          <h3>Complete skill instructions</h3>
+          <button type="button" class="copy" data-copy="sflow-test-scope">Copy Markdown</button>
+        </div>
+        <pre data-source="sflow-test-scope"><code>---
+name: sflow-test-scope
+description: Show or change which tests this Story runs, all configured, changed and affected, or only new and changed, at any step while it is open.
+disable-model-invocation: true
+agent: agent
+argument-hint: &quot;[WORK-ID] [all-configured|changed-and-affected|new-and-changed] [why]&quot;
+---
+# Change which tests a Story runs
+
+&lt;!-- sflow-copilot-pause --&gt;
+Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. This skill is already loaded; never call the skill tool for it. Unless paused, continue below in this turn.
+
+&lt;!-- sflow-output-contract: conversational-guidance --&gt;
+**Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. After a blank line, display each next action as three separate Markdown bullets, in order: &quot;- Copilot: `&lt;copilotCommand&gt;`&quot;, &quot;- Shell: `&lt;command&gt;`&quot;, &quot;- VS Code (model-free): `&lt;modelFreeCommand&gt;`&quot;. Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: &quot;no verified equivalent&quot;; missing Shell or model-free: &quot;not available for this action&quot;. Never invent routes or make further calls for formatting.
+&lt;!-- sflow-execution-boundary --&gt;
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
+Changing it edits no code, runs no test and leaves every recorded run as it is. A run on the same code that already covers what is asked is not repeated.
+
+1. Run `singularity-flow story test-policy scope [WORK-ID] --json` and report `label` and `meaning`, then every entry of `scopes`. Without a scope in `$ARGUMENTS`, stop here.
+2. With one, use its exact ID: `all-configured`, `changed-and-affected` or `new-and-changed` (&quot;only new&quot;). `changeable: false` means it cannot change now; say why from `sealedBy` or the Story&#39;s state.
+3. A move to fewer tests needs a reason, 10 to 500 characters, and the step&#39;s reviewer reads it. Use the person&#39;s words from `$ARGUMENTS`; if they gave none, ask with `ask_user`. Say plainly when `new-and-changed` means the Story&#39;s existing tests will never run.
+4. Run `singularity-flow story test-policy scope [WORK-ID] --to &lt;SCOPE&gt; [--reason &lt;WHY&gt;] --json` once. Report the new `label`, the recorded `record.id` and what `meaning` says runs next.
 </code></pre>
       </div>
     </details>
@@ -11914,7 +11974,7 @@ The commands are the ones the capability selects, else the ones the Story&#39;s 
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">176</span>
+        <span class="skill-number">177</span>
         <span class="skill-title"><strong>sflow-test-setup</strong><span>Inspect repository test tools, suggest exact structured runners, guide reviewed configuration, and help an active Story adopt an approved test command without losing code.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -11993,7 +12053,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">177</span>
+        <span class="skill-number">178</span>
         <span class="skill-title"><strong>sflow-upload</strong><span>Attach, inspect, list, or governably detach files, folders, images, PDFs, Figma exports, notes, and HTTPS references for an Epic or Story.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12046,7 +12106,7 @@ Delegate once to `/sf-documents`: load it and do its steps in this turn yourself
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">178</span>
+        <span class="skill-number">179</span>
         <span class="skill-title"><strong>sflow-validate</strong><span>Validate the selected Singularity Flow repository without changing workflow or Git state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12101,7 +12161,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">179</span>
+        <span class="skill-number">180</span>
         <span class="skill-title"><strong>sflow-verify</strong><span>Verify implementation against acceptance criteria, run checks, capture evidence, and register the Singularity Flow verification artifact.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12165,7 +12225,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">180</span>
+        <span class="skill-number">181</span>
         <span class="skill-title"><strong>sflow-visual</strong><span>Inspect visual-assurance status or compare expected and actual governed visual evidence.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12221,7 +12281,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">181</span>
+        <span class="skill-number">182</span>
         <span class="skill-title"><strong>sflow-watch</strong><span>Watch a governed work item for remote lifecycle changes without modifying its branch or state.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12277,7 +12337,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">182</span>
+        <span class="skill-number">183</span>
         <span class="skill-title"><strong>sflow-work-interval</strong><span>Inspect, checkpoint, reconcile, or safely escalate the current governed Story work interval without committing unfinished source.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12337,7 +12397,7 @@ Use the CLI as the authority. Never stage, commit, push, or copy unfinished sour
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">183</span>
+        <span class="skill-number">184</span>
         <span class="skill-title"><strong>sflow-workflow-rules</strong><span>Background rules for Singularity Flow-managed SDLC work. Load when a repository has governed Story state at its configured work-item root or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12400,7 +12460,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">184</span>
+        <span class="skill-number">185</span>
         <span class="skill-title"><strong>sflow-workflows</strong><span>List, preview, transfer, duplicate, archive or delete workflows, or explicitly share inert Git-backed workflow drafts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12500,7 +12560,7 @@ or `singularity-flow workflow delete &lt;ID&gt; --confirm &lt;PLAN-SHA256&gt; --
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">185</span>
+        <span class="skill-number">186</span>
         <span class="skill-title"><strong>sflow-workspace</strong><span>Select a saved Singularity Flow workspace and repository for this Copilot session, optionally binding the visible context to a Story ID.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12564,7 +12624,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">186</span>
+        <span class="skill-number">187</span>
         <span class="skill-title"><strong>sflow-workspace-bootstrap</strong><span>Prepare, diagnose, resume, or abandon a recoverable Singularity Flow workspace setup before governed Story work begins.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12647,7 +12707,7 @@ directory automatically, or claims that a failed push was completed.
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">187</span>
+        <span class="skill-number">188</span>
         <span class="skill-title"><strong>sflow-workspace-impact</strong><span>Run or inspect an advisory impact analysis across the selected workspace without creating a Work ID or lifecycle branch.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12706,7 +12766,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">188</span>
+        <span class="skill-number">189</span>
         <span class="skill-title"><strong>sflow-workspace-session</strong><span>Attach the current terminal or Copilot session to a saved Singularity Flow workspace before selecting Story work.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12767,7 +12827,7 @@ This is context setup only. Do not inspect application files, start implementati
     data-model="never">
     <details>
       <summary>
-        <span class="skill-number">189</span>
+        <span class="skill-number">190</span>
         <span class="skill-title"><strong>sflow-workspaces</strong><span>Show the complete saved-workspace table and active context; workspace selection belongs to /sf-workspace.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
@@ -12822,7 +12882,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     data-model="conditional">
     <details>
       <summary>
-        <span class="skill-number">190</span>
+        <span class="skill-number">191</span>
         <span class="skill-title"><strong>sflow-worldmodel</strong><span>Show the Repository brief phase prompts receive and read repository knowledge, AST facts and composed prompts.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>

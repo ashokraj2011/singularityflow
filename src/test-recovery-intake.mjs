@@ -1,7 +1,7 @@
 /** TRP intake planning is read-only. Display defaults are never execution consent. */
 import { trpDigest, sealTrpRecord, TRP_RISK_CATEGORIES } from './test-recovery-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery, TEST_SCOPES } from './code-delivery-policy.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
 import path from 'node:path';
@@ -378,8 +378,9 @@ export function confirmTestRecoveryIntake(preview, confirmation, options = {}) {
     const riskOptions = ['test-baseline-disposition', 'test-baseline-scope', 'test-policy-confirm']
       .some(key => Object.hasOwn(options, key));
     if (riskOptions) fail('This workflow does not enable Story test policy. No Story was created.', 'TRP_NOT_ENABLED');
-    if (Object.hasOwn(options, 'test-execution-mode') && !MODES.includes(options['test-execution-mode'])) {
-      fail('Test execution mode must be changed-and-affected or all-configured.', 'TEST_POLICY_INVALID');
+    // Without the pilot a Story may also start on only its new and changed tests [TCE:REQ-092].
+    if (Object.hasOwn(options, 'test-execution-mode') && !TEST_SCOPES.includes(options['test-execution-mode'])) {
+      fail(`Test execution mode must be one of ${TEST_SCOPES.join(', ')}.`, 'TEST_POLICY_INVALID');
     }
     return null;
   }

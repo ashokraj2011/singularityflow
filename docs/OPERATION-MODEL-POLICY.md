@@ -872,6 +872,8 @@ Every public operation is classified before its implementation module is importe
 | story.test-policy.revoke-risk | mutation | never | — | — |
 | story.test-policy.revoke-risk.preview | read | never | — | — |
 | story.test-policy.risks | read | never | — | — |
+| story.test-policy.scope | mutation | never | — | — |
+| story.test-policy.scope.preview | read | never | — | — |
 | story.test-policy.show | read | never | — | — |
 | story.workflow.drift | read | never | — | — |
 | story.workflow.show | read | never | — | — |

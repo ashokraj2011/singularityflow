@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { storyIntakeBody } from '../apps/vscode/src/views/story-intake-page.ts';
 import { sidebarBody } from '../apps/vscode/src/views/sidebar-page.ts';
 import { buildLifecycleTree } from '../apps/vscode/src/views/tree-model.ts';
+import { currentTestScope, runsFewerTests, testScopeArgs, testScopeChoices, testScopeReasonProblem } from '../apps/vscode/src/views/test-scope.ts';
 
 const workflow = (status = 'in_progress') => ({
   workItem: { id: 'STORY-42', title: 'Keep entered details', workType: 'team-custom',
@@ -60,7 +61,7 @@ test('saved intake shows each repository\'s exact base and leaves old sibling ba
   assert.match(legacy, /<td>web<\/td><td>STORY-42<\/td><td>Not recorded<\/td><td>Not recorded<\/td>/);
 });
 
-test('repository intake, references and document labels cannot inject HTML, actions or executable links', () => {
+test('repository intake, references and document labels cannot inject HTML, actions or executable links', async () => {
   const attack = '<img src=x onerror="execute()"><script>execute()</script>';
   const state = workflow();
   state.workItem.title = attack;
@@ -72,7 +73,10 @@ test('repository intake, references and document labels cannot inject HTML, acti
     [{ id: 'DOC-1', type: 'url', name: attack }]);
   assert.doesNotMatch(html, /<img|<script|onclick=|href=|data-action="execute/);
   assert.match(html, /&lt;img/);
-  assert.deepEqual([...html.matchAll(/data-action="([^"]+)"/gu)].map(match => match[1]), ['evidence', 'tests', 'refresh']);
+  assert.deepEqual([...html.matchAll(/data-action="([^"]+)"/gu)].map(match => match[1]), ['evidence', 'tests', 'test-scope', 'refresh']);
+  // A button whose action the page's router does not handle does nothing, with no error anywhere.
+  const details = await readFile(new URL('../apps/vscode/src/views/story-intake-details.ts', import.meta.url), 'utf8');
+  for (const [, action] of html.matchAll(/data-action="([^"]+)"/gu)) assert.ok(details.includes(`onAction('${action}')`), `${action} reaches the page's handler`);
 });
 
 test('missing setup is unknown, not a guessed workflow, test result or base', () => {
@@ -113,6 +117,29 @@ test('active, completed and cancelled selected Stories keep their saved intake a
     assert.equal(actions.length, 1, status);
     assert.equal(actions[0].label, 'View intake details');
   }
+});
+
+test('a Story offers changing which tests run, and the choice builds one CLI command [TCE:REQ-090]', () => {
+  const flatten = nodes => nodes.flatMap(node => [node, ...flatten(node.children ?? [])]);
+  const state = workflow('in_progress');
+  state.currentPhase = 'implement';
+  state.phaseOrder = ['implement'];
+  state.phases = { implement: { id: 'implement', label: 'Implement', status: 'in_progress', generation: 0, approvals: [], artifacts: [] } };
+  state.testScopeChanges = [{ to: 'new-and-changed' }];
+  const row = flatten(buildLifecycleTree({ workflow: state, documents: [] })).find(node => node.runCommand === 'singularityFlow.changeTestScope');
+  assert.equal(row?.label, 'Change which tests run');
+  assert.equal(row?.description, 'Only new and changed tests');
+  assert.match(storyIntakeBody(state, preview()), /Tests that run now[\s\S]*Only new and changed tests/);
+  assert.equal(currentTestScope(state), 'new-and-changed');
+  assert.equal(currentTestScope({ resolution: { testExecutionMode: 'all-configured' } }), 'all-configured');
+  assert.equal(currentTestScope({ resolution: { testExecutionMode: 'changed-only' } }), 'changed-and-affected', 'an unknown value is not trusted');
+  assert.equal(runsFewerTests('changed-and-affected', 'new-and-changed'), true);
+  assert.equal(runsFewerTests('new-and-changed', 'all-configured'), false);
+  assert.match(testScopeChoices('changed-and-affected')[2].description, /^Other tests never run/, 'the warning comes first, where a narrow picker cuts the rest off');
+  assert.match(testScopeReasonProblem('Short'), /10 to 500 characters/);
+  assert.equal(testScopeReasonProblem('Only the tests this Story adds.'), null);
+  assert.deepEqual(testScopeArgs('S-1', 'new-and-changed', ' Why it is enough. '), ['story', 'test-policy', 'scope', 'S-1', '--to', 'new-and-changed', '--reason', 'Why it is enough.', '--json']);
+  assert.deepEqual(testScopeArgs('S-1', 'all-configured'), ['story', 'test-policy', 'scope', 'S-1', '--to', 'all-configured', '--json']);
 });
 
 test('menu, shortcuts and palette dispatch the exact read-only selected-Story source read', async () => {

@@ -189,11 +189,11 @@ test('§12 #7 and #8 through a real Story: only a criterion\'s own passing Jest 
   assert.match(criteria['AC-002'].witnesses[0].words, /was skipped, so it verified nothing/);
   assert.match(review.testEvidence.acceptance.statement, /^1 of 5 acceptance criteria verified \(1 by their own test result, 0 by a module test command\); 4 not verified yet\.$/);
 
-  // Every run is an immutable attempt: the preflight and the submission, never overwritten.
+  // Every run is an immutable attempt, never overwritten; submission reuses the preflight's on the same code [TCE:REQ-080].
   const directory = path.join(item, 'context/code-delivery/tests/attempts/implementation');
   const names = (await readdir(directory)).filter((name) => /^TA-[a-f0-9]{20}\.json$/.test(name));
   const purposes = await Promise.all(names.map(async (name) => JSON.parse(await readFile(path.join(directory, name), 'utf8')).purpose));
-  assert.ok(purposes.includes('preflight') && purposes.includes('submission'), purposes.join(', '));
+  assert.ok(purposes.includes('preflight'), purposes.join(', '));
 });
 
 test('§12 #8 for JUnit 5 through a real Story: skipped, filtered, missing and duplicate results stay unverified', async (t) => {

@@ -2,6 +2,7 @@
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { captureTerminalActionAuthorization } from '../action-authorization.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { storyTestScope } from '../code-delivery-policy.mjs';
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head, identity, repoRoot } from '../git.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
@@ -43,7 +44,7 @@ async function resolvePlan(root, config, workflow, { phaseId = null, confirmatio
     && phase.generationIntent?.status !== 'open') evidence = published;
   else evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
   const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: evidence },
-    { executionMode: workflow.resolution?.testExecutionMode });
+    { executionMode: storyTestScope(workflow) });
   const selection = await resolveTrpDeliverySelection(root, config, workflow, phase, evidence, commands,
     { previewOnly: true, confirmation, ...(createdAt ? { createdAt } : {}) });
   if (!selection.preview) fail('No structured test commands are available for this phase.', 'TRP_TEST_SELECTION_COMMAND_REQUIRED');

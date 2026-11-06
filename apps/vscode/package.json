@@ -1338,6 +1338,11 @@
         "icon": "$(beaker)"
       },
       {
+        "command": "singularityFlow.changeTestScope",
+        "title": "Singularity Flow: Change Which Tests Run for This Story",
+        "icon": "$(filter)"
+      },
+      {
         "command": "singularityFlow.resolvePhaseIssues",
         "title": "Singularity Flow: Resolve Phase Issues and Appeals",
         "icon": "$(tools)"

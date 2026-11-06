@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 37
+version: 38
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -213,11 +213,14 @@ and follow its human-confirmed apply action. This preserves authored code and do
 fresh test evidence. Missing commands remain a repairable test-configuration gate at code publication,
 not a reason to refuse specification/planning or claim tests passed.
 
-Ongoing scope is a separate `--test-execution-mode changed-and-affected|all-configured` choice,
-sealed with the Story. Affected mode infers runners for affected modules; configured required
-commands remain required and may themselves run a full suite. All-configured mode adds the
-repository-native suite to configured commands and affected-module runners; it does not recursively
-scan a large monorepo to guess extra commands. Configure additional suites explicitly. Existing failures default to repair in the Story; accepting them uses
+Ongoing scope is a separate `--test-execution-mode changed-and-affected|all-configured|new-and-changed`
+choice, sealed with the Story and changeable while it is open with
+`singularity-flow story test-policy scope <WORK-ID> --to <SCOPE>`. Affected mode infers runners for
+affected modules; configured required commands remain required and may themselves run a full suite.
+All-configured mode adds the repository-native suite to configured commands and affected-module runners;
+it does not recursively scan a large monorepo to guess extra commands. New-and-changed mode runs only the
+test files the Story added, changed or planned, so its other tests never run. Configure additional suites
+explicitly. See [Story test policy and recovery](test-recovery.md). Existing failures default to repair in the Story; accepting them uses
 the separately authorized test-risk flow, not deferral or scope selection.
 
 To run a selected base while another Story is open, use

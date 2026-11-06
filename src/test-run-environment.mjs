@@ -144,5 +144,8 @@ export async function testRunEnvironmentRecord(command, { cwd = process.cwd(), e
   const ci = key == null ? null : (bound?.secretsPresent ?? []).some(name => name.toUpperCase() === 'CI') ? '[redacted:CI]' : environment[key];
   let toolchain = {};
   try { toolchain = await (await import('./test-toolchain.mjs')).runnerToolchain(command, { cwd, environment }); } catch { /* recorded as unknown */ }
-  return { ci, removed: [...removed], declaredSha256: declaredVariablesSha256({ declared, environment, bound }), toolchain, ...(nodeVersion ? { nodeVersion } : {}) };
+  // Only its digest: NODE_OPTIONS is no selection (it stays), yet a different value is a different environment [TCE:REQ-081].
+  const nodeOptions = environment[named(environment, 'NODE_OPTIONS').at(-1)];
+  return { ci, removed: [...removed], declaredSha256: declaredVariablesSha256({ declared, environment, bound }), toolchain, ...(nodeVersion ? { nodeVersion } : {}),
+    ...(nodeOptions ? { nodeOptionsSha256: `sha256:${sha256(String(nodeOptions))}` } : {}) };
 }

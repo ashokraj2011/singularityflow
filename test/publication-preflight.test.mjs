@@ -2390,7 +2390,16 @@ test('missing structured report retains the successful process diagnostics', asy
   assert.equal(context.phase.generationIntent.status, 'open');
 });
 
-test('submission rerun exposes required test failure without changing its gate', async (t) => {
+/** A different environment makes submission run its tests rather than reuse publication's run [TCE:REQ-081]. */
+async function withAnotherEnvironment(work) {
+  const saved = process.env.NODE_OPTIONS;
+  process.env.NODE_OPTIONS = '--max-old-space-size=2048';
+  try { return await work(); } finally {
+    if (saved === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = saved;
+  }
+}
+
+test('a submission that runs its tests again exposes a required test failure without changing its gate', async (t) => {
   const context = await codeFixture('submit-test-diagnostic');
   t.after(() => rm(context.root, { recursive: true, force: true }));
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
@@ -2403,9 +2412,9 @@ test('submission rerun exposes required test failure without changing its gate',
   await mkdir(path.join(context.root, '.sflow', 'results'), { recursive: true });
   await writeFile(path.join(context.root, '.sflow', 'results', 'fail-submit'), '1\n');
 
-  await assert.rejects(() => inContext(context.root, () => submitPhase(
+  await assert.rejects(() => withAnotherEnvironment(() => inContext(context.root, () => submitPhase(
     context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
-  )), (error) => {
+  ))), (error) => {
     assert.equal(error.code, 'CODE_TEST_FAILED');
     assert.match(error.message, /failed \(exit 23\).*error\.requiredTestExecution/u);
     const execution = error.details.requiredTestExecution;
@@ -3094,13 +3103,13 @@ test('a passing quality command cannot mutate unregistered application source', 
     context.root, context.config, context.workflow, 'implementation'
   ));
   await writeFile(path.join(context.root, '.sflow', 'results', 'mutate-source'), 'trigger\n');
-  await inContext(context.root, () => assert.rejects(
+  await withAnotherEnvironment(() => inContext(context.root, () => assert.rejects(
     () => submitPhase(context.root, context.config, context.workflow, {
       phaseId: 'implementation', runChecks: true, persist: false
     }),
     (error) => error.code === 'QUALITY_COMMAND_SOURCE_MUTATION'
       && /changed application source or separately hashed test inputs/.test(error.message)
-  ));
+  )));
   assert.equal(context.phase.status, 'in_progress');
   assert.equal(context.phase.submittedAt, null);
   assert.match(await readFile(path.join(context.root, 'src', 'app.java'), 'utf8'),

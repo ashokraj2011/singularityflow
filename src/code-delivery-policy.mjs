@@ -139,6 +139,14 @@ function artifactKind(phase) {
   return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
 }
 
+/** Which tests a Story's gates run, widest first [TCE:REQ-090]. */
+export const TEST_SCOPES = Object.freeze(['all-configured', 'changed-and-affected', 'new-and-changed']);
+
+/** The test scope a Story runs under now: its latest change, else what intake chose [TCE:REQ-090]. */
+export function storyTestScope(workflow) {
+  return workflow?.testScopeChanges?.at(-1)?.to ?? workflow?.resolution?.testExecutionMode ?? 'changed-and-affected';
+}
+
 /**
  * Identify phases that owe executable code-delivery evidence.
  *

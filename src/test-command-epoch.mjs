@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { storyTestScope } from './code-delivery-policy.mjs';
 import { normalizeRequiredTestCommand, testReceiptPassing } from './code-delivery-tests.mjs';
 import { resolveDeliveryQualityCommands } from './delivery-evidence.mjs';
 import { commitIsAncestor, exactFileAtObject } from './git.mjs';
@@ -57,7 +58,7 @@ async function boundedRecord(root, relative, evidenceCommit = null) {
 
 async function expectedEpochCommands(root, config, workflow, phase, requirement) {
   let commands = (await resolveDeliveryQualityCommands(root, phase,
-    { executionMode: workflow.resolution?.testExecutionMode })).map((command, index) => {
+    { executionMode: storyTestScope(workflow) })).map((command, index) => {
     if (command?.kind !== 'test') return command;
     const normalized = normalizeRequiredTestCommand(command, index);
     return { ...normalized, result: { ...normalized.result,

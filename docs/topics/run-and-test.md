@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 5
+version: 6
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -106,7 +106,7 @@ start:
 
 ## State and safety
 
-A capability-scope `tests run` is a local preview: it is kept at `singularity-flow/test-runs/<capability>/<RUN-ID>.json` below the Git common directory (the last 20 runs) and is never evidence for a Story. A Story-scope run stages attempts for the step like publication preflight; they are admitted with the step's next publication or submission and labelled as local runs.
+A capability-scope `tests run` is a local preview: it is kept at `singularity-flow/test-runs/<capability>/<RUN-ID>.json` below the Git common directory (the last 20 runs) and is never evidence for a Story. A Story-scope run stages attempts for the step like publication preflight; they are admitted with the step's next publication or submission and labelled as local runs. A passing one also stands for that publication while the code, the command and the environment are the same, so the tests are not run again (see "When tests do not run again" in `singularity-flow explain test-recovery`). A run given an environment's values does not.
 
 `app start` keeps a private run record (pid, URL, start time and command identity) under the Git common directory at `singularity-flow/app/<capability>/<id>.json`, readable by you only. `app stop` stops only a process tree that record names, after checking the process is still the one that was started. Values never go into argv, a file, the worktree, the run record or any output: every bound secret of four or more characters is shown as `[redacted:NAME]`.
 

@@ -2319,6 +2319,16 @@ singularity-flow story approvers refresh WORK-123 --reason "The new reviewer joi
 
 The first command is a preview; the second records it after the person reviews the exact additions in their own terminal. Only members added to the Story's existing groups are applied: removals, new groups and rule changes never reach a running Story, so every earlier approval still verifies. The refresh is refused while an appeal of the current generation is waiting for a decision, or while a quality risk, finding dispute or artifact risk is still in force, because those records bind the Story's policy; decide, revoke or let them lapse first.
 
+### Change which tests a Story runs
+
+A Story's test scope can change at any step while it is open. Moving to fewer tests needs a reason, which the
+step's reviewer reads. Recorded runs stay as they are. On `new-and-changed` the Story's existing tests never run.
+
+```bash
+singularity-flow story test-policy scope WORK-123
+singularity-flow story test-policy scope WORK-123 --to new-and-changed --reason "Only the tests this Story adds matter here"
+```
+
 Reject to an allowed target:
 
 ```bash

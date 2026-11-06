@@ -1137,7 +1137,7 @@ const PAGES = Object.freeze({
     options: [
       ['--work-type ID', 'Which workflow to run. Required when the terminal is not interactive.'],
       ['--readiness-baseline reuse|run|defer', 'Use historical exact-base results, request an optional separately reviewed run, or configure tests later. Test setup/results never block Story creation; intake runs no tests. Later evidence and risk-review gates remain required.'],
-      ['--test-execution-mode changed-and-affected|all-configured', 'Pin ongoing test scope independently from baseline observation. Configured required commands remain enforced in either mode.'],
+      ['--test-execution-mode changed-and-affected|all-configured|new-and-changed', 'Start with this test scope, independently from baseline observation; story test-policy scope changes it later. Configured required commands remain enforced in every mode.'],
       ['--gate-mode hard|soft', 'Hard by default. Soft permits exact human-reviewed, expiring pilot coverage exceptions through appeal risk-prepare/risk-accept. It never skips tests, approval or integrity checks.'],
       ['--title TEXT', 'Story title, when there is no tracker to read it from.'],
       ['--jira', 'Read the Story from Jira instead of the command line.'],

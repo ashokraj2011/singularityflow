@@ -1253,7 +1253,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
-    'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.resolvePhaseIssues',
+    'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.changeTestScope', 'singularityFlow.resolvePhaseIssues',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openInvestigation', 'singularityFlow.openContextReceipt', 'singularityFlow.openHandoff', 'singularityFlow.openProgress',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
@@ -8840,7 +8840,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const panel = showStoryIntakeDetails(workflow, preview, snapshot?.documents ?? [], action => {
           if (!stillCurrent()) return;
           const commands = { refresh: 'singularityFlow.openStoryIntake',
-            evidence: 'singularityFlow.manageEvidence', tests: 'singularityFlow.reviewStoryTestRecovery' };
+            evidence: 'singularityFlow.manageEvidence', tests: 'singularityFlow.reviewStoryTestRecovery', 'test-scope': 'singularityFlow.changeTestScope' };
           void vscode.commands.executeCommand(commands[action]);
         }, slice => {
           if (stillCurrent()) void vscode.commands.executeCommand('singularityFlow.openSpecStudio', { ...slice, step: 'attach' });
@@ -9019,6 +9019,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             '--decision', choice.decision, '--reason', reason, '--confirm', selected.item.packetSha256], process.platform, client.location), false);
         })().catch(error => showRefusal(error, { headline: 'Phase issue review could not continue' })); });
       } catch (error) { showRefusal(error, { headline: 'Phase issues could not be inspected' }); }
+    },
+    'singularityFlow.changeTestScope': async () => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!repository || !workflow?.workItem?.id) {
+        void showCompactWarningMessage('Attach a Story before changing its test scope.');
+        return;
+      }
+      const { currentTestScope, runsFewerTests, testScopeArgs, testScopeChoices, testScopeReasonProblem, TEST_SCOPE_LABELS } = await import('./views/test-scope.ts');
+      const checkedRepository = repository;
+      const epoch = repositoryEpoch.capture();
+      const workId = workflow.workItem.id;
+      const stillCurrent = (): boolean => repositoryEpoch.isCurrent(epoch) && repository === checkedRepository
+        && store.current.snapshot?.workflow?.workItem?.id === workId;
+      const current = currentTestScope(workflow);
+      const choice = await vscode.window.showQuickPick(testScopeChoices(current),
+        { title: `${workId}: which tests should run?`, placeHolder: `Now: ${TEST_SCOPE_LABELS[current]}. Runs already recorded stay as they are.`, ignoreFocusOut: true });
+      if (!choice || !stillCurrent() || choice.scope === current) return;
+      const reason = runsFewerTests(current, choice.scope) ? await vscode.window.showInputBox({
+        title: `Why run ${TEST_SCOPE_LABELS[choice.scope].toLowerCase()}?`, ignoreFocusOut: true,
+        prompt: "This Story will run fewer tests. The step's reviewer reads your reason.",
+        validateInput: testScopeReasonProblem
+      }) : undefined;
+      if (!stillCurrent() || (runsFewerTests(current, choice.scope) && reason === undefined)) return;
+      try {
+        await client.run(testScopeArgs(workId, choice.scope, reason));
+        void vscode.window.showInformationMessage(`${workId} now runs ${TEST_SCOPE_LABELS[choice.scope].toLowerCase()}. Runs already recorded stay as they are.`);
+        await store.refresh();
+      } catch (error) {
+        showRefusal(error, { headline: 'Could not change the test scope' });
+      }
     },
     'singularityFlow.reviewStoryTestRecovery': async () => {
       const workflow = store.current.snapshot?.workflow;

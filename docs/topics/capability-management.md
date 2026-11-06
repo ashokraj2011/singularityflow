@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 26
+version: 27
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -63,9 +63,9 @@ submitted, and when the review is approved. An excluded directory can therefore 
 scanning without making changed test inputs count as unchanged evidence. Do not put runtime source
 directories here merely to shrink the scan; the reviewer must inspect the exact map.
 
-The independent Story-intake choice between **Changed and affected tests** and **All configured
-tests** is described in [Story test policy and recovery](test-recovery.md). That choice requires an
-approved workflow with `testRecovery.enabled: true`; a capability path setting does not enable a
+The independent Story choice between **Changed and affected tests**, **All configured tests** and
+**Only new and changed tests** is described in [Story test policy and recovery](test-recovery.md). It
+is made at intake and can be changed while the Story is open. A capability path setting does not enable a
 test-risk waiver or change the selected test scope.
 
 An ordinary initialized repository needs no map: it resolves as the deterministic implicit

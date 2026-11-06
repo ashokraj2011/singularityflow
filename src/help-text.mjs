@@ -143,7 +143,7 @@ Usage:
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
     [--spec SPEC-ID[@N][=REQ-001,...] [--allow-partial-dependency --reason TEXT]]...
     [--isolated-worktree] [--intake-receipt ID] [--baseline-failures repair-in-story|resolve-outside]
-    [--readiness-baseline reuse|run|defer] [--test-execution-mode changed-and-affected|all-configured]
+    [--readiness-baseline reuse|run|defer] [--test-execution-mode changed-and-affected|all-configured|new-and-changed]
     [--gate-mode hard|soft]
     [--test-baseline-disposition fix --test-execution-mode changed-and-affected|all-configured --test-baseline-scope reuse --test-policy-confirm PLAN-DIGEST]
   singularity-flow choices begin start <WORK-ID> [--json]
@@ -1110,6 +1110,9 @@ Usage:
     Pins the authorized browser target to a Story started without --target-url. The preview names the
     plan digest; a person who approves a step that smoke-checks it confirms it. A pinned origin is never replaced.
   singularity-flow story test-policy show [--work-id ID] [--json]
+  singularity-flow story test-policy scope [WORK-ID] [--to all-configured|changed-and-affected|new-and-changed] [--reason TEXT] [--json]
+    Shows or changes which tests this Story's gates run, at any step while it is open. Moving to fewer tests needs --reason;
+    new-and-changed runs only the test files the Story added, changed or planned. Recorded runs stay as they are.
   singularity-flow story test-policy risks [--work-id ID] [--phase PHASE] [--obligation DOCUMENT-ID] [--operation publish|submit|approve|downstream|replay] [--json]
   singularity-flow story test-policy accept-risk --issue ISSUE-ID --reason TEXT --follow-up-owner ID --remediation TEXT
     [--work-id ID] [--phase PHASE] [--repository ID] [--obligation DOCUMENT-ID] [--operation publish|submit|approve|downstream|replay] [--expires UTC-ISO]

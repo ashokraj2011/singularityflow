@@ -777,6 +777,19 @@ test('an agent may request a Story-only test command, but only a person who appr
   }
 });
 
+test('an agent may change which tests its Story runs, unlike a narrowing it would have to ask a person to accept', async t => {
+  const f = await fixture(t);
+  // Owner, 2026-11-06: the open setting is anyone's, and the reviewer reads the reason [TCE:REQ-090].
+  const change = 'singularity-flow story test-policy scope PMC-1 --to new-and-changed --reason "Only the tests this Story adds matter."';
+  for (const [skill, mode] of [['/sf-phase', null], ['/sf-test-scope', null], ['/sf-recover', 'kernel']]) {
+    const payload = await f.enter(skill, mode ?? undefined);
+    const allowed = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: change, cwd: f.root } });
+    assert.notEqual(allowed.permissionDecision, 'deny', `${skill}: ${allowed.permissionDecisionReason}`);
+    const narrowing = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision test-narrowing PMC-1 --phase custom-step --command unit --reason "Fine."', cwd: f.root } });
+    assert.equal(narrowing.permissionDecision, 'deny', skill);
+  }
+});
+
 test('no agent turn sets held changes aside; it shows the person the command', async t => {
   const f = await fixture(t);
   const setAside = `singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm sha256:${'a'.repeat(64)} --json`;

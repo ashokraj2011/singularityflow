@@ -1614,6 +1614,11 @@ export function attemptLocalIntegrationLabel(attempt) {
  * so. `testReceiptPassing` decides whether the module command passed; whether a criterion's own
  * test passed is the evaluator's join, never this record's.
  */
+/** The digest of what shaped a run, as its attempt records it [TCE:REQ-033]; the CLI's own Node is left out. */
+export function runEnvironmentSha256(runEnvironment) {
+  return `sha256:${sha256(canonicalJson({ platform: process.platform, arch: process.arch, ...runEnvironment }))}`;
+}
+
 export function buildTestExecutionReceipt(command, check, parsed, {
   attemptId, nonce, parentAttemptId = null, purpose = 'submission', workId = null, phase = null,
   generation = null, epoch = null, rawReports = [], reportError = null, profile = null, selection = null,
@@ -1644,7 +1649,7 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     argvSha256: sha256(Buffer.from(JSON.stringify(command.argv))),
     selection: selection ? { ...selection, selectionSha256: `sha256:${sha256(canonicalJson({ profile, ...selection }))}` } : null,
     environment: { ...ran, host: `node ${process.versions.node}` },
-    environmentSha256: `sha256:${sha256(canonicalJson(ran))}`,
+    environmentSha256: runEnvironmentSha256(check?.runEnvironment),
     platform: process.platform,
     workingDirectory: command.workingDirectory,
     affectedRoots: command.affectedRoots,

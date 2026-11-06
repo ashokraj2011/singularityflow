@@ -111,7 +111,7 @@ import {
   reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
-import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, pinCodeDeliveryTask, storyTestScope, TEST_SCOPES } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
@@ -260,9 +260,9 @@ import {
 } from './auto/auto-candidate.mjs';
 import {
   configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
-  resolveAffectedModule, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
+  resolveAffectedModule, runEnvironmentSha256, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
-import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
+import { admitTestAttempts, recordTestAttempt, unchangedTestRun } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
 import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from './verification/test-policy.mjs';
@@ -604,6 +604,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   'decision-made:test-narrowing': { effect: 'review-safe', lists: { testNarrowings: 'narrowing_decided' } },
   // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
   'decision-made:evidence-reuse': { effect: 'review-safe', lists: { evidenceReuses: 'evidence_reuse_decided' } },
+  // A change of which tests the Story's gates run (`story test-policy scope`): what was recorded stays as it was.
+  'decision-made:test-scope': { effect: 'review-safe', lists: { testScopeChanges: 'test_scope_changed' } },
   // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
   'decision-made:visual-profile': { effect: 'review-safe', lists: { visualProfileDecisions: 'visual_profile_decided' } },
   'decision-made:witness-exception': { effect: 'review-safe', lists: { witnessExceptionRenewals: 'witness_exception_renewed' } },
@@ -1018,8 +1020,8 @@ export async function createWorkflow(root, config, {
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
   );
-  if (!['changed-and-affected', 'all-configured'].includes(testExecutionMode)) throw new SingularityFlowError(
-    'Test execution mode must be changed-and-affected or all-configured.', { code: 'TEST_POLICY_INVALID' });
+  if (!TEST_SCOPES.includes(testExecutionMode)) throw new SingularityFlowError(
+    `Test execution mode must be one of ${TEST_SCOPES.join(', ')}.`, { code: 'TEST_POLICY_INVALID' });
   resolution.testExecutionMode = testRecoveryPlan?.choices?.executionMode ?? testExecutionMode;
   // Caller-supplied preview JSON cannot enable TRP or weaken the approved Story policy.
   // Rebuild its exact base/workflow/receipt binding before any Story files are written.
@@ -1253,6 +1255,8 @@ export async function createWorkflow(root, config, {
       tokenEconomy: structuredClone(snapshotState.tokenEconomy ?? normalizeTokenEconomy(config.tokenEconomy ?? {})),
       ledger: structuredClone(snapshotState.ledger ?? normalizeLedgerConfig(config.ledger ?? {})),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
+      // Sealed in the test policy since intake chose it, and never read by a gate until it was also here [TCE:REQ-091].
+      testExecutionMode: resolution.testExecutionMode,
       ...(snapshotState.repositoryCommitPolicy == null ? {} : { repositoryCommitPolicy: structuredClone(snapshotState.repositoryCommitPolicy) }),
       phases: resolution.phases
     },
@@ -3705,7 +3709,7 @@ export async function publishGeneration(root, config, workflow, {
     generation: nextPhaseGeneration(phase), agent: session.agent };
   let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
   // Execute the exact structured test command before consuming the generation intent. Submission
-  // still reruns it against the committed generation, but command inference, test discovery, and
+  // reuses this run while nothing it depends on moved [TCE:REQ-080], and command inference, test discovery, and
   // result-adapter incompatibility must be found while the current generation is still editable.
   // Otherwise the only way to repair a bad adapter is to mutate bytes after publication and enter
   // generation recovery for a failure the kernel could have detected earlier.
@@ -3721,7 +3725,7 @@ export async function publishGeneration(root, config, workflow, {
     deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
     if (testedSelection) {
       const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight },
-        { executionMode: workflow.resolution?.testExecutionMode });
+        { executionMode: storyTestScope(workflow) });
       const refreshed = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryPreflight, commands,
         { previewOnly: true });
       // The selector owns the semantic source/command binding. Its own generated
@@ -4733,7 +4737,7 @@ export const localTestRunKernel = Object.freeze({
 });
 
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
-  commandProvenance = new Map(), localRun = null
+  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null
 } = {}) {
   const checks = [];
   // Null unless the pinned capability policy allows local integration evidence [RUN M3].
@@ -4899,6 +4903,26 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
     }
     gateRun?.observe(policy, { cwd: executionRoot, environment: commandEnvironment, bound: materialized?.environment, nodeVersion: requestedNode.nodeVersion });
+    // A passing run of this command on exactly this code, under the same pin and in the same environment, stands [TCE:REQ-080].
+    let rerunReason = null;
+    if (reuseUnchanged && policy.kind === 'test' && policy.argv && gateRun && !environmentGate.run) {
+      const observed = {};
+      await gateRun.attach(observed);
+      const standing = await unchangedTestRun(root, workDirRelative(config, workflow.workItem.id), workflow, phase.id, value, {
+        commit: sourceCommit, treeSha256: sourceTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
+        ...(pinOf ? { pinSha256: pinOf(policy.id) } : {}) });
+      if (standing.attempt) {
+        // Nothing ran: the report staged for this run returns untouched.
+        if (restoreTransientResult) await restoreTransientResult();
+        activeTransientRestore = null;
+        if (isolatedResultRestore) { await isolatedResultRestore(); isolatedResultRestore = null; }
+        checks.push(reusedQualityCheck(policy, command, standing, { testInputSha256, testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) }));
+        console.warn(`Not run again: ${policy.id} passed on this exact code (${standing.attempt.attemptId}, recorded by ${standing.attempt.phase}).`);
+        continue;
+      }
+      rerunReason = standing.moved;
+    }
+    if (rerunReason) console.warn(`Running ${policy.id} again: ${rerunReason}.`);
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: executionRoot,
@@ -4991,10 +5015,40 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   return checks;
 }
 
+/**
+ * The check of a run that still stands: the run's own identity and times, and `reusedFrom` naming it,
+ * so no surface can read it as a run of this step. The attempt behind it stays off the check's JSON.
+ */
+function reusedQualityCheck(policy, command, standing, { testInputSha256, testRuntime }) {
+  const { attempt } = standing;
+  const check = {
+    id: policy.id, command, kind: policy.kind, requirement: policy.requirement, workingDirectory: policy.workingDirectory,
+    resultIsolated: true, externalModelPolicy: policy.modelPolicy, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+    sourceCommit: attempt.candidate.commit, sourceTreeSha256: attempt.candidate.treeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+    testRuntime, startedAt: attempt.process.startedAt, completedAt: attempt.process.completedAt,
+    status: 'passed', exitCode: 0, signal: null, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false,
+    evidenceUse: 'reused', reusedFrom: { attemptId: attempt.attemptId, phase: attempt.phase, generation: attempt.generation, commit: attempt.candidate.commit,
+      ...(attempt.testScope?.files ? { files: attempt.testScope.files } : {}), counts: attempt.tests }
+  };
+  Object.defineProperty(check, 'unchangedRun', { value: standing, configurable: true });
+  return check;
+}
+
+/** Whether a Story's gates may reuse an earlier passing run: never under the test-recovery pilot, which observes each run itself. */
+function mayReuseUnchangedRuns(workflow) {
+  return !workflow.testRecovery && workflow.resolution?.testRecovery?.enabled !== true;
+}
+
+/** The commands a gate runs under the Story's test scope; only a Story on its new and changed tests narrows any [TCE:REQ-093]. */
+async function storyScopedTestCommands(root, workflow, phase, commands, deliveryEvidence) {
+  if (storyTestScope(workflow) !== 'new-and-changed') return commands;
+  return (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, commands, deliveryEvidence?.testPaths ?? []);
+}
+
 async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
   if (phase.storyTestCommands || workflow.testCommandDecisions) (await import('./story-test-commands.mjs')).assertStoryTestCommands(workflow);
   let commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence },
-    { executionMode: workflow.resolution?.testExecutionMode }))
+    { executionMode: storyTestScope(workflow) }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
     .map((command, index) => ({
       ...normalizeRequiredTestCommand(command, index),
@@ -5040,8 +5094,10 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   // A guessed command is pinned for the Story at first use; a changed one waits for a person [TCE:REQ-010].
   const pins = await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, commands, deliveryEvidence);
   const riskRun = await beginStoryTestRiskRun(root, config, workflow, phase, { commands, selection: trpSelection?.selection });
+  commands = await storyScopedTestCommands(root, workflow, phase, commands, deliveryEvidence);
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
-    commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
+    commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
+    reuseUnchanged: mayReuseUnchangedRuns(workflow), pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null
   });
   const passing = [];
   const attempts = [];
@@ -5319,7 +5375,7 @@ async function submitPhaseTransition(root, config, workflow, {
   const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
   if (phase.storyTestCommands || workflow.testCommandDecisions) (await import('./story-test-commands.mjs')).assertStoryTestCommands(workflow);
   let deliveryCommands = await resolveDeliveryQualityCommands(root, phase,
-    { executionMode: workflow.resolution?.testExecutionMode });
+    { executionMode: storyTestScope(workflow) });
   let trpSelection = null;
   let requiredTestCommands = [];
   if (codeDeliveryRequired) {
@@ -5523,12 +5579,20 @@ async function submitPhaseTransition(root, config, workflow, {
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
   const pins = codeDeliveryRequired && !retainedRisk && runChecks
     ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands, phase.deliveryEvidence) : null;
+  // A runner amendment's epoch needs its own fresh run of the whole command.
+  if (codeDeliveryRequired && !retainedRisk && !testCommandEpochRun) {
+    requiredTestCommands = await storyScopedTestCommands(root, workflow, phase, requiredTestCommands, phase.deliveryEvidence);
+    const selected = new Map(requiredTestCommands.filter((command) => command.testScope?.files).map((command) => [command.id, command]));
+    deliveryCommands = deliveryCommands.map((command) => (command?.kind === 'test' && selected.get(command.id)) || command);
+  }
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
     retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
       trpSelection && command?.kind === 'test' ? command.provenance
-        : testCommandProvenance(phase, command)]))
+        : testCommandProvenance(phase, command)])),
+    reuseUnchanged: mayReuseUnchangedRuns(workflow) && !testCommandEpochRun,
+    ...(pins ? { pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null } : {})
   }) : [];
   if (retainedRisk) {
     const observation = retainedRisk.observation;
@@ -5541,9 +5605,16 @@ async function submitPhaseTransition(root, config, workflow, {
       stdout: '', stderr: observation.diagnostics.join('\n') });
   }
   if (!codeDeliveryRequired) {
+    // What the repository's tests ran is an attempt like a code step's, so nothing reruns it on the same code [TCE:REQ-080].
+    for (const command of repositoryTests?.commands ?? []) {
+      const check = phase.checks.find((entry) => entry.id === command.id);
+      if (check && !check.unchangedRun && check.status !== 'skipped-warning') await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+        command, check, purpose: 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation });
+    }
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
     // command may emit no report at all, so it cannot authorize discarding a preserved report.
     for (const check of phase.checks) await restoreTransientQualityResult(check);
+    if (repositoryTests?.commands.length) await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   }
   const repositoryTestFailures = repositoryTests
     ? (await import('./verification/repository-tests.mjs')).settleRepositoryTestChecks(phase.checks, repositoryTests) : [];

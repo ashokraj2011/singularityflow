@@ -93,7 +93,7 @@ export async function sealStoryTestPolicy(root, {
     : await repositoryTestCapability(root, { configuredCommands, env, platform });
   const record = {
     schemaVersion: 1, kind: 'story-test-policy', workId, baseCommit, host: { platform, arch },
-    executionScope: (trpChoices?.executionMode ?? executionMode) === 'all-configured' ? 'full' : 'affected',
+    executionScope: { 'all-configured': 'full', 'new-and-changed': 'new' }[trpChoices?.executionMode ?? executionMode] ?? 'affected',
     baselineChoice, baselineObservation: baselineChoice === 'defer' ? 'deferred-not-verified'
       : baselinePending ? 'pending-not-verified' : 'receipt-only',
     testRuntime,

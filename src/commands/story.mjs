@@ -820,6 +820,10 @@ export async function storyCommand(positionals, options) {
       const { run: runTestAttestation } = await import('./story-test-attestation.mjs');
       return runTestAttestation(positionals.slice(3), { options, root });
     }
+    if (action === 'scope') {
+      const { run: runTestScope } = await import('./story-test-scope.mjs');
+      return runTestScope(positionals.slice(3), { options, root });
+    }
     if (action === 'amend') {
       const { run: runTestAmendment } = await import('./story-test-amendment.mjs');
       return runTestAmendment(positionals.slice(3), { options, root });
@@ -841,7 +845,7 @@ export async function storyCommand(positionals, options) {
     const sealed = await readSealedStoryTestPolicy(root, config, workflow);
     const result = {
       schemaVersion: 1, resultType: 'story-test-policy', workId: workflow.workItem.id,
-      sealed,
+      sealed, testScope: (await import('./story-test-scope.mjs')).testScopeView(workflow),
       enabled: Boolean(agreement), agreement,
       readiness: agreement ? workflow.testRecovery?.readiness ?? null : null,
       supported: { readinessRepair: true, selectionPreview: true, riskActivation: true,
@@ -860,6 +864,7 @@ export async function storyCommand(positionals, options) {
         console.log(`Sealed test policy: ${sealed.record.executionScope} tests; base failures: ${sealed.record.baselineFailures}; criteria verified by ${sealed.record.witnessDefault} unless their contract says otherwise.`);
         for (const line of capabilityLines(sealed.record.capability)) console.log(`  ${line}`);
       } else if (sealed?.error) console.warn(`Sealed test policy: ${sealed.error}`);
+      console.log(`Tests that run now: ${result.testScope.label}. ${result.testScope.meaning}`);
       console.log(result.message);
     }
     return result;

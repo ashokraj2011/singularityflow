@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 29
+version: 30
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -336,6 +336,64 @@ singularity-flow decision evidence-reuse <WORK-ID> --phase <PHASE> --from-attemp
 - **How it reads:** everywhere it is shown (the step's review, the retained execution evidence a later step and the conformance step receive) it reads `reused: <TA-ID> recorded by <step> at <commit>; approved for <PHASE> by <who> (ERU-NNN), not a run by <PHASE>`. A lapsed one says why it no longer applies. Revoke one with `decision evidence-reuse --revoke ERU-001 --reason TEXT`.
 
 Evidence reuse and test-run risk answer different questions. Test-run risk accepts that tests could not run in an environment and is shown as an exception, never a pass. Evidence reuse cites a run that did pass, by the step that recorded it, for a later step that recorded none; it is never shown as that later step's run.
+
+### When tests do not run again
+
+Tests run once per version of the code. A gate that needs a test run reuses a passing one, automatically, when nothing that run depended on has moved. Nobody has to decide anything. Publish runs the tests, submit reuses that run, and a later verification or testing step reuses it too when its command is the same.
+
+| What must be the same | How it is compared |
+|---|---|
+| Application source and tests | The source tree digest the run recorded |
+| Test configuration and other separately hashed test inputs | The test-input digest the run recorded |
+| The command | Program and arguments, working folder and report form, and the command's pin |
+| The environment | `CI`, the variables a gate removes, the command's declared variables, `NODE_OPTIONS` and the toolchain versions |
+
+The tests run again, with a line saying why, when any of these moved. They also run again when:
+
+- **The last run on this code did not pass.** The latest run speaks for that code, so a failure never hides behind an earlier pass.
+- **The command has not run on this code.** A later step's whole-repository suite is a different command from one package's tests, so it runs once and is then reused.
+- **The run was given an environment's values.** SFlow cannot compare those values.
+- **The Story is on the test-recovery pilot,** which observes each run itself, or **a runner amendment needs its fresh run.**
+
+Other runs are not reused:
+
+- Non-test checks such as `git diff --check` run every time; they check the step, not only the code.
+- A `tests run` someone starts always runs. It also counts: a passing one on the same code stands for the next publish.
+
+A reused run is never shown as a run of the later step. Its check carries `reusedFrom`, and the step's review reads `reused: <TA-ID> recorded by <step> at <commit>; the code has not changed since`. The check keeps the times of the run that happened. A new generation of the same code gets an attempt of its own naming the run in `reusedFrom`, so every receipt still binds an attempt of its own step and generation.
+
+`decision evidence-reuse` below is a different case: a person's decision that a run stands for a step that has no run of its own to compare.
+
+### Changing which tests run
+
+A Story has one test scope. It starts as the intake choice and can be changed at any step while the Story is open, including during the code step.
+
+| Scope | What each code step runs |
+|---|---|
+| `all-configured` | The repository's own suite as well as the tests of every module it touches |
+| `changed-and-affected` | Every test of the modules it touches. This is the default |
+| `new-and-changed` | Only the test files the Story added, changed or planned for its criteria. Its other tests never run |
+
+- **Copilot:** `/sf-test-scope <WORK-ID> new-and-changed <why>`
+- **Shell:** `singularity-flow story test-policy scope <WORK-ID> --to new-and-changed --reason "<why>"`
+- **VS Code:** the command **Singularity Flow: Change Which Tests Run for This Story**, or **Change which tests run** on **Story intake details**
+
+**Who:** anyone working on the Story, an agent included. A move to fewer tests needs a reason of 10 to 500 characters, which the step's reviewer reads. A move to more tests needs none. Each change is recorded in `workflow.testScopeChanges`.
+
+**What it changes:** only what the next gate runs. Recorded runs stay as they are, and the test policy sealed at intake is not rewritten. A wider scope runs only what has not run on this code, and a narrower one on the same code runs nothing if a whole run already covered those tests.
+
+**On `new-and-changed`:**
+
+- Existing tests never run, at any step. A later `verification` or `testing` step records why instead of running the repository's suite, and each step's review says the existing tests were not run. A regression in an existing test is not something SFlow can see on this scope.
+- It is declared in the open, so `CODE_TEST_NARROWED` does not refuse it. An `.only`, a filter added to a script, or added skip markers are still refused: this setting is the only open way to run fewer tests.
+- A command runs whole, and its attempt says why, when narrowing it could lose tests or would not be honest:
+  - the workflow or a person named the command, so it runs as written
+  - the Story changed no test in that module, which has no other evidence
+  - the module has several test runners, since a file's path does not say which one runs it
+  - the runner, or the script around it, cannot be told to run single files
+- Runners told their files: `node --test`, Jest, Vitest, Mocha, Playwright, pytest, Maven Surefire, Gradle, Go (by package) and .NET.
+
+The test-recovery pilot's agreement seals its scope, so a Story on the pilot refuses the change (`TEST_SCOPE_SEALED_BY_PILOT`).
 
 ### Review an unavailable runner without declaring tests passed
 

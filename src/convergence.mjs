@@ -363,15 +363,33 @@ export function validateAdjudication(entry, { facts = [], candidates = [] } = {}
     clauseIds: sorted(entry?.clauseIds),
     actor: entry?.actor ?? null,
     at: entry?.at ?? null,
-    ...(entry?.presence && typeof entry.presence === 'object' ? { presence: entry.presence } : {})
+    ...(entry?.presence && typeof entry.presence === 'object' ? { presence: entry.presence } : {}),
+    ...(entry?.replaced ? { replaced: validReplacedAnswers(entry.replaced, target) } : {})
   };
+}
+
+function validReplacedAnswers(replaced, target) {
+  const whole = (answer) => DISPOSITIONS.includes(answer?.disposition) && typeof answer.actor === 'string' && typeof answer.at === 'string';
+  if (!Array.isArray(replaced) || !replaced.length || !replaced.every(whole)) {
+    throw new SingularityFlowError(`The answers ${target} replaced are not whole.`, { code: 'CONVERGENCE_RECORD_CORRUPT', details: { itemId: target } });
+  }
+  return replaced;
+}
+
+/**
+ * What a changed answer keeps, oldest first: the answer it replaces with that answer's own signature, after
+ * whatever that answer had already replaced. A person may change an answer; the record says they did.
+ */
+export function replacedAnswers(earlier) {
+  const { replaced = [], presence, itemId: _itemId, ...answer } = earlier;
+  return [...replaced, { ...answer, ...(presence ? { presence } : {}) }];
 }
 
 /** A finding's adjudication as recorded and signed (SPEC-PSS-v1 §10.10), its presence block riding along. */
 export function findingAdjudication(finding) {
-  const { actor, at, reason, presence } = finding?.decision ?? {};
+  const { actor, at, reason, presence, replaced } = finding?.decision ?? {};
   return { itemId: finding?.itemId, disposition: finding?.disposition, classification: finding?.classification,
-    clauseIds: finding?.clauseIds, reason, actor, at, ...(presence ? { presence } : {}) };
+    clauseIds: finding?.clauseIds, reason, actor, at, ...(presence ? { presence } : {}), ...(replaced ? { replaced } : {}) };
 }
 
 // A counted view (presence/counted-convergence.mjs) keeps the sealed projection it was read from.
@@ -399,7 +417,8 @@ function governedFindings(adjudications, { facts, candidates }) {
     return {
       id: itemId('GF', body),
       ...body,
-      decision: { actor: decision.actor, at: decision.at, reason: decision.reason ?? null, ...(decision.presence ? { presence: decision.presence } : {}) }
+      decision: { actor: decision.actor, at: decision.at, reason: decision.reason ?? null, ...(decision.presence ? { presence: decision.presence } : {}),
+        ...(decision.replaced ? { replaced: decision.replaced } : {}) }
     };
   }).sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -813,6 +832,17 @@ function settledSection(projection) {
 }
 
 /** Deterministic human-readable projection used as the convergence phase artifact. */
+/** Each answer a person replaced and what it became. Nothing at all when no answer changed, so older reports read the same. */
+function changedAnswerLines(projection) {
+  const rows = (projection.findings ?? []).flatMap((finding) => {
+    const answers = [...(finding.decision?.replaced ?? []), { ...finding.decision, disposition: finding.disposition }];
+    return answers.slice(0, -1).map((answer, index) => `| ${markdownCell(finding.id)} | ${markdownCell(finding.itemId)} | ${markdownCell(answer.disposition)} | ${markdownCell(answer.reason)} | ${markdownCell(answer.actor)} | ${markdownCell(answer.at)} | ${markdownCell(`${answers[index + 1].disposition} by ${answers[index + 1].actor}`)} |`);
+  });
+  if (!rows.length) return [];
+  return ['## Changed answers', '', 'A person may change an answer. The answer in force is in the table above; each one it replaced stays here.', '',
+    '| Finding | Item | Earlier answer | Reason | Given by | Given at | Changed to |', '|---|---|---|---|---|---|---|', ...rows, ''];
+}
+
 export function renderConvergenceArtifact(projection) {
   assertConvergenceIntegrity(projection);
   const candidates = projection.candidateSnapshot ?? [];
@@ -849,6 +879,7 @@ export function renderConvergenceArtifact(projection) {
       ? projection.findings.map((finding) => `| ${markdownCell(finding.id)} | ${markdownCell(finding.itemId)} | ${markdownCell(finding.clauseIds?.join(', '))} | ${markdownCell(finding.disposition)} | ${markdownCell(finding.decision?.reason)} |`)
       : ['| — | — | — | — | No human dispositions recorded. |']),
     '',
+    ...changedAnswerLines(projection),
     '## Unresolved blockers',
     '',
     ...(projection.unresolvedBlockers?.length

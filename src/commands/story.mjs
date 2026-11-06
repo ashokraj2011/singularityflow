@@ -36,7 +36,7 @@ import {
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import {
   adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
-  convergenceProjection, DISPOSITIONS, decodeConvergenceRecord, findingAdjudication,
+  convergenceProjection, DISPOSITIONS, decodeConvergenceRecord, findingAdjudication, replacedAnswers,
   renderConvergenceArtifact, serializeConvergence
 } from '../convergence.mjs';
 import {
@@ -1684,7 +1684,8 @@ async function adjudicationList(root, config, workflow) {
   const decided = new Map((projection.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
   const decisionOn = (id) => {
     const decision = decided.get(id);
-    return decision ? { disposition: decision.disposition, reason: decision.reason ?? null, clauseIds: decision.clauseIds ?? [], actor: decision.actor ?? null, at: decision.at ?? null } : null;
+    return decision ? { disposition: decision.disposition, reason: decision.reason ?? null, clauseIds: decision.clauseIds ?? [], actor: decision.actor ?? null, at: decision.at ?? null,
+      replaced: (decision.replaced ?? []).map(({ disposition, reason, actor, at }) => ({ disposition, reason: reason ?? null, actor, at })) } : null;
   };
   const items = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])].map((item) => {
     return { id: item.id, kind: item.kind ?? 'item', paths: item.paths ?? [], clauseIds: item.clauseIds ?? [], detail: item.detail ?? item.summary ?? null,
@@ -1720,7 +1721,8 @@ export async function storyAdjudicationsCommand(positionals, options) {
   console.log(`${list.decidedBy.words} ${list.open} of ${list.items.length} still need a decision.`);
   for (const item of list.items) {
     const says = item.plan ? ` Plan: ${settledEntryWords(item.plan)}${item.plan.askedBecause ? ` · Still asked: ${item.plan.askedBecause}` : ''}` : '';
-    console.log(`${item.id}  ${item.paths.join(', ') || item.kind}  ${item.decision ? item.decision.disposition : 'undecided'}${says}`);
+    const changed = (item.decision?.replaced ?? []).map((answer) => ` · Changed from ${answer.disposition} by ${answer.actor} at ${answer.at}`).join('');
+    console.log(`${item.id}  ${item.paths.join(', ') || item.kind}  ${item.decision ? item.decision.disposition : 'undecided'}${changed}${says}`);
   }
   for (const item of list.settled) console.log(`${item.id}  ${item.paths.join(', ')}  ${item.decision ? item.decision.disposition : 'settled by the plan, not asked'}. Plan: ${settledEntryWords(item.settledBy)}`);
 }
@@ -1792,7 +1794,11 @@ export async function storyAdjudicateCommand(positionals, options) {
       // The same answer again records nothing: a second run used to replace the first and say "Recorded".
       const known = new Map([...(existing.facts ?? []), ...(existing.settledByPlan ?? []), ...(existing.candidateSnapshot ?? [])].map((item) => [item.id, item]));
       const unchanged = decisions.filter((decision) => sameAdjudication(earlier.get(decision.itemId), decision, known.get(decision.itemId)));
-      const changing = decisions.filter((decision) => !unchanged.includes(decision));
+      // A person may change an answer. The record keeps the one it replaces, and whose it was.
+      const changing = decisions.filter((decision) => !unchanged.includes(decision)).map((decision) => {
+        const replaced = earlier.get(decision.itemId);
+        return replaced ? { ...decision, replaced: replacedAnswers(replaced) } : decision;
+      });
       const phaseId = subject.phase.id;
       if (!changing.length) return { decisions: [], unchanged, earlier, projection: existing, authority, phaseId };
       const changingIds = changing.map((decision) => decision.itemId);
@@ -1847,7 +1853,7 @@ export async function storyAdjudicateCommand(positionals, options) {
   for (const decision of unchanged) console.log(`Already recorded: ${decision.disposition} on ${decision.itemId} at ${earlier.get(decision.itemId).at}. Nothing changed.`);
   for (const decision of decisions) {
     const replaced = earlier.get(decision.itemId);
-    console.log(`${replaced ? `Replaced ${replaced.disposition} from ${replaced.at} with` : 'Recorded'} ${decision.disposition} on ${decision.itemId} by ${decision.actor} (${authority.authorityGroup}).`);
+    console.log(`${replaced ? `Replaced ${replaced.disposition} from ${replaced.actor} at ${replaced.at} with` : 'Recorded'} ${decision.disposition} on ${decision.itemId} by ${decision.actor} (${authority.authorityGroup}).${replaced ? ' The earlier answer stays on the record.' : ''}`);
   }
   // "Findings" are only what a person has decided, so "Blocking findings: none" read as finished with items still owed.
   const items = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])];

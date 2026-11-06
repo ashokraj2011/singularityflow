@@ -6,10 +6,11 @@ import test from 'node:test';
 import { run as guard } from '../src/commands/guard.mjs';
 import {
   advancementBlocked, assertConvergenceIntegrity, assertConvergencePublishable, convergenceProjection,
-  decodeConvergenceRecord, findingAdjudication, adjudicatedConvergenceProjection
+  decodeConvergenceRecord, findingAdjudication, adjudicatedConvergenceProjection, replacedAnswers
 } from '../src/convergence.mjs';
 import { countedConvergence } from '../src/presence/counted-convergence.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { convergenceSealCore } from '../src/schema-migrations.mjs';
 import { approverId, PRESENCE_CHAIN_PATH } from '../src/presence/chain.mjs';
 import { parseCtkListing } from '../src/presence/local-keys.mjs';
 import { forgetPresenceContexts, loadPresenceContext } from '../src/presence/person-records.mjs';
@@ -133,10 +134,18 @@ test('SF Guard required: an adjudication keeps its signature in the sealed proje
     { itemId: 'CF-000000000001', disposition: 'dismissed', reason: 'Refactor noise; no clause claims it.', clauseIds: [], actor: ONE.email, at }
   ]);
   assert.equal(person.shown.length, 1, 'one card, one touch');
-  assert.equal(signed.schemaVersion, 5);
+  assert.equal(signed.schemaVersion, 6);
   assert.ok(signed.findings[0].decision.presence?.signature, 'the presence block is kept in the decision');
   assertConvergenceIntegrity(signed);
   assert.equal(countedConvergence(workflow, signed), signed, 'every finding counts: the projection as recorded');
+
+  // A changed answer is signed with what it replaced on it, and the earlier answer keeps its own signature.
+  const changed = await adjudicate(root, workflow, signed, [{ itemId: 'CF-000000000001', disposition: 'deferred', reason: 'Another Story owns this one.',
+    clauseIds: [], actor: ONE.email, at, replaced: replacedAnswers(findingAdjudication(signed.findings[0])) }]);
+  assert.ok(changed.findings[0].decision.presence?.signature);
+  assert.equal(changed.findings[0].decision.replaced[0].presence.signature, signed.findings[0].decision.presence.signature);
+  assertConvergenceIntegrity(changed);
+  assert.equal(countedConvergence(workflow, changed), changed, 'it counts, with its trace on it');
 
   // A decision written without the touch, sealed by hand, counts for nothing: its item reads undisposed.
   const forged = adjudicatedConvergenceProjection(signed, [...signed.findings.map(findingAdjudication),
@@ -154,8 +163,7 @@ test('SF Guard required: an adjudication keeps its signature in the sealed proje
   // An edited decision (its reason changed after signing, the seal recomputed) does not verify.
   const edited = structuredClone(signed);
   edited.findings[0].decision.reason = 'Changed after signing.';
-  const { convergenceSha256: _old, candidateSnapshot: _snapshot, ...core } = edited;
-  edited.convergenceSha256 = recordSha256(core);
+  edited.convergenceSha256 = recordSha256(convergenceSealCore(edited));
   assertConvergenceIntegrity(edited);
   assert.equal(countedConvergence(workflow, edited).uncountedFindings.length, 1);
   // A presence block stripped without resealing breaks the hash contract.
@@ -179,10 +187,10 @@ test('older convergence projections still replay at the current version, and a S
   const older = v3(projection([{ itemId: 'CF-000000000001', disposition: 'rework', clauseIds: [], actor: ONE.email, at: '2026-01-01T00:00:00.000Z' }]));
   assert.equal(older.schemaVersion, 3);
   const decoded = decodeConvergenceRecord(Buffer.from(JSON.stringify(older)));
-  assert.equal(decoded.schemaVersion, 5);
+  assert.equal(decoded.schemaVersion, 6);
   assert.deepEqual(decoded.findings, older.findings);
   assert.deepEqual(decoded.unresolvedBlockers, older.unresolvedBlockers);
-  assert.equal(projection([]).schemaVersion, 5, 'every new projection is v5; an unsigned decision simply has no block');
+  assert.equal(projection([]).schemaVersion, 6, 'every new projection is v6; an unsigned decision simply has no block');
   assert.equal(countedConvergence({ resolution: {} }, decoded), decoded);
   assert.equal(countedConvergence({ resolution: { presence: { status: 'off' } }, workItem: { id: 'X' } }, decoded), decoded);
 });

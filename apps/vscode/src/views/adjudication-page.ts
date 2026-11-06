@@ -11,7 +11,8 @@ export interface AdjudicationItem {
   decision: AdjudicationDecision | null;
 }
 export interface PlanEntry { kind: string; id?: string; clause?: string | null; class?: string | null; text?: string | null; askedBecause?: string }
-export interface AdjudicationDecision { disposition: string; reason: string | null; clauseIds: string[]; actor: string | null; at: string | null }
+export interface ReplacedAnswer { disposition: string; reason: string | null; actor: string; at: string }
+export interface AdjudicationDecision { disposition: string; reason: string | null; clauseIds: string[]; actor: string | null; at: string | null; replaced?: ReplacedAnswer[] }
 /** A changed file the approved plan already accounts for: no question, and still on the page. */
 export interface SettledItem { id: string; paths: string[]; clauseIds: string[]; settledBy: PlanEntry; decision: AdjudicationDecision | null }
 export interface AdjudicationList {
@@ -36,6 +37,12 @@ function planWords(plan: AdjudicationItem['plan']): string {
 
 const itemName = (item: AdjudicationItem) => item.paths.join(', ') || item.clauseIds.join(', ') || item.detail || item.id;
 
+/** A person may change an answer; the one it replaced stays in sight, with whose it was. */
+function changedHtml(decision: AdjudicationDecision | null, list: AdjudicationList): string {
+  const label = (id: string) => (list.dispositions ?? []).find((entry) => entry.id === id)?.label ?? id;
+  return (decision?.replaced ?? []).map((answer) => `<div class="muted adj-id adj-changed">Changed from ${escape(label(answer.disposition))} by ${escape(answer.actor)} on ${escape(answer.at.slice(0, 10))}${answer.reason ? `: ${escape(answer.reason)}` : ''}</div>`).join('');
+}
+
 function rowHtml(item: AdjudicationItem, list: AdjudicationList, draft?: AdjudicationDraft): string {
   const entered = draft?.get(item.id);
   const chosen = entered?.disposition ?? item.decision?.disposition ?? '';
@@ -44,7 +51,7 @@ function rowHtml(item: AdjudicationItem, list: AdjudicationList, draft?: Adjudic
     ? item.paths.map((file) => `<button type="button" class="adj-link" data-open="${escape(file)}">${escape(file)}</button>`).join(' ')
     : `<span>${escape(item.detail ?? item.kind)}</span>`;
   return `<tr data-item="${escape(item.id)}" data-accept-all="${item.acceptAll}">
-    <td>${files}<div class="muted adj-id">${escape(item.id)}${item.decision?.actor ? ` · decided by ${escape(item.decision.actor)}` : ''}</div></td>
+    <td>${files}<div class="muted adj-id">${escape(item.id)}${item.decision?.actor ? ` · decided by ${escape(item.decision.actor)}` : ''}</div>${changedHtml(item.decision, list)}</td>
     <td>${escape(planWords(item.plan))}</td>
     <td><select data-disposition aria-label="Decision for ${escape(itemName(item))}"><option value="">Choose…</option>${options}</select>
       <input data-clauses class="adj-clauses" hidden aria-label="Clauses for ${escape(itemName(item))}" placeholder="Clause IDs, separated by commas" value="${escape(entered?.clauses ?? item.decision?.clauseIds.join(', ') ?? item.clauseIds.join(', '))}"></td>

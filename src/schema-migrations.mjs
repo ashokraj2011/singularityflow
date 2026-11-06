@@ -162,14 +162,16 @@ function assistedConvergenceV1ToV2(source) {
 
 /**
  * What a convergence seal covers: everything but the seal and the complete candidate snapshot, which is
- * validated on its own. A record from before v5 keeps the seal it was given: its published report prints
+ * validated on its own. A record from before v5 or v6 keeps the seal it was given: its published report prints
  * that seal, so a new one would turn the report into a mismatch for a Story still waiting on its approval.
+ * Only a record holding what v6 adds, a replaced answer, seals as v6.
  */
 export function convergenceSealCore(record) {
   const core = clone(record);
   delete core.convergenceSha256;
   delete core.candidateSnapshot;
-  if (record.schemaVersion === 5 && record.settledByPlan === undefined) core.schemaVersion = 4;
+  const holdsReplaced = Array.isArray(record.findings) && record.findings.some((finding) => finding?.decision?.replaced);
+  if (record.schemaVersion >= 5 && !holdsReplaced) core.schemaVersion = record.settledByPlan === undefined ? 4 : 5;
   return core;
 }
 
@@ -177,7 +179,8 @@ export function convergenceSealCore(record) {
 // applies `fields` and re-seals. v1 candidate source receipts had no digests, so v2 migrates them to an
 // empty binding list that must be regenerated before publication; v4 (SF Guard, SPEC-PSS-v1 §10.10) lets
 // a decision keep its presence block, which no older projection has; v5 lets a record list what the
-// approved plan settled, which no older projection does, so it asked about every changed path.
+// approved plan settled, which no older projection does, so it asked about every changed path; v6 lets
+// a decision keep the answers it replaced, which no older projection does, so a changed answer left no trace.
 function resealedConvergence(source, storedVersion, fields) {
   if (source.convergenceSha256 !== recordSha256(convergenceSealCore(source))) {
     throw new SingularityFlowError(
@@ -194,6 +197,7 @@ const convergenceRecordV2ToV3 = (source) => resealedConvergence(source, 2, { sch
 const convergenceRecordV3ToV4 = (source) => resealedConvergence(source, 3, { schemaVersion: 4 });
 // Checked, and not resealed: a stored v4 keeps the seal its published report prints (convergenceSealCore).
 const convergenceRecordV4ToV5 = (source) => ({ ...resealedConvergence(source, 4, {}), schemaVersion: 5 });
+const convergenceRecordV5ToV6 = (source) => ({ ...resealedConvergence(source, 5, {}), schemaVersion: 6 });
 
 function autoFlightCheckpointSha256V1(source) {
   return `sha256:${recordSha256({
@@ -3411,12 +3415,13 @@ const families = [
   }),
   family({ id: 'constitution-record', currentVersion: 1, immutable: true }),
   family({
-    id: 'convergence-record', currentVersion: 5,
+    id: 'convergence-record', currentVersion: 6,
     steps: [
       migration(1, 2, convergenceRecordV1ToV2),
       migration(2, 3, convergenceRecordV2ToV3),
       migration(3, 4, convergenceRecordV3ToV4),
-      migration(4, 5, convergenceRecordV4ToV5)
+      migration(4, 5, convergenceRecordV4ToV5),
+      migration(5, 6, convergenceRecordV5ToV6)
     ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/iteration-\d+\.json$/]
   }),

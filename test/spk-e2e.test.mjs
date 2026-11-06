@@ -480,7 +480,13 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.match(repeated, new RegExp(`Already recorded: rework on ${absent.id} at .*Nothing changed\\.`));
   assert.doesNotMatch(repeated, /^(?:Recorded|Replaced)/mu);
   sflow(root, ['story', 'adjudicate', absent.id, '--disposition', 'deferred', '--reason', 'Looking at this later.']);
-  assert.match(adjudicateAbsent(), new RegExp(`Replaced deferred from .* with rework on ${absent.id}`));
+  const changedAnswer = adjudicateAbsent();
+  assert.match(changedAnswer, new RegExp(`Replaced deferred from .* with rework on ${absent.id}`));
+  assert.match(changedAnswer, /The earlier answer stays on the record\./u);
+  // Each answer it replaced stays, oldest first, on the record and on the list a person reads.
+  const traced = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).items.find((entry) => entry.id === absent.id).decision;
+  assert.deepEqual(traced.replaced.map((answer) => [answer.disposition, answer.reason]), [['rework', null], ['deferred', 'Looking at this later.']]);
+  assert.match(sflow(root, ['story', 'adjudications']).stdout, /rework · Changed from rework by .* · Changed from deferred by /u);
   let lastAnswer = firstAnswer;
   for (const fact of others) {
     lastAnswer = sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'dismissed', '--reason', 'Refactor noise; no requirement claims it.']).stdout;

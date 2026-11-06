@@ -1,0 +1,302 @@
+{
+  "allowedNext": [
+    "advance-to-verification"
+  ],
+  "bindings": {
+    "clauseIndexSha256": [
+      "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    ],
+    "configurationRevision": null,
+    "configurationSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "constitutionSha256": null,
+    "evidenceSha256": [],
+    "iteration": 1,
+    "observedClaimsSha256": [
+      "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "plannedClaimsSha256": [
+      "1111111111111111111111111111111111111111111111111111111111111111"
+    ],
+    "planning": null,
+    "reconciliation": {
+      "intervalId": "INT-1",
+      "path": "singularity/work-items/BIN-1/context/work-intervals/reconciliations/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "sourceBaseCommit": "cccccccccccccccccccccccccccccccccccccccc",
+    "sourceTargetCommit": "dddddddddddddddddddddddddddddddddddddddd",
+    "specification": null
+  },
+  "candidateRecordBindings": [],
+  "candidateRecords": [],
+  "candidateSnapshot": [],
+  "candidates": [],
+  "convergenceSha256": "03a60cb719328d0526edcced7a6e781c737e7aee04a9e7a49faa80e48c6d97ee",
+  "facts": [
+    {
+      "clauseIds": [],
+      "detail": "README.md changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-307400fd757a",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "README.md"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "vitest.config.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-3c858279b3cc",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "vitest.config.js"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "package-lock.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-418b395c70fc",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "package-lock.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "tsconfig.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-550b7ad8c7e0",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "tsconfig.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "eslint.config.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-6fc4d036923d",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "eslint.config.js"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "playwright.config.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-82d0ecf747f0",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "playwright.config.js"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "test-results/.last-run.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-b707f55e9cd0",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "test-results/.last-run.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": ".gitignore changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-c91bf1a6d454",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        ".gitignore"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": ".github/workflows/ci.yml changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-ca9d670e4141",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "src/test/setup.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-d481d2555b77",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "src/test/setup.js"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-1d354f4545b6",
+      "itemId": "CF-c91bf1a6d454",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-261f3f51caba",
+      "itemId": "CF-6fc4d036923d",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-2cd8adb9c112",
+      "itemId": "CF-550b7ad8c7e0",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-5569868a4c74",
+      "itemId": "CF-3c858279b3cc",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-7e4337df06bb",
+      "itemId": "CF-ca9d670e4141",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-8a3cd62756af",
+      "itemId": "CF-418b395c70fc",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-a28b04054fae",
+      "itemId": "CF-82d0ecf747f0",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-c9ec1729e88e",
+      "itemId": "CF-d481d2555b77",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-ebd3764f7fff",
+      "itemId": "CF-307400fd757a",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    },
+    {
+      "classification": null,
+      "clauseIds": [],
+      "decision": {
+        "actor": "reviewer@example.invalid",
+        "at": "2026-11-06T06:25:01.660Z",
+        "reason": "It is part of the test setup."
+      },
+      "disposition": "accepted-deviation",
+      "id": "GF-eda786b3d4da",
+      "itemId": "CF-b707f55e9cd0",
+      "kind": "unclaimed-changed-path",
+      "source": "deterministic"
+    }
+  ],
+  "iteration": 1,
+  "legacyMigration": null,
+  "resultType": "convergence",
+  "schemaVersion": 5,
+  "settledByPlan": [
+    {
+      "clauseIds": [],
+      "detail": "package.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-21034d278357",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "package.json"
+      ],
+      "settledBy": {
+        "class": "documentation",
+        "kind": "supporting",
+        "text": "say how to run the tests."
+      }
+    }
+  ],
+  "unresolvedBlockers": [],
+  "workId": "BIN-1"
+}

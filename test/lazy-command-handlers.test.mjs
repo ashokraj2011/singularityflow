@@ -332,7 +332,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,492,700 (measured 9,492,668): a failed run names `tests base`, and a base run hashes its own worktree (state.mjs +229, command-registry.mjs +8). The run itself stays lazy; no new eager file.
     // 9,492,850 (measured 9,492,843): TypeScript tests under a runner SFlow cannot read hear its name (delivery-evidence.mjs +175). The refusal itself is lazy; no new eager file.
     // 9,497,300 (measured 9,497,262, commands/phase-lifecycle.mjs): plan accounts settling convergence paths, and the test plan's early checks and re-pin words.
-    assert.ok(closure.bytes <= 9_497_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,499,900 (measured 9,499,891, commands/phase-lifecycle.mjs): convergence-record family v6 keeps a replaced answer (convergence.mjs, schema-migrations.mjs, story reads none of it eagerly).
+    assert.ok(closure.bytes <= 9_499_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -396,7 +397,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 857,250 (measured 857,240): git-remote-diagnostics.mjs +249 and command-registry.mjs +22, as start. Every command reads them to dispatch.
   // 857,450 (measured 857,408): `story test-policy scope` classifies in command-registry.mjs (+168), which every command reads to dispatch.
   // 858,350 (measured 858,295): convergence-record family v5's step and seal (schema-migrations.mjs +870). Every command reads the registry to dispatch.
-  assert.ok(root.bytes <= 858_350, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,800 (measured 858,796): convergence-record family v6's step and seal (schema-migrations.mjs +501). Every command reads the registry to dispatch.
+  assert.ok(root.bytes <= 858_800, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -500,7 +502,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,113,100 (measured 4,113,040 with those hold words and that refusal): the same test-execution-diagnostics.mjs +1330 and code-delivery-tests.mjs +1102 as start.
   // 4,113,250 (measured 4,113,223): the same delivery-evidence.mjs +175 as start.
   // 4,117,100 (measured 4,117,025): the same.
-  assert.ok(current.bytes <= 4_117_100, `session current loads ${current.bytes} source bytes`);
+  // 4,119,700 (measured 4,119,654): the same convergence-record family v6 as start.
+  assert.ok(current.bytes <= 4_119_700, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

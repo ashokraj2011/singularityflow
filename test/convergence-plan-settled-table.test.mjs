@@ -74,3 +74,17 @@ test('text from the repository on a settled row cannot become markup', () => {
   const html = adjudicationHtml(list);
   assert.doesNotMatch(html, /<img|<script/u);
 });
+
+test('a changed answer shows what it replaced and whose it was, on both hosts', () => {
+  const decision = { disposition: 'rework', reason: 'It breaks the retry.', clauseIds: [], actor: 'reviewer-two', at: '2026-11-06T09:00:00.000Z',
+    replaced: [{ disposition: 'accepted-deviation', reason: 'Fine as it is.', actor: 'reviewer-one', at: '2026-11-05T08:00:00.000Z' }] };
+  const list = { status: 'open', workId: 'BIN-1', phase: 'convergence', repositoryPath: '/repo', open: 0, digest: 'sha256:abc', settled: [],
+    items: [{ id: 'CF-b707f55e9cd0', kind: 'unclaimed-changed-path', paths: [STRAY], clauseIds: [], detail: null, plan: null, acceptAll: true, decision }],
+    decidedBy: { groups: ['reviewers'], labels: ['Reviewers'], allowed: true, words: 'You may decide these (Reviewers).' },
+    dispositions: [{ id: 'accepted-deviation', label: 'Accept as is' }, { id: 'rework', label: 'Send back to fix' }] };
+  assert.match(decisionsTable(list), /Send back to fix, changed from Accept as is by reviewer-one \|/u);
+  assert.match(adjudicationHtml(list), /Changed from Accept as is by reviewer-one on 2026-11-05: Fine as it is\./u);
+  const unchanged = { ...list, items: [{ ...list.items[0], decision: { ...decision, replaced: [] } }] };
+  assert.doesNotMatch(decisionsTable(unchanged), /changed from/u);
+  assert.doesNotMatch(adjudicationHtml(unchanged), /Changed from/u);
+});

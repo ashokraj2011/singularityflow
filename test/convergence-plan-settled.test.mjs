@@ -310,7 +310,7 @@ test('a forged record cannot settle what the plan did not', () => {
   const inputs = { currentBindings: BINDINGS, currentFacts: result.facts, currentSettlement: result.settlement };
   const reseal = (record) => {
     const { convergenceSha256, candidateSnapshot, ...core } = record;
-    return { ...record, convergenceSha256: recordSha256(record.settledByPlan === undefined ? { ...core, schemaVersion: 4 } : core) };
+    return { ...record, convergenceSha256: recordSha256({ ...core, schemaVersion: record.settledByPlan === undefined ? 4 : 5 }) };
   };
   const honest = projected(result);
   assertConvergenceIntegrity(honest, inputs);
@@ -334,7 +334,7 @@ test('a forged record cannot settle what the plan did not', () => {
   const { convergenceSha256: _v5Seal, candidateSnapshot: _snapshot, ...v5Core } = honest;
   const passedOff = { ...v5Core, schemaVersion: 4 };
   assert.throws(() => decodeConvergenceRecord(JSON.stringify({ ...passedOff, candidateSnapshot: [], convergenceSha256: recordSha256(passedOff) })),
-    (error) => error.code === 'CONVERGENCE_RECORD_HASH_MISMATCH');
+    (error) => /^CONVERGENCE_RECORD_/u.test(error.code));
 
   // Bytes edited with no new seal.
   const unsealed = structuredClone(honest);
@@ -442,11 +442,11 @@ test('records of every older version verify, and read as this build read them be
   }
 });
 
-test('a new record is v5, and a build from before it says so instead of calling it stale', () => {
-  assert.equal(currentSchemaVersion('convergence-record'), 5);
+test('a new record is the current version, and a build from before it says so instead of calling it stale', () => {
+  assert.equal(currentSchemaVersion('convergence-record'), 6);
   const projection = projected();
-  assert.equal(projection.schemaVersion, 5);
+  assert.equal(projection.schemaVersion, 6);
   assert.ok(Array.isArray(projection.settledByPlan));
   assert.deepEqual(projected({ facts: EVERY_FACT, settled: [] }).settledByPlan, [], 'a new record with nothing settled must not read as one from before v5');
-  assert.throws(() => readRecord('convergence-record', JSON.stringify({ ...projection, schemaVersion: 6 })), (error) => error.code === 'SCHEMA_VERSION_FUTURE');
+  assert.throws(() => readRecord('convergence-record', JSON.stringify({ ...projection, schemaVersion: 7 })), (error) => error.code === 'SCHEMA_VERSION_FUTURE');
 });

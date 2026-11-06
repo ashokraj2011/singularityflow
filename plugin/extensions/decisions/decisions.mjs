@@ -18,10 +18,14 @@ export function planWords(plan) {
 
 const label = (list, id) => list.dispositions.find((entry) => entry.id === id)?.label ?? id;
 
+// A person may change an answer; the one it replaced stays in sight, with whose it was.
+const decided = (list, decision) => [label(list, decision.disposition),
+  ...(decision.replaced ?? []).map((answer) => `changed from ${label(list, answer.disposition)} by ${answer.actor}`)].join(', ');
+
 export function decisionsTable(list) {
-  const rows = list.items.map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.plan))} | ${cell(item.decision ? label(list, item.decision.disposition) : 'Undecided')} |`);
+  const rows = list.items.map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.plan))} | ${cell(item.decision ? decided(list, item.decision) : 'Undecided')} |`);
   // Settled rows are never a question, and a reader still sees each one and the entry that answered it.
-  const settled = (list.settled ?? []).map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.settledBy))} | ${cell(item.decision ? label(list, item.decision.disposition) : 'Settled by the plan')} |`);
+  const settled = (list.settled ?? []).map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.settledBy))} | ${cell(item.decision ? decided(list, item.decision) : 'Settled by the plan')} |`);
   return [`**Decide ${list.workId} · ${list.phase}.** ${list.decidedBy?.words ?? ''} ${list.open} of ${list.items.length} still need a decision.${settled.length ? ` ${settled.length} settled by the plan, not asked.` : ''}`, '',
     '| What changed | What the plan already says | Decision |', '|---|---|---|', ...rows, ...settled].join('\n');
 }

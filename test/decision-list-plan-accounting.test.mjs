@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { approvalHold } from '../src/approval-check.mjs';
-import { decisionPacket, decisionRecordPlan, effectWords, parseDecisionAnswers, pendingSummary } from '../src/decision-list.mjs';
+import { decisionPacket, decisionRecordPlan, effectWords, parseDecisionAnswers, pendingSummary, planBatches, runDecisionPlan } from '../src/decision-list.mjs';
 import { testSetupFiles } from '../src/test-support-files.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 
@@ -131,4 +131,30 @@ test('what publication would leave out is a choice while the step is open, in th
   assert.match(packet.headline, /2 decisions/u);
   const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: { d1: 'row-w-1-req-001' }, reason: { d1: 'The helper holds the value the row delivers.' } }), { at: AT });
   assert.equal(plan.steps[0].effects[0].change.path, 'src/helper.mjs');
+});
+
+test('plan paths given one reason are one amendment and one commit; another reason is its own', async () => {
+  const packet = listFor(refusal(['a.mjs', 'b.mjs', 'c.mjs', 'package.json']));
+  const same = 'They all serve the one requirement here.';
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: { d1: 'row-w-1-req-001', d2: 'row-w-1-req-001', d3: 'row-w-1-req-001', d4: 'supporting' },
+    reason: { d1: same, d2: same, d3: 'This one has its own different reason.', d4: same } }), { at: AT });
+  assert.deepEqual(planBatches(plan).map((batch) => batch.map((step) => step.item)), [['d1', 'd2', 'd4'], ['d3']]);
+  const written = [];
+  const outcome = await runDecisionPlan(plan, async (effect) => { written.push(effect); return { id: `PAM-00${written.length}` }; });
+  assert.deepEqual(written[0].changes.map((change) => change.path), ['a.mjs', 'b.mjs', 'package.json'], 'one amendment holds them');
+  assert.equal(written.length, 2, 'one write for each reason');
+  assert.deepEqual(outcome.recorded.map((entry) => [entry.item, entry.record.id]), [['d1', 'PAM-001'], ['d2', 'PAM-001'], ['d4', 'PAM-001'], ['d3', 'PAM-002']], 'each row still says what recorded it');
+  // All of one write stands or falls together, and the list names what was not written.
+  const failed = await runDecisionPlan(plan, async () => { throw new Error('refused'); });
+  assert.deepEqual(failed.recorded, []);
+  assert.deepEqual(failed.remaining.map((entry) => entry.item), ['d1', 'd2', 'd4', 'd3']);
+});
+
+test('one amendment never holds more than its format allows', () => {
+  const paths = Array.from({ length: 51 }, (_, index) => `src/f${index}.mjs`);
+  const packet = listFor(refusal(paths));
+  const reason = 'They all serve the one requirement here.';
+  const choose = Object.fromEntries(paths.map((_, index) => [`d${index + 1}`, 'row-w-1-req-001']));
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose, reason: Object.fromEntries(paths.map((_, index) => [`d${index + 1}`, reason])) }), { at: AT });
+  assert.deepEqual(planBatches(plan).map((batch) => batch.length), [50, 1]);
 });

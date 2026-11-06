@@ -15,7 +15,7 @@
  * authority check. Accepting reused evidence never certifies a run that was not recorded: a reused
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
-import { planAuthorities } from './plan-amendments.mjs';
+import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
@@ -1209,7 +1209,20 @@ export function effectWords(workflow, effect, values = {}) {
  */
 export async function runDecisionPlan(plan, apply) {
   const recorded = [];
-  for (const [stepIndex, step] of plan.steps.entries()) {
+  const batches = planBatches(plan);
+  const after = (index) => batches.slice(index + 1).flat().flatMap((later) => later.effects.map((entry) => ({ item: later.item, kind: entry.kind, effect: entry })));
+  for (const [batchIndex, batch] of batches.entries()) {
+    if (batch.length > 1) {
+      const effect = { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
+      try {
+        const record = await apply(effect, batch[0], {});
+        recorded.push(...batch.map((step) => ({ item: step.item, kind: effect.kind, record })));
+      } catch (error) {
+        return { recorded, failed: { item: batch[0].item, kind: effect.kind, error }, remaining: [...batch.map((step) => ({ item: step.item, kind: effect.kind, effect: step.effects[0] })), ...after(batchIndex)] };
+      }
+      continue;
+    }
+    const [step] = batch;
     const produced = {};
     for (const [effectIndex, effect] of step.effects.entries()) {
       try {
@@ -1217,13 +1230,28 @@ export async function runDecisionPlan(plan, apply) {
         if (effect.kind === 'upstream-issue') produced.issue = record?.id ?? null;
         recorded.push({ item: step.item, kind: effect.kind, record });
       } catch (error) {
-        const remaining = [
-          ...step.effects.slice(effectIndex).map((entry) => ({ item: step.item, kind: entry.kind, effect: entry })),
-          ...plan.steps.slice(stepIndex + 1).flatMap((later) => later.effects.map((entry) => ({ item: later.item, kind: entry.kind, effect: entry })))
-        ];
-        return { recorded, failed: { item: step.item, kind: effect.kind, error }, remaining };
+        return { recorded, failed: { item: step.item, kind: effect.kind, error },
+          remaining: [...step.effects.slice(effectIndex).map((entry) => ({ item: step.item, kind: entry.kind, effect: entry })), ...after(batchIndex)] };
       }
     }
   }
   return { recorded, failed: null, remaining: [] };
+}
+
+/**
+ * The plan in the order it is written, with plan paths given the same reason together: one amendment, one
+ * record and one commit, which a plan amendment's format has always held. A different reason is its own.
+ */
+export function planBatches(plan) {
+  const batches = [];
+  const byReason = new Map();
+  for (const step of plan.steps) {
+    const amends = step.effects.length === 1 && step.effects[0].kind === 'plan-amendment';
+    const open = amends ? byReason.get(step.values.reason) : null;
+    if (open && open.length < MAX_PLAN_AMENDMENT_CHANGES) { open.push(step); continue; }
+    const batch = [step];
+    batches.push(batch);
+    if (amends) byReason.set(step.values.reason, batch);
+  }
+  return batches;
 }

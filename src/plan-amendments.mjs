@@ -16,6 +16,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
 const MAX_CHANGES = 50;
+export const MAX_PLAN_AMENDMENT_CHANGES = MAX_CHANGES;
 
 /** Who may amend the plan: the approval groups of the steps that hold the plan and of the planned-claim owners. */
 export function planAuthorities(workflow) {

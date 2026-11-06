@@ -893,6 +893,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
     }
     throw error;
   }
+  // The model cannot install anything, and under .git this worktree would otherwise resolve packages
+  // from the checkout around it, a workspace package included [TCE:REQ-085].
+  await (await import('../repository-dependencies.mjs')).copyRepositoryDependencies(root, worktree);
 
   // Freeze publishes an immutable attempt journal before returning. Reconcile that authority before
   // the uncertain-attempt guard so a process exit on the next instruction never triggers a second
@@ -1668,7 +1671,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           commands: asGate ? [...others, ...gateTests.commands] : quality,
           pathContext: applicationPathContext(definition, workflow),
           testRuntime: workflow.resolution?.testRuntime,
-          runGateTest: asGate ? gateTests.run : null
+          runGateTest: asGate ? gateTests.run : null,
+          // Not the Story's worktree: the model can write there, and those bytes are in no Candidate.
+          dependencySource: root
         });
         const verificationActiveMilliseconds = Date.now() - activeAccountedAt;
         activeAccountedAt = Date.now();

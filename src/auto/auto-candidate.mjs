@@ -1323,7 +1323,8 @@ export function validateAutoCandidateVerification(record) {
 }
 
 export async function verifyAutoCandidate(root, binding, {
-  commands, signal = null, verifiedAt = new Date().toISOString(), pathContext = null, testRuntime = {}, runGateTest = null
+  commands, signal = null, verifiedAt = new Date().toISOString(), pathContext = null, testRuntime = {}, runGateTest = null,
+  dependencySource = root
 } = {}) {
   const retained = await readAutoCandidateBinding(root, {
     flightId: binding?.flightId, candidateId: binding?.candidateId
@@ -1374,6 +1375,7 @@ export async function verifyAutoCandidate(root, binding, {
   const results = [];
   const repairEvidence = [];
   let candidateTreeUnchanged = false;
+  let dependenciesRefused = [];
   try {
     git(root, ['worktree', 'add', '--detach', '--no-checkout', workspace, retained.repository.candidateCommit]);
     git(workspace, ['reset', '--hard', retained.repository.candidateCommit]);
@@ -1382,6 +1384,8 @@ export async function verifyAutoCandidate(root, binding, {
       fail('Detached Candidate worktree does not equal its retained tree.',
         'AUTO_CANDIDATE_RETENTION_LOST');
     }
+    // Ignored, so the tree comparison below never sees them [TCE:REQ-085].
+    ({ refused: dependenciesRefused } = await (await import('../repository-dependencies.mjs')).copyRepositoryDependencies(dependencySource, workspace));
     // Prove every command boundary before running the first verifier. A later unsafe path must not
     // permit earlier commands to execute, even though their worktree is disposable.
     for (const command of normalized) {
@@ -1486,8 +1490,10 @@ export async function verifyAutoCandidate(root, binding, {
     canonicalJson(receipt), { immutable: true }
   );
   if (!passed) {
+    const notCopied = dependenciesRefused.length
+      ? ` Not copied into its worktree: ${dependenciesRefused.map(({ path: folder, reason }) => `${folder} (${reason})`).join('; ')}.` : '';
     fail(candidateTreeUnchanged
-      ? 'The isolated Auto Candidate verification failed.'
+      ? `The isolated Auto Candidate verification failed.${notCopied}`
       : 'A verification command modified the isolated frozen Candidate.',
     candidateTreeUnchanged
       ? 'AUTO_CANDIDATE_VERIFICATION_FAILED' : 'AUTO_CANDIDATE_VERIFICATION_MUTATED', {

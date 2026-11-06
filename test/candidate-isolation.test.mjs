@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from '../src/candidate-isolation.mjs';
+import { copyRepositoryDependencies } from '../src/repository-dependencies.mjs';
 import { sourceTreeHash } from '../src/state.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -110,6 +111,100 @@ test('workspace dependencies resolve to candidate source, not excluded working-t
   assert.equal(run(process.execPath, ['probe.cjs'], root).stdout.trim(), 'excluded');
   await writeFile(path.join(candidate.root, 'node_modules/local-lib/index.js'), 'module.exports = "candidate";\n');
   assert.match(await readFile(path.join(root, 'packages/lib/index.js'), 'utf8'), /excluded/);
+});
+
+// A repository and a linked worktree of it, side by side so nothing resolves from one into the other.
+async function dependencyCheckouts(t, ignore = 'node_modules\n.venv\n') {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-deps-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = path.join(directory, 'main');
+  const target = path.join(directory, 'checkouts/flight');
+  await mkdir(path.join(root, 'packages/lib'), { recursive: true });
+  const git = (...args) => run('git', args, root);
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Isolation Tester'); git('config', 'user.email', 'iso@example.test');
+  await writeFile(path.join(root, '.gitignore'), ignore);
+  await writeFile(path.join(root, 'packages/lib/index.js'), 'module.exports = "base";\n');
+  git('add', '.'); git('commit', '-q', '-m', 'base');
+  await mkdir(path.dirname(target));
+  git('worktree', 'add', '-q', '--detach', target, 'HEAD');
+  const write = async (relative, contents = 'x\n') => {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), contents);
+  };
+  return { directory, root, target, write };
+}
+
+test('a checkout gets the installed dependencies whole, and nothing that cannot be shared [TCE:REQ-085]', async (t) => {
+  const { directory, root, target, write } = await dependencyCheckouts(t);
+  await write('node_modules/dep/index.js');
+  await write('.venv/pyvenv.cfg');
+  await write('services/app/node_modules/nested/index.js');
+  const first = await copyRepositoryDependencies(root, target);
+  assert.deepEqual(first.copied.sort(), ['node_modules', 'services/app/node_modules']);
+  assert.deepEqual(first.refused.map(({ path: folder }) => folder), ['.venv']);
+  assert.match(first.refused[0].reason, /Python virtual environments/);
+  assert.equal(await readFile(path.join(target, 'node_modules/dep/index.js'), 'utf8'), 'x\n');
+  assert.equal(await lstat(path.join(target, '.venv')).catch((error) => error.code), 'ENOENT');
+  assert.equal(run('git', ['status', '--porcelain'], target).stdout, '', 'Git sees none of it');
+  assert.deepEqual(await readdir(path.join(directory, 'checkouts')), ['flight'], 'nothing is left beside the checkout');
+  // One already there stays as it is, so a later step costs only the look.
+  await writeFile(path.join(target, 'node_modules/dep/index.js'), 'kept\n');
+  assert.deepEqual((await copyRepositoryDependencies(root, target)).copied, []);
+  assert.equal(await readFile(path.join(target, 'node_modules/dep/index.js'), 'utf8'), 'kept\n');
+});
+
+test('a dependency link outside the repository leaves its whole folder out, and the other folders in [TCE:REQ-085]', async (t) => {
+  if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
+  const { directory, root, target, write } = await dependencyCheckouts(t);
+  await write('node_modules/ours/index.js');
+  await write('apps/web/node_modules/theirs/index.js');
+  await mkdir(path.join(directory, 'elsewhere'));
+  await symlink(path.join(directory, 'elsewhere'), path.join(root, 'node_modules/linked'));
+  const { copied, refused } = await copyRepositoryDependencies(root, target);
+  assert.deepEqual(copied, ['apps/web/node_modules']);
+  assert.deepEqual(refused.map(({ path: folder }) => folder), ['node_modules']);
+  assert.match(refused[0].reason, /resolves outside the repository/);
+  assert.equal(await lstat(path.join(target, 'node_modules')).catch((error) => error.code), 'ENOENT', 'never half copied');
+});
+
+test('links bind to the checkout, across folders in any order, and one with nothing behind it is dropped [TCE:REQ-085]', async (t) => {
+  if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
+  const { root, target, write } = await dependencyCheckouts(t);
+  // pnpm's shape: a package folder that sorts first links into the root folder's store.
+  await write('node_modules/.pnpm/dep@1/node_modules/dep/index.js', 'module.exports = "stored";\n');
+  await mkdir(path.join(root, 'apps/web/node_modules'), { recursive: true });
+  await symlink('../../../node_modules/.pnpm/dep@1/node_modules/dep', path.join(root, 'apps/web/node_modules/dep'));
+  await symlink('../packages/lib', path.join(root, 'node_modules/lib'));
+  // Installed from another branch: this checkout's tree has no such package.
+  await write('packages/only-on-a-branch/index.js');
+  await symlink('../packages/only-on-a-branch', path.join(root, 'node_modules/only-on-a-branch'));
+  await symlink('../gone', path.join(root, 'node_modules/dangling'));
+  const { copied, refused } = await copyRepositoryDependencies(root, target);
+  assert.deepEqual(refused, []);
+  assert.deepEqual(copied.sort(), ['apps/web/node_modules', 'node_modules']);
+  assert.equal(await realpath(path.join(target, 'apps/web/node_modules/dep')), path.join(target, 'node_modules/.pnpm/dep@1/node_modules/dep'));
+  assert.equal(await realpath(path.join(target, 'node_modules/lib')), path.join(target, 'packages/lib'));
+  for (const gone of ['only-on-a-branch', 'dangling']) {
+    assert.equal(await lstat(path.join(target, 'node_modules', gone)).catch((error) => error.code), 'ENOENT');
+  }
+});
+
+test('a folder this checkout would commit stays out, and another repository gets nothing [TCE:REQ-085]', async (t) => {
+  const { directory, root, target, write } = await dependencyCheckouts(t);
+  await write('node_modules/dep/index.js');
+  // The Story's tree stopped ignoring it, though the checkout it started from still does.
+  await writeFile(path.join(target, '.gitignore'), '');
+  const { copied, refused } = await copyRepositoryDependencies(root, target);
+  assert.deepEqual(copied, []);
+  assert.match(refused[0].reason, /would be committed/);
+  assert.equal(await lstat(path.join(target, 'node_modules')).catch((error) => error.code), 'ENOENT');
+
+  const other = path.join(directory, 'other');
+  await mkdir(other);
+  run('git', ['init', '-q', '-b', 'main'], other);
+  await writeFile(path.join(other, '.gitignore'), 'node_modules\n');
+  assert.deepEqual(await copyRepositoryDependencies(root, other), { copied: [], refused: [] });
+  assert.equal(await lstat(path.join(other, 'node_modules')).catch((error) => error.code), 'ENOENT');
 });
 
 test('local verification isolates unrelated edits; publication requires explicit accounting or private preservation [D9]', async (t) => {

@@ -2118,6 +2118,11 @@ export function ignoredDirectories(root) {
     .filter((entry) => entry.endsWith('/')).map((entry) => entry.slice(0, -1));
 }
 
+/** Whether this checkout's ignore rules cover a folder at this path, there or not. */
+export function ignoresDirectory(root, relative) {
+  return git(['check-ignore', '-q', '--', `${relative}/`], { cwd: root, allowFailure: true }).status === 0;
+}
+
 /** Files Git does not track and `.gitignore` does not exclude. */
 export function untrackedFiles(root) {
   return nullList(git(['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);

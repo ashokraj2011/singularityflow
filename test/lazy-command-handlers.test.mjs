@@ -487,7 +487,8 @@ test('the common session projection does not import attach, state stores or publ
   // command-registry.mjs +168 and command-skills.mjs +59 as start, less delivery-evidence.mjs -12.
   // 4,108,100 (measured 4,108,007): the same auto-candidate.mjs +1443 as start.
   // 4,108,200 (measured 4,108,176): the same clarifications.mjs +163 as start.
-  assert.ok(current.bytes <= 4_108_200, `session current loads ${current.bytes} source bytes`);
+  // 4,108,950 (measured 4,108,915): auto-candidate.mjs +529 and git.mjs +210 [TCE:REQ-085]; the copying itself is in a lazy module.
+  assert.ok(current.bytes <= 4_108_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

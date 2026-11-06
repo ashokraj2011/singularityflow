@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -1291,6 +1291,85 @@ test('another environment at publication runs the tests again and says why [TCE:
   const attempts = await flight.attempts(final.worktree);
   assert.deepEqual(attempts.map((attempt) => attempt.purpose).sort(), ['candidate', 'preflight']);
   assert.equal(attempts.find((attempt) => attempt.purpose === 'preflight').reusedFrom ?? null, null);
+});
+
+// A flight on a repository that installed its dependencies: a package only the main checkout holds, and a
+// workspace package the Story itself changes. Its test leaves where each resolved outside the repository.
+async function installedDependencyFlight(t, workId) {
+  const root = await executableRepository();
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-runs-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const log = path.join(directory, 'runs.log');
+  const write = async (relative, contents) => {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), contents);
+  };
+  await write('.gitignore', 'node_modules\n');
+  await write('packages/lib/package.json', JSON.stringify({ name: '@fixture/lib', version: '1.0.0', type: 'module', main: 'index.mjs' }));
+  await write('packages/lib/index.mjs', 'export const lib = 1;\n');
+  run('git', ['add', '.gitignore', 'packages/lib'], root);
+  run('git', ['commit', '-m', 'add a workspace package'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  await write('node_modules/fixture-dep/package.json', JSON.stringify({ name: 'fixture-dep', version: '1.0.0', type: 'module', main: 'index.js' }));
+  await write('node_modules/fixture-dep/index.js', 'export const dep = 1;\n');
+  await mkdir(path.join(root, 'node_modules/@fixture'), { recursive: true });
+  await symlink(path.join(root, 'packages/lib'), path.join(root, 'node_modules/@fixture/lib'), 'junction');
+  const plan = await createAutoPlan(root, 'Change the exported values from one to two.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs', 'packages/lib/index.mjs'], suggestedUntil: 'phase-complete:implement'
+  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  return {
+    root, started,
+    invokeModel: async ({ cwd }) => {
+      await writeFile(path.join(cwd, 'app.mjs'), 'export const value = 2;\n');
+      await writeFile(path.join(cwd, 'packages/lib/index.mjs'), 'export const lib = 2;\n');
+      await mkdir(path.join(cwd, 'test'), { recursive: true });
+      await writeFile(path.join(cwd, 'test/app.test.mjs'), [
+        "import assert from 'node:assert/strict';", "import { appendFileSync } from 'node:fs';", "import test from 'node:test';",
+        "import { fileURLToPath } from 'node:url';", "import { dep } from 'fixture-dep';", "import { lib } from '@fixture/lib';",
+        `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), dep: fileURLToPath(import.meta.resolve('fixture-dep')), lib: fileURLToPath(import.meta.resolve('@fixture/lib')) }) + '\\n');`,
+        "test('the Story reads its own package', () => { assert.equal(dep, 1); assert.equal(lib, 2); });", ''
+      ].join('\n'));
+      return { invocationId: `INV-${workId}`, usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4 } };
+    },
+    runs: async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
+  };
+}
+
+test('a flight whose tests need installed dependencies passes on its Candidate, and they run once [TCE:REQ-085]', async (t) => {
+  const flight = await installedDependencyFlight(t, 'AUT-RUN-DEPS');
+  const final = await runFlightStep(flight.root, flight.started.flight, { invokeModel: flight.invokeModel });
+  assert.equal(final.position, 'submitted', `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  const runs = await flight.runs();
+  assert.equal(runs.length, 1, 'a copy changes neither the digest nor the environment, so publication and submission reuse the run');
+  for (const file of [runs[0].dep, runs[0].lib]) {
+    assert.ok(file.startsWith(runs[0].cwd), `${file} is the Candidate's own, not the main checkout's`);
+  }
+  const receipt = await readAutoCandidateVerification(final.worktree, { flightId: final.flightId, candidateId: final.candidate.candidateId });
+  assert.equal(receipt.candidateTreeUnchanged, true);
+  // The Story's worktree has them too, its own, and none of it reached a commit.
+  assert.equal((await lstat(path.join(final.worktree, 'node_modules'))).isSymbolicLink(), false);
+  assert.equal(await realpath(path.join(final.worktree, 'node_modules/@fixture/lib')), await realpath(path.join(final.worktree, 'packages/lib')));
+  assert.doesNotMatch(run('git', ['ls-tree', '-r', '--name-only', 'HEAD'], final.worktree).stdout, /node_modules/u);
+  assert.doesNotMatch(run('git', ['status', '--porcelain'], final.worktree).stdout, /node_modules/u);
+});
+
+test('tests run again at publication read the Story worktree\'s packages, not the checkout around it [TCE:REQ-085]', async (t) => {
+  const flight = await installedDependencyFlight(t, 'AUT-RUN-DEPS-AGAIN');
+  const final = await runFlightStep(flight.root, flight.started.flight, {
+    invokeModel: flight.invokeModel,
+    childLifecycle: async (cwd, args, options = {}) => {
+      const gate = args[1] === 'publish' || args[0] === 'submit';
+      const result = run(process.execPath, [cli, ...args], cwd, { env: { ...options.env, ...(gate ? { NODE_OPTIONS: '--max-old-space-size=2048' } : {}) } });
+      return { status: result.status, stdout: result.stdout, stderr: result.stderr, signal: null };
+    }
+  });
+  assert.equal(final.position, 'submitted', `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  const runs = await flight.runs();
+  assert.equal(runs.length, 2, 'the Candidate run, then one at publication that submission reuses');
+  const worktree = await realpath(final.worktree);
+  assert.equal(await realpath(runs[1].cwd), worktree);
+  assert.ok(runs[1].lib.startsWith(worktree), `${runs[1].lib} is the Story's package, not the main checkout's`);
 });
 
 test('a failed Candidate run is kept, never stands, and its repair runs once on the new code [TCE:REQ-084]', async (t) => {

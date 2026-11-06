@@ -525,6 +525,72 @@ test('a test command run by the gates keeps its receipt shape; a run that cannot
     (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_FAILED');
 });
 
+test('a Candidate is verified with what the starting checkout installed, not what its Story worktree holds [TCE:REQ-085]', async (t) => {
+  const main = await repository();
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-deps-'));
+  t.after(() => rm(main, { recursive: true, force: true }));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(path.join(main, '.gitignore'), 'node_modules\n.venv\n');
+  git(main, 'add', '.gitignore');
+  git(main, 'commit', '-qm', 'ignore dependencies');
+  const installed = async (root, value) => {
+    await mkdir(path.join(root, 'node_modules/dep'), { recursive: true });
+    await writeFile(path.join(root, 'node_modules/dep/index.js'), `module.exports = ${JSON.stringify(value)};\n`);
+  };
+  await installed(main, 'installed');
+  const worktree = path.join(directory, 'story');
+  git(main, 'worktree', 'add', '-q', '--detach', worktree, 'HEAD');
+  // A model can write here: the path is ignored, so no Candidate holds it.
+  await installed(worktree, 'written by the model');
+  const baselineCommit = git(worktree, 'rev-parse', 'HEAD');
+  await writeFile(path.join(worktree, 'src', 'app.mjs'), 'export const value = 2;\n');
+  const freeze = (letter) => {
+    const flightId = `AFL-${letter.repeat(26)}`;
+    return freezeAutoCandidate(worktree, {
+      flightId, attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }), baselineCommit, executionUnitId: 'copilot-cli'
+    });
+  };
+  const commands = [{ id: 'reads-the-dependency', modelPolicy: 'never', workingDirectory: '.',
+    argv: [process.execPath, '-e', "process.exit(require('dep') === 'installed' ? 0 : 7)"] }];
+  const passed = await verifyAutoCandidate(worktree, await freeze('A'), { commands, dependencySource: main });
+  assert.equal(passed.status, 'passed');
+  assert.equal(passed.candidateTreeUnchanged, true, 'the copy is ignored, so the frozen tree is unchanged');
+  await assert.rejects(verifyAutoCandidate(worktree, await freeze('B'), { commands }),
+    (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_FAILED' && !/Not copied/.test(error.message));
+
+  // What it leaves out decides nothing when the run passes, and is named when the run fails.
+  await mkdir(path.join(main, '.venv'));
+  await writeFile(path.join(main, '.venv/pyvenv.cfg'), 'home = /usr/bin\n');
+  assert.equal((await verifyAutoCandidate(worktree, await freeze('C'), { commands, dependencySource: main })).status, 'passed');
+  await assert.rejects(verifyAutoCandidate(worktree, await freeze('D'), { dependencySource: main,
+    commands: [{ id: 'fails', modelPolicy: 'never', workingDirectory: '.', argv: [process.execPath, '-e', 'process.exit(1)'] }] }),
+  (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_FAILED' && /Not copied into its worktree: \.venv \(Python virtual environments/.test(error.message));
+});
+
+test('a Candidate that stops ignoring its dependency folder is not called mutated by the copy [TCE:REQ-085]', async (t) => {
+  const main = await repository();
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-deps-'));
+  t.after(() => rm(main, { recursive: true, force: true }));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(path.join(main, '.gitignore'), 'node_modules\n');
+  git(main, 'add', '.gitignore');
+  git(main, 'commit', '-qm', 'ignore dependencies');
+  await mkdir(path.join(main, 'node_modules/dep'), { recursive: true });
+  await writeFile(path.join(main, 'node_modules/dep/index.js'), 'module.exports = 1;\n');
+  const worktree = path.join(directory, 'story');
+  git(main, 'worktree', 'add', '-q', '--detach', worktree, 'HEAD');
+  const baselineCommit = git(worktree, 'rev-parse', 'HEAD');
+  await writeFile(path.join(worktree, '.gitignore'), '');
+  const flightId = `AFL-${'9'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(worktree, {
+    flightId, attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }), baselineCommit, executionUnitId: 'copilot-cli'
+  });
+  const receipt = await verifyAutoCandidate(worktree, candidate, { dependencySource: main,
+    commands: [{ id: 'runs', modelPolicy: 'never', workingDirectory: '.', argv: [process.execPath, '-e', 'process.exit(0)'] }] });
+  assert.equal(receipt.status, 'passed');
+  assert.equal(receipt.candidateTreeUnchanged, true);
+});
+
 test('isolated Candidate verification refuses a tracked symlink working directory', async (t) => {
   if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
   const root = await repository();

@@ -10,17 +10,13 @@
  * binds; when it does not, or Git cannot make the worktree, isolation is unavailable and the
  * caller refuses as before.
  */
-import { constants } from 'node:fs';
-import { copyFile, cp, lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, stat, symlink } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
 import { outsideEveryCandidate } from './candidate-scope.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import { addCandidateWorktree, changedFiles, ignoredDirectories, removeCandidateWorktree, untrackedFiles } from './git.mjs';
-
-/** Dependency folders a candidate's tests read but no generation contains. Build outputs are not shared. */
-const DEPENDENCY_DIRECTORIES = new Set(['node_modules', '.venv', 'venv']);
+import { addCandidateWorktree, changedFiles, removeCandidateWorktree, untrackedFiles } from './git.mjs';
 
 /**
  * The changed application files outside every candidate, and the changed files
@@ -37,47 +33,6 @@ export async function candidateIsolationNeed(root, config, workflow) {
     excluded: changed.filter((candidate) => outside(candidate)),
     included: changed.filter((candidate) => !outside(candidate))
   };
-}
-
-async function copyDependencies(root, target, relative) {
-  if (path.posix.basename(relative) !== 'node_modules') {
-    throw new Error('Python virtual environments may contain editable installs and absolute paths; prepare a candidate-local environment before isolating tests');
-  }
-  const source = path.join(root, relative);
-  const destination = path.join(target, relative);
-  if (!(await lstat(source)).isDirectory()) throw new Error('a dependency root is a link; prepare candidate-local dependencies');
-  // Discover links in the source, not in the copy: on Windows fs.cp can materialize a junction
-  // as an ordinary directory, copying the excluded working bytes and hiding its link identity.
-  // Skip all such entries during the copy, then bind them only to the candidate's own source.
-  const links = [];
-  async function collectLinks(directory) {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const original = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) {
-        const resolved = await realpath(original);
-        const mapped = path.relative(root, resolved);
-        if (mapped === '..' || mapped.startsWith(`..${path.sep}`) || path.isAbsolute(mapped)) {
-          throw new Error('a dependency link resolves outside the repository; prepare candidate-local dependencies');
-        }
-        const candidate = path.join(target, mapped);
-        links.push({ original, file: path.join(target, path.relative(root, original)), candidate,
-          type: (await stat(resolved)).isDirectory() ? 'junction' : 'file' });
-      } else if (entry.isDirectory()) await collectLinks(original);
-    }
-  }
-  await collectLinks(source);
-  const skipped = new Set(links.map(link => path.resolve(link.original)));
-  // Reflink regular files where supported; no writable directory or external link is shared.
-  await cp(source, destination, { recursive: true, verbatimSymlinks: true,
-    mode: constants.COPYFILE_FICLONE, filter: file => !skipped.has(path.resolve(file)) });
-  for (const { file, candidate, type } of links) await symlink(candidate, file, type);
-  const canonicalTarget = await realpath(target);
-  for (const { file } of links) {
-    const resolved = path.relative(canonicalTarget, await realpath(file));
-    if (resolved === '..' || resolved.startsWith(`..${path.sep}`) || path.isAbsolute(resolved)) {
-      throw new Error('a rebound dependency escapes the candidate');
-    }
-  }
 }
 
 async function copyEntry(root, target, relative) {
@@ -117,15 +72,9 @@ export async function materializeCandidate(root, { included, treeHash }) {
   for (const relative of included) {
     if (!(await copyEntry(root, target, relative))) return unavailable(`${relative} is neither a file nor a symbolic link`);
   }
-  for (const relative of ignoredDirectories(root)) {
-    if (!DEPENDENCY_DIRECTORIES.has(path.posix.basename(relative))) continue;
-    const source = path.join(root, relative);
-    if (!(await stat(source).catch(() => null))?.isDirectory()) continue;
-    const destination = path.join(target, relative);
-    if (await lstat(destination).catch(() => null)) continue;
-    await mkdir(path.dirname(destination), { recursive: true });
-    await copyDependencies(root, target, relative);
-  }
+  const { copyRepositoryDependencies } = await import('./repository-dependencies.mjs');
+  const { refused } = await copyRepositoryDependencies(root, target);
+  if (refused.length) return unavailable(`candidate dependencies could not be isolated: ${refused[0].reason}`);
   const [isolatedTree, boundTree] = [await treeHash(target), await treeHash(root)];
   if (isolatedTree !== boundTree) return unavailable('the candidate worktree does not reproduce the tree the generation binds');
   return {

@@ -255,6 +255,19 @@ the later step's submit, and again on each retried publish. Conformance, approva
   command that is not a test still runs under the allowlist. Anything that differs runs again: an unequal digest (a
   file no plan names), another environment at publication, the test-recovery pilot, a command tied to an environment's
   values, a private store lost to a fresh clone. A failed Candidate run is kept like any attempt and never stands.
+- `[TCE:REQ-085]` A flight's checkouts hold what the checkout that started it installed. Measured on a real flight at
+  main 3477452cb: tests importing a package held only in the main checkout's ignored `node_modules` failed Candidate
+  verification and the flight stopped at `repair-review-required`. Its model cannot install anything, and
+  `repositoryReadiness.dependencyHydration` has reached no checkout since fb036910c. The Story's worktree found the
+  package only by walking up out of `.git` into the main checkout, which also resolved a workspace package to the main
+  checkout's source and not the Story's. So each flight step and each Candidate verification copies the dependency
+  folders as the isolated run of `[E2G-027]` does, with links bound to that checkout's own source, and the digest, the
+  environment and the Candidate's tree do not change, so `[TCE:REQ-084]` still holds. A Candidate's copy comes from the
+  starting checkout and never from the Story's worktree, where the model can write. A Python virtual environment, a
+  folder holding a link outside the repository, and a folder the checkout's own rules would not ignore are left out; a
+  run that passes without them stands, and a failed verification names them. A dedicated clone gets nothing. No install
+  runs: a flight tests with what was installed, so a Story that adds a package stops for a person. A repository can
+  still configure its install as a non-test quality command, which runs there and again at publication.
 
 ### M9 A test scope that changes `[TCE:REQ-090]`
 

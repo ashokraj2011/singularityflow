@@ -28,6 +28,16 @@ function notSubmittedReason(readiness) {
   return 'route-not-recognized';
 }
 
+/**
+ * What `submit` says it did: its commit, push and packet come first in what it prints, and its last
+ * lines give next steps for the state before the holds were read. `next` is the next step, `review` the documents.
+ */
+export function submitReport(stdout) {
+  const lines = stdout.split('\n').map((line) => line.trim());
+  const did = lines.filter((line) => /^(?:Commit|Push|Review packet): |^(?:Submitted|Completed) /u.test(line));
+  return did.length ? did.join('\n') : lines.filter(Boolean).slice(-40).join('\n');
+}
+
 export async function run({ positionals, options }) {
   if (options.json !== true) {
     throw new SingularityFlowError('--submit-if-ready requires --submission-readiness --json.', { code: 'SUBMIT_IF_READY_OPTIONS' });
@@ -50,7 +60,7 @@ export async function run({ positionals, options }) {
   // First, with what follows: the readiness fields after it describe the step before submission.
   console.log(JSON.stringify({ submitIfReady: {
     submitted: true, next: nextAfterStep(shown.value, 'Submitted.'), command: readiness.nextCommand,
-    result: submitted.value ?? submitted.stdout.trim().split('\n').slice(-40).join('\n'),
+    result: submitted.value ?? submitReport(submitted.stdout),
     review: shown.value
   }, ...readiness }, null, 2));
 }

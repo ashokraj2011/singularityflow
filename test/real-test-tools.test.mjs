@@ -23,6 +23,7 @@ import { resolveAffectedModule, testReceiptPassing } from '../src/code-delivery-
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { inspectRepositoryTestSetup } from '../src/repository-test-setup.mjs';
 import { moduleTestCommands } from '../src/test-module-markers.mjs';
+import { earlyTestChecks } from '../src/test-plan.mjs';
 import { gateTestEnvironment } from '../src/test-run-environment.mjs';
 import { recordTestAttempt } from '../src/verification/attempts.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -183,6 +184,37 @@ test('real vitest: its own reporter beside SFlow\'s, a run with no test files, a
   assert.deepEqual(collided.attempt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 }, 'every counted test passed');
   assert.equal(testReceiptPassing(collided.attempt), false, 'the exit code still fails the run');
   assert.deepEqual([collided.attempt.cause.category, collided.attempt.cause.class, collided.attempt.cause.file], ['code', 'foreign-test-file', 'e2e/a.spec.js']);
+  // The early check said this before the run, and is silent once the config keeps the spec out of reach.
+  const early = await earlyTestChecks(collide, [unit], { environment: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: modules } });
+  assert.deepEqual(early.map((entry) => [entry.id, entry.paths]), [['runner-collects-other-tests', ['e2e/a.spec.js']]]);
+  await writeFile(path.join(collide, 'vite.config.js'), "export default { test: { include: ['src/**/*.test.js'] } }\n");
+  assert.deepEqual(await earlyTestChecks(collide, [unit], { environment: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: modules } }), []);
+  const apart = await gateRun(collide, unit, { changedPaths: ['e2e/a.spec.js'] });
+  assert.equal(testReceiptPassing(apart.attempt), true, apart.output);
+});
+
+test('real vitest with jsdom: the early check about Node\'s own localStorage says what this Node really does', LANE, async (t) => {
+  const modules = installedModules('vitest');
+  if (!modules) return absent(t, 'vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
+  if (!existsSync(path.join(modules, 'jsdom'))) return absent(t, 'jsdom is not installed beside vitest');
+  const root = await repository(t, {
+    'package.json': JSON.stringify({ private: true, type: 'module', scripts: { test: 'vitest run' }, devDependencies: { vitest: '4', jsdom: '*' } }),
+    'vite.config.js': "export default { cacheDir: '.vitecache', test: { environment: 'jsdom', globals: true } }\n",
+    'src/store.test.js': "import { test, expect } from 'vitest'\ntest('storage', () => { localStorage.clear(); localStorage.setItem('a', '1'); expect(localStorage.getItem('a')).toBe('1') })\n"
+  }, { modules });
+  const [command] = await commandFor(root, 'src/store.test.js');
+  const checks = await earlyTestChecks(root, [command], { environment: process.env });
+  const ran = await gateRun(root, command);
+  // Whatever this Node does, the check and the real run agree.
+  const warned = checks.some((entry) => entry.id === 'node-version' && /own localStorage/u.test(entry.words));
+  if (Number(process.versions.node.split('.')[0]) >= 25) {
+    assert.equal(warned, true, JSON.stringify(checks));
+    assert.equal(testReceiptPassing(ran.attempt), false, ran.output);
+    assert.equal(ran.attempt.tests.failed, 1);
+  } else {
+    assert.equal(warned, false, JSON.stringify(checks));
+    assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  }
 });
 
 test('real playwright: bare npx keeps --project, a refused page and a taken port are the environment', LANE, async (t) => {

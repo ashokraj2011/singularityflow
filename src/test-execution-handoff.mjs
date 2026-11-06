@@ -36,10 +36,14 @@ export function testExecutionHandoff(testExecution, { published = false, command
   // that is not a missing runner and needs no test configuration.
   const blockedByDelivery = !available && testExecution.blockedBy?.length > 0
     && testExecution.reason !== 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  const earlyChecks = testExecution.earlyChecks ?? [];
+  // A plan whose test needs a runner the package lacks does need one: "no runner change" misled bin-opr's first turn.
+  const needsRunner = earlyChecks.some((entry) => entry.id === 'planned-runner-missing');
+  const earlyWords = earlyChecks.length ? ` Before starting, read testExecution.earlyChecks: ${earlyChecks.length === 1 ? 'one thing' : `${earlyChecks.length} things`} found in this checkout that would otherwise surface at the end of the step, each with what to do. None of them stops the step.` : '';
   if (blockedByDelivery) return {
     runnerStatus: 'blocked', configurationRequired: false, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,
-    guidance: 'Repair the reported code-delivery finding first; publication then infers the test runner from the change set and runs it. No test configuration, amendment or runner change is needed for this.'
+    guidance: `Repair the reported code-delivery finding first; publication then infers the test runner from the change set and runs it.${needsRunner ? '' : ' No test configuration, amendment or runner change is needed for this.'}${earlyWords}`
   };
   if (!available) return {
     runnerStatus: 'unavailable', configurationRequired: null, repositoryEditsRequired: null,
@@ -47,7 +51,7 @@ export function testExecutionHandoff(testExecution, { published = false, command
     guidance: 'Follow the reported runner or lifecycle repair action; no executable test handoff is ready. '
       + 'No runner: /sf-test-setup, or request a Story-only command a step approver accepts (`decision test-command`), or a reviewer previews `story test-policy amend --reason TEXT`. '
       + 'Tests cannot run here (none executed): a step approver may run `decision test-risk`. '
-      + 'Tests that already failed before this Story: `story test-policy risks --json` shows whether a delegated reviewer can accept them. Each is a person\'s decision; never skip or weaken tests to get past one.'
+      + `Tests that already failed before this Story: \`story test-policy risks --json\` shows whether a delegated reviewer can accept them. Each is a person's decision; never skip or weaken tests to get past one.${earlyWords}`
   };
   const owner = published ? 'submission' : 'publication';
   return {
@@ -55,6 +59,6 @@ export function testExecutionHandoff(testExecution, { published = false, command
     executionOwner: owner, command, onSuccess: `continue-${owner}`,
     guidance: `The runner is resolved. Do not edit repository build/test scripts or runner configuration merely to add reporter flags already supplied by the resolved command; no repository edit is required for this handoff. argv: null with argvWithheld: true means approved arguments are hidden, not missing; do not request configuration adoption for this. ${published
       ? 'Use the returned submit route only when submission readiness permits it; do not republish an unchanged generation.'
-      : 'Use returned commands.publish when prepublish is ready.'} ${owner === 'publication' ? 'Publication' : 'Submission'} runs the exact resolved command, unless a passing run on this exact code stands, and validates fresh results, then continues automatically when required tests pass. Diagnostic development tests are allowed during admitted authoring; they never replace this fresh required run. Do not stop for runner adoption or repeat a separate test run merely because arguments are withheld. Tests do not waive other findings or required human approval.`
+      : 'Use returned commands.publish when prepublish is ready.'} ${owner === 'publication' ? 'Publication' : 'Submission'} runs the exact resolved command, unless a passing run on this exact code stands, and validates fresh results, then continues automatically when required tests pass. Diagnostic development tests are allowed during admitted authoring; they never replace this fresh required run. Do not stop for runner adoption or repeat a separate test run merely because arguments are withheld. Tests do not waive other findings or required human approval.${earlyWords}`
   };
 }

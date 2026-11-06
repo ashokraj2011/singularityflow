@@ -43,7 +43,7 @@ function once(key, probe) {
   return probes.get(id);
 }
 
-async function onPath(name, environment, cwd) {
+export async function onPath(name, environment, cwd) {
   if (/[\\/]/u.test(name)) return path.resolve(cwd, name);
   const extensions = process.platform === 'win32' ? ['', ...String(valueOf(environment, 'PATHEXT') ?? '.EXE;.CMD;.BAT').split(';')] : [''];
   for (const directory of String(valueOf(environment, 'PATH') ?? '').split(path.delimiter)) {

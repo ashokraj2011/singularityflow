@@ -189,9 +189,9 @@ export async function resolveStoryLocalTestCommands(root, config, workflow, { ph
       }
     }));
   if (storyTestScope(workflow) === 'new-and-changed') {
-    return { phase, commands: await (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, resolved, deliveryEvidence?.testPaths ?? []) };
+    return { phase, deliveryEvidence, commands: await (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, resolved, deliveryEvidence?.testPaths ?? []) };
   }
-  return { phase, commands: resolved };
+  return { phase, deliveryEvidence, commands: resolved };
 }
 
 /**

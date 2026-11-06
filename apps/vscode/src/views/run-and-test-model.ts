@@ -119,6 +119,16 @@ export interface TestCommandPlan {
   workingDirectory: string | null;
   environments: EnvironmentChoice[];
   commandSha256: string | null;
+  /** The plan in words, when the engine says them: "Tests (Vitest)", where it was found, how finely its results are read. */
+  title?: string | null;
+  why?: string | null;
+  resultsWords?: string | null;
+}
+
+/** What `tests plan` adds beside its commands: what it saw and does not run, and what to do before starting. None of it refuses. */
+export interface TestPlanNotes {
+  notUsed: string[];
+  earlyChecks: Array<{ words: string; action: string | null }>;
 }
 
 /** Whether the open checkout is this capability's repository: the check Test setup makes. */
@@ -364,9 +374,23 @@ export function testPlanFrom(raw: unknown): TestCommandPlan[] {
     const sha = text(entry.commandSha256);
     return [{
       id, kind: text(entry.kind), adapter: text(entry.adapter), argv: argvFrom(entry.argv), workingDirectory: text(entry.workingDirectory),
-      environments: environmentsFrom(entry), commandSha256: sha && SHA256.test(sha) ? sha : null
+      environments: environmentsFrom(entry), commandSha256: sha && SHA256.test(sha) ? sha : null,
+      title: text(entry.title), why: text(entry.why), resultsWords: text(entry.resultsWords)
     }];
   });
+}
+
+/** `tests plan --json`: the lines beside its commands, shown as they are; an older engine has none. */
+export function testPlanNotesFrom(raw: unknown): TestPlanNotes {
+  const plan = record(unwrapResult(raw));
+  return {
+    notUsed: listFrom(plan?.notUsed, []).flatMap((item) => { const why = text(record(item)?.why); return why ? [why] : []; }),
+    earlyChecks: listFrom(plan?.earlyChecks, []).flatMap((item) => {
+      const entry = record(item);
+      const words = text(entry?.words);
+      return words ? [{ words, action: text(entry?.action) }] : [];
+    })
+  };
 }
 
 /** The capability's repository is this checkout, as Test setup decides it (extension.ts). */
@@ -750,13 +774,14 @@ export function debugStartConfirmationRequest(entry: StartEntry, environment: st
 
 /** The review page shown before a test selection first runs. */
 export function testsConfirmationRequest(capability: string, tests: TestCommandPlan[], commands: string[],
-  environment: string | null, scope?: { workId: string; phase: string; argv: string[]; checkout: string }): ReviewConfirmationRequest {
+  environment: string | null, scope?: { workId: string; phase: string; argv: string[]; checkout: string }, notes?: TestPlanNotes | null): ReviewConfirmationRequest {
   const planned = commands.length ? tests.filter((command) => commands.includes(command.id)) : tests;
   const lines = planned.length
     ? planned.flatMap((command) => [
       `${command.id}${command.kind ? ` (${command.kind})` : ''}: ${command.argv ? JSON.stringify(command.argv) : 'argv resolved by the engine'}`,
       ...(command.workingDirectory ? [`  in ${command.workingDirectory}`] : []),
-      ...(command.commandSha256 ? [`  identity ${command.commandSha256}`] : [])
+      ...(command.commandSha256 ? [`  identity ${command.commandSha256}`] : []),
+      ...(command.why ? [`  ${command.why}${command.resultsWords ? ` ${command.resultsWords}` : ''}`] : [])
     ])
     : [commands.length ? `Commands: ${commands.join(', ')}` : 'Commands: the capability\'s tests, or what its code step runs, as the engine resolves them'];
   return {
@@ -765,6 +790,8 @@ export function testsConfirmationRequest(capability: string, tests: TestCommandP
     detail: [
       `Capability: ${capability}`,
       ...lines,
+      ...(notes?.notUsed.length ? ['Seen and not used:', ...notes.notUsed.map((why) => `  ${why}`)] : []),
+      ...(notes?.earlyChecks.length ? ['Before you start (none of these stops the run):', ...notes.earlyChecks.flatMap((check) => [`  ${check.words}`, ...(check.action ? [`  What to do: ${check.action}`] : [])])] : []),
       environment ? `Environment: ${environment}. Its values go to the test process only; VS Code never reads or shows them.` : 'Environment: none named',
       '',
       `VS Code runs it as a task: ${displayCommand(scope?.argv ?? testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands)))}`,
@@ -819,6 +846,8 @@ export interface RunAndTestState {
   planNote?: string | null;
   status?: StartStatus[] | null;
   tests?: TestCommandPlan[] | null;
+  /** What `tests plan` saw and does not run, and what to do before starting. */
+  testNotes?: TestPlanNotes | null;
   /** The capability's local integration policy, from `tests plan`; null when unknown. */
   localIntegration?: LocalIntegrationPolicy | null;
   lastRun?: TestSummary | null;
@@ -848,6 +877,9 @@ export interface RunAndTestView {
   starts: StartRow[];
   startsNote: string | null;
   testCommands: string[];
+  /** Each suite in words, when the engine says them. */
+  testPlan: Array<{ id: string; title: string; why: string | null; results: string | null }>;
+  testNotes: TestPlanNotes;
   testsRunning: boolean;
   lastRun: LastRunLine | null;
   lastRunNote: string | null;
@@ -924,6 +956,8 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
     startsNote: state.planNote ?? (state.plan && !plan.length
       ? 'No start entries are declared. Add application.start to this capability in singularity/capabilities.yml through a capability proposal.' : null),
     testCommands: tests.length ? tests.map((command) => command.id) : [...new Set(fromSummary)],
+    testPlan: tests.filter((command) => command.title).map((command) => ({ id: command.id, title: command.title as string, why: command.why ?? null, results: command.resultsWords ?? null })),
+    testNotes: state.testNotes ?? { notUsed: [], earlyChecks: [] },
     testsRunning: state.testsRunning === true,
     lastRun,
     lastRunNote: state.lastRunNote ?? (state.lastRun === null ? 'No test run yet.' : null),

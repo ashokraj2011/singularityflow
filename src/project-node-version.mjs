@@ -117,6 +117,14 @@ const descending = (left, right) => {
   return b[0] - a[0] || b[1] - a[1] || b[2] - a[2];
 };
 
+/** Each Node version a version manager or Homebrew holds here, newest first. */
+export async function installedNodeVersions(environment = process.env, {
+  platform = process.platform, home = valueOf(environment, 'HOME') ?? os.homedir(), homebrewPrefixes = HOMEBREW_PREFIXES
+} = {}) {
+  const found = await installedNodes(environment, { platform, home, homebrewPrefixes });
+  return [...new Set(found.sort(descending).map((entry) => entry.version))];
+}
+
 async function nearestVersionFile(cwd, root) {
   const canonical = (folder) => realpath(folder).catch(() => path.resolve(folder));
   const [start, top] = await Promise.all([canonical(cwd), canonical(root)]);

@@ -55,6 +55,8 @@ export function prepublishTestExecutionLines(testExecution) {
       : '[see approved qualityCommands configuration]';
     lines.push(`  - ${redactDiagnosticText(command.id)}: argv=${argv} cwd=${redactDiagnosticText(command.workingDirectory)} report=${redactDiagnosticText(command.result?.adapter)}:${redactDiagnosticText(command.result?.path)}`);
   }
+  // What the gate would meet, said before it runs. It informs; only the gate refuses.
+  for (const entry of testExecution.earlyChecks ?? []) lines.push(`Before the tests run: ${entry.words} ${entry.action}`);
   return lines;
 }
 
@@ -716,6 +718,7 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       ...(testExecution.blockedBy ? { blockedBy: testExecution.blockedBy } : {}),
       ...(testExecution.reason ? { reason: testExecution.reason } : {}),
       commands: Object.freeze(testExecution.commands.map((command) => Object.freeze(command))),
+      ...(testExecution.earlyChecks?.length ? { earlyChecks: testExecution.earlyChecks } : {}),
       handoff: Object.freeze(testExecutionHandoff(testExecution, {
         published: retained,
         command: retained

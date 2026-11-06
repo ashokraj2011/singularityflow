@@ -79,7 +79,14 @@ function testsHtml(view: RunAndTestView): string {
       ${view.lastRun.blocked.map((line) => `<p class="notice rt-blocked" role="status"><strong>Not run.</strong> ${escape(line)}</p>`).join('')}`
     : view.lastRunNote ? `<p class="rt-last muted">${escape(view.lastRunNote)}
         <button type="button" class="link"${attributes(view, 'summary')}>Open test summary</button></p>` : '';
+  // What will run and why, in words, and what would otherwise surface at the end of the step. None of it refuses.
+  const plan = view.testPlan.length ? `<ul class="rt-test-plan">${view.testPlan.map((suite) => `<li data-rt-suite="${escape(suite.id)}"><strong>${escape(suite.title)}</strong>${
+    suite.why || suite.results ? `<br><small class="muted">${escape([suite.why, suite.results].filter(Boolean).join(' '))}</small>` : ''}</li>`).join('')}</ul>` : '';
+  const notUsed = view.testNotes.notUsed.map((why) => `<p class="muted rt-not-used"><strong>Seen and not used.</strong> ${escape(why)}</p>`).join('');
+  const before = view.testNotes.earlyChecks.map((check) => `<p class="notice rt-early" role="status"><strong>Before you start.</strong> ${escape(check.words)}${
+    check.action ? `<br><small>${escape(check.action)}</small>` : ''}</p>`).join('');
   return `<h3>${icon('phase')}Tests</h3>
+    ${plan}${notUsed}${before}
     <div class="action-grid rt-tests">
       <button type="button"${attributes(view, 'tests', { command: '' })}${view.testsRunning ? ' disabled' : ''}>${icon('start')}Run all tests</button>
       ${commands}

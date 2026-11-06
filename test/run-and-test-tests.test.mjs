@@ -23,7 +23,8 @@ test('a capability-scope run is a private local preview and its summary lists ca
   assert.equal(plan.resultType, 'sflow-test-plan');
   assert.deepEqual(plan.scope, { kind: 'capability', capability: 'repository-root', workId: null, phase: null });
   const junitPlan = plan.commands.find((command) => command.id === 'module-junit');
-  assert.deepEqual(Object.keys(junitPlan), ['id', 'kind', 'argv', 'workingDirectory', 'adapter', 'environments', 'commandSha256']);
+  assert.deepEqual(Object.keys(junitPlan), ['id', 'kind', 'argv', 'workingDirectory', 'adapter', 'environments', 'commandSha256',
+    'runner', 'level', 'title', 'source', 'why', 'results', 'resultsWords', 'covers', 'coversWords']);
   assert.deepEqual([junitPlan.argv, junitPlan.workingDirectory, junitPlan.environments], [['node', 'tools/junit.mjs', '2'], '.', []]);
   assert.deepEqual(plan.commands.map((command) => command.id).sort(), ['bulk-junit', 'karma-totals', 'module-junit', 'node-tests']);
   await assert.rejects(readdir(path.join(repo.root, '.git', 'singularity-flow', 'test-runs')), { code: 'ENOENT' }, 'a plan runs nothing');

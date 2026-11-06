@@ -65,9 +65,9 @@ async function worktreeChanged(root) {
   return executeGitQuery(root, 'repository.status').length > 0;
 }
 
-/** Every quality command the code steps of this workflow resolve, first definition of an ID first. */
+/** Every quality command the code steps of this workflow resolve, first definition of an ID first, each saying how the gate holds it. */
 async function codeStepCommands(root, config) {
-  const [{ resolveWorkType }, { phaseRequiresCodeDelivery }, { resolveDeliveryQualityCommands }] = await Promise.all([
+  const [{ resolveWorkType }, { phaseRequiresCodeDelivery }, { resolveDeliveryQualityCommands, testCommandProvenance }] = await Promise.all([
     import('../config.mjs'), import('../code-delivery-policy.mjs'), import('../delivery-evidence.mjs')]);
   const byId = new Map();
   for (const workTypeId of Object.keys(config.workTypes ?? {})) {
@@ -76,13 +76,13 @@ async function codeStepCommands(root, config) {
     for (const phase of phases.filter(phaseRequiresCodeDelivery)) {
       for (const command of await resolveDeliveryQualityCommands(root, phase)) {
         if (!command || typeof command !== 'object' || Array.isArray(command) || !command.id) continue;
-        if (!byId.has(command.id)) byId.set(command.id, command);
+        if (!byId.has(command.id)) byId.set(command.id, { ...command, provenance: testCommandProvenance(phase, command) });
       }
     }
   }
   if (!byId.size) {
     const { inferRepositoryTestCommands } = await import('../delivery-evidence.mjs');
-    for (const command of await inferRepositoryTestCommands(root).catch(() => [])) if (!byId.has(command.id)) byId.set(command.id, command);
+    for (const command of await inferRepositoryTestCommands(root).catch(() => [])) if (!byId.has(command.id)) byId.set(command.id, { ...command, provenance: 'inferred' });
   }
   return [...byId.values()];
 }
@@ -107,10 +107,10 @@ function environmentPlan(command, { application, declaration }) {
   return { listed: [...listed], linked, allowed: listed.length ? [...listed] : linked ? [linked] : [] };
 }
 
-/** One command as `tests plan` shows it: what runs, where, in which environments, and its identity. */
+/** One command as `tests plan` shows it: what runs, where, in which environments, its identity, and all of that in words. */
 async function plannedCommand(root, command, plan, declaration) {
-  const [{ resolveEnvironmentBinding }, { testCommandSha256 }] = await Promise.all([
-    import('../environment-bindings.mjs'), import('../run-environment.mjs')]);
+  const [{ resolveEnvironmentBinding }, { testCommandSha256 }, { describeTestCommand }] = await Promise.all([
+    import('../environment-bindings.mjs'), import('../run-environment.mjs'), import('../test-plan.mjs')]);
   const environments = [];
   for (const [index, name] of plan.allowed.entries()) {
     const status = Object.hasOwn(declaration?.environments ?? {}, name)
@@ -121,7 +121,19 @@ async function plannedCommand(root, command, plan, declaration) {
     id: command.id, kind: command.kind ?? null, argv: command.argv ? [...command.argv] : null,
     workingDirectory: command.workingDirectory ?? '.', adapter: command.result?.adapter ?? null,
     environments, ...(plan.linked ? { linkedEnvironment: plan.linked } : {}),
-    commandSha256: testCommandSha256(command, plan.allowed)
+    commandSha256: testCommandSha256(command, plan.allowed),
+    ...await describeTestCommand(root, command, { provenance: plan.provenance ?? command.provenance ?? null })
+  };
+}
+
+/** What a plan adds to its commands: what covers each path, what was seen and not used, and what would surprise someone later. */
+async function planDetails(root, commands, { changed = [], planned = [], plannedTests = [] } = {}) {
+  const { earlyTestChecks, pathCoverage, suitesNotUsed } = await import('../test-plan.mjs');
+  const quiet = async (read, fallback) => { try { return await read(); } catch { return fallback; } };
+  return {
+    paths: await quiet(() => pathCoverage(root, commands, { changed, planned }), null),
+    notUsed: await quiet(() => suitesNotUsed(root, commands), []),
+    earlyChecks: await earlyTestChecks(root, commands, { planned: plannedTests })
   };
 }
 
@@ -216,7 +228,7 @@ async function capabilitySelection(root, options) {
     let invalid = null;
     try { if (command.kind === 'test') normalized = normalizeRequiredTestCommand(command, index); }
     catch (error) { invalid = error.message; }
-    return { command: normalized, invalid, ...environmentPlan(command, { application: application.application, declaration }) };
+    return { command: normalized, invalid, provenance: command.provenance ?? null, ...environmentPlan(command, { application: application.application, declaration }) };
   });
   return { application, config, declaration, subject, plans };
 }
@@ -229,7 +241,8 @@ async function planCapability(root, options) {
     resultType: 'sflow-test-plan',
     scope: { kind: 'capability', capability: application.capabilityId, workId: null, phase: null },
     localIntegrationEvidence: application.policy?.localIntegrationEvidence ?? 'off',
-    commands
+    commands,
+    ...await planDetails(root, plans.map((plan) => ({ ...plan.command, provenance: plan.provenance })))
   };
 }
 
@@ -509,20 +522,52 @@ async function storyContext(root, options) {
   return { config, workflow, declaration, allowed, select, withEnvironments };
 }
 
+/** The paths a step's plan names, and the commands those paths would resolve to once they change. */
+async function plannedPaths(root, config, workflow, phase) {
+  const [{ plannedStepPaths }, { workDirRelative }] = await Promise.all([import('../candidate-scope.mjs'), import('../story-paths.mjs')]);
+  return plannedStepPaths(path.join(root, workDirRelative(config, workflow.workItem.id)), workflow, phase).catch(() => ({ sourcePaths: [], testPaths: [] }));
+}
+
 async function planStory(root, options) {
-  const state = await import('../local-test-runs.mjs');
+  const [state, { resolveDeliveryQualityCommands, testCommandProvenance }] = await Promise.all([import('../local-test-runs.mjs'), import('../delivery-evidence.mjs')]);
   const context = await storyContext(root, options);
-  const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, {
-    phaseId: optionString(options, 'phase', null) });
-  const planned = [];
-  for (const entry of context.withEnvironments(context.select(commands))) {
-    planned.push(await plannedCommand(root, entry.command, entry, context.declaration));
+  const phaseId = optionString(options, 'phase', null);
+  let resolved = null;
+  let stopped = null;
+  try { resolved = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId }); }
+  catch (error) {
+    // A plan says what would stop the run; a step that is not a code step, or does not exist, is still the caller's mistake.
+    if (!(error instanceof SingularityFlowError) || /^TESTS_/u.test(error.code ?? '')) throw error;
+    stopped = { code: error.code ?? null, words: error.message, ...(error.details?.nextAction ? { nextAction: error.details.nextAction } : {}) };
   }
+  const phase = resolved?.phase ?? context.workflow.phases[phaseId ?? context.workflow.currentPhase];
+  const planned = await plannedPaths(root, context.config, context.workflow, phase);
+  const plannedFiles = [...planned.sourcePaths, ...planned.testPaths];
+  let commands = resolved?.commands ?? [];
+  // Nothing changed yet and nothing at the root to run: say what the plan's own files will resolve to.
+  let prospective = false;
+  if (!commands.length && !resolved?.deliveryEvidence?.sourcePaths?.length && plannedFiles.length) {
+    const held = { ...phase, deliveryEvidence: planned };
+    const found = await resolveDeliveryQualityCommands(root, held, {}).catch(() => []);
+    commands = found.filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
+      .map((command) => ({ ...command, provenance: testCommandProvenance(phase, command) }));
+    prospective = commands.length > 0;
+    if (prospective) stopped = null;
+  }
+  const entries = context.withEnvironments(prospective ? commands : context.select(commands));
+  const shown = [];
+  for (const entry of entries) shown.push(await plannedCommand(root, entry.command, entry, context.declaration));
+  const evidence = resolved?.deliveryEvidence ?? null;
   return {
     resultType: 'sflow-test-plan',
     scope: { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id },
     localIntegrationEvidence: context.allowed ? 'allowed' : 'off',
-    commands: planned
+    commands: shown,
+    ...(prospective ? { prospective: true } : {}),
+    ...(stopped ? { stopped } : {}),
+    ...await planDetails(root, entries.map((entry) => entry.command), {
+      changed: [...(evidence?.sourcePaths ?? []), ...(evidence?.testPaths ?? [])],
+      planned: plannedFiles, plannedTests: planned.testPaths })
   };
 }
 
@@ -596,15 +641,7 @@ export async function run(_argv, { positionals, options = {} }) {
   if (subcommand === 'plan') {
     const result = story ? await planStory(root, options) : await planCapability(root, options);
     if (json) console.log(JSON.stringify(result, null, 2));
-    else {
-      const scope = result.scope.kind === 'story' ? `${result.scope.workId} step ${result.scope.phase}` : `capability ${result.scope.capability}`;
-      console.log(`Tests of ${scope} (local integration evidence ${result.localIntegrationEvidence}):`);
-      for (const command of result.commands) {
-        const environments = command.environments.map((entry) => `${entry.name}${entry.default ? ' (default)' : ''}: ${entry.status}`).join(', ');
-        console.log(`  ${command.id}: ${(command.argv ?? []).join(' ')} · in ${command.workingDirectory}${environments ? ` · ${environments}` : ''}`);
-      }
-      console.log(`Run: singularity-flow tests run${result.scope.kind === 'story' ? ` --work-id ${result.scope.workId} --phase ${result.scope.phase}` : ` --capability ${result.scope.capability}`}`);
-    }
+    else console.log((await import('../test-plan.mjs')).testPlanText(result));
     return result;
   }
   if (subcommand === 'run') {

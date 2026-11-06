@@ -1317,8 +1317,10 @@ const PAGES = Object.freeze({
   tests: {
     summary: 'Run a capability\'s or a Story step\'s tests the way the code step runs them, and read one summary of every test case.',
     description: [
-      'tests plan lists, without running anything, the commands tests run would run: argv, working directory,',
-      'their environments with binding status, and the commandSha256 a first run is confirmed by.',
+      'tests plan says in words, without running anything, the commands tests run would run: argv, working directory,',
+      'where each was found and why, how finely its results are read, their environments with binding status, and the',
+      'commandSha256 a first run is confirmed by; which suite covers each changed or planned file; what it saw and does',
+      'not run; and early checks (dependencies, runners, Node version, a runner collecting another\'s specs), none of which refuses.',
       'tests run resolves the commands exactly as the code step does (configured qualityCommands and the',
       'repository-native ones it infers), narrowed by the capability\'s application.tests or by --command.',
       'With --capability (the default scope) the run is a local preview: kept privately below the Git common',

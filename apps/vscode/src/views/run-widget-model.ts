@@ -319,14 +319,14 @@ export function safeCaseFile(file: string | null | undefined): string | null {
 export function testCommandItems(capability: string, plan: readonly TestCommandPlan[] | null, summary: TestSummary | null): CommandItemSpec[] {
   const planned = plan ?? [];
   const extra = (summary?.commands ?? []).filter((command) => !planned.some((item) => item.id === command.id));
-  return [...planned.map((item) => ({ id: item.id, kind: item.kind, adapter: item.adapter, argv: item.argv })),
-    ...extra.map((command) => ({ id: command.id, kind: command.kind, adapter: command.adapter, argv: null }))].map((item): CommandItemSpec => {
+  return [...planned.map((item) => ({ id: item.id, kind: item.kind, adapter: item.adapter, argv: item.argv, words: [item.why, item.resultsWords].filter(Boolean).join(' ') })),
+    ...extra.map((command) => ({ id: command.id, kind: command.kind, adapter: command.adapter, argv: null, words: '' }))].map((item): CommandItemSpec => {
     const reported = summary?.commands.find((command) => command.id === item.id);
     const adapter = reported?.adapter ?? item.adapter;
     return {
       id: `${capability}/${item.id}`, capability, command: item.id, label: item.id,
       description: [item.kind && item.kind !== 'test' ? item.kind : null, adapter].filter(Boolean).join(' · ') || null,
-      tooltip: item.argv ? commandLine(item.argv) : null,
+      tooltip: [item.argv ? commandLine(item.argv) : null, item.words || null].filter(Boolean).join('\n') || null,
       perCase: reported ? reported.perCase : true
     };
   });

@@ -191,8 +191,33 @@ test('the first-run confirmation shows exactly what runs and its identity, and n
   assert.match(fallback[0], /^vscode-argv:sha256:[a-f0-9]{64}$/, 'an engine without `tests plan` confirms the exact argv');
   assert.notDeepEqual(model.testsConfirmationKeys([], ['tests', 'run', '--capability', 'payments-web', '--command', 'x'], ['x']), fallback);
   assert.match(model.testsConfirmationRequest('payments-web', tests, [], null).detail, /module-tests \(test\): \["npm","test"\]\n  in apps\/web\n  identity sha256:b{64}/);
+  // The confirmation says what it found and why, and what a person can do first; nothing there refuses.
+  const notes = model.testPlanNotesFrom({ notUsed: [{ why: 'module-tests is configured, so SFlow runs only that.' }], earlyChecks: [{ id: 'dependencies-not-installed', words: 'Dependencies are not installed.', action: 'Run npm ci.' }, { words: '' }] });
+  assert.deepEqual(notes, { notUsed: ['module-tests is configured, so SFlow runs only that.'], earlyChecks: [{ words: 'Dependencies are not installed.', action: 'Run npm ci.' }] });
+  assert.deepEqual(model.testPlanNotesFrom({ commands: [] }), { notUsed: [], earlyChecks: [] }, 'an older engine has none');
+  const worded = model.testPlanFrom({ commands: [{ id: 'module-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: 'apps/web', commandSha256: SHA2,
+    title: 'Tests (Vitest)', why: 'Found in package.json scripts.test, which runs vitest run.', resultsWords: 'Reads each test by name.' }] });
+  assert.equal(worded[0].title, 'Tests (Vitest)');
+  const detail = model.testsConfirmationRequest('payments-web', worded, [], null, undefined, notes).detail;
+  for (const line of ['  Found in package.json scripts.test, which runs vitest run. Reads each test by name.', 'Seen and not used:', 'Before you start (none of these stops the run):', '  Dependencies are not installed.', '  What to do: Run npm ci.']) {
+    assert.ok(detail.includes(line), `${line}\n${detail}`);
+  }
   assert.deepEqual(model.rememberConfirmed(['a', 'b'], ['b', 'c']), ['a', 'b', 'c']);
   assert.equal(model.rememberConfirmed(Array.from({ length: 250 }, (_, index) => `k${index}`), ['new']).length, 200);
+});
+
+test('the section says what each suite runs and why, and what to do before starting', () => {
+  const tests = model.testPlanFrom({ commands: [{ id: 'module-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', commandSha256: SHA2,
+    title: 'Browser tests (Playwright)', why: 'Found in package.json scripts.e2e, which runs <playwright>.', resultsWords: 'Reads each test by name.' }] });
+  const testNotes = model.testPlanNotesFrom({ notUsed: [{ why: 'unit is configured.' }], earlyChecks: [{ words: 'No browser downloaded.', action: 'Run npx playwright install chromium.' }] });
+  const view = model.buildRunAndTestView(capability(), 'here', { tests, testNotes });
+  assert.deepEqual(view.testPlan, [{ id: 'module-tests', title: 'Browser tests (Playwright)', why: 'Found in package.json scripts.e2e, which runs <playwright>.', results: 'Reads each test by name.' }]);
+  const html = runAndTestHtml(view);
+  assert.match(html, /data-rt-suite="module-tests"><strong>Browser tests \(Playwright\)<\/strong>/u);
+  assert.ok(html.includes('runs &lt;playwright&gt;.'), 'words from the repository are escaped');
+  assert.match(html, /<strong>Seen and not used\.<\/strong> unit is configured\./u);
+  assert.match(html, /<strong>Before you start\.<\/strong> No browser downloaded\./u);
+  assert.equal(runAndTestHtml(model.buildRunAndTestView(capability(), 'here', { tests: [] })).includes('rt-early'), false);
 });
 
 test('the section shows each start entry with its state, the environment picker and the last run', () => {

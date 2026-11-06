@@ -475,6 +475,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             commands: prospective.map((command) => command.id), ...(uncovered.length ? { uncovered } : {}) };
           if (TEST_CONFIGURATION_DEPENDENCIES.has(refusal?.code) || uncovered.length) testExecution.reason = refusal?.code ?? 'TEST_MODULE_UNCOVERED';
           else if (!prospective.length) testExecution.reason = 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+          // What would otherwise surface at the end of the step, said before it starts. It informs; only a gate refuses.
+          const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, prospective, { planned: planned.testPaths }).catch(() => []);
+          if (earlyChecks.length) testExecution.earlyChecks = earlyChecks;
         }
       } else {
         testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
@@ -490,6 +493,11 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
           return projectTestExecutionCommand(command, { configuredIndex, testPolicy, storyDecision: testCommands[index].storyDecision ?? null });
         });
+        // What the change so far would meet at its gate: a spec the unit runner would collect, a Node that does not suit it.
+        if (!publishedCodeGeneration) {
+          const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, normalized, { planned: deliveryEvidence?.testPaths ?? [] }).catch(() => []);
+          if (earlyChecks.length) testExecution.earlyChecks = earlyChecks;
+        }
         // Publication refuses affected paths no command covers; say so now, not after the tests ran.
         const uncovered = deliveryEvidence && !publishedCodeGeneration && testPolicy?.requireAffectedModuleCoverage !== false
           ? uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, normalized.map((command, index) =>

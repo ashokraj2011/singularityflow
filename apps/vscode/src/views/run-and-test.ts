@@ -37,7 +37,7 @@ import {
   capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, debugAttachPlan, debugConfirmationKey, debuggerReady, debugLaunch,
   debugStartConfirmationRequest, entryEnvironment,
   environmentOptions, environmentStatusWords, ENVIRONMENT_CHOICES_KEY, findCapability, localIntegrationPolicy, loopbackUrl, missingDebuggerMessage, ownershipOf,
-  rememberConfirmed, startConfirmationRequest, plannedIdentities, startRefusal, testPlanFrom, testsConfirmationKeys, testsConfirmationRequest,
+  rememberConfirmed, startConfirmationRequest, plannedIdentities, startRefusal, testPlanFrom, testPlanNotesFrom, testsConfirmationKeys, testsConfirmationRequest,
   testsEnvironment, testsPlanArgv, testsRunArgv, unwrapResult, type DebugRuntime, type Ownership, type RunAndTestState, type StartEntry
 } from './run-and-test-model.ts';
 import { RunSuggestionsPanel, type RunSuggestionsHost } from './run-suggestions.ts';
@@ -292,6 +292,7 @@ export class RunAndTest implements vscode.Disposable {
         : parsed?.dropped.length ? `Not shown, because the engine's answer for them is incomplete: ${parsed.dropped.join(', ')}.` : null,
       status: status.status === 'fulfilled' ? appStatusFrom(status.value) : null,
       tests: tests.status === 'fulfilled' ? testPlanFrom(tests.value) : null,
+      testNotes: tests.status === 'fulfilled' ? testPlanNotesFrom(tests.value) : null,
       localIntegration: tests.status === 'fulfilled' ? localIntegrationPolicy(tests.value) : null,
       lastRun: summary?.run ? summary : null,
       lastRunNote: summary?.run || last.status === 'fulfilled' || /NO_|NOT_FOUND|NONE/.test(lastCode) ? null
@@ -652,7 +653,7 @@ export class RunAndTest implements vscode.Disposable {
     const planned = commands.length ? tests.filter((item) => commands.includes(item.id)) : tests;
     if (await this.filesMissing(capability, environment, { kind: 'tests', label: `Tests for ${capability}` }, planned.map((item) => item.workingDirectory))) return null;
     const argv = this.testsArgv(testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands)));
-    if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment, this.host.testsScope ? { ...this.host.testsScope, argv, checkout: this.host.client.repository } : undefined))) {
+    if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment, this.host.testsScope ? { ...this.host.testsScope, argv, checkout: this.host.client.repository } : undefined, this.stateOf(capability).testNotes))) {
       this.update(capability, { notice: 'No tests were run.', error: null });
       return null;
     }

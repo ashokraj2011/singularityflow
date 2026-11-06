@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 6
+version: 7
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -93,8 +93,20 @@ start:
 ## Use it from each surface
 
 - **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV] [--debug]`, `singularity-flow app status`, `singularity-flow app stop [ID]`, `singularity-flow app suggest`, `singularity-flow app config preview --application-file <FILE>`; `singularity-flow tests plan`, `singularity-flow tests run [--command ID] [--environment ENV]` and `singularity-flow tests summary`.
-- **VS Code:** the capability page runs `app start` as a task, reads `app status --json`, and opens the test summary from `tests summary --json`.
-- **Copilot:** run `app plan`, `app start` and `tests run` instead of guessing a command; Copilot never runs `env bind`.
+- **VS Code:** the capability page runs `app start` as a task, reads `app status --json`, and opens the test summary from `tests summary --json`. Its Tests section and each run's confirmation say the plan in words, what was seen and not used, and what to do before starting.
+- **Copilot:** run `app plan`, `app start` and `tests run` instead of guessing a command; Copilot never runs `env bind`. At a code step it reads `recovery.testExecution.earlyChecks`.
+
+## The test plan, in words
+
+`singularity-flow tests plan [--work-id ID] [--json]` says what SFlow will run and runs nothing. For each suite: the command, where it runs, where it was found or who approved it (`why`, `source`), whether results are read per test or as counts (`results`), and what it covers. Beside the suites:
+
+- `paths`: which suite covers each file changed so far, else each file the plan names, and which have no suite.
+- `notUsed`: what SFlow saw and does not run, such as a Playwright suite a configured `npm test` hides, or a runner it has no reader for.
+- `earlyChecks`: what would otherwise surface at the end of the step. Each is `{ id, words, action }`. None of them refuses; only the gates refuse.
+
+The early checks start no test and download nothing. `dependencies-not-installed` and `runner-not-installed` name the install command the lockfile implies. `planned-runner-missing` says when the plan names a browser test and the package has no browser runner yet, and what adding one costs. `runner-collects-other-tests` says when Vitest or Jest would collect a Playwright spec, which fails that run even when each of its own tests passes. `node-version` compares `.nvmrc`, `.node-version` and `engines.node` with the Node here, and names the known case where Node 25 or later breaks Vitest's DOM environment for code that uses `localStorage`. `browser-not-installed` and `tool-not-found` name what is missing from this machine. A check that cannot read what it needs says nothing, so a line is always something seen here; no line does not prove a run will pass.
+
+With nothing changed yet and nothing to run at the repository root, a Story's plan shows what the plan's own files will resolve to, as `prospective: true`. A refusal that resolving the commands would give is `stopped`, in words, rather than an error.
 
 ## Guided workflow
 

@@ -77,9 +77,10 @@ function stepOf(workflow, packet, item, option, { rows = [], card = true } = {})
   const workId = workflow.workItem.id;
   const needs = option.needs ?? {};
   // A choice recorded on the list has no command of its own: the list's record command for it.
-  const raw = option.chat?.command ?? option.action?.command ?? [`singularity-flow decisions record ${workId} --choose ${item.id}=${option.id}`,
+  const notYet = option.available === false;
+  const raw = notYet ? null : option.chat?.command ?? option.action?.command ?? [`singularity-flow decisions record ${workId} --choose ${item.id}=${option.id}`,
     ...Object.keys(needs).map((flag) => `--${flag} ${item.id}=<${flag}>`), `--confirm ${packet.packetSha256}`].join(' ');
-  const { command, fills } = commandWithFills(raw, { known: { 'WORK-ID': workId }, needs,
+  const { command, fills } = notYet ? { command: null, fills: [] } : commandWithFills(raw, { known: { 'WORK-ID': workId }, needs,
     choices: rows.length ? { clause: rows.map((row) => ({ id: row.clauseId, ...(row.result ? { hint: row.result } : {}) })) } : {} });
   for (const [name, need] of Object.entries(needs)) {
     const fill = fills.find((entry) => entry.name === name);
@@ -88,7 +89,7 @@ function stepOf(workflow, packet, item, option, { rows = [], card = true } = {})
   }
   // The list's own question: is this option one a /sf-decide turn takes, on its card or in chat, or only
   // the person's terminal? A host with no card (`card: false`) records in chat only what that turn may.
-  const alone = option.recordable === false ? typeof option.action?.command === 'string' && commandLineWithoutSkill(option.action.command) && !(card && option.action.humanReview)
+  const alone = notYet ? true : option.recordable === false ? typeof option.action?.command === 'string' && commandLineWithoutSkill(option.action.command) && !(card && option.action.humanReview)
     : !card && !DECISION_LIST_CHAT_OPTIONS.includes(option.id) && !option.chat;
   return { id: option.id, label: option.label, effect: effectOf(item, command, option), fills, command,
     where: { copilot: item.kind === 'approval' ? `/sf-approve ${packet.phase} --work-id ${workId}` : item.routeSkill ? `${item.routeSkill} ${workId}` : alone ? null : `/sf-decide ${workId}`,

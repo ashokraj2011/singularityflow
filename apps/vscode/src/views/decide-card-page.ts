@@ -11,7 +11,7 @@ import { optionRow, type DecisionArticleAnswer, type DecisionChoice, type Decisi
 export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; cause: string; expires: string; clause: string; article: DecisionArticleAnswer[] }>;
 
 const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
-const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed);
+const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 
 /** Every open decision: the approval itself is reviewed on its own page, last. */

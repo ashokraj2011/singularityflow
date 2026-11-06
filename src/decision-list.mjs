@@ -361,18 +361,21 @@ const RISK_CATEGORY_WORDS = Object.freeze({ 'external-dependency': 'it depends o
 function evidenceItem(workflow, context, entry) {
   const name = clauseName(workflow, entry.criterion);
   const slots = entry.witnesses.map((witness) => witness.files.length === 1 ? witness.files[0] : `slot ${witness.slot}`);
+  const owedFor = (witness) => (context.facts.pending?.owed ?? []).find(row => row.kind === 'witness' && row.clauseId === entry.criterion && row.slot === witness.slot);
+  const notYet = (witness) => owedFor(witness)?.available === false;
   const options = [
     ...entry.witnesses.map((witness) => {
-      const owed = (context.facts.pending?.owed ?? []).find(row => row.kind === 'witness' && row.clauseId === entry.criterion && row.slot === witness.slot);
-      const words = owed?.available === false ? notPublishedYet(workflow, owed) : 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.';
+      const owed = owedFor(witness);
+      const words = notYet(witness) ? notPublishedYet(workflow, owed) : 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.';
       const step = personalStep({
       id: `witness-${witness.slot}`,
-      label: witness.files.length === 1 ? `I checked ${witness.files[0]}: witness it` : `I checked the ${witness.method} evidence for slot ${witness.slot}: witness it`,
-      command: witness.command,
+      label: notYet(witness) ? `Witness ${listWords(witness.files)} once it is published` : witness.files.length === 1 ? `I checked ${witness.files[0]}: witness it` : `I checked the ${witness.method} evidence for slot ${witness.slot}: witness it`,
+      command: notYet(witness) ? null : witness.command,
       words,
       decidedBy: stepDecidedBy(workflow, context, owed?.groups ?? witness.groups ?? [...new Set((owed?.owners ?? []).flatMap(id => approvers(workflow, id)))], words)
       });
-      return owed && owed.available !== false ? { ...step,
+      if (notYet(witness)) return { ...step, available: false };
+      return owed ? { ...step,
         action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
           files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
     }),
@@ -390,8 +393,9 @@ function evidenceItem(workflow, context, entry) {
     why: `${name} is ${entry.result}: ${slots.length ? `approval waits for a person to witness ${listWords(slots)} for this change` : 'an obligation is still open'}. `
       + 'Witness it if it shows the outcome, or accept a dated risk; the verdict itself does not change.',
     options,
-    details: { criterion: entry.criterion, result: entry.result, witnesses: entry.witnesses, risks: entry.risks, categories: entry.categories,
-      commands: [...entry.witnesses.map((witness) => witness.command), ...entry.risks.map((risk) => risk.command)] }
+    details: { criterion: entry.criterion, result: entry.result,
+      witnesses: entry.witnesses.map((witness) => (notYet(witness) ? { ...witness, command: null } : witness)), risks: entry.risks, categories: entry.categories,
+      commands: [...entry.witnesses.filter((witness) => !notYet(witness)).map((witness) => witness.command), ...entry.risks.map((risk) => risk.command)] }
   };
 }
 
@@ -528,7 +532,7 @@ function stepItem(workflow, context, { kind, title, why, groups = [], forAnyone 
     ...(entry.humanReview ? { action: { command: entry.command, humanReview: entry.humanReview } } : {}),
     ...(entry.available === false ? { available: false } : {}),
     decidedBy: forAnyone ? anyone(entry.words) : stepDecidedBy(workflow, context, groups, entry.words) }));
-  return { kind, title, why, options: steps, details: { ...details, commands: steps.map((entry) => entry.action.command) } };
+  return { kind, title, why, options: steps, details: { ...details, commands: steps.map((entry) => entry.action.command).filter(Boolean) } };
 }
 
 const approvers = (workflow, phaseId) => issueGroups(workflow, phaseId);
@@ -695,7 +699,8 @@ function owedItem(workflow, context, entry) {
       : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
     groups: entry.groups ?? (witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : []),
     options: [{ id: witness ? 'witness' : 'disposition', label: notYet ? 'Sign it off once it is published' : witness ? 'Sign it off after inspecting it' : 'Include it, or say it exists, naming its clauses',
-      command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: notYet ? notPublishedYet(workflow, entry) : 'Only a person records it; an agent never answers it.',
+      // What its command would refuse names no command: a real chat printed it, under "Copilot: no verified equivalent".
+      command: notYet ? null : entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: notYet ? notPublishedYet(workflow, entry) : 'Only a person records it; an agent never answers it.',
       ...(notYet ? { available: false } : witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
         files: entry.files, owners: entry.owners, contextBinding: entry.contextBinding } } : {}) },
     ...(entry.otherCommand ? [{ id: 'other-disposition', label: 'Exclude, defer or set it aside, with a reason', command: entry.otherCommand,
@@ -1039,13 +1044,15 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
         : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
   // What to do next: the first item that holds the approval; with none, the approval itself; before
   // submission, what stops the step, then whatever is left.
-  const first = items.find((item) => item.holdsApproval) ?? (awaiting ? items.at(-1) : items.find(stopsStep) ?? items[0]);
+  // An item nobody can take yet is never the next thing to do.
+  const takenNow = (item) => item.options.some((entry) => entry.available !== false);
+  const first = items.find((item) => item.holdsApproval) ?? (awaiting ? items.at(-1) : items.find(stopsStep) ?? items.find(takenNow) ?? items[0]);
   // A sign-off and any choice this list records are answered on a host's card, which /sf-decide opens: no
   // route read as "no verified equivalent". A host with no card asks with `card: false`, where /sf-decide
   // would only show them again: a command no skill runs (a witness, an obligation risk), a choice a
   // /sf-decide turn may not record (an accepted test command), or a hold's route with its own skill.
-  const theirsAlone = (item) => Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.recordable === false
-    ? typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command) && !(card && entry.action.humanReview)
+  const theirsAlone = (item) => Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.available === false || entry.recordable === false
+    ? entry.available === false || typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command) && !(card && entry.action.humanReview)
     : !card && !DECISION_LIST_CHAT_OPTIONS.includes(entry.id) && !entry.chat));
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
@@ -1058,8 +1065,10 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items, holding, open: items.length,
     ...(offered.length ? { offered } : {}),
     ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
-    next: first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
-      copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute } : null,
+    next: first && !takenNow(first) ? { item: first.id, kind: first.kind, title: first.title, notYet: first.options[0]?.words ?? first.why,
+      command: `singularity-flow nextsteps ${workId} --json`, copilotCommand: `/sf-next ${workId}` }
+      : first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
+        copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute } : null,
     packetSha256: digest,
     record: {
       form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,

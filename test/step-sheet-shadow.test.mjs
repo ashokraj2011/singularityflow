@@ -77,7 +77,8 @@ function disagreements(workflow, packet, check, sheet) {
     for (const [index, step] of hold.steps.entries()) {
       const option = item.options[index];
       const command = option.chat?.command ?? option.action?.command;
-      if (command) say(`${hold.key} ${step.id} command`, withoutBlanks(command.replaceAll('<WORK-ID>', workflow.workItem.id)), withoutBlanks(step.command));
+      if (option.available === false) assert.equal(step.command, null, 'what its command would refuse names no command');
+      else if (command) say(`${hold.key} ${step.id} command`, withoutBlanks(command.replaceAll('<WORK-ID>', workflow.workItem.id)), withoutBlanks(step.command));
       else assert.match(step.command, new RegExp(`--choose ${item.id}=${option.id}`, 'u'));
     }
   }
@@ -118,7 +119,7 @@ function disagreements(workflow, packet, check, sheet) {
     if (!hold.steps.length && !['viewer-form', 'viewer-terminal'].includes(hold.clearedBy.kind)) out.push(`${hold.key} has no way through and does not say why`);
     for (const step of hold.steps) {
       if (/<[^<>\n]*>/u.test(step.command)) out.push(`${hold.key} ${step.id} has a blank in its command: ${step.command}`);
-      const named = [...step.command.matchAll(/\{([a-z0-9-]+)\}/gu)].map((match) => match[1]).sort();
+      const named = [...(step.command ?? '').matchAll(/\{([a-z0-9-]+)\}/gu)].map((match) => match[1]).sort();
       if (JSON.stringify(named) !== JSON.stringify(step.fills.map((fill) => fill.name).sort())) out.push(`${hold.key} ${step.id} declares ${JSON.stringify(step.fills)} for ${step.command}`);
       if (!step.where || step.where.terminal !== true) out.push(`${hold.key} ${step.id} says nothing of where`);
     }

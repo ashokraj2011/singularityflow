@@ -846,6 +846,7 @@ function ownTerminalStepCall(call, value) {
 // What each person's own step is, for the ones no earlier refusal names; any later entry still gets
 // the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
 const OWN_STEP_DENIALS = Object.freeze({
+  witness: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence is the word of a person who approves the step that delivered it, after looking for themselves; an agent never signs off its own work. /sf-decide opens the page that asks them and records it under their name (in a /sf-decide turn, sflowWitnessReview or sflow_witness_review); their own terminal takes the same command',
   'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate or sflow_adjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
   'adjudication-table': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this asks a person at their own terminal to answer the whole table, and no turn answers it. Call sflowAdjudicate or sflow_adjudicate with the Story ID where it is available; otherwise show the user this command to run themselves, and stop',
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
@@ -922,6 +923,19 @@ function testRunRiskDecision(call, value) {
 function signOff(positionals) {
   return positionals[0] === 'decision' && ['witness', 'risk', 'witness-exception'].includes(positionals[1]);
 }
+/**
+ * A witness a turn may not record, routed where a person does: /sf-decide opens the page that takes it,
+ * and the same line is theirs in a terminal. "No verified equivalent" under it was not true (2026-11-06).
+ */
+function witnessPageRoute(argv) {
+  if (!argv) return null;
+  const { positionals, options } = parseCli(argv);
+  if (positionals[0] !== 'decision' || positionals[1] !== 'witness') return null;
+  const guidance = safeCommandGuidance({ argv });
+  const work = typeof options['work-id'] === 'string' ? options['work-id'] : positionals[2];
+  return guidance ? { ...guidance, skill: '/sf-decide', copilotCommand: `/sf-decide${work ? ` ${work}` : ''}` } : null;
+}
+
 /** The denied command's own route, for the person's terminal: its Shell line and no Copilot route. */
 /** The first command of a chain, as a route; null when it is not one whole SFlow command. Quotes are kept whole. */
 function firstChainedCommand(call) {
@@ -1148,7 +1162,8 @@ function personStepRefusal({ id, argv, owners }) {
   const guidance = safeCommandGuidance({ argv: decision || owners ? argv.filter(value => !['--yes', '-y', '--for-agent'].includes(value)) : argv });
   // A step a turn owns keeps that turn as its Copilot route: the reason names it, and "no verified
   // equivalent" under it sent a person to a terminal for what /sf-decide records in chat (2026-11-06).
-  const routes = guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
+  const witness = id === 'witness' ? witnessPageRoute(argv) : null;
+  const routes = witness ? [witness] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
   const reason = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
   return { permissionDecision: 'deny', next: routes,
@@ -1903,8 +1918,12 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: correcting an approved plan\'s rows is the word of a person who approves that plan, after reviewing the exact rows in their own terminal; a preview (--dry-run) is all this turn may run. Show the user the command and stop; do not retry it', [], own());
         if (liveTerminalReviewCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this decision is recorded only after the person reviews its exact card in their own terminal and types the confirmation there; no turn runs or answers it. Show the user the command and stop; do not retry it', [], own());
-        if (signOffCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
+        if (signOffCall(call, value)) {
+          const witness = witnessPageRoute(verifiedShellForm(call, value)?.argv);
+          if (witness) return mutationDenial(contract, `${OWN_STEP_DENIALS.witness}. Do not retry it`, [], { routes: [witness] });
+          return mutationDenial(contract,
+            'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
+        }
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
         const ownStep = ownTerminalStepCall(call, value);

@@ -210,6 +210,17 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   assert.equal(prepublish.testExecution.reason, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
   const entry = completeAgentResult(cli('phase', 'enter', 'implementation', '--for-agent', '--json').stdout);
   assert.ok(entry.mutationContract.artifacts.includes(SCREEN), 'the author may write the planned screenshot');
+  // Nothing has published it: its sign-off says so, offers no command its own refusal would turn back,
+  // and the next step is the Story's, not a Copilot line reading "no verified equivalent" (bin-opr2, 2026-11-06).
+  const early = completeAgentResult(cli('decisions', W, '--for-agent', '--json').stdout).data;
+  const waiting = early.items.flatMap((item) => item.options.filter((option) => option.available === false).map((option) => ({ item, option })));
+  assert.ok(waiting.length, JSON.stringify(early.items.map((item) => [item.kind, item.title])));
+  for (const { item, option } of waiting) {
+    assert.equal(option.action.command, null, JSON.stringify(option));
+    assert.match(item.why, /cannot be signed off yet/u);
+    assert.doesNotMatch(JSON.stringify(item), /decision witness/u);
+  }
+  assert.ok(early.next?.copilotCommand, `a route: ${JSON.stringify(early.next)}`);
   await write(SCREEN, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=', 'base64'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');

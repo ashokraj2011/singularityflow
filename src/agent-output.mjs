@@ -403,6 +403,8 @@ export function agentAct(result) {
         said: `Show ${at}preview.summary and ask the person for an explicit yes in this chat. In a /sf-decide turn run ${at}preview.record.command once; otherwise give it to them for their own terminal. Never change its digest.` }
       : { state: 'confirm-in-terminal', do: null, read: [`${at}preview`],
         said: `Show ${at}preview.summary. The person records it by running ${at}preview.record.command in their own terminal; never run it or change its digest.` };
+    // Nothing on the list can be taken yet: say why, and go on with the Story, which is what makes it possible.
+    if (list.next?.notYet) return withRoute({ state: 'next', do: null, said: oneLine(`${list.next.title}: ${list.next.notYet} Nothing here can be recorded yet.`) }, { command: list.next.command, copilotCommand: list.next.copilotCommand });
     if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
       said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.' };
     return { state: 'read', do: null, said: oneLine(list.headline) };

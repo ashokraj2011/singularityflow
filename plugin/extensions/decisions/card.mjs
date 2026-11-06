@@ -25,7 +25,7 @@ const clipSentences = (value) => {
 };
 const choosable = (option) => option.recordable !== false && option.available !== false && option.decidedBy?.allowed === true;
 const reviews = (item) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
-const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed);
+const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const itemName = (item) => item.details?.path ?? item.title;
 
 /** Every open decision: the approval itself stays with /sf-approve. */

@@ -51,10 +51,10 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
         '--work-id', workflow.workItem.id, '--criterion', clauseId, '--slot', slot.slot,
         '--file', unique.length === 1 ? unique[0] : '<EVIDENCE-PATH>', '--reason', '<review-reason>',
         ...WITNESS_CHECKLIST.flatMap(item => ['--confirm', item]), '--json'] });
-      // /sf-decide handles workflow decisions, not this exact witness operation. Do not
-      // route the reviewer into that unrelated menu or let an agent pre-answer a checklist.
-      const command = { ...shell, skill: null, copilotCommand: null, copilotStatus: 'unavailable',
-        copilotReason: 'Use the human witness terminal or VS Code witness review. /sf-decide does not implement decision witness.' };
+      // /sf-decide opens the page that takes it, or the witness review in VS Code; no agent answers its
+      // checklist. Before its step publishes it, there is nothing to review and no route to one.
+      const command = { ...shell, skill: available ? '/sf-decide' : null, copilotCommand: available ? `/sf-decide ${workflow.workItem.id}` : null, copilotStatus: available ? 'available' : 'unavailable',
+        ...(available ? {} : { copilotReason: 'Nothing has published it yet; it can be signed off once its step does.' }) };
       witnesses.push({ clauseId, clauseText: (graph.records.indexes ?? []).flatMap(index => index.clauses ?? []).find(clause => clause.id === clauseId)?.body ?? null, slot: slot.slot, method: slot.method, status, files: unique, owners,
         checklist: WITNESS_CHECKLIST, commandGuidance: command, humanRequired: true,
         available, availableAfterPublication: true, availableAfterSubmission: true, contractClassificationIsWitness: false,

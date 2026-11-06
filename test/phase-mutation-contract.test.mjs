@@ -2949,13 +2949,22 @@ test('no mutating command is routed to a skill whose turn only reads', async t =
 test('a person\'s own step that a turn refuses shows that exact command for their terminal, not the turn\'s route', async t => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-recover', 'own-route');
-  const command = 'singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at it."';
+  const command = 'singularity-flow decision risk PMC-1 --obligation OBL-1 --category known-failure --expires 2099-01-01 --reason "Known and dated."';
   const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   assert.equal(denied.permissionDecision, 'deny');
   assert.equal(denied.next.length, 1);
   assert.equal(denied.next[0].copilotCommand, null);
-  assert.match(denied.next[0].command, /^singularity-flow decision witness PMC-1 /u);
-  assert.match(denied.permissionDecisionReason, /- Copilot: no verified equivalent\n- Shell: singularity-flow decision witness PMC-1/u);
+  assert.match(denied.next[0].command, /^singularity-flow decision risk PMC-1 /u);
+  assert.match(denied.permissionDecisionReason, /- Copilot: no verified equivalent\n- Shell: singularity-flow decision risk PMC-1/u);
+  // A witness has a page: /sf-decide opens it, and the same line stays theirs in a terminal.
+  const witness = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at it."', cwd: f.root } });
+  assert.equal(witness.permissionDecision, 'deny');
+  assert.equal(witness.next.length, 1);
+  assert.equal(witness.next[0].copilotCommand, '/sf-decide PMC-1');
+  assert.match(witness.next[0].command, /^singularity-flow decision witness PMC-1 /u);
+  assert.match(witness.permissionDecisionReason, /an agent never signs off its own work\. \/sf-decide opens the page/u);
+  assert.match(witness.permissionDecisionReason, /- Copilot: \/sf-decide PMC-1\n- Shell: singularity-flow decision witness PMC-1/u);
+  assert.doesNotMatch(witness.permissionDecisionReason, /no verified equivalent/u);
 });
 
 // A chat decision carries what the person answered [study: decisions across surfaces, Stage 4].

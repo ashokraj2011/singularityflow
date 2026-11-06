@@ -414,7 +414,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,350 (measured 858,295): convergence-record family v5's step and seal (schema-migrations.mjs +870). Every command reads the registry to dispatch.
   // 858,800 (measured 858,796): convergence-record family v6's step and seal (schema-migrations.mjs +501). Every command reads the registry to dispatch.
   // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
-  assert.ok(root.bytes <= 858_810, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
+  assert.ok(root.bytes <= 858_820, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

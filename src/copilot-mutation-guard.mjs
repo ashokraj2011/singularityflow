@@ -1700,7 +1700,7 @@ const LONG_READ_RANGES_SHOWN = 10;
  * up. Turn it back before it runs, naming the exact ranges to request together. A short read, an
  * image or other binary, a link, and a text whose single line is longer than one read pass as before.
  */
-async function longFileRead(toolCalls, cwd, { force = false } = {}) {
+export async function longFileRead(toolCalls, cwd, { force = false } = {}) {
   const plans = [];
   for (const call of toolCalls) {
     if (!FILE_READS.has(call.name)) continue;

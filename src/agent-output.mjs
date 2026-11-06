@@ -978,12 +978,13 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     }
   }
   const instruction = catalog ? catalogInstruction : 'Bounded result: view every agentOutput.read line range (1-based, inclusive) and every textFiles entry marked need, by its own read ranges exactly as listed, in one response; the other omittedFields are optional. Nothing was truncated.';
-  const actAlone = 'Bounded result: act is all this step needs; omittedFields lists the rest, to view by its lines only if something asks for it. Nothing was truncated.';
+  const actAlone = 'Bounded result: act is all this step needs; omittedFields lists the rest, to view by its lines or read ranges only if something asks for it. Nothing was truncated.';
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
   const textFiles = Object.fromEntries(keys.map((key) => [key, texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))
-    .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines,
-      ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : {}) }))]));
+    // A long file names only ranges that fit: given its line count too, agents asked for all of it.
+    .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length,
+      ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : { lines }) }))]));
   const isNeeded = (needs, field) => needs === null || needs.some((path) => field === path || field.startsWith(`${path}.`));
   const reference = (ranges, document = null, needs = null, planned = Infinity) => {
     const lines = document?.split('\n');
@@ -993,12 +994,18 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
       // schema occupied 9 KB on disk and its advertised whole-field range was refused by the hook.
       const text = lines && range ? `${lines.slice(range[0] - 1, range[1]).join('\n')}\n`
         : `${JSON.stringify(full[key], null, 2)}\n`;
-      // Listing a field's own ranges beside the read plan got one result read twice in one response.
-      // They remain only for a needed field the plan's ten ranges did not reach.
-      const unplanned = !document || (isNeeded(needs, key) && range && range[1] > planned);
-      const chunks = unplanned && bytes(text) > READ_CHUNK_BYTES ? lineRanges(text) : [];
+      // Listing a field's own ranges beside the read plan got one result read twice in one response,
+      // so a field the plan holds names the plan instead.
+      const inPlan = document && isNeeded(needs, key) && range && range[1] <= planned;
+      const long = bytes(text) > READ_CHUNK_BYTES;
+      const chunks = long && !inPlan ? lineRanges(text) : [];
       const files = textFiles[key].map((entry) => (isNeeded(needs, entry.field) ? { ...entry, need: true } : entry));
-      return [key, { field: key, bytes: bytes(text), lines: range ?? null,
+      // A whole field longer than one read is a range the guard refuses. Named as `lines`, agents
+      // asked for it over the read plan beside it: 32 of 38 refused reads of a kept result
+      // (2026-10-25 to 11-06). So a named range is always one that comes back.
+      return [key, { field: key, bytes: bytes(text),
+        ...(document && long ? {} : { lines: range ?? null }),
+        ...(inPlan && long ? { readBy: 'agentOutput.read' } : {}),
         ...(chunks.length ? { read: chunks.map(([start, end]) => document
           ? [range[0] + start - 1, range[0] + end - 1] : [range?.[0] ?? start, range?.[1] ?? end]) } : {}),
         ...(files.length ? { textFiles: files } : {}) }];
@@ -1096,14 +1103,16 @@ async function keptAgentText(text, target, { budget, now, kind }) {
   const lines = text.split('\n');
   if (lines.at(-1) === '') lines.pop();
   const relative = path.relative(target.root, file).split(path.sep).join('/');
-  const footer = (shown) => `\n[Output continues] Lines 1-${shown} of ${lines.length} are above. The complete output is `
-    + `${file} (${relative}); use that exact absolute path, never prefix it with the checkout. Read lines ${shown + 1}-${lines.length} there with your file-reading tool, not shell tools. `
-    + 'Nothing was truncated.\n';
-  const reserve = bytes(footer(lines.length));
+  const footer = (shown, ranges) => `\n[Output continues] Lines 1-${shown} of ${lines.length} are above. The complete output is `
+    + `${file} (${relative}); use that exact absolute path, never prefix it with the checkout. Read lines ${ranges.slice(0, READ_PLAN_CHUNKS).map(([start, end]) => `${start}-${end}`).join(', ')} there with your file-reading tool, not shell tools`
+    + `${ranges.length > READ_PLAN_CHUNKS ? `, then go on from line ${ranges[READ_PLAN_CHUNKS - 1][1] + 1} the same way` : ''}. Nothing was truncated.\n`;
+  // One range for the rest was refused when the rest was longer than one read.
+  const rest = (shown) => lineRanges(lines.slice(shown).join('\n')).map(([start, end]) => [start + shown, end + shown]);
+  const reserve = bytes(footer(lines.length, Array.from({ length: READ_PLAN_CHUNKS + 1 }, () => [lines.length, lines.length])));
   let shown = 0;
   let size = 0;
   while (shown < lines.length && size + bytes(lines[shown]) + 1 + reserve <= budget) size += bytes(lines[shown++]) + 1;
-  return `${lines.slice(0, shown).join('\n')}${shown ? '\n' : ''}${footer(shown)}`;
+  return `${lines.slice(0, shown).join('\n')}${shown ? '\n' : ''}${footer(shown, rest(shown))}`;
 }
 
 const isTextReference = (value) => value && typeof value === 'object' && !Array.isArray(value) && typeof value.textFile === 'string'

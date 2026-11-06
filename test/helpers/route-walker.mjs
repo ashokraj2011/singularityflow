@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { childTimeout } from './child-timeout.mjs';
+import { longFileRead } from '../../src/copilot-mutation-guard.mjs';
 
 const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const CLI = path.join(REPOSITORY, 'bin/singularity-flow.mjs');
@@ -264,7 +265,43 @@ function storyMark(story) {
  * It ends at the outcome, at a person's command that really runs, on the third identical refusal,
  * or when a route moves the Story on without what was asked: following that route lost the person's goal.
  */
-export async function walk(story, scenario, { maxSteps = 24 } = {}) {
+/**
+ * Every line range a kept result names for reading, with its file. An agent told to read one is
+ * never to be refused for its length.
+ */
+export function namedReads(view) {
+  if (!view?.agentOutput?.path) return [];
+  const file = view.agentOutput.path;
+  const found = (view.agentOutput.read ?? []).map(({ lines }) => ({ file, range: lines }));
+  for (const entry of view.omittedFields ?? []) {
+    if (entry.lines) found.push({ file, range: entry.lines });
+    for (const range of entry.read ?? []) found.push({ file, range });
+    for (const text of entry.textFiles ?? []) {
+      for (const range of text.read ?? []) found.push({ file: text.path, range });
+      if (text.lines) found.push({ file: text.path, range: [1, text.lines] });
+    }
+  }
+  for (const range of view.omittedIndex?.read ?? []) found.push({ file: view.omittedIndex.path, range });
+  return found;
+}
+
+/** Whether the read guard would turn this named range back, by the guard's own check. */
+export async function namedReadRefused({ file, range }, cwd) {
+  const refused = await longFileRead([{ name: 'view', args: { path: file, view_range: range } }], cwd);
+  return refused?.code ?? null;
+}
+
+export async function walk(story, scenario, options = {}) {
+  const reads = [];
+  const result = await walkRoutes(story, scenario, options, reads);
+  for (const read of reads) {
+    const code = await namedReadRefused(read, story.root);
+    if (code) result.findings.push({ kind: 'refused-read', code, detail: `${read.command} named ${path.basename(read.file)} ${read.range.join('-')}` });
+  }
+  return result;
+}
+
+async function walkRoutes(story, scenario, { maxSteps = 24 } = {}, reads = []) {
   const isRead = await registryReader();
   const { completeAgentResult } = await import('../../src/agent-output.mjs');
   const trail = []; const findings = []; const refusalsSeen = new Map(); const ran = new Set(); const written = new Set();
@@ -295,6 +332,7 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
     if (person) for (const flag of scenario.personFlags ?? []) if (!argv.includes(flag)) argv.push(flag);
     const output = spawn(process.execPath, [CLI, '--no-model', ...argv], story.root, story.env ?? {});
     let parsed = parseOutput(output.stdout);
+    reads.push(...namedReads(parsed).map((read) => ({ ...read, command: filled })));
     if (parsed) { try { parsed = completeAgentResult(parsed); } catch { /* the view is what it returned */ } }
     return { output, parsed, filled };
   };

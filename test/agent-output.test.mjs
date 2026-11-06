@@ -18,6 +18,7 @@ import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, co
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
 import { approvalHoldContinuation } from '../src/copilot-guidance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { namedReadRefused, namedReads } from './helpers/route-walker.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -297,8 +298,9 @@ test('a small result keeps every field with act first; a large one is written wh
   assert.equal(spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).stdout, '', 'nothing SFlow wrote shows as a change');
   const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
   const recovery = view.omittedFields.find((entry) => entry.field === 'recovery');
-  const slice = lines.slice(recovery.lines[0] - 1, recovery.lines[1]).join('\n').replace(/^"recovery": /u, '').replace(/,$/u, '');
-  assert.deepEqual(JSON.parse(slice), large.recovery, 'the named line range is exactly the omitted field');
+  const held = (recovery.read ?? [recovery.lines]).flatMap(([start, end]) => lines.slice(start - 1, end));
+  const slice = held.join('\n').replace(/^"recovery": /u, '').replace(/,$/u, '');
+  assert.deepEqual(JSON.parse(slice), large.recovery, 'the named line ranges are exactly the omitted field');
   const context = view.omittedFields.find((entry) => entry.field === 'context');
   assert.equal(await readFile(context.textFiles[0].path, 'utf8'), prose, 'a long text is its own line-readable file, byte for byte');
 });
@@ -363,8 +365,12 @@ test('large fields left out become a few ranges of whole fields, each within one
   // A field larger than a read is split at line boundaries; what act does not name is not planned.
   const reached = read.at(-1).lines[1];
   const extra = view.omittedFields.find((entry) => entry.field === 'extra');
-  assert.ok(extra.lines[0] > reached, 'a field act does not name stays out of the plan');
-  assert.equal(view.omittedFields.find((entry) => entry.field === 'mutationContract').lines[1], reached);
+  assert.ok(extra.read[0][0] > reached, 'a field act does not name stays out of the plan');
+  assert.equal(extra.lines, undefined, 'and names ranges that fit, not all its lines at once');
+  const planned = view.omittedFields.find((entry) => entry.field === 'mutationContract');
+  assert.equal(planned.readBy, 'agentOutput.read', 'a field the plan holds names the plan');
+  assert.equal(planned.lines ?? planned.read, undefined, 'and no range of its own to read twice');
+  assert.match(lines[reached], /^"history":/u, 'the plan ends where the field does');
 });
 
 test('a long text file is named as ranges the file tool shows whole, to request in the same response', async (t) => {
@@ -705,8 +711,9 @@ test('routes an agent view returns carry --for-agent unless a strict agent entry
     'singularity-flow status QF-1 --submission-readiness --for-agent --json --submit-if-ready',
     // Any other command takes it as an output option (appeal used to refuse it).
     'singularity-flow appeal list --for-agent --json',
+    // review-source status now takes it, as an output option.
+    'singularity-flow review-source status --for-agent --json',
     // The strict agent entries refuse it outside their compact forms; a confirmation is replayed exactly.
-    'singularity-flow review-source status --json',
     'singularity-flow session status --json', 'singularity-flow inputs restore intake --json', confirm,
     'singularity-flow phase enter --compose --for-agent --json']);
   assert.deepEqual(routed.next[0].argv, ['nextsteps', 'QF-1', '--for-agent', '--json'], 'argv stays the same command');
@@ -864,7 +871,7 @@ test('a result reads what its act names, nested fields included, and only a resu
     sources: [{ id: 'story', text: 'Keep the pinned source.' }], unnamed: rows('unnamed', 60), artifact: { text: 'Authored artifact.\n'.repeat(500) } };
   const review = JSON.parse(await boundedAgentOutput(JSON.stringify(apart), { cwd: root }));
   const unnamed = review.omittedFields.find((entry) => entry.field === 'unnamed');
-  for (const { lines: [start, end] } of review.agentOutput.read ?? []) assert.ok(end < unnamed.lines[0] || start > unnamed.lines[1], JSON.stringify(review.agentOutput.read));
+  for (const { lines: [start, end] } of review.agentOutput.read ?? []) assert.ok(end < unnamed.read[0][0] || start > unnamed.read.at(-1)[1], JSON.stringify(review.agentOutput.read));
 
   // No direction from act: the result is itself the answer.
   const plain = { resultType: 'x', repositoryPath: root, workId: 'W', first: rows('first', 60), second: rows('second', 60) };
@@ -911,6 +918,52 @@ test('the next step after publishing or submitting says when it starts in a new 
   for (const route of ['/sf-code', '/sf-phase', '/sf-next', '/sf-outcome W', '/sf-review-decide planning']) assert.doesNotMatch(after(route), /new chat/u, route);
 });
 
+test('every range a kept result names comes back from the read guard, whatever the field sizes', async t => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-named-reads-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const rows = (label, count) => Array.from({ length: count }, (_, index) => ({ id: `${label}-${index}`, detail: 'y'.repeat(150) }));
+  const prose = Array.from({ length: 400 }, (_, index) => `Line ${index + 1} of a text long enough for a file of its own, and for several reads.`).join('\n');
+  // A real result named `lines` for a 35 KB field beside the plan that split it, and the agent asked for that.
+  const results = [
+    { act: { read: ['submitIfReady'] }, resultType: 'custom', repositoryPath: root, workId: 'W', submitIfReady: rows('s', 200), note: 'kept' },
+    { resultType: 'sflow-phase-entry', status: 'authoring-entry', repositoryPath: root, workId: 'W',
+      history: rows('history', 160), evidence: rows('evidence', 90), extra: rows('extra', 400), mutationContract: { rules: rows('rule', 120) } },
+    { resultType: 'source-review-agent-context', canReview: true, ready: true, repositoryPath: root, workId: 'W',
+      sources: [{ id: 'story', text: 'One line.\n' }, { id: 'long', text: prose }], reviewer: { effectiveInstructions: prose }, artifact: { text: `${prose}\n` }, schema: rows('schema', 200) },
+    // More fields than a view lists, so an index of them is named too, and more than ten reads' worth.
+    { resultType: 'custom', repositoryPath: root, ...Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`field${index}`, rows(`f${index}`, 80)])) }];
+  for (const result of results) {
+    const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+    const named = namedReads(view);
+    assert.ok(named.length >= 2, JSON.stringify(view.omittedFields));
+    for (const read of named) assert.equal(await namedReadRefused(read, root), null, `${path.basename(read.file)} ${read.range}`);
+    for (const entry of view.omittedFields) {
+      assert.ok(entry.lines || entry.read || entry.readBy, `${JSON.stringify(entry)} says how it is read`);
+      if (entry.lines) {
+        const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n').slice(entry.lines[0] - 1, entry.lines[1]);
+        assert.ok(Buffer.byteLength(lines.join('\n')) <= READ_CHUNK_BYTES, 'a field named by its lines fits one read');
+      }
+    }
+  }
+
+  // Text kept the same way: the rest is named in ranges that fit, however long it is.
+  for (const lines of [300, 4_000]) {
+    const whole = Array.from({ length: lines }, (_, index) => `Line ${index + 1} of the output of a long explanation for the agent.`).join('\n');
+    const shown = await boundedAgentText(`${whole}\n`, { cwd: root, kind: 'explain' });
+    assert.ok(Buffer.byteLength(shown) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(shown)} bytes`);
+    const [, file] = /The complete output is (\S+) /u.exec(shown);
+    const [, named] = /Read lines ([\d, -]+) there/u.exec(shown);
+    const ranges = named.split(', ').map((range) => range.split('-').map(Number));
+    assert.ok(ranges.length <= READ_PLAN_CHUNKS, named);
+    assert.equal(ranges[0][0], Number(/Lines 1-(\d+) of/u.exec(shown)[1]) + 1, 'from the first line not shown');
+    for (const range of ranges) assert.equal(await namedReadRefused({ file, range }, root), null, range.join('-'));
+    const further = /then go on from line (\d+) the same way/u.exec(shown);
+    if (further) assert.equal(Number(further[1]), ranges.at(-1)[1] + 1);
+    else assert.equal(ranges.at(-1)[1], lines, 'the ranges reach the last line');
+  }
+});
+
 test('a saved text counts the lines it has, with or without a last newline', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-line-count-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -919,7 +972,7 @@ test('a saved text counts the lines it has, with or without a last newline', asy
   for (const [text, lines] of [[`${body}\n`, 200], [body, 200], [`${body}\n\n`, 201]]) {
     const view = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'custom', repositoryPath: root, body: text }), { cwd: root }));
     const saved = view.omittedFields.flatMap((entry) => entry.textFiles ?? []).find((entry) => entry.field === 'body');
-    assert.equal(saved.lines, lines, JSON.stringify(saved));
-    if (saved.read) assert.equal(saved.read.at(-1)[1], lines, 'the plan and the count agree');
+    assert.equal(saved.read.at(-1)[1], lines, JSON.stringify(saved));
+    assert.equal(saved.lines, undefined, 'a long file names ranges, not a count an agent then asks for at once');
   }
 });

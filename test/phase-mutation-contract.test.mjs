@@ -563,6 +563,8 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/App.jsx --reason "Belongs to AC-001."',
     // The other choice a plan-accounting item offers, as its `chat.command` writes it.
     'singularity-flow decision plan PMC-1 --fetch --add-supporting package.json=build-configuration --supporting-reason "The test script needs it." --reason "The test script needs this entry."',
+    // One choice for a whole test setup, as its `chat.command` writes it.
+    'singularity-flow decision plan PMC-1 --fetch --add-supporting package-lock.json=dependency-lock --supporting-reason "The browser runner needs it." --add-location PMC-1:AC-001=src/test/setup.js --reason "The browser runner needs it."',
     'singularity-flow upstream-issue list --work-id PMC-1 --open --json',
     'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "The person dismissed it."',
     // The route a final check names for an earlier step's defect (2026-10-28), with the person's words.

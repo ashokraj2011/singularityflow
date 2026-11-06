@@ -92,6 +92,8 @@ const FAMILIES = Object.freeze([
     'test-run-environment.mjs', 'test-toolchain.mjs', 'project-node-version.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs', 'test-collection-limits.mjs',
     // The test plan in words and its early checks, loaded by `tests plan` and at a code step's entry.
     'test-plan.mjs',
+    // Test setup as one change: the decision list and `story adjudications` read it.
+    'test-support-files.mjs',
     // Loaded by the same gates when a Story runs only its new and changed tests [TCE:REQ-093].
     'verification/test-scope-selection.mjs',
     // The same command once on a Story's base commit, loaded only by `tests base`.

@@ -38,6 +38,37 @@ function commitBaseline(root) {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 }
 
+test('a command pins only its own runner\'s configuration, so changing Playwright\'s never refuses Vitest\'s', async t => {
+  const root = await repository(t, {
+    'package.json': JSON.stringify({ scripts: { test: 'vitest run', 'test:e2e': 'playwright test', both: 'vitest run && playwright test', own: 'node scripts/run.mjs', plain: 'node --test' }, jest: { roots: ['src'] } }),
+    'vite.config.js': 'export default {};\n', 'playwright.config.js': 'export default {};\n', 'jest.config.js': 'module.exports = {};\n' });
+  const test = (id, argv) => ({ id, kind: 'test', argv, workingDirectory: '.', affectedRoots: ['.'], provenance: 'inferred', result: { adapter: 'vitest-json', path: 'r.json' } });
+  const configs = async (argv, options) => definitionKeys(await commandDefinition(root, test('x', argv), options)).filter((key) => !key.includes('#scripts.'));
+  assert.deepEqual(await configs(['npm', 'test']), ['vite.config.js#']);
+  assert.deepEqual(await configs(['npm', 'run', 'test:e2e']), ['playwright.config.js#']);
+  assert.deepEqual(await configs(['npm', 'run', 'both']), ['playwright.config.js#', 'vite.config.js#'], 'one script running both reads both');
+  assert.deepEqual(await configs(['npx', '--no-install', 'jest', '--json']), ['jest.config.js#', 'package.json#jest']);
+  assert.deepEqual(await configs(['npm', 'run', 'plain']), [], 'node --test reads none of them');
+  // A script SFlow cannot follow may read anything, so nothing is taken off its pin.
+  assert.deepEqual(await configs(['npm', 'run', 'own']), ['jest.config.js#', 'package.json#jest', 'playwright.config.js#', 'vite.config.js#']);
+  // An earlier pin keeps its rules until a person's re-pin moves it.
+  assert.deepEqual(await configs(['npm', 'test'], { version: 2 }), ['jest.config.js#', 'package.json#jest', 'playwright.config.js#', 'vite.config.js#']);
+
+  const phase = { id: 'implement', status: 'in_progress' };
+  const workflow = { workItem: { id: 'W-R' }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  const unit = test('unit', ['npm', 'test']);
+  const browser = test('browser', ['npm', 'run', 'test:e2e']);
+  await (await gateTestCommandPins(root, {}, workflow, phase, [unit, browser])).record(workflow, ['unit', 'browser'], { at: '2026-11-06T00:00:00.000Z' });
+  await writeFile(path.join(root, 'playwright.config.js'), 'export default { testDir: "e2e" };\n');
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [unit, browser]), refusal(['playwright.config.js changed']));
+  await gateTestCommandPins(root, {}, workflow, phase, [unit]);
+  // The same change under a pin of the earlier rules is compared as it was, so its Story is not moved under it.
+  const older = { ...workflow, testCommandPins: [pinCandidate(phase, unit, (await commandDefinition(root, unit, { version: 2 })).entries, { version: 2 })] };
+  await gateTestCommandPins(root, {}, older, phase, [unit]);
+  await writeFile(path.join(root, 'playwright.config.js'), 'export default { testDir: "other" };\n');
+  await assert.rejects(gateTestCommandPins(root, {}, older, phase, [unit]), refusal(['playwright.config.js changed']));
+});
+
 test('restoring baseline configuration keeps a newly pinned test script and retires its unnecessary review', async t => {
   const original = 'export default { plugins: [] };\n';
   const root = await repository(t, { 'package.json': '{"scripts":{}}\n', 'vite.config.js': original });
@@ -448,7 +479,7 @@ test('a pin recorded under the first rules keeps them, and a person\'s re-pin mo
   accepted(workflow, 'TCD-001', request, { id: command.id, kind: 'test' });
   const repinned = await gateTestCommandPins(root, {}, workflow, phase, [command]);
   await repinned.record(workflow, [command.id], { at: '2026-11-01T00:00:01.000Z' });
-  assert.deepEqual([workflow.testCommandPins[1].replaces, workflow.testCommandPins[1].acceptedBy, workflow.testCommandPins[1].definitionVersion], ['TCP-001', 'TCD-001', 2]);
+  assert.deepEqual([workflow.testCommandPins[1].replaces, workflow.testCommandPins[1].acceptedBy, workflow.testCommandPins[1].definitionVersion], ['TCP-001', 'TCD-001', DEFINITION_VERSION]);
   // From then on the named configuration is pinned too.
   await writeFile(path.join(root, 'config/jest.config.cjs'), "module.exports = { testMatch: ['**/smoke.test.js'] };\n");
   await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), refusal(['config/jest.config.cjs changed']));

@@ -92,3 +92,22 @@ test('a list that is not open says why and offers no table', () => {
   assert.equal(adjudicationListFrom(null), null);
   assert.equal(adjudicationListFrom({ status: 'open' }), null);
 });
+
+test('test setup files are one row, whose one decision answers for each by name', () => {
+  const setup = (id, file) => item(id, { paths: [file], group: 'test-setup' });
+  const grouped = list({ items: [setup('CF-1', 'package-lock.json'), item('CF-2'), setup('CF-3', 'playwright.config.js'), setup('CF-4', 'src/test/setup.js')],
+    groupWords: { 'test-setup': 'These changed together for how tests run: one change, so one decision.' } });
+  const html = adjudicationHtml(grouped);
+  assert.equal(html.match(/<tr data-item=/gu).length, 2, 'one row for the three files, one for the other');
+  assert.match(html, /data-item="CF-1" data-accept-all="true" data-group-items="CF-1,CF-3,CF-4"/u);
+  assert.match(html, /Test setup<\/strong>[\s\S]*package-lock\.json[\s\S]*playwright\.config\.js[\s\S]*src\/test\/setup\.js[\s\S]*one change, so one decision/u);
+  const { answers, problem } = adjudicationAnswersFrom(grouped, { type: 'adjudicate.review', rows: [
+    { id: 'CF-1', ids: 'CF-1,CF-3,CF-4', disposition: 'accepted-deviation', reason: 'Adding the browser runner needs these.', clauses: '' }, { id: 'CF-2', ids: '', disposition: '', reason: '', clauses: '' }] });
+  assert.equal(problem, null);
+  assert.deepEqual(answers.map((answer) => [answer.itemId, answer.disposition, answer.reason]), ['CF-1', 'CF-3', 'CF-4'].map((id) => [id, 'accepted-deviation', 'Adding the browser runner needs these.']));
+  assert.match(adjudicationSummary(grouped, answers), /Still undecided: src\/CF-2\.js/u);
+  // A page can only answer for files of the same group on the list it read.
+  assert.match(adjudicationAnswersFrom(grouped, { rows: [{ id: 'CF-1', ids: 'CF-1,CF-2', disposition: 'accepted-deviation', reason: 'x'.repeat(20), clauses: '' }] }).problem, /not on this list/u);
+  assert.match(adjudicationAnswersFrom(grouped, { rows: [{ id: 'CF-2', ids: 'CF-2,CF-3', disposition: 'accepted-deviation', reason: 'x'.repeat(20), clauses: '' }] }).problem, /not on this list/u);
+  assert.match(ADJUDICATION_SCRIPT, /ids: row\.dataset\.groupItems/u);
+});

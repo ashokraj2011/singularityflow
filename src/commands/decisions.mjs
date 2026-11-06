@@ -300,8 +300,8 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
   }
   if (effect.kind === 'plan-amendment') {
     const { commitPlanAmendment } = await import('./decision-plan-amendment.mjs');
-    const change = effect.change.kind === 'add-supporting' ? { ...effect.change, reason: step.values.reason } : effect.change;
-    return (await commitPlanAmendment(root, config, workflow, { changes: [change], reason: step.values.reason }, { actor, agent })).amendment;
+    const changes = (effect.changes ?? [effect.change]).map((change) => (change.kind === 'add-supporting' ? { ...change, reason: step.values.reason } : change));
+    return (await commitPlanAmendment(root, config, workflow, { changes, reason: step.values.reason }, { actor, agent })).amendment;
   }
   if (effect.kind === 'obligation-risk') {
     const { commitRiskDecision } = await import('./decision-obligation-risk.mjs');

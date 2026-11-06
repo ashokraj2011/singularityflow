@@ -50,12 +50,26 @@ export { commandTokens, launcherName, packageScriptChain, packageScriptName, she
 
 const MAX_CONFIG_BYTES = 1024 * 1024;
 /** The definition rules a new pin records; a pin without `definitionVersion` was recorded under version 1. */
-export const DEFINITION_VERSION = 2;
+export const DEFINITION_VERSION = 3;
+// The first rules pinned one script and what sat beside it; from version 2 a pin follows what a command resolves through.
+const RESOLVED_VERSION = 2;
 const NODE_RUNNERS = new Set(['npx', 'pnpx', 'bunx', 'jest', 'vitest', 'mocha', 'playwright', 'cypress', 'karma', 'ng', 'react-scripts']);
 const PYTHON_RUNNERS = new Set(['python', 'python3', 'py', 'pytest', 'py.test', 'tox', 'nox', 'uv', 'poetry', 'hatch']);
 // Runner configuration a Node module's tests resolve through, wherever its scripts point.
 const NODE_RUNNER_CONFIG = /^(?:(?:jest|vitest|vite|playwright|cypress|karma)\.(?:config|conf)\.[cm]?[jt]s|jest\.config\.json|vitest\.workspace\.(?:[cm]?[jt]s|json)|\.mocharc\.(?:[cm]?js|jsonc?|ya?ml))$/u;
 const PACKAGE_RUNNER_KEYS = ['jest', 'mocha', 'ava'];
+// What can select each runner's tests [TCE:REQ-011]. A runner not named here pins everything, as it may read any of it.
+const JAVASCRIPT_CONFIG = (name) => new RegExp(`^${name}\\.config\\.[cm]?[jt]s$`, 'u');
+const KARMA_CONFIG = { config: [/^karma\.(?:config|conf)\.[cm]?[jt]s$/u], keys: [] };
+const JEST_CONFIG = { config: [JAVASCRIPT_CONFIG('jest'), /^jest\.config\.json$/u], keys: ['jest'] };
+const RUNNER_DEFINITIONS = Object.freeze({
+  vitest: { config: [JAVASCRIPT_CONFIG('vitest'), JAVASCRIPT_CONFIG('vite'), /^vitest\.workspace\.(?:[cm]?[jt]s|json)$/u], keys: [] },
+  jest: JEST_CONFIG, 'react-scripts': JEST_CONFIG,
+  mocha: { config: [/^\.mocharc\.(?:[cm]?js|jsonc?|ya?ml)$/u], keys: ['mocha'] },
+  playwright: { config: [JAVASCRIPT_CONFIG('playwright')], keys: [] },
+  cypress: { config: [JAVASCRIPT_CONFIG('cypress')], keys: [] },
+  karma: KARMA_CONFIG, ng: KARMA_CONFIG
+});
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 // Line endings are a checkout's choice (core.autocrlf), never a change to what runs.
@@ -115,17 +129,32 @@ async function readText(root, relative) {
 }
 
 // Gates and decision projections distinguish missing inputs from an unreadable definition.
-function definitionReads(root) {
+// A changed file the run leaves out is read as the run sees it, at the last commit.
+function definitionReads(root, { excluded = [] } = {}) {
+  const left = new Set(excluded);
   return {
     read: async relative => {
+      if (left.has(relative)) return baseText(root, 'HEAD', relative);
       try { return (await readRepositoryManifest(root, relative, { maxBytes: MAX_CONFIG_BYTES })).bytes.toString('utf8'); }
       catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     },
     list: async relative => {
-      try { return (await readdir(path.join(root, relative), { withFileTypes: true })).map(entry => ({ name: entry.name, directory: entry.isDirectory() })); }
-      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+      let entries;
+      try { entries = (await readdir(path.join(root, relative), { withFileTypes: true })).map(entry => ({ name: entry.name, directory: entry.isDirectory() })); }
+      catch (error) { if (error.code === 'ENOENT') entries = []; else throw error; }
+      if (!left.size) return entries;
+      const prefix = relative === '.' || !relative ? '' : `${relative}/`;
+      const here = [...left].filter((file) => file.startsWith(prefix) && !file.slice(prefix.length).includes('/')).map((file) => file.slice(prefix.length));
+      const kept = entries.filter((entry) => !here.includes(entry.name));
+      return [...kept, ...here.filter((name) => baseText(root, 'HEAD', `${prefix}${name}`) != null).map((name) => ({ name, directory: false }))];
     }
   };
+}
+
+/** The reads a gate's comparison makes: what the run about to be made will see. */
+async function gateReads(root, config, workflow) {
+  const need = await (await import('./candidate-isolation.mjs')).candidateIsolationNeed(root, config, workflow).catch(() => null);
+  return definitionReads(root, { excluded: need?.excluded ?? [] });
 }
 
 /** A directory's entries in the checkout, as `{ name, directory }`. */
@@ -198,6 +227,24 @@ const argvFlag = (argv, flags) => {
 };
 
 /**
+ * The configuration of the runners a command reaches, or null when one of them is not known to read only its
+ * own: a script SFlow cannot follow may read anything, so it keeps every configuration pinned.
+ */
+function runnersReached(runs) {
+  if (!runs.length) return null;
+  const config = [];
+  const keys = new Set();
+  for (const run of runs) {
+    if (nodeTestRun(run.tokens)) continue;
+    const known = RUNNER_DEFINITIONS[launcherName(unwrapRunner(run.tokens)[0])];
+    if (!known) return null;
+    config.push(...known.config);
+    for (const key of known.keys) keys.add(key);
+  }
+  return { config, keys };
+}
+
+/**
  * What a command resolves through [TCE:REQ-011]: each file and selector with its sha256, sorted,
  * and the script texts it runs (read by the narrowed-run check, never stored). `version` 1 is the
  * first rules, kept for the pins recorded under them.
@@ -205,7 +252,7 @@ const argvFlag = (argv, flags) => {
 export async function commandDefinition(root, command, {
   read = (relative) => readText(root, relative), list = (relative) => listEntries(root, relative), version = DEFINITION_VERSION
 } = {}) {
-  if (version < DEFINITION_VERSION) return legacyCommandDefinition(root, command, { read });
+  if (version < RESOLVED_VERSION) return legacyCommandDefinition(root, command, { read });
   const directory = command.workingDirectory ?? '.';
   const argv = (command.argv ?? []).map(String);
   const launcher = launcherName(argv[0]);
@@ -231,13 +278,16 @@ export async function commandDefinition(root, command, {
       for (const name of entry.missing) missing(entry.manifestPath, `scripts.${name}`);
     }
     for (const run of resolved.runs) if (!nodeTestRun(run.tokens) && NODE_RUNNERS.has(launcherName(run.tokens[0]))) contexts.add(run.directory);
+    const reaches = version > RESOLVED_VERSION ? runnersReached(resolved.runs) : null;
+    const keys = reaches ? PACKAGE_RUNNER_KEYS.filter((key) => reaches.keys.has(key)) : PACKAGE_RUNNER_KEYS;
+    const pinsConfig = (name) => NODE_RUNNER_CONFIG.test(name) && (!reaches || reaches.config.some((pattern) => pattern.test(name)));
     for (const context of [...contexts].sort()) {
       const manifestPath = join(context, 'package.json');
       const manifestText = await read(manifestPath);
       let manifest = null;
       try { manifest = manifestText ? JSON.parse(manifestText) : null; } catch { manifest = null; }
-      for (const key of PACKAGE_RUNNER_KEYS) if (manifest?.[key] !== undefined) add(manifestPath, key, canonicalJson(manifest[key]));
-      const names = (await list(context)).filter((entry) => !entry.directory && NODE_RUNNER_CONFIG.test(entry.name)).map((entry) => entry.name);
+      for (const key of keys) if (manifest?.[key] !== undefined) add(manifestPath, key, canonicalJson(manifest[key]));
+      const names = (await list(context)).filter((entry) => !entry.directory && pinsConfig(entry.name)).map((entry) => entry.name);
       for (const file of names.sort()) await whole(join(context, file));
     }
     for (const file of resolved.files) await named(file.path);
@@ -378,8 +428,8 @@ const pinIdentity = ({ commandId, source, argv, workingDirectory, affectedRoots,
  * edited tests since then is not asked for a re-pin.
  */
 function comparablePin(pinned) {
-  // Current-rules pins name `<test files>` already; only a first-rules pin can list them.
-  if (pinVersion(pinned) >= DEFINITION_VERSION) return pinned;
+  // Later pins name `<test files>` already; only a first-rules pin can list them.
+  if (pinVersion(pinned) >= RESOLVED_VERSION) return pinned;
   const files = new Set(nodeTestFiles(pinned?.argv));
   if (!files.size) return pinned;
   const { commandId, source, workingDirectory, affectedRoots, adapter } = pinned;
@@ -664,7 +714,7 @@ async function removedSuite(root, workflow, phase, commands, attempts, deliveryE
   for (const attempt of attempts) {
     if (attempt.purpose !== 'local' && attempt.pin?.sha256 && attempt.pin.source?.kind === 'inferred' && !latest.has(attempt.commandId)) latest.set(attempt.commandId, attempt.pin);
   }
-  const missing = [...latest.values()].filter((pin) => !running.has(pin.commandId) && pinVersion(pin) >= DEFINITION_VERSION
+  const missing = [...latest.values()].filter((pin) => !running.has(pin.commandId) && pinVersion(pin) >= RESOLVED_VERSION
     && !REPOSITORY_COMMAND_IDS.has(pin.commandId) && !acceptedRemoval(workflow, pin));
   if (!missing.length) return null;
   const [{ affectedTestModules }, { moduleTestCommands }] = await Promise.all([import('./delivery-evidence.mjs'), import('./test-module-markers.mjs')]);
@@ -729,7 +779,7 @@ async function comparedPin(root, workflow, phase, command, { attempts, reads, ba
 export async function testCommandPinStandings(root, config, workflow, phase, commands, deliveryEvidence = null) {
   const baseCommit = gateBaseCommit(workflow, phase, deliveryEvidence) ?? workflow.workItem?.baseCommit ?? null;
   const attempts = await recordedRuns(root, config, workflow, phase);
-  const reads = definitionReads(root);
+  const reads = await gateReads(root, config, workflow);
   const standings = new Map();
   for (const command of commands) {
     try {
@@ -765,7 +815,7 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
   const attempts = await recordedRuns(root, config, workflow, phase);
   const { gateNarrowing, narrowingFacts, skippedByAgreement } = await import('./test-narrowing.mjs');
   const prepared = new Map();
-  const reads = definitionReads(root);
+  const reads = await gateReads(root, config, workflow);
   for (const command of commands) {
     const { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase, changed } = await comparedPin(root, workflow, phase, command, { attempts, reads, baseCommit });
     if (changed) {
@@ -829,7 +879,7 @@ export function recordTestCommandPins(workflow, phase, prepared, { ran, at, atte
  * (its first gate run pins it) or one unchanged since it was pinned.
  */
 export async function repinRequest(root, config, workflow, phase, command) {
-  const reads = definitionReads(root);
+  const reads = await gateReads(root, config, workflow);
   const { entries } = await commandDefinition(root, command, reads);
   const candidate = pinCandidate(phase, command, entries);
   const attempts = await recordedRuns(root, config, workflow, phase);
@@ -868,7 +918,7 @@ export async function pendingTestCommandReviews(root, config, workflow, phase, r
   const pending = [], inactive = [], bindings = [], unavailable = [];
   if (!requests.some(request => request.repin)) return { pending: requests, inactive, bindings, unavailable };
   try {
-    const { read, list } = definitionReads(root);
+    const { read, list } = await gateReads(root, config, workflow);
     commands ??= (await (await import('./local-test-runs.mjs')).resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id })).commands;
     const attempts = await recordedRuns(root, config, workflow, phase);
     const observed = new Map();

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  acceptable, answersFromRows, confirmForm, decisionsTable, firstForm, LEAVE, RECORD, rowForms, runDecisions
+  acceptable, answersFromRows, confirmForm, decisionRows, decisionsTable, firstForm, LEAVE, RECORD, rowForms, runDecisions
 } from '../plugin/extensions/decisions/decisions.mjs';
 
 const item = (id, fields = {}) => ({ id, kind: 'unclaimed-changed-path', paths: [`src/${id}.js`], clauseIds: [], detail: null, plan: null, acceptAll: true, decision: null, ...fields });
@@ -120,4 +120,18 @@ test('the confirmation names what stays undecided', () => {
   const form = confirmForm(list(), [{ itemId: 'CF-1', disposition: 'rework', reason: '', clauseIds: [] }]);
   assert.match(form.message, /Record 1 decision on PAY-1/u);
   assert.match(form.message, /Still undecided: src\/CF-2\.js, PAY-1:REQ-001/u);
+});
+
+test('test setup files are one row in the table and one form field, whose answer covers each by name', async () => {
+  const setup = (id, file) => item(id, { paths: [file], group: 'test-setup' });
+  const grouped = list({ items: [setup('CF-1', 'package-lock.json'), setup('CF-2', 'playwright.config.js'), item('CF-3', { kind: 'absent-observed-claim', acceptAll: false, paths: [], detail: 'No test proves REQ-001.' })],
+    groupWords: { 'test-setup': 'These changed together for how tests run: one change, so one decision.' } });
+  assert.equal(decisionRows(grouped).length, 2);
+  assert.match(decisionsTable(grouped), /Test setup: package-lock\.json, playwright\.config\.js \| These changed together/u);
+  const rows = decisionRows(grouped);
+  const [page] = rowForms(grouped, rows);
+  assert.match(page.form.requestedSchema.properties.decision0.title, /^Test setup: package-lock\.json, playwright\.config\.js: one change, one decision/u);
+  const { answers, problem } = answersFromRows(grouped, page.items, { decision0: grouped.dispositions.find((entry) => entry.id === 'accepted-deviation').label, reason0: 'The browser runner needs these.' });
+  assert.equal(problem, null);
+  assert.deepEqual(answers.map((answer) => [answer.itemId, answer.disposition]), [['CF-1', 'accepted-deviation'], ['CF-2', 'accepted-deviation']]);
 });

@@ -1694,6 +1694,10 @@ async function adjudicationList(root, config, workflow) {
       acceptAll: item.kind === 'unclaimed-changed-path',
       decision: decisionOn(item.id) };
   });
+  // Files that changed together for how tests run are one row wherever a person is asked; each still gets its own record.
+  const open = (item) => item.kind === 'unclaimed-changed-path' && !item.decision && !item.plan && item.paths.length === 1;
+  const setup = new Set((await import('../test-support-files.mjs')).testSetupFiles(items.filter(open).map((item) => item.paths[0])));
+  for (const item of items) if (open(item) && setup.has(posix(item.paths[0]))) item.group = 'test-setup';
   // Not a question, and never out of sight: each says which entry of the plan answered it.
   const settled = (projection.settledByPlan ?? []).map((item) => ({ id: item.id, paths: item.paths, clauseIds: item.clauseIds, settledBy: item.settledBy, decision: decisionOn(item.id) }));
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
@@ -1704,6 +1708,7 @@ async function adjudicationList(root, config, workflow) {
   let allowed = false;
   try { allowed = matchApprovalAuthority(authorities, phase.approvalPolicy, actionActor(root)).authorized === true; } catch { allowed = false; }
   return { ...base, status: 'open', iteration: subject.iteration, items, settled, open: items.filter((item) => !item.decision).length,
+    ...(setup.size ? { groupWords: { 'test-setup': 'These changed together for how tests run: one change, so one decision. Each file is still recorded by name.' } } : {}),
     decidedBy: { groups, labels, allowed, words: `${allowed ? 'You may decide these' : `The ${labels.join(' or ')} decide these`}${allowed && labels.length ? ` (${labels.join(' or ')})` : ''}.` },
     dispositions: DISPOSITIONS.map((id) => ({ id, label: DISPOSITION_WORDS[id] ?? id })),
     digest: `sha256:${recordSha256({ iteration: subject.iteration, settled: settled.map(({ id, settledBy }) => ({ id, settledBy })), items: items.map(({ id, paths, decision }) =>
@@ -1724,6 +1729,7 @@ export async function storyAdjudicationsCommand(positionals, options) {
     const changed = (item.decision?.replaced ?? []).map((answer) => ` · Changed from ${answer.disposition} by ${answer.actor} at ${answer.at}`).join('');
     console.log(`${item.id}  ${item.paths.join(', ') || item.kind}  ${item.decision ? item.decision.disposition : 'undecided'}${changed}${says}`);
   }
+  if (list.groupWords) console.log(`Test setup: ${list.items.filter((item) => item.group).map((item) => item.paths[0]).join(', ')}. ${list.groupWords['test-setup']} One --answers file records them together.`);
   for (const item of list.settled) console.log(`${item.id}  ${item.paths.join(', ')}  ${item.decision ? item.decision.disposition : 'settled by the plan, not asked'}. Plan: ${settledEntryWords(item.settledBy)}`);
 }
 

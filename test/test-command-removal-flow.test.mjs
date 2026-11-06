@@ -106,7 +106,7 @@ test('a pinned suite deleted from its package is refused until a person who appr
   // The first gate run pins both suites the package declares.
   sflow('phase', 'publish', 'implement');
   const pinned = (await stored()).testCommandPins;
-  assert.deepEqual(pinned.map((pin) => [pin.commandId, pin.definitionVersion]), [['.-node-tests', 2], ['node-test-tests', 2]]);
+  assert.deepEqual(pinned.map((pin) => [pin.commandId, pin.definitionVersion]), [['.-node-tests', 3], ['node-test-tests', 3]]);
 
   // The agent changes the code again and deletes test:node: refused before anything runs.
   await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 1 + 1;\n');

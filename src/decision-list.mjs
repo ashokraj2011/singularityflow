@@ -22,6 +22,7 @@ import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
+import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
@@ -675,7 +676,8 @@ function planPathItems(workflow, context, hold) {
   const workId = workflow.workItem.id;
   const quoted = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
   const need = { reason: textNeed('', PLAN_REASON) };
-  return hold.unclaimedPaths.map((file) => {
+  const setup = testSetupFiles(hold.unclaimedPaths);
+  return [...(setup.length ? [testSetupItem(workflow, context, hold, setup, { quoted, need })] : []), ...hold.unclaimedPaths.filter((file) => !setup.includes(file)).map((file) => {
     const rows = (hold.planRows ?? []).filter((row) => !row.testOnly || isTestAutomationPath(file));
     const supporting = classifySupportingChange(file).class ?? null;
     const flag = (entry) => `singularity-flow decision plan ${workId} --fetch ${entry} --reason "<REASON>"`;
@@ -697,7 +699,44 @@ function planPathItems(workflow, context, hold) {
       ],
       details: { path: file, commands: [`singularity-flow decision plan ${workId} --fetch --add-location <clause>=${file} --reason "<why>"`] }
     };
-  });
+  })];
+}
+
+/**
+ * Files that changed together for how tests run: one item, so a person decides once (src/test-support-files.mjs).
+ * What can be a supporting change is listed as one; a file that cannot, such as a setup file under a test folder,
+ * goes to the row a person picks, as it would alone. One amendment records every file by name.
+ */
+function testSetupItem(workflow, context, hold, files, { quoted, need }) {
+  const workId = workflow.workItem.id;
+  const classes = new Map(files.map((file) => [file, classifySupportingChange(file).class ?? null]));
+  const supporting = files.filter((file) => classes.get(file));
+  const located = files.filter((file) => !classes.get(file));
+  const line = (changes) => {
+    const flags = changes.map((change) => (change.kind === 'add-location' ? `--add-location ${quoted(`${change.clauseId}=${change.path}`)}`
+      : `--add-supporting ${quoted(`${change.path}=${change.class}`)} --supporting-reason "<REASON>"`));
+    return `singularity-flow decision plan ${workId} --fetch ${flags.join(' ')} --reason "<REASON>"`;
+  };
+  const listed = supporting.map((file) => ({ kind: 'add-supporting', path: file, class: classes.get(file) }));
+  const reasonNeed = listed.length ? { reason: textNeed('', SUPPORTING_REASON) } : need;
+  const rows = (hold.planRows ?? []).filter((row) => !row.testOnly || located.every(isTestAutomationPath));
+  const rowOption = (row) => {
+    const changes = [...listed, ...located.map((file) => ({ kind: 'add-location', clauseId: row.clauseId, path: file }))];
+    return { ...option(workflow, context, {
+      id: `setup-row-${String(row.clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`.slice(0, 64),
+      label: `${listWords(located)} under ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}${listed.length ? ', the rest as supporting changes' : ''}`,
+      words: `${listWords(located)} ${located.length === 1 ? 'becomes' : 'become'} part of ${clauseName(workflow, row.clauseId)}'s delivery${listed.length ? `, and ${listWords(supporting)} ${supporting.length === 1 ? 'is' : 'are'} listed as supporting with your reason` : ''}.`,
+      effects: [{ kind: 'plan-amendment', changes }], needs: reasonNeed }), chat: { command: line(changes) } };
+  };
+  return {
+    kind: 'plan-accounting', title: `Say where this test setup belongs: ${listWords(files)}`,
+    why: `${listWords(files)} changed together for how tests run, and no row of the plan names them, so approval waits. They are one change, so you decide once, and each is recorded by name: the code and its tests stay as they are, and no step is reset.`,
+    options: located.length ? rows.map(rowOption) : [{ ...option(workflow, context, {
+      id: 'supporting', label: 'List them as supporting changes',
+      words: 'They stay out of every requirement, each listed with your reason.',
+      effects: [{ kind: 'plan-amendment', changes: listed }], needs: reasonNeed }), chat: { command: line(listed) } }],
+    details: { paths: files, commands: [line([...listed, ...located.map((file) => ({ kind: 'add-location', clauseId: '<clause>', path: file }))])] }
+  };
 }
 
 /** The step's approval itself: always the list's last item. */
@@ -1033,8 +1072,8 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
   if (effect.kind === 'obligation-risk') return `accept the ${effect.category} risk of ${effect.obligation} until ${values.expires} (risk decision)`;
   if (effect.kind === 'plan-amendment') {
-    return effect.change.kind === 'add-location' ? `add ${effect.change.path} to ${clauseName(workflow, effect.change.clauseId)} (plan amendment)`
-      : `list ${effect.change.path} as a supporting change, ${effect.change.class} (plan amendment)`;
+    const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
+    return `${(effect.changes ?? [effect.change]).map(words).join(', ')} (plan amendment)`;
   }
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;

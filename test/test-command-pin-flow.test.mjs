@@ -173,6 +173,11 @@ test('a guessed test command is pinned at first use, and a narrowed script waits
   assert.equal(pins[1].sha256, requested.data.record.repin.sha256);
   assert.equal((await stored()).phases.implement.storyTestCommands, undefined, 'a re-pin adds no command of its own');
 
+  // A pin binds what ran: a changed file no plan names stays out of the isolated run, so it is not read as changing the command.
+  await writeFile(path.join(root, 'jest.config.js'), 'module.exports = { testMatch: [] };\n');
+  assert.equal(json('tests', 'plan', '--work-id', 'QF-1', '--phase', 'implement').commands.find((command) => command.id === '.-node-tests').pin.status, 'unchanged');
+  await rm(path.join(root, 'jest.config.js'));
+
   sflow('submit', 'implement');
   assert.equal((await stored()).phases.implement.status, 'approved');
   // The Story closes: its final gate replays each attempt with the pin it ran under [TCE:REQ-014].

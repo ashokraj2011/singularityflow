@@ -9,6 +9,8 @@ export interface AdjudicationItem {
   id: string; kind: string; paths: string[]; clauseIds: string[]; detail: string | null; acceptAll: boolean;
   plan: PlanEntry | null;
   decision: AdjudicationDecision | null;
+  /** Files that are one change: one row here, one record each. */
+  group?: string;
 }
 export interface PlanEntry { kind: string; id?: string; clause?: string | null; class?: string | null; text?: string | null; askedBecause?: string }
 export interface ReplacedAnswer { disposition: string; reason: string | null; actor: string; at: string }
@@ -17,6 +19,7 @@ export interface AdjudicationDecision { disposition: string; reason: string | nu
 export interface SettledItem { id: string; paths: string[]; clauseIds: string[]; settledBy: PlanEntry; decision: AdjudicationDecision | null }
 export interface AdjudicationList {
   status: string; workId: string; phase: string | null; repositoryPath: string; items: AdjudicationItem[]; settled?: SettledItem[]; open: number; message?: string;
+  groupWords?: Record<string, string>;
   decidedBy?: { groups: string[]; labels: string[]; allowed: boolean; words: string };
   dispositions?: Array<{ id: string; label: string }>; digest?: string;
 }
@@ -43,15 +46,28 @@ function changedHtml(decision: AdjudicationDecision | null, list: AdjudicationLi
   return (decision?.replaced ?? []).map((answer) => `<div class="muted adj-id adj-changed">Changed from ${escape(label(answer.disposition))} by ${escape(answer.actor)} on ${escape(answer.at.slice(0, 10))}${answer.reason ? `: ${escape(answer.reason)}` : ''}</div>`).join('');
 }
 
-function rowHtml(item: AdjudicationItem, list: AdjudicationList, draft?: AdjudicationDraft): string {
+/** The table's rows: a group's items read as one, at the place of its first. */
+function tableRows(list: AdjudicationList): Array<AdjudicationItem & { ids?: string[] }> {
+  const seen = new Set<string>();
+  return list.items.flatMap((item) => {
+    if (!item.group) return [item];
+    if (seen.has(item.group)) return [];
+    seen.add(item.group);
+    const members = list.items.filter((entry) => entry.group === item.group);
+    return [{ ...item, ids: members.map((entry) => entry.id), paths: members.flatMap((entry) => entry.paths) }];
+  });
+}
+
+function rowHtml(item: AdjudicationItem & { ids?: string[] }, list: AdjudicationList, draft?: AdjudicationDraft): string {
   const entered = draft?.get(item.id);
   const chosen = entered?.disposition ?? item.decision?.disposition ?? '';
   const options = (list.dispositions ?? []).map(({ id, label }) => `<option value="${escape(id)}"${id === chosen ? ' selected' : ''}>${escape(label)}</option>`).join('');
   const files = item.paths.length
     ? item.paths.map((file) => `<button type="button" class="adj-link" data-open="${escape(file)}">${escape(file)}</button>`).join(' ')
     : `<span>${escape(item.detail ?? item.kind)}</span>`;
-  return `<tr data-item="${escape(item.id)}" data-accept-all="${item.acceptAll}">
-    <td>${files}<div class="muted adj-id">${escape(item.id)}${item.decision?.actor ? ` · decided by ${escape(item.decision.actor)}` : ''}</div>${changedHtml(item.decision, list)}</td>
+  const group = item.group ? list.groupWords?.[item.group] : null;
+  return `<tr data-item="${escape(item.id)}" data-accept-all="${item.acceptAll}"${item.ids ? ` data-group-items="${escape(item.ids.join(','))}"` : ''}>
+    <td>${item.ids ? '<strong class="adj-group">Test setup</strong> ' : ''}${files}${group ? `<div class="muted adj-group-words">${escape(group)}</div>` : ''}<div class="muted adj-id">${escape((item.ids ?? [item.id]).join(', '))}${item.decision?.actor ? ` · decided by ${escape(item.decision.actor)}` : ''}</div>${changedHtml(item.decision, list)}</td>
     <td>${escape(planWords(item.plan))}</td>
     <td><select data-disposition aria-label="Decision for ${escape(itemName(item))}"><option value="">Choose…</option>${options}</select>
       <input data-clauses class="adj-clauses" hidden aria-label="Clauses for ${escape(itemName(item))}" placeholder="Clause IDs, separated by commas" value="${escape(entered?.clauses ?? item.decision?.clauseIds.join(', ') ?? item.clauseIds.join(', '))}"></td>
@@ -86,7 +102,7 @@ export function adjudicationHtml(list: AdjudicationList, { error = null as strin
       <input id="adj-all-reason" maxlength="1000"><button type="button" data-accept-all>Accept all</button></section>` : ''}
     ${list.items.length ? `<div class="adj-table"><table>
       <thead><tr><th>What changed</th><th>What the plan already says</th><th>Your decision</th><th>Reason</th></tr></thead>
-      <tbody>${list.items.map((item) => rowHtml(item, list, draft)).join('')}</tbody>
+      <tbody>${tableRows(list).map((item) => rowHtml(item, list, draft)).join('')}</tbody>
     </table></div>` : ''}
     ${settledHtml(list)}
     <footer>${list.items.length ? `<button type="button" class="secondary" data-cancel>Not now</button>
@@ -120,7 +136,10 @@ export function adjudicationAnswersFrom(list: AdjudicationList, message: Inbound
     const clauseIds = typeof row.clauses === 'string' ? row.clauses.split(/[\s,]+/u).filter(Boolean) : [];
     if (!reason && disposition !== 'rework') return { answers: [], problem: `Give a reason for ${itemName(item)}.` };
     if (disposition === 'update-intent' && !clauseIds.length) return { answers: [], problem: `Name the clauses that should change for ${itemName(item)}.` };
-    answers.push({ itemId: item.id, disposition, reason, clauseIds: disposition === 'update-intent' ? clauseIds : [] });
+    // One row of a group answers for each of its files, and only for files of that same group on this list.
+    const ids = typeof row.ids === 'string' && row.ids ? row.ids.split(',') : [item.id];
+    if (ids.some((id) => id !== item.id && (!known.has(id) || !item.group || known.get(id)?.group !== item.group))) return { answers: [], problem: 'The page named an item that is not on this list. Nothing was recorded.' };
+    for (const id of ids) answers.push({ itemId: id, disposition, reason, clauseIds: disposition === 'update-intent' ? clauseIds : [] });
   }
   return answers.length ? { answers, problem: null } : { answers, problem: 'Choose a decision for at least one row.' };
 }
@@ -148,6 +167,8 @@ export const ADJUDICATION_STYLE = `
 .adj-clauses { display:block; margin-top:.35rem; width:100%; box-sizing:border-box; }
 .adj-clauses[hidden] { display:none; }
 .adj-id { font-size:.85em; }
+.adj-group { display:block; margin-bottom:.2rem; }
+.adj-group-words { margin-top:.25rem; }
 .adj-link { all:unset; cursor:pointer; color:var(--vscode-textLink-foreground); overflow-wrap:anywhere; }
 .adj-link:hover, .adj-link:focus-visible { text-decoration:underline; }
 .adj footer { display:flex; gap:.5rem; justify-content:flex-end; }
@@ -176,7 +197,7 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (event.target.closest('[data-review]')) {
-    vscode.postMessage({ type: 'adjudicate.review', rows: rows().map((row) => ({ id: row.dataset.item,
+    vscode.postMessage({ type: 'adjudicate.review', rows: rows().map((row) => ({ id: row.dataset.item, ids: row.dataset.groupItems || '',
       disposition: row.querySelector('[data-disposition]').value, reason: row.querySelector('[data-reason]').value,
       clauses: row.querySelector('[data-clauses]').value })) });
   }

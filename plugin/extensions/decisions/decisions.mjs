@@ -22,8 +22,21 @@ const label = (list, id) => list.dispositions.find((entry) => entry.id === id)?.
 const decided = (list, decision) => [label(list, decision.disposition),
   ...(decision.replaced ?? []).map((answer) => `changed from ${label(list, answer.disposition)} by ${answer.actor}`)].join(', ');
 
+/** The rows a person is asked: a group's items read as one, at the place of its first. Each is still recorded by name. */
+export function decisionRows(list) {
+  const seen = new Set();
+  return list.items.flatMap((item) => {
+    if (!item.group) return [item];
+    if (seen.has(item.group)) return [];
+    seen.add(item.group);
+    const members = list.items.filter((entry) => entry.group === item.group);
+    return [{ ...item, ids: members.map((entry) => entry.id), paths: members.flatMap((entry) => entry.paths) }];
+  });
+}
+const rowName = (item) => `${item.ids ? 'Test setup: ' : ''}${itemName(item)}`;
+
 export function decisionsTable(list) {
-  const rows = list.items.map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.plan))} | ${cell(item.decision ? decided(list, item.decision) : 'Undecided')} |`);
+  const rows = decisionRows(list).map((item) => `| ${cell(rowName(item))} | ${cell(item.ids ? list.groupWords?.[item.group] ?? planWords(item.plan) : planWords(item.plan))} | ${cell(item.decision ? decided(list, item.decision) : 'Undecided')} |`);
   // Settled rows are never a question, and a reader still sees each one and the entry that answered it.
   const settled = (list.settled ?? []).map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.settledBy))} | ${cell(item.decision ? decided(list, item.decision) : 'Settled by the plan')} |`);
   return [`**Decide ${list.workId} · ${list.phase}.** ${list.decidedBy?.words ?? ''} ${list.open} of ${list.items.length} still need a decision.${settled.length ? ` ${settled.length} settled by the plan, not asked.` : ''}`, '',
@@ -48,9 +61,9 @@ export function rowForms(list, items) {
   return pages.map((page, index) => ({ items: page, form: {
     message: `Decide each one (${index + 1} of ${pages.length}). Clauses are only for "${label(list, 'update-intent')}".`,
     requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.flatMap((item, row) => [
-      [`decision${row}`, { type: 'string', title: `${itemName(item)}: ${planWords(item.plan)}`.slice(0, 200), enum: [LEAVE, ...words] }],
-      [`reason${row}`, { type: 'string', title: `Reason for ${itemName(item)}`.slice(0, 200), maxLength: REASON_LIMIT }],
-      [`clauses${row}`, { type: 'string', title: `Clauses for ${itemName(item)}`.slice(0, 200) }]
+      [`decision${row}`, { type: 'string', title: `${rowName(item)}: ${item.ids ? 'one change, one decision' : planWords(item.plan)}`.slice(0, 200), enum: [LEAVE, ...words] }],
+      [`reason${row}`, { type: 'string', title: `Reason for ${rowName(item)}`.slice(0, 200), maxLength: REASON_LIMIT }],
+      [`clauses${row}`, { type: 'string', title: `Clauses for ${rowName(item)}`.slice(0, 200) }]
     ])) } } }));
 }
 
@@ -70,7 +83,7 @@ export function answersFromRows(list, items, content) {
     if (!reason && disposition !== 'rework') return { answers: [], problem: `Give a reason for ${itemName(item)}.` };
     const clauseIds = String(content?.[`clauses${row}`] ?? '').split(/[\s,]+/u).filter(Boolean);
     if (disposition === 'update-intent' && !clauseIds.length) return { answers: [], problem: `Name the clauses that should change for ${itemName(item)}.` };
-    answers.push({ itemId: item.id, disposition, reason, clauseIds: disposition === 'update-intent' ? clauseIds : [] });
+    for (const id of item.ids ?? [item.id]) answers.push({ itemId: id, disposition, reason, clauseIds: disposition === 'update-intent' ? clauseIds : [] });
   }
   return { answers, problem: null };
 }
@@ -111,7 +124,7 @@ export async function runDecisions({ ask, show, read, record }) {
     await show('Give one reason for accepting them all, or choose to decide each one.');
   }
   const chosen = new Set(answers.map((answer) => answer.itemId));
-  for (const page of rowForms(list, list.items.filter((item) => !item.decision && !chosen.has(item.id)))) {
+  for (const page of rowForms(list, decisionRows(list).filter((item) => !item.decision && !chosen.has(item.id)))) {
     for (;;) {
       const reply = await ask(page.form);
       if (reply?.action !== 'accept') return notNow;

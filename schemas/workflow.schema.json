@@ -804,7 +804,7 @@
               "additionalProperties": false
             }
           },
-          "definitionVersion": { "description": "The definition rules the pin was recorded under; absent is version 1, which reads only the working directory's script and configuration.", "type": "integer", "minimum": 2 },
+          "definitionVersion": { "description": "The definition rules the pin was recorded under; absent is version 1, which reads only the working directory's script and configuration. Version 2 follows what the command resolves through; version 3 pins only the configuration of the runners it reaches.", "type": "integer", "minimum": 2 },
           "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
           "replaces": { "type": "string", "pattern": "^TCP-[0-9]{3,}$" },
           "acceptedBy": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },

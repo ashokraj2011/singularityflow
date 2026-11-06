@@ -27,6 +27,17 @@ async function draft(t) {
   return repo;
 }
 
+test('one decision on a test setup is one amendment that names each file, by the command a /sf-decide turn runs', async t => {
+  const repo = await draft(t);
+  const reason = 'Adding the browser runner needs all of these.';
+  repo.sflow('decision', 'plan', 'QF-1', '--fetch', '--add-supporting', 'package-lock.json=dependency-lock', '--supporting-reason', reason,
+    '--add-supporting', 'playwright.config.js=build-configuration', '--supporting-reason', reason, '--add-location', 'QF-1:AC-001=test/setup.mjs', '--reason', reason);
+  const { planAmendments } = JSON.parse(await readFile(path.join(repo.root, 'singularity/work-items/QF-1/workflow.json')));
+  assert.equal(planAmendments.length, 1);
+  assert.deepEqual(planAmendments[0].changes.map((change) => [change.kind, change.path, change.class ?? change.clauseId]), [
+    ['add-location', 'test/setup.mjs', 'QF-1:AC-001'], ['add-supporting', 'package-lock.json', 'dependency-lock'], ['add-supporting', 'playwright.config.js', 'build-configuration']]);
+});
+
 test('publication and prepublish detect excluded HTML before committing; narrow accounting keeps the current phase', async t => {
   const repo = await draft(t);
   const workflowFile = path.join(repo.root, 'singularity/work-items/QF-1/workflow.json');

@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 9
+version: 10
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -106,6 +106,10 @@ start:
 - `pin`, on each suite of a Story: whether it changed since it was pinned for this Story, in words (`not-pinned`, `unchanged`, `changed`, `accepted`, `restored`). A `changed` one shows before and after and the request to make, before a gate refuses it.
 
 The early checks start no test and download nothing. `dependencies-not-installed` and `runner-not-installed` name the install command the lockfile implies. `planned-runner-missing` says when the plan names a browser test and the package has no browser runner yet, and what adding one costs. `runner-collects-other-tests` says when Vitest or Jest would collect a Playwright spec, which fails that run even when each of its own tests passes. `node-version` compares `.nvmrc`, `.node-version` and `engines.node` with the Node here, and names the known case where Node 25 or later breaks Vitest's DOM environment for code that uses `localStorage`. `browser-not-installed` and `tool-not-found` name what is missing from this machine. A check that cannot read what it needs says nothing, so a line is always something seen here; no line does not prove a run will pass.
+
+A pin binds what can select its command's tests: its script chain and the configuration of the runners it reaches, so changing `playwright.config.js` no longer refuses a Vitest command. A script SFlow cannot follow keeps every configuration pinned, and a pin recorded under earlier rules keeps them until a person's re-pin. A changed file no plan names stays out of the run, so its pin reads the file as the run sees it, at the last commit.
+
+Files that changed together for how tests run (a runner's configuration or setup file, with the manifest and lockfile beside it) are one decision on the decision list and in the convergence table: one row, one reason, and each file is still recorded by name. A manifest and lockfile alone are not grouped, and a test or application source never is.
 
 A failed run may not be the Story's: `singularity-flow tests base --work-id ID` compares it with the Story's base commit (see test-recovery). A gate never starts it. A refused publication names it, and VS Code's Test summary page offers it as a button on a failed run.
 

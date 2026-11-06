@@ -8,6 +8,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import runtimeResolver from '../runtime/resolve.cjs';
 
 import { uninstallDirectSkills } from './direct-skills.mjs';
+import { removeRetiredPluginCopies } from './plugin.mjs';
 import { inspectLocalProduct, REINSTALL_SURFACES } from './reinstall.mjs';
 import {
   renderCommandPromptCommand, renderPlatformCommand
@@ -620,6 +621,7 @@ export async function applyProductUninstall(plan, {
       timeoutMs: readTimeout
     }).stdout;
     if (hasManagedPlugin(remaining)) throw new SingularityFlowError('Copilot still reports a Singularity Flow plugin after removal.');
+    removeRetiredPluginCopies({ env: environment, homeDirectory, minimumAgeMs: 0 });
     removed.push('copilot-plugin');
     await updatePendingSurface(pending, 'copilot', 'completed', 'copilot-plugin');
   }

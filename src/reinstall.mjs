@@ -17,7 +17,7 @@ import { copilotSkillForCommand } from './copilot-guidance.mjs';
 import {
   renderCommandPromptCommand, renderPlatformCommand
 } from './safe-command-guidance.mjs';
-import { verifyPluginInstallation } from './plugin.mjs';
+import { PLUGIN_REPLACEMENT_NOTE, removeRetiredPluginCopies, verifyPluginInstallation } from './plugin.mjs';
 import { inspectDistributionBundle } from './distribution-bundle.mjs';
 import { readSecurePublicKey } from './secure-private-key.mjs';
 import {
@@ -31,9 +31,11 @@ import {
 } from './vsix-source-manifest.mjs';
 import { nodeVersionProblem } from './node-requirement.mjs';
 
+const COPILOT_DIRECT_PLUGIN = 'singularity-flow';
+
 export const REINSTALL_SURFACES = Object.freeze({
   npmPackage: 'singularity-flow',
-  copilotPlugins: Object.freeze(['singularity-flow', 'singularity-flow@singularity-flow']),
+  copilotPlugins: Object.freeze([COPILOT_DIRECT_PLUGIN, 'singularity-flow@singularity-flow']),
   directSkillPrefix: 'sf-',
   vscodeExtension: 'singularityflow.singularity-flow-vscode',
   telemetryWrapper: '.singularity-flow/copilot-otel.sh'
@@ -2275,10 +2277,13 @@ async function rollbackDistributionTransaction(transaction, {
     }
   });
   await attempt('copilot', async () => {
+    const restoring = transaction.state.installed.copilotPlugins.length > 0;
     for (const identity of REINSTALL_SURFACES.copilotPlugins) {
+      // Restoring goes over the top: removing the direct copy first fails a running chat's hooks.
+      if (restoring && identity === COPILOT_DIRECT_PLUGIN) continue;
       invoke('copilot', ['plugin', 'uninstall', identity], { allowFailure: true });
     }
-    if (transaction.state.installed.copilotPlugins.length) {
+    if (restoring) {
       executeOrThrow(invoke, 'copilot', [
         'plugin', 'install', path.join(rollback.package, 'plugin')
       ], { env: environment });
@@ -2475,6 +2480,7 @@ export async function applyLocalReinstall(plan, {
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(`Reinstall requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`);
   }
+  if (!plan.cliOnly) log(PLUGIN_REPLACEMENT_NOTE);
   const machineState = await managedInstallDirectory(
     path.join(homeDirectory, '.singularity-flow'), 'Singularity Flow machine-state directory'
   );
@@ -2635,7 +2641,10 @@ export async function applyLocalReinstall(plan, {
       if (distributionTransaction) {
         await updateDistributionTransaction(distributionTransaction, 'copilot', 'pending');
       }
+      // Installed over the top: removing the direct copy first fails a running chat's hooks. Only a
+      // marketplace copy has to go, or the skills mount twice.
       for (const identity of REINSTALL_SURFACES.copilotPlugins) {
+        if (identity === COPILOT_DIRECT_PLUGIN) continue;
         boundedExecute('copilot', ['plugin', 'uninstall', identity], {
           allowFailure: true, env, timeoutMs: mutationTimeout
         });
@@ -2662,6 +2671,7 @@ export async function applyLocalReinstall(plan, {
         execute: boundedExecute, exists, expectedDirectSkills, targetRoot: plan.installed.skillsRoot,
         directSourceRoot: path.join(candidatePluginRoot, 'skills'), env
       });
+      removeRetiredPluginCopies({ env, homeDirectory });
       if (distributionTransaction) {
         await updateDistributionTransaction(distributionTransaction, 'telemetry', 'pending');
       }

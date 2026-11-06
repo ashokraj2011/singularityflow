@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { commandExists, SingularityFlowError, run } from './util.mjs';
@@ -13,6 +14,9 @@ const MARKETPLACE_PLUGIN = `${PLUGIN_NAME}@${MARKETPLACE_NAME}`;
 const PLUGIN_IDENTITIES = Object.freeze([PLUGIN_NAME, MARKETPLACE_PLUGIN]);
 const DEFAULT_PLUGIN_INVENTORY_TIMEOUT_MS = 30_000;
 const MAX_PLUGIN_INVENTORY_TIMEOUT_MS = 120_000;
+const RETIRED_COPY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const PLUGIN_REPLACEMENT_NOTE = 'Note: a Copilot chat turn running while this replaces the plugin can fail partway (hook errored). '
+  + 'Let it finish first, or when this is done reload VS Code or restart Copilot CLI, and open a new chat.';
 
 function pluginInventoryTimeout(env) {
   const requested = Number(env?.SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS
@@ -31,23 +35,66 @@ function requireCopilot(exists = commandExists) {
   }
 }
 
-function removeInstalledCopies(execute) {
+function pluginInventory(execute) {
+  const listed = execute('copilot', ['plugin', 'list'], { allowFailure: true, stdio: 'pipe' });
+  if (listed.status !== 0) {
+    throw new SingularityFlowError(
+      `Copilot plugin removal could not be verified: ${String(listed.stderr || listed.stdout || `exit ${listed.status}`).trim()}`
+    );
+  }
+  return installedPluginIdentities(listed.stdout);
+}
+
+function removeInstalledCopies(execute, identities = PLUGIN_IDENTITIES) {
   // Copilot stores direct and marketplace installs under different identities.
   // Remove both so upgrades never leave duplicate skills mounted.
-  execute('copilot', ['plugin', 'uninstall', PLUGIN_NAME], { allowFailure: true, stdio: 'pipe' });
-  execute('copilot', ['plugin', 'uninstall', MARKETPLACE_PLUGIN], { allowFailure: true, stdio: 'pipe' });
-  const remaining = execute('copilot', ['plugin', 'list'], { allowFailure: true, stdio: 'pipe' });
-  if (remaining.status !== 0) {
+  for (const identity of identities) {
+    execute('copilot', ['plugin', 'uninstall', identity], { allowFailure: true, stdio: 'pipe' });
+  }
+  const left = pluginInventory(execute).filter((identity) => identities.includes(identity));
+  if (left.length) {
     throw new SingularityFlowError(
-      `Copilot plugin removal could not be verified: ${String(remaining.stderr || remaining.stdout || `exit ${remaining.status}`).trim()}`
+      `Copilot plugin removal left installed identity or identities: ${left.join(', ')}.`
     );
   }
-  const identities = installedPluginIdentities(remaining.stdout);
-  if (identities.length) {
-    throw new SingularityFlowError(
-      `Copilot plugin removal left installed identity or identities: ${identities.join(', ')}.`
-    );
+}
+
+// A running chat spawns each hook with the plugin's folder as its working directory, so removing the
+// folder fails every later hook of that chat with "spawn /bin/bash ENOENT". Installing over the top
+// never takes it away: from a new source path Copilot leaves the last folder behind, and from the same
+// path it swaps the folder in one step. Only a copy under the other identity has to go, or skills mount twice.
+function replaceOtherIdentity(execute, target) {
+  const other = pluginInventory(execute).filter((identity) => identity !== target);
+  if (other.length) removeInstalledCopies(execute, other);
+}
+
+// Each install from a new path leaves the last folder behind for the chats still using it. A week on
+// nothing should be, so it goes. Only a folder whose manifest names this plugin is ever ours to remove.
+export function removeRetiredPluginCopies({
+  env = process.env,
+  homeDirectory = os.homedir(),
+  minimumAgeMs = RETIRED_COPY_AGE_MS,
+  now = Date.now()
+} = {}) {
+  const copilotHome = String(env.COPILOT_HOME ?? '').trim() || path.join(homeDirectory, '.copilot');
+  const directRoot = path.join(copilotHome, 'installed-plugins', '_direct');
+  const removed = [];
+  let names = [];
+  try { names = fs.readdirSync(directRoot); } catch { return removed; }
+  for (const name of names) {
+    const folder = path.join(directRoot, name);
+    try {
+      const stat = fs.lstatSync(folder);
+      if (!stat.isDirectory() || now - stat.mtimeMs < minimumAgeMs) continue;
+      const manifest = JSON.parse(fs.readFileSync(path.join(folder, 'plugin.json'), 'utf8'));
+      if (manifest?.name !== PLUGIN_NAME) continue;
+      fs.rmSync(folder, { recursive: true, force: true });
+      removed.push(folder);
+    } catch {
+      // Tidying never stands in the way of an install or an uninstall.
+    }
   }
+  return removed;
 }
 
 function installedPluginIdentities(output) {
@@ -467,10 +514,13 @@ export function installPlugin({
   marketplaceSource = process.env.SINGULARITY_FLOW_MARKETPLACE_SOURCE,
   installAliases = installDirectSkills,
   verify = verifyPluginInstallation,
+  removeRetired = removeRetiredPluginCopies,
   log = console.log
 } = {}) {
   requireCopilot(exists);
-  removeInstalledCopies(execute);
+  log(PLUGIN_REPLACEMENT_NOTE);
+  const configuredMarketplace = !developmentSource && String(marketplaceSource ?? '').trim();
+  replaceOtherIdentity(execute, configuredMarketplace ? MARKETPLACE_PLUGIN : PLUGIN_NAME);
   let result;
   if (developmentSource) {
     result = execute('copilot', ['plugin', 'install', developmentSource], { stdio: 'inherit' });
@@ -490,6 +540,7 @@ export function installPlugin({
     execute, exists, expectedDirectSkills: aliases.installed, targetRoot: aliases.targetRoot
   });
   log(`Verified plugin ${verification.pluginIdentity}, ${verification.enabledPluginSkills} enabled packaged skills, and ${verification.enabledDirectSkills} enabled direct skills.`);
+  removeRetired();
   return result;
 }
 
@@ -497,11 +548,13 @@ export function uninstallPlugin({
   execute = run,
   exists = commandExists,
   uninstallAliases = uninstallDirectSkills,
+  removeRetired = removeRetiredPluginCopies,
   log = console.log
 } = {}) {
   requireCopilot(exists);
   removeInstalledCopies(execute);
   const aliases = uninstallAliases();
+  removeRetired({ minimumAgeMs: 0 });
   log(`Removed ${aliases.removed.length} managed direct Copilot skill aliases from ${aliases.targetRoot}.`);
 }
 

@@ -761,10 +761,11 @@ test('reinstall refuses stale confirmation, applies exact bytes, and upgrades a 
   assert.equal(await readFile(path.join(context.home, '.singularity-flow', 'workspaces.json'), 'utf8'), '{"preserve":true}\n');
   assert.equal(await readFile(path.join(context.home, '.singularity-flow', 'active-workspace.json'), 'utf8'), '{"workspace":"keep"}\n');
   assert.equal(applyHarness.calls.some((call) => call.command === 'git'), false);
-  for (const identity of ['singularity-flow', 'singularity-flow@singularity-flow']) {
+  // Over the top: the direct copy a running chat's hooks use is never taken away first.
   assert.ok(applyHarness.calls.some((call) => call.command === 'copilot'
-      && call.args.join(' ') === `plugin uninstall ${identity}`));
-  }
+    && call.args.join(' ') === 'plugin uninstall singularity-flow@singularity-flow'));
+  assert.equal(applyHarness.calls.some((call) => call.command === 'copilot'
+    && call.args.join(' ') === 'plugin uninstall singularity-flow'), false);
   const skillVerification = applyHarness.calls.find((call) => call.command === 'copilot'
     && call.args.join(' ') === 'skill list --json');
   assert.equal(skillVerification.options.env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR, skills);

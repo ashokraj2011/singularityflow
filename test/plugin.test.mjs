@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, utimesSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  installPlugin, uninstallPlugin, verifyPluginInstallation
+  installPlugin, removeRetiredPluginCopies, uninstallPlugin, verifyPluginInstallation
 } from '../src/plugin.mjs';
 import { renderDirectSkill } from '../src/direct-skills.mjs';
 
@@ -1548,13 +1549,13 @@ test('initiative Copilot skills expose orchestration without agent authority sho
   assert.match(phase, /Do not approve automatically/);
 });
 
-test('plugin install replaces old copies before installing the bundled local plugin', () => {
+test('plugin install goes over the top: the copy a running chat uses is never taken away first', () => {
   const calls = [];
   const aliasCalls = [];
   const verificationCalls = [];
   const execute = (command, args, options) => {
     calls.push({ command, args, options });
-    return { status: 0, stdout: '', stderr: '' };
+    return { status: 0, stdout: args.join(' ') === 'plugin list' ? 'Installed plugins:\n  \u2022 singularity-flow (v0.9.0)\n' : '', stderr: '' };
   };
 
   installPlugin({
@@ -1570,12 +1571,11 @@ test('plugin install replaces old copies before installing the bundled local plu
       verificationCalls.push(options);
       return { enabledDirectSkills: 1, pluginIdentity: 'singularity-flow' };
     },
+    removeRetired: () => {},
     log: () => {}
   });
 
   assert.deepEqual(calls.map((call) => call.args), [
-    ['plugin', 'uninstall', 'singularity-flow'],
-    ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
     ['plugin', 'list'],
     ['plugin', 'install', pluginRoot]
   ]);
@@ -1584,6 +1584,95 @@ test('plugin install replaces old copies before installing the bundled local plu
   assert.deepEqual(verificationCalls.map((entry) => ({
     expectedDirectSkills: entry.expectedDirectSkills, targetRoot: entry.targetRoot
   })), [{ expectedDirectSkills: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }]);
+});
+
+test('plugin install removes only the other Copilot identity, so skills are never mounted twice', () => {
+  const installed = new Set(['singularity-flow@singularity-flow']);
+  const calls = [];
+  installPlugin({
+    exists: () => true,
+    execute: (_command, args) => {
+      calls.push(args);
+      if (args[1] === 'uninstall') installed.delete(args[2]);
+      if (args[1] === 'install') installed.add('singularity-flow');
+      return { status: 0, stdout: args.join(' ') === 'plugin list' ? [...installed].join('\n') : '', stderr: '' };
+    },
+    developmentSource: undefined,
+    marketplaceSource: undefined,
+    installAliases: () => ({ installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }),
+    verify: () => ({ enabledDirectSkills: 1, pluginIdentity: 'singularity-flow' }),
+    removeRetired: () => {},
+    log: () => {}
+  });
+  assert.deepEqual(calls, [
+    ['plugin', 'list'],
+    ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
+    ['plugin', 'list'],
+    ['plugin', 'install', pluginRoot]
+  ]);
+});
+
+test('plugin install says a running chat turn can fail before it changes anything, and carries on', () => {
+  const order = [];
+  installPlugin({
+    exists: () => true,
+    execute: (_command, args) => { order.push(args.join(' ')); return { status: 0, stdout: '', stderr: '' }; },
+    developmentSource: undefined,
+    marketplaceSource: undefined,
+    installAliases: () => ({ installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }),
+    verify: () => ({ enabledDirectSkills: 1, pluginIdentity: 'singularity-flow' }),
+    removeRetired: () => {},
+    log: (line) => order.push(`log: ${line}`)
+  });
+  assert.match(order[0], /^log: .*chat turn running.*can fail.*reload VS Code.*new chat/isu);
+  assert.ok(order.includes(`plugin install ${pluginRoot}`), 'the note informs; it never stops the install');
+});
+
+test('install.sh says so before it starts and restores a previous plugin over the top', async () => {
+  const installer = await readFile(path.join(root, 'install.sh'), 'utf8');
+  assert.ok(installer.indexOf('chat turn running while this replaces') < installer.indexOf("step_begin 'Installing locked dependencies'"));
+  assert.match(installer, /chat turn running.*can fail.*reload VS Code.*new chat/u);
+  const restore = installer.slice(installer.indexOf('restore_copilot_surface() {'), installer.indexOf('restore_telemetry_surface() {'));
+  const [previousPresent, nothingBefore] = restore.split(/^  else$/mu);
+  assert.doesNotMatch(previousPresent, /plugin uninstall/u, 'a chat still running keeps its folder');
+  assert.match(nothingBefore, /plugin uninstall/u);
+});
+
+test('a retired plugin copy stays for the chats still using it, and goes when nothing should be', async (t) => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-plugin-retired-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const direct = path.join(fixture, 'installed-plugins', '_direct');
+  const copy = async (name, pluginName, ageDays) => {
+    const folder = path.join(direct, name);
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, 'plugin.json'), JSON.stringify({ name: pluginName }));
+    const when = new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000);
+    utimesSync(folder, when, when);
+    return folder;
+  };
+  const current = await copy('plugin-aaaaaaaa', 'singularity-flow', 0);
+  const recent = await copy('plugin-bbbbbbbb', 'singularity-flow', 2);
+  const retired = await copy('plugin-cccccccc', 'singularity-flow', 30);
+  const someoneElse = await copy('plugin-dddddddd', 'another-plugin', 30);
+  const unnamed = path.join(direct, 'plugin-eeeeeeee');
+  await mkdir(unnamed, { recursive: true });
+  const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  utimesSync(unnamed, old, old);
+  const env = { COPILOT_HOME: fixture };
+
+  assert.deepEqual(removeRetiredPluginCopies({ env }).map((folder) => path.basename(folder)), ['plugin-cccccccc']);
+  assert.equal(existsSync(current), true);
+  assert.equal(existsSync(recent), true);
+  assert.equal(existsSync(retired), false);
+  assert.equal(existsSync(someoneElse), true, 'only our own copies are ever removed');
+  assert.equal(existsSync(unnamed), true, 'a folder that cannot be told to be ours stays');
+
+  // Uninstalling takes every copy of ours, whatever its age, and still only ours.
+  removeRetiredPluginCopies({ env, minimumAgeMs: 0 });
+  assert.equal(existsSync(current), false);
+  assert.equal(existsSync(recent), false);
+  assert.equal(existsSync(someoneElse), true);
+  assert.deepEqual(removeRetiredPluginCopies({ env: { COPILOT_HOME: path.join(fixture, 'missing') } }), []);
 });
 
 test('plugin install uses an explicitly configured organization marketplace', () => {
@@ -1601,12 +1690,11 @@ test('plugin install uses an explicitly configured organization marketplace', ()
     marketplaceSource: 'company/singularity-flow',
     installAliases: () => ({ installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }),
     verify: () => ({ enabledDirectSkills: 1, pluginIdentity: 'singularity-flow@singularity-flow' }),
+    removeRetired: () => {},
     log: () => {}
   });
 
   assert.deepEqual(calls.map((call) => call.args), [
-    ['plugin', 'uninstall', 'singularity-flow'],
-    ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
     ['plugin', 'list'],
     ['plugin', 'marketplace', 'add', 'company/singularity-flow'],
     ['plugin', 'marketplace', 'update', 'singularity-flow'],
@@ -2106,6 +2194,7 @@ test('plugin uninstall removes both known Copilot identities', () => {
       aliasCalls.push('uninstall');
       return { removed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' };
     },
+    removeRetired: (options) => { aliasCalls.push(`retired ${options.minimumAgeMs}`); },
     log: () => {}
   });
   assert.deepEqual(calls.map((call) => call.args), [
@@ -2113,7 +2202,7 @@ test('plugin uninstall removes both known Copilot identities', () => {
     ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
     ['plugin', 'list']
   ]);
-  assert.deepEqual(aliasCalls, ['uninstall']);
+  assert.deepEqual(aliasCalls, ['uninstall', 'retired 0']);
 });
 
 test('plugin replacement refuses to continue when an old Copilot identity survives uninstall', () => {
@@ -2126,6 +2215,8 @@ test('plugin replacement refuses to continue when an old Copilot identity surviv
         ? { status: 0, stdout: 'singularity-flow@singularity-flow\n', stderr: '' }
         : { status: 1, stdout: '', stderr: 'locked' };
     },
+    developmentSource: undefined,
+    marketplaceSource: undefined,
     installAliases: () => { throw new Error('aliases must not be touched'); },
     log: () => {}
   }), /removal left installed identity.*singularity-flow@singularity-flow/);

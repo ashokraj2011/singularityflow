@@ -852,6 +852,10 @@ INSTALL_RECEIPT_STATE="$(node "$PROJECT_DIR/scripts/install-staged-artifacts.mjs
   --current-manifest "$INSTALL_MANIFEST_DIR/current.json")"
 if [[ "$INSTALL_RECEIPT_STATE" != 'legacy' ]]; then cleanup_installation_storage; fi
 
+if [[ "$CLI_ONLY" != "on" ]]; then
+  printf '%s\n' 'Note: a Copilot chat turn running while this replaces the plugin and extension can fail partway (hook errored). Let it finish first, or when this is done reload VS Code or restart Copilot CLI, and open a new chat.'
+fi
+
 step_begin 'Installing locked dependencies'
 if [[ "$CLI_ONLY" == "on" ]]; then
   npm ci --workspaces=false --registry="$REGISTRY"
@@ -1311,12 +1315,13 @@ restore_vscode_surface() {
 restore_copilot_surface() {
   local status
   command -v copilot >/dev/null 2>&1 || return 1
-  node "$CANDIDATE_CLI_EXECUTABLE" plugin uninstall >/dev/null 2>&1 || true
   if [[ "$PREVIOUS_COPILOT_PRESENT" == "on" ]]; then
     [[ -n "$PREVIOUS_CLI_EXECUTABLE" ]] || return 1
+    # Over the top: removing the plugin first fails every hook of a running chat turn.
     node "$PREVIOUS_CLI_EXECUTABLE" plugin install || return 1
     copilot_plugin_present
   else
+    node "$CANDIDATE_CLI_EXECUTABLE" plugin uninstall >/dev/null 2>&1 || true
     if copilot_plugin_present; then return 1; else status=$?; fi
     [[ "$status" -eq 1 ]]
   fi
@@ -1709,7 +1714,7 @@ printf 'Registry: %s\n' "$REGISTRY"
 if [[ "$VSCODE_ONLY" == "on" ]]; then
   printf '%s\n' 'VS Code-only installation complete; the global CLI, standalone Copilot assets, telemetry, and workspace configuration were not changed.'
 elif [[ "$CLI_ONLY" != "on" && "$SKIP_COPILOT" != "on" ]]; then
-  printf '%s\n' 'Open a new terminal, then start a new Copilot session to load the refreshed skills and telemetry environment.'
+  printf '%s\n' 'Open a new terminal, reload VS Code or restart Copilot CLI, then start a new chat to load the refreshed skills and telemetry environment.'
 elif [[ "$SKIP_COPILOT" == "on" ]]; then
   printf '%s\n' 'CLI and VS Code installation complete; standalone Copilot plugin/skills and telemetry setup were skipped.'
 else

@@ -11,7 +11,10 @@
  * command must be present, and every named skill must be packaged.
  */
 import { canonicalCommand, COMMAND_REGISTRY } from './command-registry.mjs';
+import { OWN_TERMINAL_STEPS } from './person-step-catalog.mjs';
 import { isTransportIntentId, parseArgs } from './util.mjs';
+
+export { adjudicationTableStep, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PLAN_CORRECTION_FLAGS, planRowCorrectionStep } from './person-step-catalog.mjs';
 
 const entries = {
   pause: ['sf-pause'],
@@ -459,115 +462,6 @@ function commandLineHead(commandLine) {
     return null;
   }
 }
-
-/**
- * The decision-list options a /sf-decide turn may record, after the person's explicit yes: they
- * write only upstream-issue records (copilot-mutation-guard.mjs). Every other choice is recorded in
- * the person's own terminal.
- */
-export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
-const CHAT_CHOICE = new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join('|')})$`, 'u');
-
-/**
- * `decision plan` flags that correct an approved plan's rows. A correction is recorded only after a
- * person who approves the plan reviews the exact rows in a live terminal, so outside a preview it is
- * their own terminal step; a narrow amendment (`--add-location`) is not.
- */
-export const PLAN_CORRECTION_FLAGS = Object.freeze(['add-row', 'set-fulfillment', 'add-test', 'remove-test', 'replace-test', 'remove-location', 'replace-location']);
-export function planRowCorrectionStep([command, sub], options) {
-  return command === 'decision' && sub === 'plan' && options['dry-run'] !== true
-    && PLAN_CORRECTION_FLAGS.some((flag) => options[flag] !== undefined);
-}
-
-/**
- * Decisions recorded only after the person reviews their exact card in a live terminal
- * (captureTerminalActionAuthorization): an appeal's decision, attestation or risk, a Story test-policy
- * risk, amendment, baseline admission or attestation applied, and a test-scope confirmation. A Copilot
- * turn admitted them, then the terminal review refused the agent's shell, or a pty let an agent type
- * the person's confirmation (2026-10-28). Their previews stay open; `evidence-accept --review-ui`
- * is the browser review /sf-appeal opens for the person. A confirmed approver refresh is one too.
- */
-const APPEAL_TERMINAL_REVIEWS = new Set(['decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'evidence-accept']);
-const TEST_POLICY_TERMINAL_REVIEWS = new Set(['accept-risk', 'revoke-risk', 'attest-risk', 'amend', 'baseline-admission', 'attest']);
-export function liveTerminalReviewStep([command, sub, verb], options) {
-  if (command === 'appeal') return APPEAL_TERMINAL_REVIEWS.has(sub) && !(sub === 'evidence-accept' && options['review-ui'] === true);
-  if (command === 'story' && sub === 'approvers') return verb === 'refresh' && options.confirm !== undefined;
-  return command === 'story' && sub === 'test-policy'
-    && ((TEST_POLICY_TERMINAL_REVIEWS.has(verb) && options.apply === true) || (verb === 'confirm' && options.confirm !== undefined));
-}
-
-/** `story adjudicate` with nothing named: the table in a person's own terminal. */
-export function adjudicationTableStep([command, sub, item], options) {
-  return command === 'story' && sub === 'adjudicate' && !item && options.answers === undefined && options.item === undefined && options.disposition === undefined;
-}
-
-/**
- * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
- * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
- * a witness (2026-10-26), then for an accepted test command and its decision-list record
- * (2026-10-27). No surface routes them to a skill. test/phase-mutation-contract.test.mjs holds the
- * guard's refusals and the routes to this list.
- */
-export const OWN_TERMINAL_STEPS = Object.freeze([
-  ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
-  // A card records a person's answers from outside chat; no chat writes the file for them.
-  ['adjudication-answers', ([command, sub], options) => command === 'story' && sub === 'adjudicate' && options.answers !== undefined],
-  // The whole table asks a person at their own terminal, and no turn answers it. Naming an item stays /sf-converge's.
-  ['adjudication-table', adjudicationTableStep],
-  ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
-  ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
-  ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(sub)],
-  ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
-    && (options.accept !== undefined || options.revoke !== undefined)],
-  // A /sf-decide turn records only chat options; any other choice, an answers file or the
-  // interactive form is the person's.
-  ['decision-list-record', ([command, sub], options) => command === 'decisions' && sub === 'record'
-    && !(options.choose !== undefined && options.answers === undefined
-      && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
-  ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
-  // Without --confirm it is a preview anyone may run.
-  ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
-    && options['set-aside'] === true && options.confirm !== undefined],
-  ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
-  ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
-  ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
-  ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
-    && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
-  ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],
-  // Taking or turning down Copilot's proposals, a specification's gap decisions, checklist and finding
-  // settlement, publication and discard (SPEC-SPA v1.3 §4.1).
-  ['spec-library-decision', ([command, sub, verb]) => command === 'spec' && sub === 'author'
-    && ['accept', 'reject', 'decide', 'settle', 'publish', 'discard'].includes(verb)],
-  // Dropping a clause of a Story's specification slice changes its requested outcome (SPEC-SPA v1.3 §6.3).
-  ['spec-slice-change', ([command, sub]) => command === 'spec' && sub === 'attach'],
-  // Publishing a split creates child drafts and lists Story start commands for every taker (SPEC-SPA v1.3 §7).
-  ['spec-split-publication', ([command, sub], options) => command === 'spec' && sub === 'split' && options.publish === true],
-  // An approver's answer from their own clone, under their own Git identity (2026-10-28).
-  ['clarification-answer', ([command, sub]) => command === 'clarification' && sub === 'answer'],
-  // The /sf-decide turn admitted it, then its live-terminal review refused the agent's shell (2026-10-28).
-  ['plan-correction', planRowCorrectionStep],
-  ['live-terminal-review', liveTerminalReviewStep],
-  // Approving with --confirm-evidence also records the step's planned screenshots and inspections as
-  // witnessed: a sign-off on evidence, like decision witness. A chat approval's receipt never bound
-  // that list, and its Copilot route dropped the flag and looped (2026-10-29).
-  ['approval-evidence-confirmation', ([command], options) => command === 'approve' && options['confirm-evidence'] === true],
-  // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
-  ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
-  ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
-  // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
-  ['apm-install', ([command, sub], options) => command === 'apm' && ['install', 'update'].includes(sub) && options['dry-run'] !== true],
-  // What the organisation's marketplace offers every team, and what its policy allows; each --dry-run
-  // preview stays open [APM A4-A5].
-  ['apm-organisation', ([command, sub], options) => command === 'apm' && ['publish', 'marketplace', 'policy'].includes(sub) && options['dry-run'] !== true],
-  // Ending a lease another process holds: only a person who checked that process is gone (SDA M3).
-  ['lock-release', ([command, sub]) => command === 'lock' && ['release', 'release-file'].includes(sub)],
-  // Activating approved configuration is the reviewer's decision; every skill already told the
-  // person to run it in their own terminal, while /sf-configuration was named as its route (sweep E7).
-  ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve'],
-  // SF Guard: registering, rotating, recovering or revoking a presence key, turning the policy on or
-  // off and per-person exceptions each take the person's Touch ID (SPEC-PSS-v1); only status reads.
-  ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && !['status', 'reconcile', 'report', 'remote-check'].includes(sub)]
-].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /** The id of the own-terminal step this command line is, or null. */
 export function ownTerminalStep(commandLine) {

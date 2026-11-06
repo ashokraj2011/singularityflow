@@ -1,6 +1,6 @@
 /**
  * The repository-level person steps SF Guard signs (SPEC-PSS-v1 §10.6), by command line: the same
- * steps the Copilot guard refuses for agents (copilot-mutation-guard.mjs PERSON_DECISIONS) that have
+ * steps the Copilot guard refuses for agents (person-step-catalog.mjs PERSON_DECISIONS) that have
  * no Story to pin SF Guard's policy. Import-free, so the CLI entry asks it before loading anything.
  *
  * Telemetry consent is not one of them: it is this machine's preference, not a governance decision.

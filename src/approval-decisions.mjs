@@ -11,10 +11,9 @@
  * after the submission. A return or a Story test command is not an approval, so neither is recorded
  * here. Nothing is written when any answer is refused.
  */
+import { IN_APPROVAL_EFFECTS } from './person-step-catalog.mjs';
 import { SingularityFlowError, nowIso, optionString, optionStrings } from './util.mjs';
 
-/** What an approval can write: records that only add to the Story, never a return or a test command. */
-const IN_APPROVAL = Object.freeze(['upstream-issue', 'upstream-issue-decision', 'evidence-reuse', 'visual-profile', 'test-run-risk']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
 function refused(message, code, details = undefined) {
@@ -23,7 +22,7 @@ function refused(message, code, details = undefined) {
 
 /** Whether an option's records can go in an approval. */
 export function recordableInApproval(option) {
-  return option.recordable !== false && option.effects.every((effect) => IN_APPROVAL.includes(effect.kind)
+  return option.recordable !== false && option.effects.every((effect) => IN_APPROVAL_EFFECTS.includes(effect.kind)
     && !(effect.kind === 'upstream-issue-decision' && effect.outcome === 'return'));
 }
 

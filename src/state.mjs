@@ -171,6 +171,7 @@ import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-di
 import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent, projectedLedgerIntentFile, recordPublicationProjection } from './lifecycle-event.mjs';
+import { PERSON_STEP_REVIEW_EFFECTS } from './person-step-catalog.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
@@ -595,35 +596,8 @@ export const REVIEW_EFFECTS = Object.freeze({
   [LIFECYCLE_EVENT.WORK_COMPLETED]: 'stales-submission',
   [LIFECYCLE_EVENT.ADHOC_LANDED]: 'stales-submission',
   [LIFECYCLE_EVENT.DESIGN_SOURCE_PROMOTED]: 'stales-submission',
-  'decision-made:applicability': { effect: 'review-safe', lists: { applicability: 'applicability_decided' } },
-  'decision-made:scope': { effect: 'review-safe', lists: { scopeDispositions: 'scope_decided' } },
-  'decision-made:completeness': { effect: 'review-safe', lists: { completenessReviews: 'completeness_reviewed' } },
-  'decision-made:plan': { effect: 'review-safe', lists: { planAmendments: 'plan_amended' } },
-  'decision-made:risk': { effect: 'review-safe', lists: { riskDecisions: 'risk_decided' } },
-  // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
-  'decision-made:test-risk': { effect: 'review-safe', lists: { testRunRisks: 'risk_decided' } },
-  // A step approver's acceptance of a narrowed test run, or its revocation (`decision test-narrowing`).
-  'decision-made:test-narrowing': { effect: 'review-safe', lists: { testNarrowings: 'narrowing_decided' } },
-  // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
-  'decision-made:evidence-reuse': { effect: 'review-safe', lists: { evidenceReuses: 'evidence_reuse_decided' } },
-  // A change of which tests the Story's gates run (`story test-policy scope`): what was recorded stays as it was.
-  'decision-made:test-scope': { effect: 'review-safe', lists: { testScopeChanges: 'test_scope_changed' } },
-  // A visual step approver's decision that one of its screen sizes does not apply, or its revocation (`decision visual-profile`).
-  'decision-made:visual-profile': { effect: 'review-safe', lists: { visualProfileDecisions: 'visual_profile_decided' } },
-  'decision-made:witness-exception': { effect: 'review-safe', lists: { witnessExceptionRenewals: 'witness_exception_renewed' } },
-  // Members the approved configuration added to the Story's own groups (approval-check.mjs verifies the commit).
-  'decision-made:approver-refresh': { effect: 'review-safe', lists: { approverRefreshes: 'approvers_refreshed' } },
-  'decision-made:quality-risk': { effect: 'review-safe', lists: { qualityRiskDecisions: 'quality_risk_decided' } },
-  'decision-made:witness': { effect: 'review-safe', lists: { witnessRecords: 'witness_recorded' } },
-  'decision-made:upstream-issue': { effect: 'review-safe',
-    lists: { upstreamIssues: 'upstream_issue_raised', upstreamIssueDecisions: 'upstream_issue_decided' } },
-  'decision-made:forward-amendment': { effect: 'review-safe', lists: { amendmentRevalidations: 'amendment_revalidated' } },
-  // It changes what the submitted review ran (TEST_COMMAND_DECISION_DURING_REVIEW names returning the step).
-  'decision-made:test-command': 'refused-during-review',
-  'decision-made:phase-appeal': 'stales-submission',
-  'decision-made:evidence-contract-correction': 'stales-submission',
-  'decision-made:target-origin': 'stales-submission',
-  'decision-made:workflow': 'refused-during-review'
+  // One entry per decision kind, on its own row of the person-step catalog.
+  ...PERSON_STEP_REVIEW_EFFECTS
 });
 
 /** Each list a review-safe decision appends to, with its history event and decision kind. */

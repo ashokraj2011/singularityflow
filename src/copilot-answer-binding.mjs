@@ -18,9 +18,9 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-// Turns whose decision commands are held to the person's answers; approvals keep their own typed confirmation.
-export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge']);
-const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record']);
+import { ANSWER_BOUND_STEPS, ANSWER_BOUND_TURNS } from './person-step-catalog.mjs';
+
+export { ANSWER_BOUND_TURNS };
 const WORD_FLAGS = Object.freeze(['reason', 'supporting-reason', 'article-reason', 'cause']);
 // VS Code's two auto-replies, and any wording of the same sentence a later host uses.
 const HOST_AUTO_REPLY = /the user is not available to (?:answer|respond)/iu;

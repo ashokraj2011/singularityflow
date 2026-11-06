@@ -24,7 +24,7 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dead-ends.json'), 'utf8'));
 // Lowered as entries go. Raising one is a decision a reviewer sees, not a line in a long list.
-const CEILING = Object.freeze({ walks: 21, readOnlyFirstRoutes: 181 });
+const CEILING = Object.freeze({ walks: 18, readOnlyFirstRoutes: 181 });
 
 const MAJOR = process.versions.node.split('.')[0];
 const failingOnThisNode = `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.notEqual(process.versions.node.split('.')[0], '${MAJOR}'); });\n`;
@@ -63,9 +63,9 @@ const SCENARIOS = Object.freeze([
   { id: 'edit-in-a-read-turn', meets: 'PHASE_MUTATION_PATH_DENIED', real: 'PHASE_MUTATION_TURN_READ_ONLY in older builds: 14 hits, 0 advanced', guard: { prompt: '/sf-next', toolName: 'edit', toolArgs: { path: 'src/value.mjs' } } },
   { id: 'delegating-in-a-read-turn', meets: 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED', real: 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: 2 hits, 0 advanced',
     guard: { prompt: '/sf-next', toolName: 'task', toolArgs: { prompt: 'Work on the code step.' } } },
-  { id: 'looking-for-node-is-not-a-repository-search', meets: 'GUARD_PROSE', real: 'a real Story: ls on a Node path, refused as a repository search',
-    guard: { prompt: '/sf-code', toolArgs: { command: 'ls -l /opt/tool/node@22/bin/node' } },
-    reasons: { GUARD_PROSE: { mustNotMatch: /discover a repository/u, because: 'it looked for a tool, and no repository' } } },
+  // Allowed now: looking at one named path is no search, and copilot-repository-boundary.test.mjs holds that real searches stay refused.
+  { id: 'looking-for-node-is-not-a-repository-search', meets: null, real: 'a real Story: ls on a Node path, refused as a repository search',
+    guard: { prompt: '/sf-code', toolArgs: { command: 'ls -l /opt/tool/node@22/bin/node' } } },
   { id: 'dirty-checkout-at-approval', meets: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED', real: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 3 of 3 stopped, and each session ended', personFlags: ['--yes'],
     setup: async (story) => {
       story.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');

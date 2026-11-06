@@ -275,8 +275,8 @@ export async function phaseCommand(positionals, options) {
   // A publish after a publish: planning went 1, 2, 3, 4 on one real run, each pair seconds apart. A
   // document unchanged since its publication already is that publication, so nothing is recorded.
   // A read-only agent may not publish at all, so it goes on to the refusal in its own words.
-  if (!sourcePath && !phaseAgentMutationRestriction(config, workflow, requestedPhase, await loadSession(root), 'publish')
-    && await (await import('../phase-publication-unchanged.mjs')).documentUnchangedSincePublication(root, config, workflow, requestedPhase)) {
+  if (!sourcePath && await (await import('../phase-publication-unchanged.mjs')).documentUnchangedSincePublication(root, config, workflow, requestedPhase)
+    && !phaseAgentMutationRestriction(config, workflow, requestedPhase, await loadSession(root, { required: false }), 'publish')) {
     if (optionBoolean(options, 'json')) {
       console.log(JSON.stringify({
         schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'retained',

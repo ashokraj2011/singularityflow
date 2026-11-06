@@ -27,11 +27,6 @@
       "no-route:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "The reason says in words to run the commands one at a time. Nothing returned names a command, so only a model can act on it.",
       "exhausted:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "With no route returned, the walk ends where it started."
     },
-    "looking-for-node-is-not-a-repository-search": {
-      "false-reason:GUARD_PROSE": "It says the call searches for a repository. The call looks for a Node binary, and nothing is searched.",
-      "no-route:GUARD_PROSE": "The way out is a command written in the sentence, and the guard returns no route.",
-      "exhausted:GUARD_PROSE": "With no route returned, the walk ends where it started."
-    },
     "dirty-checkout-at-approval": {
       "read-only-route:LIFECYCLE_WORKTREE_REVIEW_REQUIRED": "The refusal names only /sf-recover, and 3 of 3 real sessions ended there. recover does name the person's set-aside, one step later than it should."
     },

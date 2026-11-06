@@ -341,7 +341,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,526,350 (measured 9,526,318, commands/phase-lifecycle.mjs): the Node-version failure offers one choice: its item (decision-list.mjs +1641), the refusal's first step (refusal-remediation.mjs +921, state.mjs +760), recovery's lead (recovery-plan.mjs +665). What reads and records it stays lazy (node-pin.mjs).
     // 9,527,700 (measured 9,527,624, commands/phase-lifecycle.mjs): a publish after a publish says so (phase-lifecycle.mjs +1120, phase-publish-if-ready's route stays lazy; the check itself is lazy, phase-publication-unchanged.mjs).
     // 9,541,650 (measured 9,541,593, commands/phase-lifecycle.mjs): one catalog of a person's steps (person-step-catalog.mjs, less what moved out of command-skills.mjs, copilot-mutation-guard.mjs, copilot-answer-binding.mjs, presence/person-steps.mjs and state.mjs). A row per decision, read on every hook, so not lazy.
-    assert.ok(closure.bytes <= 9_541_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,544,300 (measured 9,544,261, commands/phase-lifecycle.mjs): a held readiness and `act` give the step sheet's next (step-sheet-route.mjs, now read by agent-output.mjs). The sheet itself stays lazy.
+    assert.ok(closure.bytes <= 9_544_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

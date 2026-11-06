@@ -11,6 +11,7 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { approvalCheckLines, blockingCommitLines, owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
+import { blockingHolds, sheetRoute } from './step-sheet-route.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -125,7 +126,10 @@ export async function submissionReadiness(root, config, workflow, options = {}) 
       ...(phase.status === 'awaiting_approval' ? { approvalCheck: advisories?.approvalCheck ?? null } : {}),
       ...(readiness.owedDecisions !== undefined ? { owed: readiness.owedDecisions } : {}),
       publication: options.pendingSynchronization === true });
-    return { ...result, pending: pendingSummary(packet), ...(packet.sheet ? { sheet: packet.sheet } : {}) };
+    // One rule for what comes next: a held step's route is the sheet's next.
+    const route = packet.sheet && readiness.classification === 'already-submitted' && blockingHolds(packet.sheet).length ? sheetRoute(packet.sheet) : null;
+    return { ...result, ...(route ? { approvalContinuation: route, command: route.command, nextCommand: route.command, nextSkill: route.skill, reasonCode: 'APPROVAL_HOLDS_REQUIRED' } : {}),
+      pending: pendingSummary(packet), ...(packet.sheet ? { sheet: packet.sheet } : {}) };
   } catch { return result; }
 }
 

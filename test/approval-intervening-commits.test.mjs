@@ -232,7 +232,7 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.equal(readiness.classification, 'already-submitted');
   // A known hold replaces the refusing approval route with the owner's list (79e0fefa5).
   assert.equal(readiness.reasonCode, 'APPROVAL_HOLDS_REQUIRED');
-  assert.equal(readiness.nextCommand, `singularity-flow decisions ${WORK} --for-agent --json`);
+  assert.equal(readiness.nextCommand, `singularity-flow decisions ${WORK}`);
   assert.equal(readiness.blockingCommits, undefined, 'no commit is named as stale');
   assert.equal(readiness.approvalCheck.ready, false);
   assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command, hold.summary]),

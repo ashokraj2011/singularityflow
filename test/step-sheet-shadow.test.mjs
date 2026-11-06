@@ -304,6 +304,12 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.equal(stopped.act.do.shell.replace(' --for-agent', ''), dirty.sheet.next.command);
   assert.deepEqual(stopped.approvalPacket.sheet.holds.map((hold) => hold.code), ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED']);
   assert.equal(stopped.approvalPacket.readiness.approvalCheck, undefined, 'the sheet says it, once');
+  // Readiness gives the same route, and an agent's view of it says the holds once, in the same short form.
+  assert.equal(dirty.readiness.nextCommand, dirty.sheet.next.command);
+  const held = json('status', WORK, '--submission-readiness', '--for-agent', '--json');
+  assert.deepEqual([held.act.state, held.act.do.shell.replace(' --for-agent', ''), held.act.read], ['blocked', dirty.sheet.next.command, ['sheet', 'owedDecisions']]);
+  assert.deepEqual(held.sheet.holds.map((hold) => hold.code), ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED']);
+  assert.deepEqual([held.approvalCheck, held.pending], [undefined, undefined]);
   assert.deepEqual(stopped.act.read, ['approvalPacket.sheet', 'approvalPacket.readiness.owedDecisions']);
   await rm(stray);
 
@@ -312,12 +318,12 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
   git('add', 'src/value.mjs');
   git('commit', '-qm', 'Implement the value during the planning review');
-  const held = await compare('held');
-  assert.ok(held.sheet.holds.length >= 1);
-  assert.equal(held.sheet.approval.mayApproveNow, false);
-  assert.ok(held.readiness.approvalContinuation, 'the older route');
-  const first = held.readiness.approvalCheck.holds[0].code;
-  assert.ok(held.sheet.holds.some((hold) => hold.codes.includes(first)), first);
+  const heldStory = await compare('held');
+  assert.ok(heldStory.sheet.holds.length >= 1);
+  assert.equal(heldStory.sheet.approval.mayApproveNow, false);
+  assert.ok(heldStory.readiness.approvalContinuation, 'the route');
+  const first = heldStory.readiness.approvalCheck.holds[0].code;
+  assert.ok(heldStory.sheet.holds.some((hold) => hold.codes.includes(first)), first);
   assert.equal(attemptApprove().code, first, 'recording refuses with the first hold');
 
   // Back to the clean submission: approve records, as the sheet said it would, and the next step's sheet stands.

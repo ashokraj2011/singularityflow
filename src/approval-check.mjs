@@ -712,7 +712,9 @@ function approvalHold(error, workflow, phase) {
   const owner = approvalHoldOwner(error);
   const route = holdRoute(error, owner, workflow, phase);
   return {
-    code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner, who: OWNER_WORDS[owner],
+    // The plan's approvers account for a changed path, and this person may be one: "someone else" told a sole approver to wait for nobody.
+    code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner,
+    who: /^singularity-flow decision plan /u.test(route?.command ?? '') ? 'An approver of the plan decides' : OWNER_WORDS[owner],
     summary: String(error.message ?? '').split('\n')[0].slice(0, 400),
     ...(route ? { action: route } : {}),
     ...(APPROVAL_HOLD_OWNERS[error.code] || OWNER_PREFIXES.some(([prefix]) => String(error.code ?? '').startsWith(prefix)) ? {} : { unclassified: true })

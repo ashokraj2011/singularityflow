@@ -255,3 +255,35 @@ test('Reviews and the Navigator badge read the same count as the inbox', async (
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   assert.match(extension, /const listed = state\.stale \|\| state\.error \? null : pendingListOf\(state\.snapshot\);/u, 'the badge counts the list');
 });
+
+test('a changed path the plan misses is its approvers\' to account for, named as them, not as someone else', () => {
+  const route = 'singularity-flow decision plan WORK --add-location <clause>=src/test/setup.js --reason <why>';
+  const planned = {
+    workItem: { id: WORK, title: 'One list', workType: 'demo', branch: WORK }, currentPhase: 'implementation', phaseOrder: ['planning', 'implementation'], status: 'in_progress',
+    resolution: { plannedClaims: { owners: { implementation: 'planning' } }, approvalAuthorities: {
+      architecture: { label: 'Architecture reviewers', allowAnyGitIdentity: false, members: [{ name: 'Sole Reviewer', email: 'sole@example.test' }] },
+      engineering: { label: 'Engineering reviewers', allowAnyGitIdentity: false, members: [{ name: 'Sole Reviewer', email: 'sole@example.test' }] } } },
+    phases: {
+      planning: { id: 'planning', label: 'Planning', status: 'approved', generation: 1, approvals: [], approvalPolicy: { authorities: ['architecture'], minimum: 1 } },
+      implementation: { id: 'implementation', label: 'Implementation', status: 'awaiting_approval', generation: 1, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1 } }
+    }
+  };
+  const listFor = (email) => {
+    const base = facts();
+    return decisionPacket(planned, {
+      ...base, phaseId: 'implementation', scopePhase: 'planning',
+      approvalCheck: { holds: [{ code: 'SPEC_COVERAGE_INCOMPLETE', owner: 'someone-decides', who: 'An approver of the plan decides', summary: 'Phase implementation cannot be approved because specification coverage is incomplete.',
+        action: { label: 'An approver of the plan accounts for the exact changed path.', command: route } }] },
+      pending: { ...base.pending, intentAmendments: [], forwardAmendments: [], appeals: [], owed: [], transport: [], publication: null, routing: null }
+    }, { authorities: planned.resolution.approvalAuthorities, actor: { name: 'Person', email }, at: AT });
+  };
+  const mine = listFor('sole@example.test').items.find((item) => item.kind === 'approval-hold');
+  assert.equal(mine.options[0].decidedBy.allowed, true);
+  assert.deepEqual(mine.options[0].decidedBy.groups, ['architecture']);
+  assert.match(mine.why, /You may do this \(Architecture reviewers\)\. Fill in the clause and your reason, then run it\./u);
+  assert.doesNotMatch(JSON.stringify(mine), /Someone else/u);
+  const theirs = listFor('other@example.test').items.find((item) => item.kind === 'approval-hold');
+  assert.equal(theirs.options[0].decidedBy.allowed, false);
+  assert.match(theirs.why, /The Architecture reviewers \(Sole Reviewer\) decide this; ask them\./u);
+  assert.equal(theirs.options[0].action.command, route, 'whoever holds it, the route stays visible');
+});

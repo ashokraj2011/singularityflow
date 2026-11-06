@@ -15,6 +15,7 @@
  * authority check. Accepting reused evidence never certifies a run that was not recorded: a reused
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
+import { planAuthorities } from './plan-amendments.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
@@ -560,11 +561,14 @@ function machineItem(workflow, entry) {
 }
 
 /** A refusal approval names that no other item carries, with the route the approval check gives it. */
-function holdItem(workflow, kind, hold) {
+function holdItem(workflow, context, kind, hold) {
   const command = hold.action?.command ?? `singularity-flow phase show ${workflow.currentPhase} --work-id ${workflow.workItem.id} --json`;
+  // A plan decision names its real approvers, which can be this person.
+  const decided = /^singularity-flow decision plan /u.test(command)
+    ? stepDecidedBy(workflow, context, planAuthorities(workflow), 'Fill in the clause and your reason, then run it.') : null;
   return {
-    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].slice(0, 200), why: `${hold.who}: ${hold.summary}`,
-    options: [{ ...personalStep({ id: 'route', label: hold.action?.label || hold.who, command, words: hold.who }) }],
+    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].slice(0, 200), why: decided ? `${hold.summary} ${decided.words}` : `${hold.who}: ${hold.summary}`,
+    options: [{ ...personalStep({ id: 'route', label: hold.action?.label || hold.who, command, words: decided?.words ?? hold.who }), ...(decided ? { decidedBy: decided } : {}) }],
     details: { code: hold.code, owner: hold.owner, commands: [command] }
   };
 }
@@ -693,7 +697,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
   const carried = new Set(listed.map((item) => item.kind));
   const extra = holds.filter((hold) => holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
-    .map((hold) => holdItem(workflow, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold));
+    .map((hold) => holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
   const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (awaiting && heldKinds.has(item.kind)
     && (!item.details?.amendment || holds.some((hold) => String(hold.summary).includes(item.details.amendment))));

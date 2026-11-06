@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { adjudicationTableCommand, runAdjudicationTable, terminalForms } from '../src/commands/story-adjudicate-terminal.mjs';
 import { adjudicationTableStep } from '../src/command-skills.mjs';
-import { confirmForm, firstForm, LEAVE, rowForms } from '../plugin/extensions/decisions/decisions.mjs';
+import { confirmForm, firstForm, KEEP, LEAVE, OVERRULE, rowForms, settledRows } from '../plugin/extensions/decisions/decisions.mjs';
 import { hasRealTerminal, openRealTerminal } from './helpers/real-terminal.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -37,6 +37,14 @@ test('a form is asked field by field in the cards\' own words, and only what the
   const noClauses = typing(['2', 'Fine as it is, it is test setup.', '1']);
   assert.deepEqual((await noClauses.ask(rows)).content, { decision0: 'Accept as is', reason0: 'Fine as it is, it is test setup.', decision1: LEAVE }, 'clauses are only for a spec change');
   assert.equal(confirmForm(list(), [{ itemId: 'CF-1', disposition: 'rework', reason: '', clauseIds: [] }]).requestedSchema.properties.confirm.enum[0], 'Record these decisions');
+});
+
+test('overruling a settled row is asked the same way, and keeping the plan asks nothing more', async () => {
+  const settled = list({ settled: [{ id: 'CF-9', paths: ['package.json'], clauseIds: [], settledBy: { kind: 'supporting', text: 'The test script.' }, decision: null }] });
+  assert.deepEqual((await typing(['3']).ask(firstForm(settled).form)).content, { choice: OVERRULE }, 'no reason is asked of it');
+  const form = rowForms(settled, settledRows(settled))[0].form;
+  assert.deepEqual((await typing(['1']).ask(form)).content, { decision0: KEEP });
+  assert.deepEqual((await typing(['3', 'It should not have changed.']).ask(form)).content, { decision0: 'Send back to fix', reason0: 'It should not have changed.' });
 });
 
 test('nothing is chosen for the person: Enter asks again, a wrong number asks again, and input ending is a cancel', async () => {

@@ -38,7 +38,7 @@ function planWords(plan: AdjudicationItem['plan']): string {
   return `${source}${plan.text ? `: ${plan.text}` : ''}${plan.askedBecause ? ` · Still asked: ${plan.askedBecause}.` : ''}`;
 }
 
-const itemName = (item: AdjudicationItem) => item.paths.join(', ') || item.clauseIds.join(', ') || item.detail || item.id;
+const itemName = (item: AdjudicationItem | SettledItem) => item.paths.join(', ') || item.clauseIds.join(', ') || ('detail' in item ? item.detail : null) || item.id;
 
 /** A person may change an answer; the one it replaced stays in sight, with whose it was. */
 function changedHtml(decision: AdjudicationDecision | null, list: AdjudicationList): string {
@@ -75,18 +75,30 @@ function rowHtml(item: AdjudicationItem & { ids?: string[] }, list: Adjudication
   </tr>`;
 }
 
-function settledHtml(list: AdjudicationList): string {
+/** Not a question, and a person may still disagree: the same answer as any row, through the same write. */
+function settledRowHtml(item: SettledItem, list: AdjudicationList, draft?: AdjudicationDraft): string {
+  const entered = draft?.get(item.id);
+  const chosen = entered?.disposition ?? item.decision?.disposition ?? '';
+  const name = item.paths.join(', ') || item.id;
+  const control = list.decidedBy?.allowed === true ? `<select data-disposition aria-label="Overrule the plan on ${escape(name)}"><option value="">Keep what the plan says</option>${(list.dispositions ?? [])
+    .map(({ id, label }) => `<option value="${escape(id)}"${id === chosen ? ' selected' : ''}>${escape(label)}</option>`).join('')}</select>
+      <input data-clauses class="adj-clauses" hidden aria-label="Clauses for ${escape(name)}" placeholder="Clause IDs, separated by commas" value="${escape(entered?.clauses ?? item.decision?.clauseIds.join(', ') ?? '')}">`
+    : escape(item.decision ? (list.dispositions ?? []).find((entry) => entry.id === item.decision!.disposition)?.label ?? item.decision.disposition : 'No question');
+  return `<tr data-item="${escape(item.id)}" data-settled="${escape(item.id)}" data-accept-all="false">
+    <td>${item.paths.map((file) => `<button type="button" class="adj-link" data-open="${escape(file)}">${escape(file)}</button>`).join(' ')}<div class="muted adj-id">${escape(item.id)}</div></td>
+    <td>${escape(planWords(item.settledBy))}</td>
+    <td>${control}</td>
+    <td>${list.decidedBy?.allowed === true ? `<input data-reason aria-label="Reason for overruling the plan on ${escape(name)}" value="${escape(entered?.reason ?? item.decision?.reason ?? '')}" maxlength="1000">` : ''}</td></tr>`;
+}
+
+function settledHtml(list: AdjudicationList, draft?: AdjudicationDraft): string {
   const settled = list.settled ?? [];
   if (!settled.length) return '';
-  const labels = new Map((list.dispositions ?? []).map((entry) => [entry.id, entry.label]));
   return `<section class="adj-settled"><h2>Settled by the plan</h2>
-    <p class="muted">The approved plan already accounts for ${settled.length === 1 ? 'this changed file' : `these ${settled.length} changed files`}, so nobody is asked again. To disagree with one, run story adjudicate with its ID.</p>
+    <p class="muted">The approved plan already accounts for ${settled.length === 1 ? 'this changed file' : `these ${settled.length} changed files`}, so nobody is asked again. If you disagree, choose what it should be instead, with your reason.</p>
     <div class="adj-table"><table>
-      <thead><tr><th>What changed</th><th>What settled it</th><th>Decision</th></tr></thead>
-      <tbody>${settled.map((item) => `<tr data-settled="${escape(item.id)}">
-        <td>${item.paths.map((file) => `<button type="button" class="adj-link" data-open="${escape(file)}">${escape(file)}</button>`).join(' ')}<div class="muted adj-id">${escape(item.id)}</div></td>
-        <td>${escape(planWords(item.settledBy))}</td>
-        <td>${escape(item.decision ? labels.get(item.decision.disposition) ?? item.decision.disposition : 'No question')}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>What changed</th><th>What settled it</th><th>Decision</th><th>Reason</th></tr></thead>
+      <tbody>${settled.map((item) => settledRowHtml(item, list, draft)).join('')}</tbody>
     </table></div></section>`;
 }
 
@@ -104,8 +116,8 @@ export function adjudicationHtml(list: AdjudicationList, { error = null as strin
       <thead><tr><th>What changed</th><th>What the plan already says</th><th>Your decision</th><th>Reason</th></tr></thead>
       <tbody>${tableRows(list).map((item) => rowHtml(item, list, draft)).join('')}</tbody>
     </table></div>` : ''}
-    ${settledHtml(list)}
-    <footer>${list.items.length ? `<button type="button" class="secondary" data-cancel>Not now</button>
+    ${settledHtml(list, draft)}
+    <footer>${list.items.length || (allowed && list.settled?.length) ? `<button type="button" class="secondary" data-cancel>Not now</button>
       <button type="button" data-review${allowed && !busy ? '' : ' disabled'}>Review and record</button>` : '<button type="button" class="secondary" data-cancel>Close</button>'}</footer>
   </main>`;
 }
@@ -120,7 +132,7 @@ export function adjudicationDraftFrom(message: InboundMessage): AdjudicationDraf
 /** What the page sent, checked against the list it was read from. Only rows the person chose are answers. */
 export function adjudicationAnswersFrom(list: AdjudicationList, message: InboundMessage): { answers: AdjudicationAnswer[]; problem: string | null } {
   const rows = Array.isArray(message.rows) ? message.rows as Array<Record<string, unknown>> : [];
-  const known = new Map(list.items.map((item) => [item.id, item]));
+  const known = new Map<string, AdjudicationItem | SettledItem>([...list.items, ...(list.settled ?? [])].map((item) => [item.id, item]));
   const dispositions = new Set((list.dispositions ?? []).map((entry) => entry.id));
   const answers: AdjudicationAnswer[] = [];
   for (const row of rows) {
@@ -147,7 +159,7 @@ export function adjudicationAnswersFrom(list: AdjudicationList, message: Inbound
 /** The exact words a person confirms: one line per answer, and what stays undecided. */
 export function adjudicationSummary(list: AdjudicationList, answers: readonly AdjudicationAnswer[]): string {
   const labels = new Map((list.dispositions ?? []).map((entry) => [entry.id, entry.label]));
-  const named = new Map(list.items.map((item) => [item.id, itemName(item)]));
+  const named = new Map([...list.items, ...(list.settled ?? [])].map((item) => [item.id, itemName(item)]));
   const left = list.items.filter((item) => !item.decision && !answers.some((answer) => answer.itemId === item.id));
   return [...answers.map((answer) => `${named.get(answer.itemId)}: ${labels.get(answer.disposition) ?? answer.disposition}${answer.clauseIds.length ? ` (${answer.clauseIds.join(', ')})` : ''}${answer.reason ? `. Reason: ${answer.reason}` : ''}`),
     ...(left.length ? ['', `Still undecided: ${left.map(itemName).join(', ')}`] : [])].join('\n');

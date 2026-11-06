@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  acceptable, answersFromRows, confirmForm, decisionRows, decisionsTable, firstForm, LEAVE, RECORD, rowForms, runDecisions
+  acceptable, answersFromRows, confirmForm, decisionRows, decisionsTable, firstForm, KEEP, LEAVE, OVERRULE, RECORD, rowForms, runDecisions, settledRows
 } from '../plugin/extensions/decisions/decisions.mjs';
 
 const item = (id, fields = {}) => ({ id, kind: 'unclaimed-changed-path', paths: [`src/${id}.js`], clauseIds: [], detail: null, plan: null, acceptAll: true, decision: null, ...fields });
@@ -134,4 +134,34 @@ test('test setup files are one row in the table and one form field, whose answer
   const { answers, problem } = answersFromRows(grouped, page.items, { decision0: grouped.dispositions.find((entry) => entry.id === 'accepted-deviation').label, reason0: 'The browser runner needs these.' });
   assert.equal(problem, null);
   assert.deepEqual(answers.map((answer) => [answer.itemId, answer.disposition]), [['CF-1', 'accepted-deviation'], ['CF-2', 'accepted-deviation']]);
+});
+
+const settledFile = { id: 'CF-9', paths: ['package.json'], clauseIds: [], settledBy: { kind: 'supporting', text: 'The test script.' }, decision: null };
+
+test('a row the plan settled can be overruled, with the same answer as any row, and no chat is ever stopped for it', async () => {
+  const none = list({ items: [], open: 0, settled: [settledFile] });
+  const inChat = person([], none);
+  assert.equal((await runDecisions({ ...inChat.ui, askedInChat: true })).status, 'nothing-open', 'a chat that asked carries on');
+  assert.deepEqual(inChat.seen.asked, []);
+  const { seen, ui } = person([{ action: 'accept', content: { choice: OVERRULE } },
+    { action: 'accept', content: { decision0: 'Send back to fix', reason0: 'This test script should not have changed.' } }, { action: 'accept', content: { confirm: RECORD } }], none);
+  const result = await runDecisions(ui);
+  assert.deepEqual(seen.asked[0].requestedSchema.properties.choice.enum, [OVERRULE, 'Not now'], 'nothing open offers nothing to decide');
+  assert.deepEqual(seen.asked[1].requestedSchema.properties.decision0.enum.slice(0, 2), [KEEP, 'Accept as is'], 'keeping the plan is the first answer, never a chosen one');
+  assert.deepEqual(seen.recorded[0].answers, [{ itemId: 'CF-9', disposition: 'rework', reason: 'This test script should not have changed.', clauseIds: [] }]);
+  assert.match(seen.asked[2].message, /package\.json: Send back to fix\. Reason: This test script/u);
+  assert.equal(result.status, 'recorded');
+});
+
+test('overruling sits beside what is open: the rows left are still asked, and keeping the plan records nothing for it', async () => {
+  const open = list({ settled: [settledFile] });
+  assert.ok(firstForm(open).form.requestedSchema.properties.choice.enum.includes(OVERRULE));
+  assert.equal(firstForm(list()).form.requestedSchema.properties.choice.enum.includes(OVERRULE), false, 'with nothing settled it is not offered');
+  const pages = rowForms(open, [...settledRows(open), ...open.items]);
+  assert.match(pages[0].form.requestedSchema.properties.decision0.title, /package\.json: Supporting file: The test script\./u);
+  const { answers, problem } = answersFromRows(open, pages[0].items, { decision0: KEEP, decision1: 'Accept as is', reason1: 'Fine as it stands.', decision2: LEAVE, decision3: LEAVE });
+  assert.equal(problem, null);
+  assert.deepEqual(answers.map((answer) => answer.itemId), ['CF-1']);
+  assert.match(answersFromRows(open, pages[0].items, { decision0: KEEP, reason0: 'Why would I say this?' }).problem, /Choose a decision for package\.json/u);
+  assert.equal(confirmForm(open, [{ itemId: 'CF-9', disposition: 'rework', reason: '', clauseIds: [] }]).message.includes('package.json: Send back to fix'), true);
 });

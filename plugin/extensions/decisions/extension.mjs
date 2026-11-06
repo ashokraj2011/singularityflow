@@ -50,7 +50,8 @@ async function record(list, answers) {
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-const adjudicate = (workId) => runDecisions({
+const adjudicate = (workId, { askedInChat = false } = {}) => runDecisions({
+  askedInChat,
   read: () => runFlow(['story', 'adjudications', ...(workId ? ['--work-id', workId] : []), '--json']),
   ask: (form) => session.ui.elicitation(form),
   show: (text) => session.log(text),
@@ -136,7 +137,7 @@ session = await joinSession({
       if (Object.keys(input ?? {}).some((key) => key !== 'workId') || !WORK_ID.test(String(input?.workId ?? ''))) {
         return JSON.stringify({ status: 'blocked', recorded: null, message: 'This takes only a Story ID. Answers and reasons come from the person.' });
       }
-      try { return JSON.stringify(await adjudicate(input.workId)); }
+      try { return JSON.stringify(await adjudicate(input.workId, { askedInChat: true })); }
       catch (error) { return JSON.stringify({ status: 'unavailable', recorded: null, message: `Nothing was recorded. ${error.message}` }); }
     }
   }]

@@ -9,18 +9,18 @@
 import { stdin as processInput, stdout as processOutput } from 'node:process';
 
 import { SingularityFlowError } from '../util.mjs';
-import { LEAVE, runDecisions } from '../../plugin/extensions/decisions/decisions.mjs';
+import { KEEP, LEAVE, OVERRULE, runDecisions } from '../../plugin/extensions/decisions/decisions.mjs';
 import { lineReader } from './decisions.mjs';
 
 export const adjudicationTableCommand = (workId) => `singularity-flow story adjudicate --work-id ${workId}`;
 
 /** A field the answers so far make pointless to ask: a reason for a row left undecided, clauses for what needs none. */
 function notAsked(name, content, clausesAnswer) {
-  if (name === 'reason') return ['Decide each one', 'Not now'].includes(content.choice);
+  if (name === 'reason') return ['Decide each one', 'Not now', OVERRULE].includes(content.choice);
   const [, field, row] = /^(reason|clauses)(\d+)$/u.exec(name) ?? [];
   if (!field) return false;
   const decision = content[`decision${row}`];
-  return !decision || decision === LEAVE || (field === 'clauses' && decision !== clausesAnswer);
+  return !decision || decision === LEAVE || decision === KEEP || (field === 'clauses' && decision !== clausesAnswer);
 }
 
 /**
@@ -76,7 +76,9 @@ export async function runAdjudicationTable({ workId, json, read, record, input =
         clausesAnswer: () => current?.dispositions?.find((entry) => entry.id === 'update-intent')?.label ?? null }),
       record
     });
-    output.write(`\n${result.message}${typeof result.next === 'string' ? ` ${result.next}` : ''}\n`);
+    // `next` repeats what `message` says first; what it adds is the step after this table.
+    const after = typeof result.next === 'string' ? result.next.replace(/^(?:All decided\.|Some items still need a decision\.)\s*/u, '') : '';
+    output.write(`\n${result.message}${after ? `\n${after}` : ''}\n`);
     return result;
   } finally { reader.close(); }
 }

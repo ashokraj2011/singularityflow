@@ -1711,7 +1711,7 @@ async function adjudicationList(root, config, workflow) {
     ...(setup.size ? { groupWords: { 'test-setup': 'These changed together for how tests run: one change, so one decision. Each file is still recorded by name.' } } : {}),
     decidedBy: { groups, labels, allowed, words: `${allowed ? 'You may decide these' : `The ${labels.join(' or ')} decide these`}${allowed && labels.length ? ` (${labels.join(' or ')})` : ''}.` },
     dispositions: DISPOSITIONS.map((id) => ({ id, label: DISPOSITION_WORDS[id] ?? id })),
-    digest: `sha256:${recordSha256({ iteration: subject.iteration, settled: settled.map(({ id, settledBy }) => ({ id, settledBy })), items: items.map(({ id, paths, decision }) =>
+    digest: `sha256:${recordSha256({ iteration: subject.iteration, settled: settled.map(({ id, settledBy, decision }) => ({ id, settledBy, decision: decision && { disposition: decision.disposition, reason: decision.reason, clauseIds: decision.clauseIds } })), items: items.map(({ id, paths, decision }) =>
       ({ id, paths, decision: decision && { disposition: decision.disposition, reason: decision.reason, clauseIds: decision.clauseIds } })) })}` };
 }
 

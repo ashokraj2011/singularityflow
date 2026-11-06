@@ -4,6 +4,8 @@
  * what a person enters is the only input. Pure, so a test can read every word without Copilot.
  */
 export const LEAVE = 'Leave undecided';
+export const KEEP = 'Keep what the plan says';
+export const OVERRULE = 'Overrule a row the plan settled';
 export const FORM_SIZE = 5;
 const REASON_LIMIT = 1000;
 
@@ -46,10 +48,13 @@ export function decisionsTable(list) {
 /** One reason may cover only changed files no requirement claims, and only ones still open. */
 export const acceptable = (list) => list.items.filter((item) => item.acceptAll && !item.decision);
 
+/** Rows the approved plan answered, as rows a person may still answer: an overrule is the same write as any other. */
+export const settledRows = (list) => (list.settled ?? []).map((item) => ({ ...item, plan: item.settledBy }));
+
 export function firstForm(list) {
   const count = acceptable(list).length;
   const yes = `Accept all ${count} changed file${count === 1 ? '' : 's'} with one reason`;
-  const properties = { choice: { type: 'string', title: 'How do you want to decide?', enum: [...(count ? [yes] : []), 'Decide each one', 'Not now'] },
+  const properties = { choice: { type: 'string', title: 'How do you want to decide?', enum: [...(count ? [yes] : []), ...(list.open ? ['Decide each one'] : []), ...(settledRows(list).length ? [OVERRULE] : []), 'Not now'] },
     ...(count ? { reason: { type: 'string', title: 'Reason for accepting all', maxLength: REASON_LIMIT } } : {}) };
   return { yes, form: { message: `${list.open} of ${list.items.length} still need a decision.`, requestedSchema: { type: 'object', required: ['choice'], properties } } };
 }
@@ -61,7 +66,7 @@ export function rowForms(list, items) {
   return pages.map((page, index) => ({ items: page, form: {
     message: `Decide each one (${index + 1} of ${pages.length}). Clauses are only for "${label(list, 'update-intent')}".`,
     requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.flatMap((item, row) => [
-      [`decision${row}`, { type: 'string', title: `${rowName(item)}: ${item.ids ? 'one change, one decision' : planWords(item.plan)}`.slice(0, 200), enum: [LEAVE, ...words] }],
+      [`decision${row}`, { type: 'string', title: `${rowName(item)}: ${item.ids ? 'one change, one decision' : planWords(item.plan)}`.slice(0, 200), enum: [item.settledBy ? KEEP : LEAVE, ...words] }],
       [`reason${row}`, { type: 'string', title: `Reason for ${rowName(item)}`.slice(0, 200), maxLength: REASON_LIMIT }],
       [`clauses${row}`, { type: 'string', title: `Clauses for ${rowName(item)}`.slice(0, 200) }]
     ])) } } }));
@@ -74,7 +79,7 @@ export function answersFromRows(list, items, content) {
   for (const [row, item] of items.entries()) {
     const word = content?.[`decision${row}`];
     const reason = String(content?.[`reason${row}`] ?? '').trim();
-    if (!word || word === LEAVE) {
+    if (!word || word === LEAVE || word === KEEP) {
       if (reason) return { answers: [], problem: `Choose a decision for ${itemName(item)}, or clear its reason.` };
       continue;
     }
@@ -93,7 +98,7 @@ export const acceptAllAnswers = (list, reason) => acceptable(list).map((item) =>
 export const RECORD = 'Record these decisions';
 
 export function confirmForm(list, answers) {
-  const named = new Map(list.items.map((item) => [item.id, itemName(item)]));
+  const named = new Map([...list.items, ...settledRows(list)].map((item) => [item.id, itemName(item)]));
   const left = list.items.filter((item) => !item.decision && !answers.some((answer) => answer.itemId === item.id));
   const lines = answers.map((answer) => `${named.get(answer.itemId)}: ${label(list, answer.disposition)}${answer.clauseIds.length ? ` (${answer.clauseIds.join(', ')})` : ''}${answer.reason ? `. Reason: ${answer.reason}` : ''}`);
   return { message: [`Record ${answers.length} decision${answers.length === 1 ? '' : 's'} on ${list.workId}, each under your name:`, ...lines,
@@ -106,25 +111,28 @@ export function confirmForm(list, answers) {
  * prints, `ui.read()` reads the list, `ui.record(list, answers)` writes it. The caller passes these
  * in, so a test can run every route and no route can be answered by anything but `ask`.
  */
-export async function runDecisions({ ask, show, read, record }) {
+export async function runDecisions({ ask, show, read, record, askedInChat = false }) {
   const list = await read();
   if (list.status !== 'open') return { status: list.status, message: list.message ?? 'There is nothing to decide here.' };
   await show(decisionsTable(list));
-  if (!list.open) return { status: 'nothing-open', recorded: [], unchanged: [], remaining: [], message: 'Nothing here needs a decision.' };
+  // A chat that asked carries on when nothing is open: only a person who opened this table overrules the plan.
+  if (!list.open && (askedInChat || !settledRows(list).length)) return { status: 'nothing-open', recorded: [], unchanged: [], remaining: [], message: 'Nothing here needs a decision.' };
   if (!list.decidedBy?.allowed) return { status: 'not-allowed', message: list.decidedBy?.words ?? 'You are not an approver of this step.' };
   const notNow = { status: 'cancelled', message: 'No decision was recorded.' };
   let answers = [];
   const { yes, form } = firstForm(list);
+  let overruling = [];
   for (;;) {
     const first = await ask(form);
     if (first?.action !== 'accept' || first.content?.choice === 'Not now') return notNow;
     if (first.content.choice === 'Decide each one') break;
+    if (first.content.choice === OVERRULE) { overruling = settledRows(list); break; }
     const reason = String(first.content.reason ?? '').trim();
     if (first.content.choice === yes && reason) { answers = acceptAllAnswers(list, reason); break; }
     await show('Give one reason for accepting them all, or choose to decide each one.');
   }
   const chosen = new Set(answers.map((answer) => answer.itemId));
-  for (const page of rowForms(list, decisionRows(list).filter((item) => !item.decision && !chosen.has(item.id)))) {
+  for (const page of rowForms(list, [...overruling, ...decisionRows(list).filter((item) => !item.decision && !chosen.has(item.id))])) {
     for (;;) {
       const reply = await ask(page.form);
       if (reply?.action !== 'accept') return notNow;

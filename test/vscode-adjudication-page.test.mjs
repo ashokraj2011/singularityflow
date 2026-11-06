@@ -111,3 +111,21 @@ test('test setup files are one row, whose one decision answers for each by name'
   assert.match(adjudicationAnswersFrom(grouped, { rows: [{ id: 'CF-2', ids: 'CF-2,CF-3', disposition: 'accepted-deviation', reason: 'x'.repeat(20), clauses: '' }] }).problem, /not on this list/u);
   assert.match(ADJUDICATION_SCRIPT, /ids: row\.dataset\.groupItems/u);
 });
+
+test('a row the plan settled can be overruled on the page, through the same answers, with nothing chosen', () => {
+  const settled = { id: 'CF-9', paths: ['package.json'], clauseIds: [], settledBy: { kind: 'supporting', text: 'The test script.' }, decision: null };
+  const open = list({ items: [], open: 0, settled: [settled] });
+  const html = adjudicationHtml(open);
+  assert.match(html, /<tr data-item="CF-9" data-settled="CF-9" data-accept-all="false">/u);
+  assert.match(html, /<option value="">Keep what the plan says<\/option>/u);
+  assert.doesNotMatch(html, /<option [^>]*selected/u, 'keeping the plan is nothing chosen');
+  assert.doesNotMatch(html, /run story adjudicate/u, 'disagreeing needs no terminal');
+  assert.match(html, /data-review>Review and record/u, 'with nothing open it can still be recorded');
+  assert.deepEqual(adjudicationAnswersFrom(open, { type: 'x', rows: [{ id: 'CF-9', disposition: '', reason: '', clauses: '' }] }).answers, [], 'keeping the plan answers nothing');
+  const { answers, problem } = adjudicationAnswersFrom(open, { type: 'x', rows: [{ id: 'CF-9', disposition: 'rework', reason: 'It should not have changed.', clauses: '' }] });
+  assert.equal(problem, null);
+  assert.deepEqual(answers, [{ itemId: 'CF-9', disposition: 'rework', reason: 'It should not have changed.', clauseIds: [] }]);
+  assert.match(adjudicationSummary(open, answers), /package\.json: Send back to fix\. Reason: It should not have changed\./u);
+  // Someone outside the group is told, and offered no control.
+  assert.doesNotMatch(adjudicationHtml({ ...open, decidedBy: { groups: [], labels: [], allowed: false, words: 'The Leads decide these.' } }), /data-disposition/u);
+});

@@ -165,6 +165,13 @@ test('real vitest: its own reporter beside SFlow\'s, a run with no test files, a
   assert.equal(testReceiptPassing(empty.attempt), false);
   assert.deepEqual([empty.attempt.exitCode, empty.attempt.cause.class], [1, 'no-tests']);
 
+  const hook = await repository(t, { 'package.json': manifest('vitest run'),
+    'src/a.test.js': "import { test, afterAll } from 'vitest'\ntest('ok', () => {})\nafterAll(() => { throw new Error('cleanup broke') })\n" }, { modules });
+  const threw = await gateRun(hook, (await commandFor(hook, 'src/a.test.js'))[0]);
+  assert.deepEqual([threw.attempt.exitCode, threw.attempt.tests.passed], [1, 1], threw.output);
+  assert.equal(testReceiptPassing(threw.attempt), false);
+  assert.deepEqual([threw.attempt.cause.category, threw.attempt.cause.class], ['code', 'suite-failure']);
+
   if (!installedModules('vitest', 'playwright')) return t.diagnostic('@playwright/test is not installed, so Vitest collecting a spec was not run');
   const collide = await repository(t, { 'package.json': manifest('vitest run'), 'src/a.test.js': passing,
     'e2e/a.spec.js': "import { test } from '@playwright/test'\ntest('home', () => {})\n" }, { modules });

@@ -169,8 +169,8 @@ test('a test file that failed to load is read from the report, and names the rea
   assert.deepEqual([read("Cannot find package 'pg' imported from /work/repo/src/b.test.js").category, read("Cannot find package 'pg' imported from /work/repo/src/b.test.js").class], ['environment', 'dependency-missing']);
   assert.equal(read("Cannot find package 'pg' imported from /work/repo/src/b.test.js", ['src/b.test.js']).class, 'import-error');
   const unknown = read('boom', ['src/b.test.js']);
-  assert.deepEqual([unknown.category, unknown.class, unknown.file], ['code', 'suite-load-failure', 'src/b.test.js']);
-  assert.equal(testRunCauseWords('suite-load-failure'), 'a test file failed to load');
+  assert.deepEqual([unknown.category, unknown.class, unknown.file], ['code', 'suite-failure', 'src/b.test.js']);
+  assert.equal(testRunCauseWords('suite-failure'), 'a test file failed outside its tests, usually while loading');
 });
 
 test('a failed suite cannot be hidden by failed tests that look like the environment, and only a suite with no failed test counts', () => {

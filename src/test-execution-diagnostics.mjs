@@ -43,9 +43,9 @@ const FAILURE_GUIDANCE = Object.freeze({
     guidance: 'The test command was not run because it declares no modelPolicy and models are disabled for this run. Rerun with the model enabled, or have configuration declare modelPolicy: never for the command (then adopt it with story test-policy amend).',
     retryCondition: 'runtime-changed'
   },
-  // A test file did not load, so none of its tests is counted, and the counts alone look like a pass.
+  // A test file failed outside its tests, so the counts alone look like a pass.
   'suite-failed': {
-    guidance: 'A test file failed to load, so the run failed whatever the counted tests did. Read the example: fix the file, or, if this runner collected a file written for another runner (a Playwright spec under Vitest or Jest), keep it out of this runner\'s reach.',
+    guidance: 'A test file failed outside its tests, usually while loading, so the run failed whatever the counted tests did. Read the example: fix the file, or, if this runner collected a file written for another runner (a Playwright spec under Vitest or Jest), keep it out of this runner\'s reach.',
     retryCondition: 'test-failure-repaired'
   },
   // The report was read and counts nothing: the fault is what ran, not the reporter.

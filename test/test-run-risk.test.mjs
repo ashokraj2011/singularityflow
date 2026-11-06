@@ -173,7 +173,7 @@ test('a refused run names its cause: an environment cause with the approvers rou
   assert.match(testRunRiskRefusalDetails(workflow, { phaseId: 'code', attempt: foreign, at: AT }).testRunCause.guidance,
     /code cause, this runner collected a test file written for another runner in e2e\/a\.spec\.js .*never covers a code cause/u);
   const uninstalled = attempt({ tests: allPassed, cause: { category: 'environment', class: 'dependency-missing', basis: 'tests', signal: 'module not found', failedSuites: 1 } });
-  assert.match(testRunRiskRoute(workflow, { phaseId: 'code', attempt: uninstalled, at: AT }).guidance, /^A test file of this run failed to load because of the environment:/u);
+  assert.match(testRunRiskRoute(workflow, { phaseId: 'code', attempt: uninstalled, at: AT }).guidance, /^A test file of this run failed outside its tests because of the environment:/u);
   const lapsed = testRunRiskRoute(workflow, { phaseId: 'code', attempt: attempt(), at: '2026-11-05T00:00:00.000Z' });
   assert.equal(lapsed.lapsed, 'expired');
   assert.match(lapsed.guidance, /TRR-001 expired on 2026-11-01\./u);

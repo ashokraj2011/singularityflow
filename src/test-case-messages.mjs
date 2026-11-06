@@ -102,9 +102,9 @@ function javascriptJsonMessages(json) {
 const MAX_FAILED_SUITES = 50;
 
 /**
- * The test files of a Vitest or Jest report that failed without a failed test: they did not load, so
- * none of their tests is counted. Each with its name and bounded message; none when the report does
- * not read or the adapter has no such level.
+ * The test files of a Vitest or Jest report that failed without a failed test: one that did not load
+ * (none of its tests is counted), or a hook that threw. Each with its name and bounded message; none
+ * when the report does not read or the adapter has no such level.
  */
 export function failedSuiteMessages(adapter, contents) {
   if (!['jest-json', 'vitest-json'].includes(adapter) || !Array.isArray(contents) || !contents.length) return [];

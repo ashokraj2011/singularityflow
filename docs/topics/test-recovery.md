@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 32
+version: 33
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -238,7 +238,7 @@ Every failed or blocked run is classified by what stopped it, read from its exit
 | Syntax error (code) | `syntax-error` | `SyntaxError`, `IndentationError` |
 | Import error (code) | `import-error` | a missing repository path, a package imported from a file the Story changed, a missing export |
 | A runner collected another runner's test file (code) | `foreign-test-file` | Vitest or Jest loading a Playwright spec: `Playwright Test did not expect test() to be called here` in the report |
-| A test file failed to load (code) | `suite-load-failure` | a file the report marks failed with no failed test, whose message names no other cause here |
+| A test file failed outside its tests (code) | `suite-failure` | a file the report marks failed with no failed test (it did not load, or a hook threw), whose message names no other cause here |
 | Tests ran and failed (code) | `assertion-failure` | a failed test whose message is not an environment cause |
 | Timed out, no tests in the report, or nothing recognised | `timeout`, `no-tests`, `unrecognised` | none of these is known to be the environment |
 

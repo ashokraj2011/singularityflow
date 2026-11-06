@@ -488,7 +488,7 @@ async function completeMaven(root, argv, at, directory, notes) {
     return { reason: `No pom.xml is at ${module ?? projects ?? file}, the module it builds.`, notes };
   }
   const pom = path.posix.join(module === '.' ? '' : module, 'pom.xml');
-  if (declaredMavenModules((await readRepositoryManifest(root, pom)).bytes.toString('utf8')).length) {
+  if (declaredMavenModules(await readRepositoryManifest(root, pom).then(({ bytes }) => bytes.toString('utf8'), () => '')).length) {
     return { reason: `${pom} is a reactor: each module writes its own reports, and one report path cannot read them all. Propose one command per module folder (-pl <module> -am).`, notes };
   }
   return { record: { id: null, kind: 'test', argv: [...argv], workingDirectory: directory, affectedRoots: [module], modelPolicy: 'never',

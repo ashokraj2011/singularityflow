@@ -715,11 +715,13 @@ const MAX_REACTOR_MODULES = 64;
  * run at the reactor leaves none where its report path looks. Only test setup asks; it runs nothing.
  */
 export async function mavenReactorModuleCommands(root, commands, { platform = process.platform } = {}) {
+  let budget = MAX_REACTOR_MODULES;
   const modulesOf = async (directory) => {
+    if (--budget < 0) return [];
     const declared = declaredMavenModules(await packageText(root, path.posix.join(directory === '.' ? '' : directory, 'pom.xml')));
     if (!declared.length) return [directory];
     const below = [];
-    for (const parts of declared.slice(0, MAX_REACTOR_MODULES)) below.push(...await modulesOf(path.posix.join(directory === '.' ? '' : directory, ...parts)));
+    for (const parts of declared) below.push(...await modulesOf(path.posix.join(directory === '.' ? '' : directory, ...parts)));
     return below;
   };
   const expanded = [];
@@ -727,7 +729,7 @@ export async function mavenReactorModuleCommands(root, commands, { platform = pr
     const reactor = /(?:^|-)maven-tests$/u.test(command.id) ? command.affectedRoots[0] : null;
     const modules = reactor ? await modulesOf(reactor) : [];
     if (!modules.length || modules[0] === reactor) { expanded.push(command); continue; }
-    for (const moduleRoot of modules.slice(0, MAX_REACTOR_MODULES)) {
+    for (const moduleRoot of modules) {
       if (await exists(path.join(root, moduleRoot, 'src', 'test'))) expanded.push(...await moduleTestCommands(root, { root: moduleRoot, system: 'maven', manifest: 'pom.xml' }, { platform }));
     }
   }

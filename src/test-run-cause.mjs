@@ -11,8 +11,8 @@
  *   browser is missing, a service the tests connect to is not reachable, a port they need is taken,
  *   Docker is not available, permission was denied, or every discovered test skipped itself.
  * - Code: a compile error, a syntax error, an import that does not resolve (a repository path, or
- *   a package imported from a file the Story changed), a test file that failed to load, or tests
- *   that ran and failed.
+ *   a package imported from a file the Story changed), a test file that failed outside its tests
+ *   (it did not load, or a hook threw), or tests that ran and failed.
  * - Unknown: the run timed out (a hang the change caused looks like a slow machine), its report
  *   counts no tests, or its output names nothing recognised here.
  *
@@ -45,7 +45,7 @@ export const TEST_RUN_CAUSES = Object.freeze({
   'syntax-error': [CODE, 'a syntax error'],
   'import-error': [CODE, 'an import that does not resolve'],
   'foreign-test-file': [CODE, 'this runner collected a test file written for another runner'],
-  'suite-load-failure': [CODE, 'a test file failed to load'],
+  'suite-failure': [CODE, 'a test file failed outside its tests, usually while loading'],
   'assertion-failure': [CODE, 'tests ran and failed'],
   timeout: [UNKNOWN, 'the run timed out'],
   'no-tests': [UNKNOWN, 'the run found no tests'],
@@ -186,8 +186,8 @@ function failedTestCause(message, changedPaths) {
 }
 
 /**
- * A test file that failed to load (`{ name, message }`): what its message names. One that names nothing
- * is the code's, never the environment's: the report says the file did not run, and not why.
+ * A test file that failed outside its tests (`{ name, message }`): what its message names. One that names
+ * nothing is the code's, never the environment's: the report says the file failed, and not why.
  */
 function failedSuiteCause({ name, message }, changedPaths) {
   const text = String(message ?? '').slice(0, 4_000);
@@ -195,7 +195,7 @@ function failedSuiteCause({ name, message }, changedPaths) {
   const where = file ? { file } : {};
   if (FOREIGN_TEST_FILE.test(text)) return cause('foreign-test-file', 'Playwright spec under another runner', 'tests', where);
   const named = codeCause(text, changedPaths) ?? environmentCause(text, changedPaths);
-  return named ? { ...named, basis: 'tests' } : cause('suite-load-failure', 'suite failed with no failed test', 'tests', where);
+  return named ? { ...named, basis: 'tests' } : cause('suite-failure', 'suite failed with no failed test', 'tests', where);
 }
 
 /** Environment causes read together: their classes joined, sorted, in one cause. */
@@ -212,7 +212,7 @@ function count(value) {
  * Classify one failed or blocked run. `check` is the run (status, timedOut, infrastructureUnavailable,
  * bounded stdout and stderr), `tests` its report's counts, `failedMessages` the failure message of
  * each failed test in report order (null when the adapter gives none), `failedSuites` the test files
- * that failed to load (src/test-case-messages.mjs), `changedPaths` the paths the Story changed.
+ * that failed outside their tests (src/test-case-messages.mjs), `changedPaths` the paths the Story changed.
  * Returns `{ category, class, basis, signal }`, with `failedTests` or `failedSuites` when read from
  * them and `file` when a code cause names a changed path.
  */
@@ -227,7 +227,7 @@ export function classifyTestRunCause({ check = null, tests = null, failedMessage
   if (check?.timedOut === true) return cause('timeout', 'timeout', 'process');
   const code = codeCause(output, changed);
   if (code) return code;
-  // A file that failed to load counts no test: the tests beside it passing or failing says nothing of it.
+  // A file that failed outside its tests: the tests beside it passing or failing says nothing of it.
   const suites = (failedSuites ?? []).map((suite) => failedSuiteCause(suite, changed));
   if (failed > 0) {
     const messages = Array.isArray(failedMessages) && failedMessages.length === failed ? failedMessages : null;

@@ -16,6 +16,7 @@ import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs'
 import { APPROVAL_HOLD_OWNERS, approvalHold } from '../src/approval-check.mjs';
 import { approvalRequirementsMet } from '../src/approval-authority.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
+import { nextAfterStep } from '../src/cli-steps.mjs';
 import { commandWithFills, stepSheet } from '../src/step-sheet.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -310,6 +311,11 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.deepEqual([held.act.state, held.act.do.shell.replace(' --for-agent', ''), held.act.read], ['blocked', dirty.sheet.next.command, ['sheet', 'owedDecisions']]);
   assert.deepEqual(held.sheet.holds.map((hold) => hold.code), ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED']);
   assert.deepEqual([held.approvalCheck, held.pending], [undefined, undefined]);
+  // So does what a review, and the step just submitted, say comes next.
+  const reviewed = json('phase', 'show', 'planning', '--for-agent', '--json').continuation;
+  assert.equal(reviewed.nextCommand.replace(' --for-agent', ''), dirty.sheet.next.command);
+  assert.match(reviewed.nextAction.reason, /^The checkout has changes/u);
+  assert.equal(nextAfterStep({ continuation: reviewed }, 'Submitted.').commandGuidance.command, reviewed.nextCommand);
   assert.deepEqual(stopped.act.read, ['approvalPacket.sheet', 'approvalPacket.readiness.owedDecisions']);
   await rm(stray);
 

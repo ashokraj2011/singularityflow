@@ -169,7 +169,10 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
   const owedRead = owed !== undefined ? owed
     : await (async () => { const { owedDecisions, stepsThrough } = await import('./owed-decisions.mjs'); return owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id), { limit: 1000 }); })();
   if (owedRead?.status === 'owed') {
-    owedEntries = [...(owedRead.witnesses ?? []).map((entry) => ({ kind: 'witness', ...entry, contextBinding: owedRead.contextBinding })), ...(owedRead.scopeItems ?? []).map((entry) => ({ kind: 'scope', ...entry }))];
+    // Each with the groups its own command checks, so the list says who takes it.
+    const [{ riskAuthorities }, { scopeAuthorities }] = await Promise.all([import('./evidence/risk-decisions.mjs'), import('./scope/decisions.mjs')]);
+    owedEntries = [...(owedRead.witnesses ?? []).map((entry) => ({ kind: 'witness', ...entry, contextBinding: owedRead.contextBinding, groups: riskAuthorities(workflow, { owningSteps: entry.owners }) })),
+      ...(owedRead.scopeItems ?? []).map((entry) => ({ kind: 'scope', ...entry, groups: scopeAuthorities(workflow) }))];
   }
   if (owedRead?.status === 'unavailable') unavailable.push({ phase: phase.id, reason: owedRead.reason ?? 'owed-decisions-unavailable' });
   if (owedRead?.more?.witnesses || owedRead?.more?.scopeItems) unavailable.push({ phase: phase.id, reason: 'owed-decisions-truncated' });

@@ -121,16 +121,21 @@ export function terminalRisk(workflow, obligations) {
  * accepted as a dated risk. The decision list shows these, so it names what the approval refusal
  * names [decision list parity]; nothing here records a witness or a risk.
  */
-export function terminalEvidenceDecisions(workId, evaluation) {
+export function terminalEvidenceDecisions(workId, evaluation, workflow = null) {
   const entries = [];
   for (const row of evaluation?.rows ?? []) {
     if (!BLOCKING_RESULTS.has(row.result)) continue;
+    // Who may take each, as `decision witness` and `decision risk` check it, for the list to name.
+    const groups = (obligations) => (workflow ? { groups: riskAuthorities(workflow, { owningSteps: [...new Set(obligations.flatMap((entry) => entry.owningSteps ?? []))] }) } : {});
     const witnesses = (row.verification?.contract?.slots ?? [])
       .filter((slot) => BLOCKING_RESULTS.has(slot.status) && WITNESSED_METHODS.has(slot.method))
       .map((slot) => ({ slot: slot.slot, method: slot.method, files: slot.method === 'visual' ? plannedEvidenceFiles(row) : [],
-        command: witnessAction(workId, row, slot) }));
+        command: witnessAction(workId, row, slot), ...groups((row.obligations ?? []).filter((entry) => ['verify', 'implement'].includes(entry.responsibility))) }));
     const risks = [...new Set((row.actions ?? []).filter((action) => action.kind === 'accept-risk').map((action) => action.command))]
-      .map((command) => ({ obligationId: /--obligation (\S+)/u.exec(command)?.[1] ?? null, command }));
+      .map((command) => {
+        const obligationId = /--obligation (\S+)/u.exec(command)?.[1] ?? null;
+        return { obligationId, command, ...groups((row.obligations ?? []).filter((entry) => entry.id === obligationId)) };
+      });
     if (witnesses.length || risks.length) entries.push({ criterion: row.id, result: row.result, witnesses, risks, categories: [...RISK_CATEGORIES] });
   }
   return entries;

@@ -248,7 +248,7 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.equal(packet.approvalPacket.review, null);
   assert.deepEqual(packet.approvalPacket.readiness.approvalCheck.holds, readiness.approvalCheck.holds);
   const shown = cli('phase', 'show', 'planning');
-  assert.ok(shown.stderr.includes('Someone else decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);
+  assert.ok(shown.stderr.includes('An approver of Specification decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);
   assert.ok(shown.stderr.includes(`Shell: ${STATUS}`), shown.stderr);
   const pending = refuse('APPROVAL_INTENT_AMENDMENT_PENDING');
   assert.equal(pending.error.message, [

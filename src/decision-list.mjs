@@ -310,10 +310,16 @@ function visualItem(workflow, context, entry) {
   };
 }
 
+/** A step anyone may take: nobody's approval is involved. Said only where the step's own command checks no group. */
+const anyone = (words) => ({ groups: [], labels: [], allowed: true, words });
+
+/** Nothing names who takes this step: it is never said to be this person's, and never said to be anyone's. */
+const nobodyNamed = (words) => ({ groups: [], labels: [], allowed: false, words: `Singularity Flow cannot say who decides this. ${words}`.trimEnd() });
+
 /** A choice that is the person's own step: its command is theirs to run, never recorded from the list. */
-function personalStep({ id, label, command, words }) {
+function personalStep({ id, label, command, words, decidedBy = nobodyNamed(words) }) {
   return { id, label, recommended: false, words, effects: [], needs: {}, recordable: false,
-    action: { command, alternativeCommands: [] }, decidedBy: { groups: [], labels: [], allowed: true, words } };
+    action: { command, alternativeCommands: [] }, decidedBy };
 }
 
 /**
@@ -326,22 +332,28 @@ function evidenceItem(workflow, context, entry) {
   const options = [
     ...entry.witnesses.map((witness) => {
       const owed = (context.facts.pending?.owed ?? []).find(row => row.kind === 'witness' && row.clauseId === entry.criterion && row.slot === witness.slot);
+      const words = 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.';
       const step = personalStep({
       id: `witness-${witness.slot}`,
       label: witness.files.length === 1 ? `I checked ${witness.files[0]}: witness it` : `I checked the ${witness.method} evidence for slot ${witness.slot}: witness it`,
       command: witness.command,
-      words: 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.'
+      words,
+      decidedBy: stepDecidedBy(workflow, context, owed?.groups ?? witness.groups ?? [...new Set((owed?.owners ?? []).flatMap(id => approvers(workflow, id)))], words)
       });
-      return owed ? { ...step, decidedBy: stepDecidedBy(workflow, context, [...new Set(owed.owners.flatMap(id => approvers(workflow, id)))], step.words),
+      return owed ? { ...step,
         action: { ...step.action, humanReview: { kind: 'witness', clauseId: owed.clauseId, clauseText: owed.clauseText, slot: owed.slot, method: owed.method,
           files: owed.files, owners: owed.owners, contextBinding: owed.contextBinding } } } : step;
     }),
-    ...entry.risks.map((risk, index) => personalStep({
-      id: entry.risks.length === 1 ? 'accept-obligation-risk' : `accept-obligation-risk-${index + 1}`,
-      label: 'Accept it as a risk until a date',
-      command: risk.command,
-      words: `You record the risk with a category (${listWords(entry.categories)}), an expiry and a reason; nothing is decided here.`
-    }))
+    ...entry.risks.map((risk, index) => {
+      const words = `You record the risk with a category (${listWords(entry.categories)}), an expiry and a reason; nothing is decided here.`;
+      return personalStep({
+        id: entry.risks.length === 1 ? 'accept-obligation-risk' : `accept-obligation-risk-${index + 1}`,
+        label: 'Accept it as a risk until a date',
+        command: risk.command,
+        words,
+        decidedBy: stepDecidedBy(workflow, context, risk.groups ?? [], words)
+      });
+    })
   ];
   return {
     kind: 'evidence-obligation',
@@ -421,7 +433,8 @@ function testCommandItem(workflow, context, request) {
       : `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
         + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
     // Accepting it while the step awaits approval would make that review stale: return the step first.
-    options: [hold ? personalStep({ id: 'return-step-first', label: `Return ${name} for changes first`, command: hold.command, words: hold.words })
+    options: [hold ? personalStep({ id: 'return-step-first', label: `Return ${name} for changes first`, command: hold.command, words: hold.words,
+      decidedBy: stepDecidedBy(workflow, context, approvers(workflow, request.phase), hold.words) })
       : option(workflow, context, {
         id: 'accept-test-command', label: removed ? 'Accept that this suite no longer runs' : request.repin ? 'Accept the changed command as its pin' : 'Accept this command for this Story',
         words: request.repin ? 'Only this Story\'s pin changes; the repository configuration is unchanged.'
@@ -438,13 +451,13 @@ function testCommandItem(workflow, context, request) {
  * when it does not, who does (their labels and up to five members) and the line to share with them.
  */
 function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
-  if (!groups?.length) return { groups: [], labels: [], allowed: true, words };
+  if (!groups?.length) return nobodyNamed(words);
   let registry = null;
   try { registry = normalizeApprovalAuthorities(authorities); } catch { registry = null; }
   const labels = groups.map((id) => groupLabel(registry, id));
   let allowed = false;
   try { allowed = matchApprovalAuthority(authorities, { authorities: groups }, actor).authorized; } catch { allowed = false; }
-  if (allowed) return { groups, labels, allowed: true, words: `You may do this (${listWords(labels)}). ${words}` };
+  if (allowed) return { groups, labels, allowed: true, words: `You may do this (${listWords(labels)}). ${words}`.trimEnd() };
   const people = [...new Set(groups.flatMap((id) => (registry?.[id]?.members ?? []).map((member) => member.name ?? member.email ?? member.githubLogin)))].slice(0, 5);
   return { groups, labels, allowed: false, ...(people.length ? { people } : {}),
     words: `The ${listWords(labels)}${people.length ? ` (${listWords(people)})` : ''} decide this; ask them.`,
@@ -452,9 +465,10 @@ function stepDecidedBy(workflow, { authorities, actor }, groups, words) {
 }
 
 /** One item that is a person's own step, with who takes it. */
-function stepItem(workflow, context, { kind, title, why, groups = [], options, details }) {
+function stepItem(workflow, context, { kind, title, why, groups = [], forAnyone = false, options, details }) {
   const steps = options.map((entry) => ({ ...personalStep(entry),
-    ...(entry.humanReview ? { action: { command: entry.command, humanReview: entry.humanReview } } : {}), decidedBy: stepDecidedBy(workflow, context, groups, entry.words) }));
+    ...(entry.humanReview ? { action: { command: entry.command, humanReview: entry.humanReview } } : {}),
+    decidedBy: forAnyone ? anyone(entry.words) : stepDecidedBy(workflow, context, groups, entry.words) }));
   return { kind, title, why, options: steps, details: { ...details, commands: steps.map((entry) => entry.action.command) } };
 }
 
@@ -487,6 +501,7 @@ function intentAmendmentItem(workflow, context, amendment) {
     return stepItem(workflow, context, {
       kind: 'intent-amendment', title: `Acknowledge intent amendment ${amendment.id}`,
       why: `${amendment.id} was approved and changed ${clauses}. The steps it reopened revalidate after someone acknowledges it.`,
+      forAnyone: true,
       options: [{ id: 'acknowledge', label: `I read ${amendment.id}: acknowledge it`,
         command: `singularity-flow story intent-amendment acknowledge ${amendment.id} --work-id ${workId}`,
         words: 'You acknowledge it in your own terminal after reading it; nothing is recorded here.' }],
@@ -523,8 +538,8 @@ function forwardAmendmentItem(workflow, context, blocker) {
 function appealItem(workflow, context, appeal) {
   return stepItem(workflow, context, {
     kind: 'appeal', title: `Review appeal ${appeal.id} on ${stepName(workflow, appeal.phaseId)}`,
-    why: `The appeal is ${String(appeal.status).replaceAll('-', ' ')}. An approver reviews the exact diff and accounts for the scope or requests changes; no check is waived.`,
-    groups: approvers(workflow, appeal.phaseId),
+    why: `The appeal is ${String(appeal.status).replaceAll('-', ' ')}. An approver of the plan reviews the exact diff and accounts for the scope or requests changes; no check is waived.`,
+    groups: planAuthorities(workflow),
     options: [{ id: 'review', label: 'Review the appeal', command: appeal.command, words: 'Reviewed in your own terminal (/sf-appeal shows it).' }],
     details: { appeal: appeal.id, phase: appeal.phaseId, status: appeal.status }
   });
@@ -537,7 +552,7 @@ function owedItem(workflow, context, entry) {
     kind: 'owed-decision', title: witness ? `Sign off ${clauseName(workflow, entry.clauseId)} (${entry.method})` : `Decide scope item ${entry.id}`,
     why: witness ? `An approver of ${listWords(entry.owners.map((id) => stepName(workflow, id)))} inspects ${listWords(entry.files)} and signs it off; the Story cannot end without it.`
       : `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
-    groups: witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : [],
+    groups: entry.groups ?? (witness ? [...new Set(entry.owners.flatMap((id) => approvers(workflow, id)))] : []),
     options: [{ id: witness ? 'witness' : 'disposition', label: witness ? 'Sign it off after inspecting it' : 'Include it, or say it exists, naming its clauses',
       command: entry.command ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`, words: 'Only a person records it; an agent never answers it.',
       ...(witness ? { humanReview: { kind: 'witness', clauseId: entry.clauseId, clauseText: entry.clauseText, slot: entry.slot, method: entry.method,
@@ -555,21 +570,62 @@ function machineItem(workflow, entry) {
     kind: entry.intentId ? 'transport-intent' : 'story-publication', machine: true,
     title: entry.intentId ? `Publish the retained upload ${entry.intentId}` : `Publish ${workflow.workItem.id}'s retained commit`,
     why: `${entry.cause ?? 'The automatic publication did not land.'} Singularity Flow retries it with sync once the cause is fixed.`,
-    options: [{ ...personalStep({ id: 'sync', label: 'Publish it', command: sync, words: 'sync publishes what was not published; nothing is decided here.' }) }],
+    options: [{ ...personalStep({ id: 'sync', label: 'Publish it', command: sync, words: 'sync publishes what was not published; nothing is decided here.',
+      decidedBy: anyone('sync publishes what was not published; nothing is decided here.') }) }],
     details: { ...(entry.intentId ? { intent: entry.intentId, status: entry.status } : { commit: entry.commit ?? null }), commands: [sync] }
   };
+}
+
+/**
+ * A hold this identity cannot clear whatever its groups (already approved, wrote it, not listed): who
+ * can, naming the people the refusal lists, or that nobody else is listed for this Story.
+ */
+function othersDecide(workflow, { authorities }, { groups, people = [], anyIdentity = false, barred }, phaseId) {
+  let registry = null;
+  try { registry = normalizeApprovalAuthorities(authorities); } catch { registry = null; }
+  const ids = groups.length ? groups : approvers(workflow, phaseId);
+  const labels = ids.map((id) => groupLabel(registry, id));
+  const members = ids.flatMap((id) => registry?.[id]?.members ?? []);
+  // The refusal lists an email or github:<login>; a person is shown as stepDecidedBy shows them.
+  const names = [...new Set(people.map((entry) => members.find((member) => member.email === entry || `github:${member.githubLogin}` === entry)?.name ?? entry))].slice(0, 5);
+  const lead = barred === 'recorded' ? 'You have already approved this. ' : barred === 'author' ? 'Its author may not approve it. ' : '';
+  return { groups: ids, labels, allowed: false, ...(names.length ? { people: names } : {}),
+    words: `${lead}${names.length || anyIdentity ? `The ${listWords(labels)}${names.length ? ` (${listWords(names)})` : ''} decide this; ask them.`
+      : `Nobody else is listed in ${listWords(labels) || 'its approval groups'} for this Story.`}`,
+    share: `/sf-decide ${workflow.workItem.id}` };
+}
+
+/**
+ * Who clears a hold, for the person looking: the real groups, from the facts the refusal carries
+ * (`clearedBy`), whether this identity holds one, and otherwise who does. Where the refusal names
+ * nobody it says so; only what truly needs no group (what Singularity Flow finishes) is open to anyone.
+ */
+function holdParty(hold, workflow, context) {
+  const phaseId = workflow.currentPhase;
+  const words = hold.action?.label ?? '';
+  const clearedBy = hold.clearedBy ?? {};
+  if (clearedBy.plan || /^singularity-flow decision plan /u.test(hold.action?.command ?? '')) {
+    return stepDecidedBy(workflow, context, planAuthorities(workflow), clearedBy.plan ? words : 'Choose the row it belongs to and give your reason, then run it.');
+  }
+  if (hold.owner === 'machine') return anyone(`${hold.who}. ${words}`.trimEnd());
+  // The author revises it; returning it for changes is an approver's step, by the route it names.
+  if (hold.owner === 'author-repairs') {
+    return /^singularity-flow reject /u.test(hold.action?.command ?? '') ? stepDecidedBy(workflow, context, approvers(workflow, phaseId), words)
+      : { groups: [], labels: [], allowed: false, words: `${hold.who}. ${words}`.trimEnd() };
+  }
+  if (Array.isArray(clearedBy.people)) return othersDecide(workflow, context, { ...clearedBy, groups: clearedBy.groups ?? [] }, phaseId);
+  if (clearedBy.testRun) return stepDecidedBy(workflow, context, [...new Set(clearedBy.steps.flatMap((id) => testRunRiskAuthorities(workflow, id)))], words);
+  return stepDecidedBy(workflow, context, clearedBy.groups ?? [...new Set((clearedBy.steps ?? []).flatMap((id) => approvers(workflow, id)))], words);
 }
 
 /** A refusal approval names that no other item carries, with the route the approval check gives it. */
 function holdItem(workflow, context, kind, hold) {
   const command = hold.action?.command ?? `singularity-flow phase show ${workflow.currentPhase} --work-id ${workflow.workItem.id} --json`;
-  // A plan decision names its real approvers, which can be this person.
-  const decided = /^singularity-flow decision plan /u.test(command)
-    ? stepDecidedBy(workflow, context, planAuthorities(workflow), 'Choose the row it belongs to and give your reason, then run it.') : null;
+  const decided = holdParty(hold, workflow, context);
   const rows = (hold.planRows ?? []).map((row) => (row.result ? `${row.clauseId} (${row.result})` : row.clauseId)).join('; ');
   return {
-    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].split(/;\s/u)[0].slice(0, 200), why: decided ? `${hold.message ?? hold.summary} ${decided.words}${rows ? ` The plan's rows: ${rows}.` : ''}` : `${hold.who}: ${hold.message ?? hold.summary}`,
-    options: [{ ...personalStep({ id: 'route', label: hold.action?.label || hold.who, command, words: decided?.words ?? hold.who }), ...(decided ? { decidedBy: decided } : {}) }],
+    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].split(/;\s/u)[0].slice(0, 200), why: `${hold.message ?? hold.summary} ${decided.words}${rows ? ` The plan's rows: ${rows}.` : ''}`,
+    options: [{ ...personalStep({ id: 'route', label: hold.action?.label || decided.words, command, words: decided.words, decidedBy: decided }) }],
     details: { code: hold.code, owner: hold.owner, commands: [command], ...(hold.planRows ? { planRows: hold.planRows } : {}) }
   };
 }
@@ -635,7 +691,7 @@ const HOLD_KINDS = Object.freeze({
 export function holdItemKind(hold) {
   if (hold.owner === 'you-decide') return 'approval';
   if (HOLD_KINDS[hold.code]) return HOLD_KINDS[hold.code];
-  return /test-run risk/iu.test(hold.summary ?? '') && hold.owner === 'someone-decides' ? 'test-run-risk' : 'approval-hold';
+  return (hold.clearedBy?.testRun || /test-run risk/iu.test(hold.summary ?? '')) && hold.owner === 'someone-decides' ? 'test-run-risk' : 'approval-hold';
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.

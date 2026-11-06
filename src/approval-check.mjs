@@ -670,14 +670,15 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);
 const CANNOT_SAY = 'Singularity Flow cannot say who clears this';
 const MAX_HOLD_MESSAGE = 4000;
-const OWNER_WORDS = Object.freeze({ 'you-decide': 'You decide', 'someone-decides': 'Someone else decides',
+// Every surface shows these to whoever is looking, so each is true for any reader.
+const OWNER_WORDS = Object.freeze({ 'you-decide': 'You decide', 'someone-decides': CANNOT_SAY,
   'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it', unknown: CANNOT_SAY });
 
 /** Who clears a refusal, by its code and what it says: a pending amendment or a lapsed test-run risk waits for a person. */
 export function approvalHoldOwner(error) {
   const code = String(error?.code ?? '');
   if (code === 'STORY_REVIEW_INTERVENING_COMMIT' && error.details?.pendingIntentAmendments?.length) return 'someone-decides';
-  if (['PHASE_VALIDATION_FAILED', 'CODE_DELIVERY_VALIDATION_REQUIRED'].includes(code) && error.details?.testRunRisk) return 'someone-decides';
+  if (['PHASE_VALIDATION_FAILED', 'CODE_DELIVERY_VALIDATION_REQUIRED'].includes(code) && (error.details?.testRunRisk || error.details?.testRunRiskRenewals?.length)) return 'someone-decides';
   // A coverage gap every clause of which an open upstream issue names is that issue's approvers' to decide.
   if (code === 'SPEC_COVERAGE_INCOMPLETE' && error.details?.upstreamDecision?.complete === true) return 'someone-decides';
   const coverage = error.details?.coverage;
@@ -723,18 +724,62 @@ function holdSummary(message) {
   return (listed.length ? `${first.trimEnd()} ${listed.join('; ')}` : first.trimEnd().slice(0, -1)).slice(0, 400);
 }
 
+// A list item of its own carries each of these, with who decides it.
+const LISTED_HOLDS = Object.freeze(['DECISION_REQUIRED', 'CONFORMANCE_BLOCKING_VERDICTS', 'STORY_COMPLETION_REFUSED']);
+// The refusals that say who else may decide (eligibleApprovers), and why this identity is not one of them.
+const IDENTITY_BARS = Object.freeze({ APPROVAL_IDENTITY_NOT_AUTHORIZED: null, APPROVAL_IDENTITY_MISSING: null,
+  APPROVAL_IDENTITY_ALREADY_RECORDED: 'recorded', APPROVAL_SELF_APPROVAL_PROHIBITED: 'author' });
+
+/**
+ * Whose decision a hold is, from the refusal's own facts: the steps whose approvers clear it, the
+ * groups it names and the people they list. The decision list adds whether the person looking is one
+ * of them. Null when the refusal says nothing about who.
+ */
+function holdClearedBy(error, workflow, phase) {
+  const details = error.details ?? {};
+  const code = String(error.code ?? '');
+  if (Object.hasOwn(IDENTITY_BARS, code)) {
+    return { steps: [phase.id], groups: details.authorities ?? [], people: details.eligibleApprovers ?? [],
+      ...(details.anyIdentity ? { anyIdentity: true } : {}), ...(IDENTITY_BARS[code] ? { barred: IDENTITY_BARS[code] } : {}) };
+  }
+  if (code === 'APPROVAL_INTENT_AMENDMENT_PENDING' || details.pendingIntentAmendments?.length) return details.scopePhase ? { steps: [details.scopePhase] } : null;
+  const renewals = details.testRunRiskRenewals?.map((entry) => entry.phase) ?? (details.testRunRisk ? [details.phase ?? phase.id] : null);
+  if (renewals?.length) return { steps: [...new Set(renewals)], testRun: true };
+  if (code === 'SPEC_COVERAGE_INCOMPLETE' && details.upstreamDecision?.complete === true) {
+    return { steps: [...new Set(details.upstreamDecision.issues.map((entry) => entry.phase))] };
+  }
+  // A risk review needs its delegated group, never an ordinary approver [story-test-risk.mjs].
+  if (['TRP_DOCUMENT_GATE_BLOCKED', 'TRP_PHASE_GATE_BLOCKED'].includes(code)) {
+    const groups = workflow.resolution?.testRecovery?.riskAuthorities ?? [];
+    return groups.length ? { groups: [...groups], riskReview: true } : null;
+  }
+  if (code === 'PHASE_APPEAL_REVIEW_REQUIRED') return { plan: true };
+  return null;
+}
+
+/** Who clears a hold, in words true for anyone reading it: the surfaces that show this do not know who is looking. */
+function holdWho(owner, clearedBy, workflow, route, code) {
+  if (/^singularity-flow decision plan /u.test(route?.command ?? '') || clearedBy?.plan) return 'An approver of the plan decides';
+  if (LISTED_HOLDS.includes(code)) return 'The decision list names who decides each';
+  if (owner !== 'someone-decides' || !clearedBy) return OWNER_WORDS[owner];
+  if (clearedBy.riskReview) return 'A risk reviewer of this Story decides';
+  const steps = clauseList(clearedBy.steps.map((id) => workflow.phases?.[id]?.label ?? id));
+  if (clearedBy.barred === 'author') return `An approver of ${steps} other than its author decides`;
+  return `${clearedBy.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
+}
+
 /** One hold as every surface shows it: who clears it, what it says (a line, and the whole message when that is more) and its route. */
 export function approvalHold(error, workflow, phase) {
   const owner = approvalHoldOwner(error);
   const route = holdRoute(error, owner, workflow, phase);
+  const clearedBy = holdClearedBy(error, workflow, phase);
   const message = String(error.message ?? '').replaceAll('<WORK-ID>', workflow.workItem.id);
   const summary = holdSummary(message);
   return {
     // The plan's approvers account for a changed path, and this person may be one: "someone else" told a sole approver to wait for nobody.
-    code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner,
-    who: /^singularity-flow decision plan /u.test(route?.command ?? '') ? 'An approver of the plan decides' : OWNER_WORDS[owner],
-    summary,
+    code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner, who: holdWho(owner, clearedBy, workflow, route, error.code), summary,
     ...(message.slice(0, MAX_HOLD_MESSAGE) !== summary ? { message: message.slice(0, MAX_HOLD_MESSAGE) } : {}),
+    ...(clearedBy ? { clearedBy } : {}),
     ...(route ? { action: route } : {}),
     ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {})
   };

@@ -2103,6 +2103,40 @@ test('a nonzero test process retains this run passing report counts but still fa
   assert.equal(context.phase.deliveryEvidence, undefined);
 });
 
+test('a run that exits 1 with every test passed because a test file failed to load fails, and says which file and why', async (t) => {
+  const context = await codeFixture('suite-load-failure', { acceptance: false, configuredResult: { adapter: 'vitest-json', path: '.sflow/results/unit.json', minimumDiscovered: 1 } });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'a.test.js'), "test('ok', () => {});\n");
+  await writeFile(path.join(context.root, 'src', 'test', 'app.spec.js'), "import { test } from '@playwright/test';\ntest('home', () => {});\n");
+  // The shape real Vitest 4 writes when it collects a Playwright spec.
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    `writeFileSync('.sflow/results/unit.json', ${JSON.stringify(JSON.stringify({
+      numTotalTestSuites: 2, numFailedTestSuites: 1, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numPendingTests: 0, success: false,
+      testResults: [
+        { assertionResults: [], status: 'failed', message: 'Playwright Test did not expect test() to be called here.\nMost common reasons include:', name: `${context.root}/src/test/app.spec.js` },
+        { assertionResults: [{ ancestorTitles: [], fullName: 'ok', status: 'passed', title: 'ok', failureMessages: [] }], status: 'passed', message: '', name: `${context.root}/src/test/a.test.js` }
+      ] }))});`,
+    'process.exit(1);', ''
+  ].join('\n'));
+  await assert.rejects(() => inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  )), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED', error.message);
+    assert.match(error.message, /this runner collected a test file written for another runner in src\/test\/app\.spec\.js/u);
+    const execution = refusalEnvelope(error, ['phase', 'publish', 'implementation', '--json']).error.requiredTestExecution;
+    assert.equal(execution.failure.kind, 'suite-failed');
+    assert.equal(execution.report.failedSuites, 1);
+    assert.deepEqual(execution.report.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+    assert.match(execution.report.failureExamples[0], /^app\.spec\.js: Playwright Test did not expect test\(\)/u);
+    return true;
+  });
+  assert.equal(context.phase.generation, 0, 'the exit code rules, though every counted test passed');
+  assert.equal(context.phase.deliveryEvidence, undefined);
+});
+
 test('an old report is restored but never attributed to a run that emitted none', async (t) => {
   const context = await codeFixture('previous-report-not-current', { trackedResult: true });
   t.after(() => rm(context.root, { recursive: true, force: true }));

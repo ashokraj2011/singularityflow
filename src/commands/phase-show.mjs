@@ -18,8 +18,9 @@ export async function phaseShowCommand(positionals, options) {
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const phase = workflow.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-  const review = await measureCommandSpan('phase.review', () => phaseReview(root, definition, workflow, phase, { includeContinuation: true }));
   if (optionBoolean(options, 'for-agent') && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent requires --json.');
+  // No agent reads the step sheet yet (study 6.6, S3), so it costs an agent's review no read of the list.
+  const review = await measureCommandSpan('phase.review', () => phaseReview(root, definition, workflow, phase, { includeContinuation: true, includeSheet: !optionBoolean(options, 'for-agent') }));
   if (optionBoolean(options, 'for-agent')) {
     const { agentJson, phaseReviewAgentPresentation } = await import('../agent-packet-presentation.mjs');
     console.log(agentJson(phaseReviewAgentPresentation(review)));

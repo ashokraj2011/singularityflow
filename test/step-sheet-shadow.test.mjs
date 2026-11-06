@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -347,4 +348,53 @@ test('VS Code reads the sheet: who clears a hold for the person looking, a way o
   const html = approvalHoldsHtml(views);
   assert.match(html, /<strong>Say where src\/a\.mjs belongs<\/strong>/u);
   assert.equal(sheetHolds({ schema: 'something-else', holds: [] }), null, 'an older CLI\'s result reads as before');
+});
+
+test('where a step names a turn, that turn\'s guard admits the command, filled in as the person would', async (t) => {
+  const { recordRepositoryBoundaryTurn, repositoryToolGuard } = await import('../src/copilot-repository-boundary.mjs');
+  const { captureMutationTurn } = await import('../src/copilot-mutation-guard.mjs');
+  const { mkdtemp, realpath } = await import('node:fs/promises');
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-sheet-guard-')));
+  const root = path.join(directory, 'repository');
+  await mkdir(root);
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(directory, 'machine', 'mode.json');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE; else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
+    await rm(directory, { recursive: true, force: true });
+  });
+  const git = (args) => { const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); };
+  git(['init', '-q']); git(['config', 'user.name', 'Sheet Tester']); git(['config', 'user.email', 'sheet@example.test']);
+  const definition = { workItemRoot: 'singularity/work-items', governance: { protectedPaths: ['policy'] } };
+  const workflow = story();
+  await mkdir(path.join(root, definition.workItemRoot, 'W-1'), { recursive: true });
+  await writeFile(path.join(root, definition.workItemRoot, 'W-1', 'workflow.json'), JSON.stringify(workflow));
+  git(['add', 'singularity']); git(['commit', '-qm', 'fixture']);
+  const accepted = { definition, workflow };
+  const sessions = new Map();
+  const turn = async (prompt) => {
+    if (!sessions.has(prompt)) {
+      const payload = { cwd: root, sessionId: `sheet-${prompt}`, prompt };
+      await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record, { resolveRoot: async () => root, load: async () => accepted }) });
+      sessions.set(prompt, payload);
+    }
+    return sessions.get(prompt);
+  };
+  const filled = (step) => step.fills.reduce((command, fill) => command.replaceAll(`{${fill.name}}`,
+    fill.kind === 'choice' ? fill.options[0].id : fill.name === 'reason' ? '"A reason the person gave here."' : fill.name), step.command);
+  const refused = [];
+  const named = new Set();
+  for (const [code, details] of [...Object.keys(APPROVAL_HOLD_OWNERS).map((entry) => [entry, {}]), ...SHAPES]) {
+    const hold = approvalHold(new SingularityFlowError(`${code} refused.`, { code, details }), workflow, workflow.phases.implementation);
+    const check = { ready: hold.owner === 'you-decide', holds: [hold] };
+    const packet = decisionPacket(workflow, { phaseId: 'implementation', pending: {}, approvalCheck: check }, { authorities: AUTHORITIES, actor: ME, at: AT });
+    const sheet = stepSheet(workflow, packet, { approvalCheck: check, authorities: AUTHORITIES, actor: ME });
+    for (const step of sheet.holds.flatMap((entry) => entry.steps).filter((entry) => entry.where.copilot)) {
+      named.add(step.where.copilot.split(' ')[0]);
+      const decision = await repositoryToolGuard({ ...await turn(step.where.copilot), toolName: 'bash', toolArgs: { command: filled(step), cwd: root } });
+      if (decision.permissionDecision === 'deny') refused.push(`${code}: ${step.where.copilot}: ${step.command}: ${String(decision.permissionDecisionReason).slice(0, 90)}`);
+    }
+  }
+  assert.ok(named.has('/sf-decide') && named.has('/sf-recover'), JSON.stringify([...named]));
+  assert.deepEqual([...new Set(refused)], []);
 });

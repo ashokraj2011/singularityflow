@@ -50,15 +50,15 @@ async function submittedAttribution(root, config, workflow, phase) {
 }
 
 /** The approval check, and the step sheet built on it for the step that is current. */
-async function reviewAdvisories(root, config, workflow, phase) {
+async function reviewAdvisories(root, config, workflow, phase, includeSheet) {
   const advisories = await (await import('../../approval-check.mjs')).approvalAdvisories(root, config, workflow, phase) ?? {};
-  if (phase.id !== workflow.currentPhase) return advisories;
+  if (!includeSheet || phase.id !== workflow.currentPhase) return advisories;
   const sheet = await (await import('../../step-sheet.mjs')).readStepSheet(root, config, workflow, { phaseId: phase.id,
     ...(phase.status === 'awaiting_approval' ? { approvalCheck: advisories.approvalCheck ?? null } : {}) });
   return { ...advisories, ...(sheet ? { sheet } : {}) };
 }
 
-export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true } = {}) {
+export async function phaseReview(root, config, workflow, phase, { includeContinuation = false, includeApprovalCheck = true, includeSheet = false } = {}) {
   const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
   const records = documentRead.records
     .filter((record) => ['artifact', 'agent-brief'].includes(record.type)
@@ -213,7 +213,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       return prompt ? { approvalChecklist: prompt } : {};
     }) : {}),
     // Whether approval would pass, and the commits it would refuse for; advisory, the gate decides.
-    ...(includeApprovalCheck ? await reviewAdvisories(root, config, workflow, phase) : {}),
+    ...(includeApprovalCheck ? await reviewAdvisories(root, config, workflow, phase, includeSheet) : {}),
     documents,
     upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
     upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({ id: issue.id, phase: issue.phase, about: issue.about,

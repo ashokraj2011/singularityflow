@@ -15,10 +15,13 @@
  * changed test files for focused tests, and the base commit's scripts and test files.
  *
  * Narrowing is what the Story adds (owner decision, 2026-10-25): a filter already in the same script
- * on the Story's base commit, or a focused test already in the base version of a test file, is the
+ * on the Story's base commit (one a guessed command carries in its argv, in every script that has it
+ * now), or a focused test already in the base version of a test file, is the
  * team's own setup, recorded as `standing` and never a reason; skipped tests are a reason only when
  * the Story's changed test files add skip markers or a run skips more than the pin's first passing run.
  */
+import path from 'node:path';
+
 import { committedFilesAtRevisions } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { recordSha256 } from './records.mjs';
@@ -176,6 +179,13 @@ function baseScripts(texts, scripts) {
   });
 }
 
+/** The scripts of a package.json's text, by name. */
+function packageScripts(text) {
+  let parsed = null;
+  try { parsed = JSON.parse(text ?? 'null'); } catch { /* not readable there: it has none */ }
+  return new Map(Object.entries(parsed?.scripts ?? {}).filter(([, script]) => typeof script === 'string'));
+}
+
 /**
  * What a gate knows before a command runs: the filters and focused tests this Story added (those already
  * on the base commit are `standing`), the skip markers its changed test files added, and the pin's baseline.
@@ -183,10 +193,23 @@ function baseScripts(texts, scripts) {
 export async function narrowingFacts(root, command, { scripts = [], testPaths = [], baseline = null, inferred = false, baseCommit = null } = {}) {
   const tests = testPaths.filter((file) => covered(file, command.affectedRoots));
   const scriptFiles = scripts.map((script) => String(script.source ?? '').split('#scripts.')[0]).filter((file) => file && file !== 'argv');
-  const base = baseTexts(root, baseCommit, [...scriptFiles, ...tests.filter((file) => JAVASCRIPT.test(file) || /\.(?:py|java|kt|cs|go)$/iu.test(file))]);
+  const filters = commandFilters(command.argv, scripts, { inferred });
+  // A guessed command that runs a script's runner alone carries that script's own filters in its argv.
+  const carried = inferred ? filters.filter((filter) => filter.source === 'argv') : [];
+  const manifest = carried.length ? path.posix.join(command.workingDirectory ?? '.', 'package.json') : null;
+  const base = baseTexts(root, baseCommit, [...scriptFiles, ...(manifest ? [manifest] : []),
+    ...tests.filter((file) => JAVASCRIPT.test(file) || /\.(?:py|java|kt|cs|go)$/iu.test(file))]);
   const standingFilters = new Set(baseCommit ? commandFilters(command.argv, baseScripts(base, scripts), { inferred })
     .filter((filter) => filter.source !== 'argv').map(filterAt) : []);
-  const filters = commandFilters(command.argv, scripts, { inferred });
+  if (base.has(manifest)) {
+    const before = packageScripts(base.get(manifest));
+    const now = packageScripts(await readRepositoryManifest(root, manifest, { maxBytes: MAX_SOURCE_BYTES }).then(({ bytes }) => bytes.toString('utf8')).catch(() => null));
+    const has = (text, filter) => commandFilters([], [{ source: 'argv', text }], { inferred }).some((entry) => filterAt(entry) === filterAt(filter));
+    for (const filter of carried) {
+      const carriers = [...now].filter(([, text]) => has(text, filter));
+      if (carriers.length && carriers.every(([name]) => before.has(name) && has(before.get(name), filter))) standingFilters.add(filterAt(filter));
+    }
+  }
   const focused = await focusedTests(root, tests);
   const standingFocus = new Set(tests.flatMap((file) => (base.has(file) && JAVASCRIPT.test(file) ? focusedDeclarations(base.get(file)) : [])
     .map((entry) => `${file}|${entry.name ?? ''}`)));

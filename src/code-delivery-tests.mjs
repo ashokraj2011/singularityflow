@@ -400,6 +400,7 @@ async function mavenReactorDeclares(root, reactorRoot, below) {
 export async function inferModuleTestCommand(root, module, {
   platform = process.platform,
   nodeScript = 'test',
+  scriptAlone = false,
   unitOnly = false
 } = {}) {
   const cwd = module.root === '.' ? '' : module.root;
@@ -454,7 +455,7 @@ export async function inferModuleTestCommand(root, module, {
       const manifestPath = path.posix.join(cwd, 'package.json');
       const manifest = parseTestManifest((await readRepositoryManifest(root, manifestPath)).bytes.toString('utf8'), manifestPath);
       const [command] = await (await import('./test-module-markers.mjs')).nodeTestCommands(root, module, {
-        manager: await nodePackageManager(root, module.root, manifest), unitOnly, nodeScript
+        manager: await nodePackageManager(root, module.root, manifest), unitOnly, nodeScript, scriptAlone
       });
       // An Nx project with a package.json of its own still runs its tests through Nx.
       return command ?? (await exists(path.join(root, cwd, 'project.json')) ? nxTestCommand(root, module.root, { unitOnly, nodeScript }) : null);

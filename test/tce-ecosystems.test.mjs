@@ -178,6 +178,40 @@ test('Node: each runner and level is its own command, found by its runner, and c
   assert.equal(testCommandCoversPath({ ...cypressCommand, provenance: 'inferred' }, 'tools/seed.py'), false);
 });
 
+test('Node: a script through bare npx keeps what it selects: its config runs directly with the same arguments, never through npx', async (t) => {
+  const dependencies = { '@playwright/test': '1.48.0' };
+  const run = async (scripts, files = { 'playwright.config.ts': 'export default {};\n' }) => shape(await moduleTestCommands(await repository(t, { 'package.json': { scripts, devDependencies: dependencies }, ...files }), node()))[0]?.[1];
+  assert.equal(await run({ 'test:e2e': 'npx playwright test --project=chromium' }), 'npx --no-install playwright test --project=chromium --reporter=json');
+  assert.equal(await run({ 'test:e2e': 'npx playwright test --project chromium e2e/smoke' }), 'npx --no-install playwright test --project chromium e2e/smoke --reporter=json');
+  assert.equal(await run({ 'test:e2e': 'npx playwright test' }), 'npx --no-install playwright test --reporter=json');
+  // How it reports or how fast it goes is not what it selects, and a run that is not a gate's selects nothing.
+  assert.equal(await run({ 'test:e2e': 'npx playwright test --workers=2 --reporter=line' }), 'npx --no-install playwright test --reporter=json');
+  assert.equal(await run({ 'test:ui': 'npx playwright test --ui --project=chromium' }), 'npx --no-install playwright test --reporter=json');
+  // Only the config the script names takes its arguments.
+  assert.equal(await run({ 'test:e2e': 'npx playwright test -c playwright.e2e.config.ts --project=a' }, { 'playwright.e2e.config.ts': 'export default {};\n' }),
+    'npx --no-install playwright test --config=playwright.e2e.config.ts --project=a --reporter=json');
+  // With no config SFlow can see, bare npx stays refused: it would download a runner it cannot pin.
+  assert.equal(await run({ 'test:e2e': 'npx playwright test --project=chromium' }, {}), undefined);
+  // A whole run beside a narrower one stands for it; two narrower ones are the ambiguity they always were.
+  assert.equal(await run({ e2e: 'npx playwright test', 'e2e:a': 'npx playwright test --project=a' }), 'npx --no-install playwright test --reporter=json');
+  const both = await repository(t, { 'package.json': { scripts: { 'e2e:a': 'npx playwright test --project=a', 'e2e:b': 'npx playwright test --project=b' }, devDependencies: dependencies },
+    'playwright.config.ts': 'export default {};\n' });
+  await assert.rejects(moduleTestCommands(both, node()), (error) => error.code === 'TEST_MODULE_AMBIGUOUS' && error.details.scripts.join() === 'e2e:a,e2e:b');
+});
+
+test('Node: Vitest with its own console reporter runs with both; one that writes a file stays out, since it would take SFlow\'s --outputFile', async (t) => {
+  const run = async (test) => shape(await moduleTestCommands(await repository(t, { 'package.json': { scripts: { test }, devDependencies: { vitest: '4.0.0' } } }), node()))[0]?.[1];
+  const report = '--reporter=json --outputFile=.sflow/results/node-tests.json';
+  assert.equal(await run('vitest run --reporter=verbose'), `npm test -- ${report}`);
+  assert.equal(await run('vitest run --reporter verbose'), `npm test -- ${report}`);
+  assert.equal(await run('vitest run --reporter=dot --coverage'), `npm test -- ${report}`);
+  // Real Vitest 4 writes both to the one file, and the report reads as neither.
+  for (const script of ['vitest run --reporter=junit', 'vitest run --reporter junit', 'vitest run --reporter=html', 'vitest run --reporter=./custom.js',
+    'vitest run --reporter=json --outputFile=out.json', 'vitest run --reporter=junit --outputFile.junit=out.xml', 'vitest run --reporter=verbose --ui']) {
+    assert.equal(await run(script), undefined, script);
+  }
+});
+
 const playwrightReport = (tests) => JSON.stringify({
   config: { rootDir: '/checkout/web/e2e' },
   suites: [{ title: 'cart.spec.ts', file: 'cart.spec.ts', line: 0, column: 0, specs: [], suites: [{ title: 'cart', file: 'cart.spec.ts', line: 3, column: 6,

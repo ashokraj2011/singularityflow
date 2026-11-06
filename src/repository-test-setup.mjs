@@ -77,7 +77,7 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
         const moduleRoot = error.details?.directory ?? directory;
         for (const script of error.details?.scripts ?? []) {
           let command = null;
-          try { command = await inferModuleTestCommand(root, { root: moduleRoot, system: 'node', manifest: 'package.json' }, { platform, nodeScript: script }); }
+          try { command = await inferModuleTestCommand(root, { root: moduleRoot, system: 'node', manifest: 'package.json' }, { platform, nodeScript: script, scriptAlone: true }); }
           catch { /* that script alone cannot be inferred either; the diagnostic says why */ }
           if (!command) continue;
           const id = `${moduleRoot === '.' ? '' : `${moduleRoot.replaceAll('/', '-')}-`}${script}-tests`;

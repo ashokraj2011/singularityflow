@@ -3,12 +3,17 @@
  * and how it replays. The whole-Story walks are test/test-narrowing-flow.
  */
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
-  commandFilters, focusedDeclarations, gateNarrowing, narrowingCovers, observedNarrowing, recordTestNarrowing,
+  commandFilters, focusedDeclarations, gateNarrowing, narrowingCovers, narrowingFacts, observedNarrowing, recordTestNarrowing,
   recordTestNarrowingRevocation, testNarrowingBinding, testNarrowingReplayProblem
 } from '../src/test-narrowing.mjs';
+import { run } from '../src/util.mjs';
 
 const at = '2026-10-25T10:00:00.000Z';
 const pin = { sha256: `sha256:${'a'.repeat(64)}` };
@@ -39,6 +44,33 @@ test('skips the team already had are no narrowing; skip markers the Story added,
   const standing = { filters: [{ option: '--project', value: 'chromium', source: 'web/package.json#scripts.e2e:ci' }], focused: [] };
   const team = observedNarrowing(facts({ standing }), { discovered: 3, skipped: 0 });
   assert.deepEqual([team.reasons, team.standing], [[], standing]);
+});
+
+test('a guessed command that carries its script\'s filter in argv is the team\'s narrowing when a script on the base commit has it', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-narrowing-argv-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  const commit = (scripts) => {
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts }));
+    run('git', ['add', '-A'], { cwd: root });
+    run('git', ['-c', 'user.name=Narrowing Test', '-c', 'user.email=narrowing@example.test', 'commit', '-qm', 'fixture'], { cwd: root });
+    return run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  };
+  const command = { workingDirectory: '.', affectedRoots: ['.'], argv: ['npx', '--no-install', 'playwright', 'test', '--project=chromium', '--reporter=json'] };
+  const whole = commit({ 'test:e2e': 'npx playwright test' });
+  const beside = commit({ 'test:e2e': 'npx playwright test', 'e2e:one': 'npx playwright test --project=chromium' });
+  const carried = commit({ 'test:e2e': 'npx playwright test --project=chromium' });
+  const on = (baseCommit, inferred = true) => narrowingFacts(root, command, { inferred, baseCommit });
+  const standing = await on(carried);
+  assert.deepEqual(standing.filters, [], 'already on the base commit');
+  assert.deepEqual(standing.standing.filters.map((filter) => [filter.option, filter.value]), [['--project', 'chromium']]);
+  assert.deepEqual((await on(whole)).filters.map((filter) => [filter.option, filter.value, filter.source]), [['--project', 'chromium', 'argv']], 'added since the base commit');
+  assert.deepEqual((await on(beside)).filters.map((filter) => filter.option), ['--project'], 'another script having it does not make this one the team\'s');
+  assert.deepEqual((await on(null)).filters.map((filter) => filter.option), ['--project'], 'no base commit, nothing stands');
+  assert.deepEqual((await narrowingFacts(root, { ...command, argv: [...command.argv, '-g', 'cart'] }, { inferred: true, baseCommit: carried })).filters.map((filter) => filter.option),
+    ['-g'], 'only what the base commit had stands');
+  assert.deepEqual((await narrowingFacts(root, { ...command, argv: ['npx', '--no-install', 'playwright', 'test', '-g', 'cart'] }, { inferred: false, baseCommit: carried })).filters.map((filter) => filter.option),
+    ['-g'], 'a written command stands for itself');
 });
 
 test('focused declarations are found in code, not in comments or strings', () => {

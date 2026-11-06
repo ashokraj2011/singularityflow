@@ -145,6 +145,19 @@ test('two runners with different configurations are each suggested; the gate sti
   await assert.rejects(inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' }), { code: 'TEST_MODULE_AMBIGUOUS' });
 });
 
+test('the test script itself is suggested when two scripts are ambiguous, not only the other one', async t => {
+  const root = await fixture(t);
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run --config a.config.ts', 'test:b': 'vitest run --config b.config.ts' }, devDependencies: { vitest: '4.0.0' } }));
+  await writeFile(path.join(root, 'package-lock.json'), '{}');
+  const inspection = await inspectRepositoryTestSetup(root);
+  assert.deepEqual(inspection.suggestions.map((entry) => [entry.id, entry.argv.slice(0, 3)]), [['test-tests', ['npm', 'test', '--']], ['test:b-tests', ['npm', 'run', 'test:b']]]);
+  assert.notEqual(inspection.suggestions[0].result.path, inspection.suggestions[1].result.path, 'each writes its own report');
+  assert.ok(inspection.diagnostics.some((entry) => entry.code === 'TEST_MODULE_AMBIGUOUS'));
+  // The gate still guesses neither.
+  const { inferModuleTestCommand } = await import('../src/code-delivery-tests.mjs');
+  await assert.rejects(inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' }), { code: 'TEST_MODULE_AMBIGUOUS' });
+});
+
 test('a root with two build systems suggests each one\'s command, and an accepted one covers only its own language', async t => {
   const { testCommandCoversPath } = await import('../src/code-delivery-tests.mjs');
   const { normalizeExternalCommand } = await import('../src/external-command-policy.mjs');

@@ -152,9 +152,21 @@ const EXEC = Object.freeze({ npm: ['npx', '--no-install'], pnpm: ['pnpm', 'exec'
 // Interactive, watching, listing or report-redirecting runs are never a gate's command.
 const NOT_A_GATE = Object.freeze({
   jest: /^--(?:watch|watchAll|json|outputFile|listTests|showConfig)(?:=true)?$/u,
-  vitest: /^(?:-w|--(?:watch|ui|reporter|outputFile)(?:=.*)?|watch|dev|bench|init|list|related)$/u,
+  vitest: /^(?:-w|--(?:watch|ui|reporter|outputFile)(?:[.=].*)?|watch|dev|bench|init|list|related)$/u,
   mocha: /^(?:-w|--watch)$/u, ng: /^--watch(?:=true)?$/u, playwright: /^--(?:ui|debug|list)$/u, cypress: /^$/u
 });
+// Vitest runs every reporter it is given, so one that prints sits beside SFlow's. One that writes a file
+// takes SFlow's --outputFile too, and the report then reads as neither (real Vitest 4 with junit).
+const VITEST_PRINTING_REPORTER = /^(?:default|verbose|dot|tree|basic|tap|tap-flat|json|hanging-process|github-actions)$/u;
+const printingVitestReporter = (args, at) => {
+  const [flag, value] = args[at].split(/=(.*)/su);
+  return flag === '--reporter' && VITEST_PRINTING_REPORTER.test(value ?? args[at + 1] ?? '');
+};
+/** Whether a runner's arguments make a run no gate's: watching, interactive, listing, or redirecting its report. */
+function notAGateRun(runner, args) {
+  return args.some((word, at) => !(runner === 'vitest' && printingVitestReporter(args, at))
+    && (NOT_A_GATE[runner === 'react-scripts' ? 'jest' : runner].test(word) || /^--pass-?[Ww]ith-?[Nn]o-?[Tt]ests$/u.test(word)));
+}
 // How a run reports or how fast it goes, never which tests it selects.
 const MANNER = /^(?:--(?:coverage|ci|runInBand|silent|verbose|colors|no-colors?|headed|forbid-only|bail|detectOpenHandles|forceExit|cache|no-cache|update-snapshots|updateSnapshot|watch|watchAll|progress|no-progress|browsers?|workers|maxWorkers|retries|timeout|max-failures|reporters?|reporter-options?|quiet|record|parallel|exit|recursive)(?:=.*)?|-[iuRO])$/u;
 const VALUED = new Set(['--workers', '--maxWorkers', '--retries', '--timeout', '--max-failures', '--reporter', '--reporters', '--reporter-option', '--reporter-options', '-R', '-O', '-j', '--browser', '--browsers']);
@@ -357,8 +369,7 @@ async function angularBuilder(root, cwd, dependencies, selection) {
 async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
   const { runner, words, index } = step;
   const from = index + (['vitest'].includes(runner) && words[index + 1] === 'run' ? 2 : ['vitest', 'jest', 'mocha', 'node-test'].includes(runner) ? 1 : 2);
-  if (runner !== 'node-test' && words.slice(index + 1).some((word) => NOT_A_GATE[runner === 'react-scripts' ? 'jest' : runner].test(word)
-    || /^--pass-?[Ww]ith-?[Nn]o-?[Tt]ests$/u.test(word))) return null;
+  if (runner !== 'node-test' && notAGateRun(runner, words.slice(index + 1))) return null;
   if (['playwright', 'cypress'].includes(runner) && (step.bareNpx || !Object.keys(dependencies).some((name) => name === runner
     || (runner === 'playwright' && (name === '@playwright/test' || name.startsWith('@playwright/experimental-ct-')))))) return null;
   const { config, selection } = runnerArguments(words, from);
@@ -407,7 +418,7 @@ async function nodeCandidate(root, cwd, step, { manager, dependencies }) {
 }
 
 /** The test commands a Node package declares, one per runner and level (see above); `unitOnly` keeps unit runs that start nothing else. */
-export async function nodeTestCommands(root, module, { manager, unitOnly = false, nodeScript = 'test' } = {}) {
+export async function nodeTestCommands(root, module, { manager, unitOnly = false, nodeScript = 'test', scriptAlone = false } = {}) {
   const cwd = module.root === '.' ? '' : module.root;
   const manifestPath = path.posix.join(cwd, 'package.json');
   const manifest = parseTestManifest(await packageText(root, manifestPath) || '{}', manifestPath);
@@ -438,16 +449,23 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
     candidate.skipsSetup = skippedSetup(step, candidate.invokes, nodeScript, scripts, steps);
     candidates.push(candidate);
   }
-  // A Playwright config no script runs is run directly, by its name when that is not the default.
+  // A Playwright config no script runs is run directly, by its name when that is not the default. A script
+  // that runs it through bare npx is never run as written (npx may download a runner), but still says which tests.
   if (EXEC[manager] && Object.keys(dependencies).some((name) => name === 'playwright' || name.startsWith('@playwright/'))) {
     let names = [];
     try { names = (await readdir(path.join(root, cwd || '.'))).filter((name) => PLAYWRIGHT_CONFIG.test(name)).sort(); } catch { /* none */ }
+    const bareRuns = [...byStep.values()].filter((step) => step.runner === 'playwright' && step.bareNpx && !hook(step.script) && !notAGateRun('playwright', step.words.slice(step.index + 1)))
+      .map((step) => ({ step, ...runnerArguments(step.words, step.index + 2) }));
     for (const name of names) {
       const level = (await packageText(root, path.posix.join(cwd, name))).includes('@playwright/experimental-ct-') ? 'component' : 'e2e';
       if (candidates.some((candidate) => candidate.runner === 'playwright' && candidate.level === level)) continue;
-      const explicit = /^playwright\.config\.[cm]?[jt]s$/u.test(name) ? [] : [`--config=${name}`];
-      candidates.push({ level, runner: 'playwright', script: null, config: name, selection: [], adapter: 'playwright-json', scriptless: true,
-        step: { entries: new Set(), script: name }, build: () => [...EXEC[manager], 'playwright', 'test', ...explicit, '--reporter=json'] });
+      const standard = /^playwright\.config\.[cm]?[jt]s$/u.test(name);
+      const explicit = standard ? [] : [`--config=${name}`];
+      const runs = bareRuns.filter(({ config }) => (config ? config.replace(/^\.\//u, '') === name : standard));
+      for (const { step, selection } of runs.length ? runs : [{ step: null, selection: [] }]) {
+        candidates.push({ level, runner: 'playwright', script: step?.script ?? null, config: name, selection, adapter: 'playwright-json', scriptless: true,
+          step: { entries: step?.entries ?? new Set(), script: step?.script ?? name }, build: () => [...EXEC[manager], 'playwright', 'test', ...explicit, ...selection, '--reporter=json'] });
+      }
     }
   }
   // Readiness's unit-only run starts one unit runner and nothing else: never a browser suite, a build or
@@ -459,7 +477,7 @@ export async function nodeTestCommands(root, module, { manager, unitOnly = false
   if (unitOnly) candidates.splice(0, candidates.length, ...candidates.filter(unitSafe));
   // A named script is judged by the runners it reaches. Other scripts' configurations made it ambiguous,
   // so even the inspection that suggests each one refused with the same error (office, 2026-10-29).
-  if (nodeScript !== 'test') candidates.splice(0, candidates.length, ...candidates.filter((candidate) => candidate.step.entries.has(nodeScript)));
+  if (nodeScript !== 'test' || scriptAlone) candidates.splice(0, candidates.length, ...candidates.filter((candidate) => candidate.step.entries.has(nodeScript)));
   // `test` stands for the package; among other scripts, one that skips no setup is chosen over one that would.
   const rank = (candidate) => [candidate.step.entries.has('test') ? 0 : 1, candidate.skipsSetup ? 1 : 0,
     candidate.scriptless ? order.length : order.indexOf(candidate.step.script)];

@@ -71,7 +71,7 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   }).join('')}</select>` : '';
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
   const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label)}.</span> <span class="muted">This one stays in your terminal.</span>
-      <code>${escape(option.action!.command)}</code>
+      <code>${escape(option.action!.command!)}</code>
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   return `<tr data-item="${escape(item.id)}" data-title="${escape(item.title)}">

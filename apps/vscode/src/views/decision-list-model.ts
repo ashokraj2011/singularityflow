@@ -34,7 +34,7 @@ export interface DecisionOptionPacket {
    */
   recordable?: boolean;
   available?: boolean;
-  action?: { command: string; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string } };
+  action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string } };
 }
 
 export interface DecisionItemPacket {

@@ -294,6 +294,20 @@ test('a witness with no file, or nothing published yet, says so', () => {
   assert.match(unpublished.why, /It cannot be signed off yet: nothing has published shots\/home\.png for AC-001\. Implementation publishes it with its delivery; sign it off after that\./u);
   assert.equal(unpublished.options[0].available, false);
   assert.equal(unpublished.options[0].action.humanReview, undefined, 'no review is opened for what its command would refuse');
+  assert.equal(unpublished.options[0].action.command, null, 'and no command is offered that would refuse it');
+  // With nothing else on the list, the next thing is the Story's: a real chat printed "Copilot: no verified equivalent" and the command.
+  const waiting = decisionPacket(workflow, { phaseId: 'implementation', pending: { owed: [{ kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: ['shots/home.png'], owners: ['implementation'],
+    available: false, command: 'singularity-flow decision witness --file shots/home.png' }] } }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  assert.equal(waiting.next.copilotCommand, '/sf-next W-1');
+  assert.equal(waiting.next.command, 'singularity-flow nextsteps W-1 --json');
+  assert.match(waiting.next.notYet, /cannot be signed off yet/u);
+  assert.equal(waiting.record.copilotCommand, null, 'nothing here can be recorded yet');
+  const act = agentAct(waiting);
+  assert.equal(act.state, 'next');
+  assert.equal(act.do.copilot, '/sf-next W-1');
+  assert.match(act.do.shell, /^singularity-flow nextsteps W-1 /u);
+  assert.match(act.said, /Nothing here can be recorded yet\.$/u);
+  assert.doesNotMatch(JSON.stringify([waiting.next, act]), /decision witness/u);
   const lines = owedDecisionLines({ status: 'owed', more: { witnesses: 0, scopeItems: 0 }, scopeItems: [],
     witnesses: [{ clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: ['shots/home.png'], available: false, command: 'c' }, { clauseId: 'W-1:AC-002', slot: 'visual', method: 'visual', files: [], command: 'd' }] });
   assert.match(lines[1], /nothing has published it yet; once its step does, inspect it, then:$/u);

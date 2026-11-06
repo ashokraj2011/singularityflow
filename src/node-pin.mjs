@@ -81,7 +81,8 @@ export async function nodePinOffer(root, commands, { attempts = [], environment 
   // The version file is the answer already, unless it names a Node this machine does not have.
   if (await lstat(path.join(root, NODE_PIN_FILE)).then(() => true, () => false) && !check?.pin?.replaces) return null;
   const failed = latestFailed(attempts, new Set(nodeCommands.map((command) => command.id)));
-  if (check) return { ...check.pin, running: check.node, words: check.words, stage: failed ? 'failed' : 'early', commandId: failed?.commandId ?? nodeCommands[0].id };
+  // A note may end on a command, with no full stop; here more words follow it.
+  if (check) return { ...check.pin, running: check.node, words: /[.!?]$/u.test(check.words) ? check.words : `${check.words}.`, stage: failed ? 'failed' : 'early', commandId: failed?.commandId ?? nodeCommands[0].id };
   if (!failed || !runtimeCause(failed.cause)) return null;
   const { installedNodeVersions } = await import('./project-node-version.mjs');
   const running = await nodeVersion('node', { cwd: root, environment }).catch(() => null);

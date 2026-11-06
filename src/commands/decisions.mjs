@@ -227,7 +227,7 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       if (!item.decidedBy.allowed) continue;
       // Only the person's own steps: nothing to choose here, so each command is shown, not asked.
       if (item.options.every((option) => option.recordable === false)) {
-        for (const option of item.options.filter((entry) => entry.action)) say(`   Run it yourself: ${option.action.command}`);
+        for (const option of item.options.filter((entry) => entry.action?.command)) say(`   Run it yourself: ${option.action.command}`);
         continue;
       }
       const skip = item.options.length + 1;
@@ -243,7 +243,7 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       if (chosen === skip) continue;
       const option = item.options[chosen - 1];
       if (option.recordable === false) {
-        say(`   ${option.words}${option.action ? ` Run it yourself: ${option.action.command}` : ''}`);
+        say(`   ${option.words}${option.action?.command ? ` Run it yourself: ${option.action.command}` : ''}`);
         continue;
       }
       if (!option.decidedBy.allowed) {

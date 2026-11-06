@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { skillForCommandLine } from './command-skills.mjs';
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
 import { scopeStepOf } from './phase-roles.mjs';
 import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -610,20 +611,23 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
 }
 
 /**
- * Who can clear each refusal approval can raise [SPEC-OAP M1]: the approver now (`you-decide`),
- * another person or group (`someone-decides`), the author with a fresh submission (`author-repairs`),
- * Singularity Flow itself (`machine`), or whoever works in this checkout (`this-checkout`). Every code
- * the gate throws is listed; the guard in test/oap-m1-approval-check.test.mjs fails on a new one. A
- * code not listed here is `unknown`: nothing about it says who clears it, so nothing claims to.
+ * Who can clear each refusal approval can raise [SPEC-OAP M1]: the approver in the approval itself
+ * (`you-decide`: only answers its form takes), another person or group (`someone-decides`), the author
+ * with a fresh submission (`author-repairs`), Singularity Flow itself (`machine`), or whoever works in
+ * this checkout (`this-checkout`). Every code the gate throws is listed; the guard in
+ * test/oap-m1-approval-check.test.mjs fails on a new one. A code not listed here is `unknown`: nothing
+ * about it says who clears it, so nothing claims to.
  */
 export const APPROVAL_HOLD_OWNERS = Object.freeze({
-  ARA_REVIEW_REQUIRED: 'you-decide',
-  ARA_EVIDENCE_UNAVAILABLE: 'you-decide',
-  ARA_REVIEW_STALE: 'you-decide',
+  // A review, an agent selection and an acknowledgement are steps of their own, so none is answered in
+  // the approval: as `you-decide` they said ready, Approve was offered and the gate refused.
+  ARA_REVIEW_REQUIRED: 'someone-decides',
+  ARA_EVIDENCE_UNAVAILABLE: 'someone-decides',
+  ARA_REVIEW_STALE: 'someone-decides',
   STORY_ARCHIVED_BY_REBUILD: 'someone-decides',
-  READ_ONLY_AGENT_CANNOT_MUTATE: 'you-decide',
-  SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'you-decide',
-  INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'you-decide',
+  READ_ONLY_AGENT_CANNOT_MUTATE: 'this-checkout',
+  SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'this-checkout',
+  INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'someone-decides',
   SOURCE_REVIEW_AUTHOR_COLLISION: 'author-repairs',
   TCA_AMENDMENT_STALE: 'machine',
   STORY_PUBLICATION_PENDING: 'machine',
@@ -673,12 +677,13 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
 });
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);
 const CANNOT_SAY = 'Singularity Flow cannot say who clears this';
+/** Every kind of party a hold can be cleared by; `clearedBy.kind` is always one of them. */
+export const HOLD_PARTY_KINDS = Object.freeze(['approvers', 'anyone', 'listed', 'author', 'sflow', 'viewer-form', 'checkout', 'nobody']);
 const SET_ASIDE_WORDS = 'A person looks at these changes and sets them aside with the set-aside-worktree route recovery returns (a private copy is kept), or moves them out of the checkout. Nothing needs rejecting.';
 const MAX_HOLD_MESSAGE = 4000;
-// Every surface shows these to whoever is looking, so each is true for any reader.
-const OWNER_WORDS = Object.freeze({ 'you-decide': 'You decide', 'someone-decides': CANNOT_SAY,
-  'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it',
-  'this-checkout': 'Whoever works in this checkout clears it', unknown: CANNOT_SAY });
+// Who an owner class names when the refusal says no more than that.
+const OWNER_PARTY = Object.freeze({ 'you-decide': 'viewer-form', 'someone-decides': 'nobody', 'author-repairs': 'author',
+  machine: 'sflow', 'this-checkout': 'checkout', unknown: 'nobody' });
 
 /** Who clears a refusal, by its code and what it says: a pending amendment or a lapsed test-run risk waits for a person. */
 export function approvalHoldOwner(error) {
@@ -737,12 +742,8 @@ const LISTED_HOLDS = Object.freeze(['DECISION_REQUIRED', 'CONFORMANCE_BLOCKING_V
 const IDENTITY_BARS = Object.freeze({ APPROVAL_IDENTITY_NOT_AUTHORIZED: null, APPROVAL_IDENTITY_MISSING: null,
   APPROVAL_IDENTITY_ALREADY_RECORDED: 'recorded', APPROVAL_SELF_APPROVAL_PROHIBITED: 'author' });
 
-/**
- * Whose decision a hold is, from the refusal's own facts: the steps whose approvers clear it, the
- * groups it names and the people they list. The decision list adds whether the person looking is one
- * of them. Null when the refusal says nothing about who.
- */
-function holdClearedBy(error, workflow, phase) {
+/** Whose decision a hold is, from what the refusal itself says: the steps whose approvers clear it, the groups it names and the people they list. Null when it says nothing. */
+function refusalParty(error, workflow, phase) {
   const details = error.details ?? {};
   const code = String(error.code ?? '');
   if (Object.hasOwn(IDENTITY_BARS, code)) {
@@ -761,18 +762,40 @@ function holdClearedBy(error, workflow, phase) {
     return groups.length ? { groups: [...groups], riskReview: true } : null;
   }
   if (code === 'PHASE_APPEAL_REVIEW_REQUIRED') return { plan: true };
+  // An application review is taken by its step's approvers [application-review.mjs reviewAuthority].
+  if (code.startsWith('ARA_')) return { steps: [phase.id] };
   return null;
 }
 
-/** Who clears a hold, in words true for anyone reading it: the surfaces that show this do not know who is looking. */
-function holdWho(owner, clearedBy, workflow, route, code) {
-  if (/^singularity-flow decision plan /u.test(route?.command ?? '') || clearedBy?.plan) return 'An approver of the plan decides';
-  if (LISTED_HOLDS.includes(code)) return 'The decision list names who decides each';
-  if (owner !== 'someone-decides' || !clearedBy) return OWNER_WORDS[owner];
-  if (clearedBy.riskReview) return 'A risk reviewer of this Story decides';
-  const steps = clauseList(clearedBy.steps.map((id) => workflow.phases?.[id]?.label ?? id));
-  if (clearedBy.barred === 'author') return `An approver of ${steps} other than its author decides`;
-  return `${clearedBy.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
+/**
+ * Who clears a hold, on every hold [study 6.1]: its `kind`, always one of HOLD_PARTY_KINDS, and what
+ * the refusal says of them. The decision list adds whether the person looking is one of them. A kind
+ * of `nobody` says Singularity Flow does not know; nothing fills that in with a guess.
+ */
+function holdClearedBy(error, owner, workflow, phase, route) {
+  if (/^singularity-flow decision plan /u.test(route?.command ?? '')) return { kind: 'approvers', planRoute: true };
+  if (LISTED_HOLDS.includes(error.code)) return { kind: 'listed' };
+  // Whoever is on the Story acknowledges an approved amendment; the list says the same of it.
+  if (error.code === 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED') return { kind: 'anyone' };
+  const party = refusalParty(error, workflow, phase);
+  if (party?.plan) return { kind: 'approvers', ...party };
+  return owner === 'someone-decides' && party ? { kind: 'approvers', ...party } : { kind: OWNER_PARTY[owner] };
+}
+
+/**
+ * The one place a hold's party becomes words, true for anyone reading it: the surfaces that show
+ * this do not know who is looking. Nothing writes these from a refusal's code.
+ */
+export function partyWords(party, workflow) {
+  if (party.kind === 'approvers') {
+    if (party.plan || party.planRoute) return 'An approver of the plan decides';
+    if (party.riskReview) return 'A risk reviewer of this Story decides';
+    const steps = clauseList((party.steps ?? []).map((id) => workflow.phases?.[id]?.label ?? id));
+    if (party.barred === 'author') return `An approver of ${steps} other than its author decides`;
+    return `${party.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
+  }
+  return ({ anyone: 'Anyone on this Story may do this', listed: 'The decision list names who decides each', author: 'The author revises it',
+    sflow: 'Singularity Flow finishes it', 'viewer-form': 'You decide', checkout: 'Whoever works in this checkout clears it' })[party.kind] ?? CANNOT_SAY;
 }
 
 /**
@@ -790,14 +813,14 @@ export function approvalHold(error, workflow, phase) {
   const owner = approvalHoldOwner(error);
   const route = holdRoute(error, owner, workflow, phase);
   const skill = holdRouteSkill(owner, route);
-  const clearedBy = holdClearedBy(error, workflow, phase);
+  const clearedBy = holdClearedBy(error, owner, workflow, phase, route);
   const message = String(error.message ?? '').replaceAll('<WORK-ID>', workflow.workItem.id);
   const summary = holdSummary(message);
   return {
     // The plan's approvers account for a changed path, and this person may be one: "someone else" told a sole approver to wait for nobody.
-    code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner, who: holdWho(owner, clearedBy, workflow, route, error.code), summary,
+    code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner, who: partyWords(clearedBy, workflow), summary,
     ...(message.slice(0, MAX_HOLD_MESSAGE) !== summary ? { message: message.slice(0, MAX_HOLD_MESSAGE) } : {}),
-    ...(clearedBy ? { clearedBy } : {}),
+    clearedBy,
     ...(route ? { action: { ...route, ...(skill ? { skill } : {}) } } : {}),
     ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
     // Only when these paths are all that holds it: then each is a choice, not a repair.
@@ -865,6 +888,15 @@ async function worktreeRefusals(root, config, workflow) {
 }
 
 /**
+ * A read-only agent selected in this checkout holds nothing back when the step's own author is not:
+ * approve selects that author before the gate runs (decisionWorkflow), so the gate never sees it.
+ */
+function doorSelectsAnotherAgent(error, config, workflow, phase) {
+  return ['READ_ONLY_AGENT_CANNOT_MUTATE', 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE'].includes(error.code)
+    && !phaseAgentMutationRestriction(config, workflow, phase, { agent: phase.defaultAgent ?? null }, 'approve');
+}
+
+/**
  * Whether approving the current step would pass, before anyone reviews it: the door's own check of
  * this checkout, then the gate itself, run as a preview (evaluateApproval) for the person looking
  * [SPEC-OAP M1]. `approvalCheck` lists every hold with who clears it, in the order approving would
@@ -878,7 +910,7 @@ export async function approvalAdvisories(root, config, workflow, phase) {
   try {
     const { evaluateApproval } = await import('./state.mjs');
     const checked = await evaluateApproval(root, config, structuredClone(workflow), { phaseId: phase.id, preview: true });
-    const refusals = [...await worktreeRefusals(root, config, workflow), ...checked.holds];
+    const refusals = [...await worktreeRefusals(root, config, workflow), ...checked.holds.filter((error) => !doorSelectsAnotherAgent(error, checked.config, workflow, phase))];
     const holds = refusals.map((error) => approvalHold(error, workflow, phase));
     const blocking = holds.filter((hold) => hold.owner !== 'you-decide');
     const intervening = checked.holds.find((error) => error.code === 'STORY_REVIEW_INTERVENING_COMMIT');

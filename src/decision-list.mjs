@@ -740,6 +740,7 @@ function holdParty(hold, workflow, context) {
   if (clearedBy.plan || /^singularity-flow decision plan /u.test(hold.action?.command ?? '')) {
     return stepDecidedBy(workflow, context, planAuthorities(workflow), clearedBy.plan ? words : 'Choose the row it belongs to and give your reason, then run it.');
   }
+  if (clearedBy.kind === 'anyone') return anyone(`${hold.who}. ${words}`.trimEnd());
   if (hold.owner === 'this-checkout') return anyone('These changes are in this checkout, so they are for whoever works in it, not for an approval group.');
   if (hold.owner === 'machine') return anyone(`${hold.who}. ${words}`.trimEnd());
   // The author revises it; returning it for changes is an approver's step, by the route it names.
@@ -967,7 +968,10 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
   const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
   const carried = new Set(listed.map((item) => item.kind));
-  const extra = holds.filter((hold) => hold.owner !== 'this-checkout' && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
+  // This checkout's own changes come first, as the door refuses them first, as d0 and outside the
+  // digest: setting them aside changes neither which item a number means nor what a person chose.
+  const dirty = holds.find((hold) => hold.owner === 'this-checkout');
+  const extra = holds.filter((hold) => hold !== dirty && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
     .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
       : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
@@ -980,9 +984,6 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     return { id: `d${index + 1}`, ...item, options, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) };
   });
   const heldHere = items.filter((item) => item.holdsApproval).map((item) => item.id);
-  // This checkout's own changes come first, as the door refuses them first, as d0 and outside the
-  // digest: setting them aside changes neither which item a number means nor what a person chose.
-  const dirty = holds.find((hold) => hold.owner === 'this-checkout');
   const door = dirty ? holdItem(workflow, context, 'approval-hold', dirty) : null;
   if (awaiting) {
     const approval = approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],

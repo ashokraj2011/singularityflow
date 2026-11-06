@@ -11,7 +11,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { APPROVAL_HOLD_OWNERS, approvalHoldOwner } from '../src/approval-check.mjs';
+import { APPROVAL_HOLD_OWNERS, HOLD_PARTY_KINDS, approvalHold, approvalHoldOwner, partyWords } from '../src/approval-check.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { CLI, specification, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
@@ -36,6 +36,126 @@ test('the gate guard: every refusal comes from the one check, and every one name
   const body = evaluateSource.slice(evaluateSource.indexOf('\n  try {\n') + 9, evaluateSource.indexOf('\n  } catch (error) {\n    if (error !== APPROVAL_PREVIEW_STOP)'));
   const outside = body.split('\n').filter((line) => /^ {4}\S/u.test(line) && !/^ {4}(await stage\(|\}(\)|, \{))/u.test(line));
   assert.deepEqual(outside, [], 'a check outside a stage would refuse without the preview seeing it');
+});
+
+/** The refusal codes the modules evaluateApproval's stages call can raise, read from their source. */
+async function stageModuleCodes() {
+  const modules = new Set();
+  for (const match of stateSource.matchAll(/import \{([^}]+)\} from '(\.\/[^']+)'/gu)) {
+    if (match[1].split(',').some((name) => evaluateSource.includes(`${name.trim().split(' as ')[0].trim()}(`))) modules.add(match[2]);
+  }
+  for (const match of evaluateSource.matchAll(/import\('(\.\/[^']+)'\)/gu)) modules.add(match[1]);
+  for (const match of evaluateSource.matchAll(/path\.join\(PACKAGE_ROOT, 'src', '([^']+)'\)/gu)) modules.add(`./${match[1]}`);
+  const codes = new Set();
+  for (const module of modules) {
+    const source = await readFile(new URL(`../src/${module.slice(2)}`, import.meta.url), 'utf8').catch(() => '');
+    for (const match of source.matchAll(/\bcode: '([A-Z][A-Z0-9_]+)'|\b(?:araFail|fail)\(\s*'([A-Z][A-Z0-9_]+)'/gu)) codes.add(match[1] ?? match[2]);
+  }
+  return { modules, codes };
+}
+
+// What a stage's module can raise that names no owner yet. An upper bound read from source: most are
+// other commands' refusals in the same module. Each reads "Singularity Flow cannot say who clears
+// this" and goes to recover, never to reject, so none lies. Name who clears a new one in
+// APPROVAL_HOLD_OWNERS rather than adding it here; a ratchet, so this list only shrinks.
+const UNCLASSIFIED_STAGE_CODES = Object.freeze([
+  'AGENT_BRIEF_HEADING_AMBIGUOUS', 'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED', 'AGENT_BRIEF_PRESERVED_SECTION_REQUIRED',
+  'AGENT_BRIEF_SOURCE_REQUIRED', 'AGENT_BRIEF_SUMMARY_REQUIRED', 'AMENDMENT_ACKNOWLEDGEMENT_INVALID',
+  'AMENDMENT_ACKNOWLEDGEMENT_UNNEEDED', 'APPROVAL_POLICY_UNATTAINABLE', 'ARA_AUTHORITY_CHANGED',
+  'ARA_FEEDBACK_INVALID', 'ARA_FINDING_LIMIT', 'ARA_HUMAN_ACTION_REQUIRED', 'ARA_IDEMPOTENCY_CONFLICT',
+  'ARA_MAPPING_REQUIRED', 'ARA_NOT_ADOPTED', 'ARA_REPAIR_AUTHORITY_REQUIRED', 'ARA_REPAIR_DIRECTION_REQUIRED',
+  'ARA_REPAIR_LIMIT_REACHED', 'ARA_REPAIR_NOT_AUTHORIZED', 'ARA_REPAIR_NOT_READY', 'ARA_REVISION_CONFLICT',
+  'ARA_SESSION_LIMIT', 'ARA_SNAPSHOT_INVALID', 'ARA_SUCCESSOR_REQUIRED', 'ARTIFACT_COMMENT_UNCLOSED',
+  'ARTIFACT_PATH_UNREPRESENTABLE', 'AUTO_CANDIDATE_SUBMISSION_MISMATCH', 'CAPABILITY_PROPOSAL_REBASE_PLAN_STALE',
+  'CHANGE_SET_POLICY_VIOLATION', 'CODE_DELIVERY_EVIDENCE_TOO_LARGE', 'CODE_DELIVERY_REUSE_INVALID',
+  'CODE_DELIVERY_SCOPE_INVALID', 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID',
+  'CONFIGURATION_PROPOSAL_EXACT_TREE_UNAVAILABLE', 'DECISIONS_PHASE_UNKNOWN', 'DECISION_CHOICE_REQUIRED',
+  'DECISION_CONDITION_REQUIRED', 'DECISION_INPUTS_MISSING', 'DECISION_INPUT_INVALID', 'DECISION_INPUT_UNKNOWN',
+  'DECISION_NOT_PENDING', 'DECISION_OPTION_UNKNOWN', 'DECISION_STEP_NOT_ALLOWED', 'DOCUMENT_REUPLOAD_REQUIRED',
+  'ENVIRONMENT_AUDIT_HEAD_UNREADABLE', 'ENVIRONMENT_AUDIT_INDEX_UNREADABLE', 'ENVIRONMENT_DECLARATION_INVALID',
+  'ENVIRONMENT_LOCAL_CONTENT_REFUSED', 'ENVIRONMENT_POLICY_UNAVAILABLE', 'EVIDENCE_CLAUSE_UNAPPROVED',
+  'EVIDENCE_CRITERION_UNKNOWN', 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED', 'GENERATION_EXCLUSIONS_UNSAFE',
+  'GIT_COMMITTED_FILE_LIMIT', 'GIT_COMMIT_IDENTITY_INVALID', 'GIT_COMMIT_SIGNING_INVALID',
+  'GIT_DEVELOPER_TOOLS_UNAVAILABLE', 'GIT_OBJECT_FORMAT_UNAVAILABLE', 'GIT_OBJECT_READ_UNAVAILABLE',
+  'GIT_OBJECT_REPOSITORY_INVALID', 'GIT_OBJECT_REPOSITORY_LIMIT', 'GIT_OBJECT_REPOSITORY_UNAVAILABLE',
+  'GIT_OBJECT_WRITE_UNAVAILABLE', 'GIT_PARTIAL_CLONE_FETCH_FAILED', 'GIT_PARTIAL_CLONE_TOO_MANY_MISSING',
+  'GIT_READ_UNAVAILABLE', 'GIT_REF_SELECTION_INVALID', 'GIT_REMOTE_AUTHORITY_CHANGED', 'GIT_REMOTE_BRANCH_INVALID',
+  'GIT_REMOTE_CONFIG_INVALID', 'GOVERNANCE_BACKUP_EXISTS', 'LOCAL_FAST_FORWARD_FAILED', 'LOCAL_READ_TIMEOUT_INVALID',
+  'MISSING_ARGUMENT', 'NETWORK_DISABLED', 'PENDING_PUBLICATION_CANDIDATE_INVALID',
+  'PENDING_PUBLICATION_IDENTITY_INVALID', 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID',
+  'PENDING_PUBLICATION_ROOT_UNPROVEN', 'PHASE_REPAIR_ADMISSION_REFUSED', 'PHASE_REPAIR_LOCK_REQUIRED',
+  'PHASE_REPAIR_QUARANTINE_STALE', 'PROSPECTIVE_TREE_INVALID', 'PSS_RECORD_UNSIGNED', 'PUBLICATION_BRANCH_CHANGED',
+  'PUBLICATION_CANDIDATE_DRIFT', 'PUBLICATION_MARKER_UNREADABLE', 'PUBLICATION_RECOVERY_DIVERGED',
+  'PUBLICATION_RECOVERY_REQUIRED', 'PUBLICATION_REF_OUTCOME_UNKNOWN', 'PUBLICATION_REF_REQUEST_INVALID',
+  'PUBLICATION_REF_REQUEST_UNVERIFIED', 'PUBLICATION_SNAPSHOT_UNVERIFIED', 'PUBLICATION_SYMBOLIC_REF_UNSUPPORTED',
+  'PUSH_EXPECTED_REVISION_REQUIRED', 'RECOVERY_COMMIT_CHANGED', 'RECOVERY_COMMIT_FAILED', 'RECOVERY_PLAN_STALE',
+  'REPOSITORY_PATH_UNSAFE', 'REV_ATTESTATION_RECOVERY_MISMATCH', 'REV_ATTESTATION_RECOVERY_UNPROVEN',
+  'SCHEMA_FAMILY_UNKNOWN', 'SCHEMA_MIGRATION_INVALID', 'SCHEMA_MIGRATION_NONDETERMINISTIC',
+  'SCHEMA_MIGRATION_SOURCE_CORRUPT', 'SCHEMA_RECORD_INVALID', 'SCHEMA_VERSION_ARCHIVED', 'SCHEMA_VERSION_FUTURE',
+  'SCHEMA_VERSION_MISSING', 'SECRET_DETECTED', 'SECRET_SCAN_UNREADABLE', 'SELECTION_REQUIRED',
+  'SEQUENCE_CONFIRMATION_REQUIRED', 'SFG_REPORT_SINCE_INVALID', 'SKP_ARTIFACT_SET_INVALID', 'SKP_AUTHORITY_UNKNOWN',
+  'SKP_CAPTURE_UNSTABLE', 'SKP_CHECK_UNKNOWN', 'SKP_CODE_TASK_REQUIRED', 'SKP_CONTRACT_EMPTY',
+  'SKP_CONTRACT_INVALID', 'SKP_CONTRACT_UNCONFIRMED', 'SKP_INPUT_RECEIPT_MISSING', 'SKP_INPUT_RECEIPT_STALE',
+  'SKP_OUTPUT_DUPLICATE', 'SKP_OUTPUT_INVALID', 'SKP_OUTPUT_MISSING', 'SKP_OUTPUT_PATH_INVALID',
+  'SKP_OUTPUT_UNDECLARED', 'SKP_OUTPUT_UNREGISTERED', 'SKP_PACKAGE_CORRUPT', 'SKP_SCOPE_REQUIRES_CHECKS',
+  'SOURCE_REVIEW_AGENT_NOT_PINNED', 'SOURCE_REVIEW_AGENT_UNAVAILABLE', 'SOURCE_REVIEW_BINDING_STALE',
+  'SOURCE_REVIEW_CLARIFICATION_INVALID', 'SOURCE_REVIEW_DECISION_UNAUTHORIZED',
+  'SOURCE_REVIEW_DISPOSITION_AUTHORITY_REQUIRED', 'SOURCE_REVIEW_DISPOSITION_NOT_PENDING',
+  'SOURCE_REVIEW_DISPOSITION_REASON_REQUIRED', 'SOURCE_REVIEW_EVENT_MISSING', 'SOURCE_REVIEW_EVENT_REQUIRED',
+  'SOURCE_REVIEW_GENERATION_REQUIRED', 'SOURCE_REVIEW_INDEPENDENT_AGENT_REQUIRED', 'SOURCE_REVIEW_INPUT_TOO_LARGE',
+  'SOURCE_REVIEW_INPUT_UNAVAILABLE', 'SOURCE_REVIEW_INPUT_UNPUBLISHED', 'SOURCE_REVIEW_INPUT_UNREADABLE',
+  'SOURCE_REVIEW_RECORD_INVALID', 'SOURCE_REVIEW_RECORD_UNPUBLISHED', 'SOURCE_REVIEW_REPORT_INVALID',
+  'SOURCE_REVIEW_SESSION_SCOPE_INVALID', 'SOURCE_REVIEW_SOURCE_CHANGED', 'SOURCE_REVIEW_SOURCE_UNPINNED',
+  'SOURCE_REVIEW_SPEC_NOT_APPROVED', 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED', 'SPECIFICATION_ACCEPTANCE_UNTRUSTED',
+  'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED', 'SPECIFICATION_CLAIM_MAP_BINDING_STALE',
+  'SPECIFICATION_CLAIM_MAP_IDENTITY_INVALID', 'SPECIFICATION_GITLINK_DIRTY', 'SPECIFICATION_INDEX_BINDING_REQUIRED',
+  'SPECIFICATION_INDEX_BINDING_STALE', 'SPECIFICATION_INDEX_NOT_SUBMITTED', 'SPECIFICATION_INDEX_UNTRUSTED',
+  'SPECIFICATION_INPUT_NOT_COMMITTED', 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', 'SPEC_CLAUSE_DEPENDENCY_CYCLE',
+  'SPEC_CLAUSE_DEPENDENCY_MISSING', 'SPEC_CLAUSE_REDEFINED', 'SPEC_EXCLUDES_RETIRED',
+  'SPEC_OBSERVED_TEST_ONLY_EVIDENCE_INVALID', 'SPEC_PLANNED_ALLOCATION_INVALID',
+  'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', 'SPEC_PLANNED_FULFILLMENT_INVALID', 'SPEC_PLANNED_OBSERVABLE_INVALID',
+  'SPEC_PLANNED_PATH_ROLE_INVALID', 'SPEC_PLANNED_PATH_SENTINEL_INVALID', 'SPEC_PLANNED_ROW_REQUIRED',
+  'SPEC_PLANNED_TABLE_INVALID', 'SPEC_SUPPORTING_FILE_INVALID', 'SPEC_VERIFICATION_INTENT_INVALID',
+  'STORY_PROMOTION_CANDIDATE_INVALID', 'STORY_PROMOTION_NOT_FAST_FORWARD', 'STORY_PROMOTION_PUSH_FAILED',
+  'STORY_PROMOTION_RECOVERY_INVALID', 'STORY_PROMOTION_REMOTE_UNAVAILABLE', 'STORY_PUBLICATION_IN_PROGRESS',
+  'SUBPROCESS_OUTPUT_TOO_LARGE', 'SUBPROCESS_TIMEOUT', 'SUBPROCESS_UNAVAILABLE', 'SYMLINK_DELIVERY_FORBIDDEN',
+  'TRP_RISK_ADAPTER_UNAVAILABLE', 'WORKFLOW_CONVERGENCE_MULTIPLE_UNSUPPORTED', 'WORKFLOW_DECISION_INVALID',
+  'WORKFLOW_TEMPLATE_NOT_INSTALLED', 'WORKING_DIRECTORY_MISSING', 'WORK_INTERVAL_AMENDMENT_INVALID',
+  'WORK_PENDING_SUBJECT_KEY_REQUIRED', 'WORK_RECONCILIATION_BINDING_MISMATCH', 'WORK_RECONCILIATION_HASH_MISMATCH',
+  'WORK_RECONCILIATION_INVALID', 'WORK_RECONCILIATION_TARGET_DRIFT'
+]);
+
+test('the transitive guard: a code a stage\'s module can raise has an owner, or is pinned as unknown', async () => {
+  const { modules, codes } = await stageModuleCodes();
+  assert.ok(modules.size >= 30, String(modules.size));
+  const unclassified = [...codes].filter((code) => approvalHoldOwner(new SingularityFlowError('refused', { code })) === 'unknown').sort();
+  assert.deepEqual(unclassified.filter((code) => !UNCLASSIFIED_STAGE_CODES.includes(code)), [],
+    'a stage can now raise a code nothing says who clears: add it to APPROVAL_HOLD_OWNERS (src/approval-check.mjs)');
+  assert.deepEqual(UNCLASSIFIED_STAGE_CODES.filter((code) => !unclassified.includes(code)), [], 'no module raises these any more: drop them from the pin');
+});
+
+test('every hold says who clears it: a kind, always, and words only from that kind', () => {
+  const workflow = { workItem: { id: 'W-1' }, currentPhase: 'implementation', phases: { implementation: { id: 'implementation', label: 'Implementation' } }, resolution: {} };
+  const phase = workflow.phases.implementation;
+  for (const code of [...Object.keys(APPROVAL_HOLD_OWNERS), 'A_CODE_NOBODY_LISTED', 'IMPLEMENTATION_BINDING_DECISION_INVALID', 'CONVERGENCE_STALE']) {
+    const hold = approvalHold(new SingularityFlowError('refused', { code }), workflow, phase);
+    assert.ok(HOLD_PARTY_KINDS.includes(hold.clearedBy?.kind), `${code}: ${JSON.stringify(hold.clearedBy)}`);
+    assert.equal(hold.who, partyWords(hold.clearedBy, workflow), code);
+    assert.ok(hold.who, code);
+    if (hold.clearedBy.kind === 'nobody') {
+      assert.equal(hold.who, 'Singularity Flow cannot say who clears this', code);
+      assert.doesNotMatch(hold.action?.command ?? '', /^singularity-flow reject /u, `${code}: nobody knows, so nothing offers a return`);
+    }
+  }
+});
+
+test('only what the approval\'s own form asks counts as an answer in the approval: nothing else says ready', () => {
+  const answered = Object.entries(APPROVAL_HOLD_OWNERS).filter(([, owner]) => owner === 'you-decide').map(([code]) => code).sort();
+  assert.deepEqual(answered, ['APPROVAL_CHECKLIST_INCOMPLETE', 'WEL_WITNESS_MAPPING_UNREVIEWED']);
+  // Each of these is a step of its own, whatever the check once said: the gate refused after "ready".
+  for (const code of ['ARA_REVIEW_REQUIRED', 'ARA_EVIDENCE_UNAVAILABLE', 'ARA_REVIEW_STALE', 'READ_ONLY_AGENT_CANNOT_MUTATE', 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE', 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED']) {
+    assert.notEqual(approvalHoldOwner(new SingularityFlowError('refused', { code })), 'you-decide', code);
+  }
 });
 
 test('who clears a hold follows what it says', () => {

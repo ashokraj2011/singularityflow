@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
+import { approvalAdvisories } from '../src/approval-check.mjs';
 import { actionActor } from '../src/git.mjs';
 import { actionActor as commandActor } from '../src/commands/kernel.mjs';
 import { loadSession, restoreAgentSession } from '../src/session.mjs';
@@ -83,4 +84,13 @@ test('submitted phases preview the current reviewer without creating or requirin
   reviewer.resolution.sourceReview.reviewerAgent = originalSession.agent;
   await restoreAgentSession(root, originalSession);
   assert.ok((await check(reviewer)).holds.some(error => error.code === 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE'));
+  // approve selects the step's own author first (decisionWorkflow), so the check holds nothing back
+  // for this selection; a step whose own author is the reviewer would hold, and say so.
+  reviewer.phases.planning.defaultAgent = 'another-author';
+  const passes = (await approvalAdvisories(root, config, reviewer, reviewer.phases.planning)).approvalCheck;
+  assert.deepEqual(passes.holds.filter(hold => hold.code === 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE'), []);
+  reviewer.phases.planning.defaultAgent = originalSession.agent;
+  const held = (await approvalAdvisories(root, config, reviewer, reviewer.phases.planning)).approvalCheck;
+  assert.equal(held.ready, false, 'approve would select that same reviewer, and the gate would refuse');
+  assert.equal(held.holds.find(hold => hold.code === 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE').owner, 'this-checkout');
 });

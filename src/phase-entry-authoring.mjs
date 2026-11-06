@@ -231,7 +231,9 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const testEvidenceFrom = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom ?? null;
   const applicationReviewRepair = workflow.applicationReviews?.length && phaseRequiresCodeDelivery(phase)
     ? (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review.mjs')).href)).applicationReviewRepairContext(workflow, phase) : null;
-  return { ...base, ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // What the plan's amendments changed, for a code step: the turn after one must hear it from the record (bin-opr2).
+  const planChanges = base.generatesCode && workflow.planAmendments?.length ? await (await import('./plan-amendment-notes.mjs')).planChangeNotes(root, workflow) : [];
+  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),

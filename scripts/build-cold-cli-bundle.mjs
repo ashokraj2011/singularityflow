@@ -89,7 +89,7 @@ const FAMILIES = Object.freeze([
     'decision-list-reads.mjs', 'decision-list.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs', 'commands/decision-plan-amendment.mjs', 'commands/decision-obligation-risk.mjs', 'commands/decision-story-records.mjs', 'commands/story-adjudicate-terminal.mjs', '../plugin/extensions/decisions/decisions.mjs',
     // A gate's test run environment and toolchain record, loaded by publication and submission; test command
     // pins and narrowed runs, read at every gate run, receipt replay and decision list [TCE:REQ-010, REQ-020, REQ-030].
-    'test-run-environment.mjs', 'test-toolchain.mjs', 'project-node-version.mjs', 'node-pin.mjs', 'node-pin-names.mjs', 'phase-publication-unchanged.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs', 'test-collection-limits.mjs', 'test-runners.mjs',
+    'test-run-environment.mjs', 'test-toolchain.mjs', 'project-node-version.mjs', 'node-pin.mjs', 'node-pin-names.mjs', 'phase-publication-unchanged.mjs', 'plan-amendment-notes.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs', 'test-collection-limits.mjs', 'test-runners.mjs',
     // The test plan in words and its early checks, loaded by `tests plan` and at a code step's entry.
     'test-plan.mjs',
     // Test setup as one change: the decision list and `story adjudications` read it.

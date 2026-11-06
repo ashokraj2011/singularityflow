@@ -319,7 +319,7 @@ export function agentAct(result) {
     if (result.status === 'authoring-entry') return { state: 'author', do: null, read: [...(result.authoring ? ['authoring'] : []), 'mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
       ...openUpstream(result), ...(result.clarification?.checkpoint?.newQuestionAction ? ['clarification.checkpoint.newQuestionAction'] : []),
       ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? [...(result.recovery?.blockers?.length ? ['recovery.blockers'] : []), 'recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : [])],
-      said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
+      said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.${result.planChanges?.length ? ` The plan changed: ${result.planChanges.map((entry) => entry.words).join(' ')}` : ''}` };
     // The questions are one stage of this step: without what the task still owes, the turn ended at them.
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
       read: ['clarification', 'context', ...(result.authoring ? ['authoring'] : []), ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...openUpstream(result)],

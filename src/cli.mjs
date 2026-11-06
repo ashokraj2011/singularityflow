@@ -2649,7 +2649,7 @@ async function clarificationCommand(positionals, options) {
     effects: effects({ filesChanged: !result.reused }),
     restState: 'informational',
     // An agent read an empty `next` as the end of its turn, and the person had to ask for the step again.
-    data: { path: result.path, sha256: result.sha256, completed: result.record.completed, reused: result.reused === true, ...(result.record.completed ? { agentInstruction: 'The answers are recorded, and this step is not finished. Carry on in this same turn with its own drafting: prepare it if it is not prepared, write the artifact, then publish. Do not stop here or ask the person to run the step again.' } : {}) }
+    data: { path: result.path, sha256: result.sha256, completed: result.record.completed, reused: result.reused === true, ...(result.record.completed ? { agentInstruction: 'The answers are recorded, and this step is not finished. Run singularity-flow phase enter --compose --for-agent --json once more now and follow what it returns, in this same turn: it admits the step\'s own work and reads the answers. Do not stop here or ask the person to run the step again.' } : {}) }
   }), { json });
 }
 

@@ -971,6 +971,13 @@ and planning, from publishing through submission (approvals made in the terminal
 That is 36% fewer input tokens and 22% fewer credits on one run of a small Story, so read it as a direction,
 not a rate. Every step finished without a stall, and so did a further code step on the new build (20 calls, 1.74 credits).
 
+That first cut went too far, and the small Story did not show it. In a real chat on 2026-11-06 the agent stopped after
+a person's answers, three turns in a row: at the question step it no longer read what said the step goes on after
+them. In the 14 earlier real turns that recorded answers, it went straight on to write. So a list of fields to read
+must also hold whatever a skill tells the agent to check or follow, and anything open that only the result carries:
+replaying 154 saved real results adds about 2 KB to an authoring entry and 0.5 to 1.6 KB to a correction, and leaves the
+rest of the saving in place. After answers are recorded the result asks for one more entry, which costs one more read.
+
 Still open:
 
 - Copilot's base context was 27.7K tokens in VS Code. Two extensions add a measured 5.6K of that to every call:

@@ -158,6 +158,22 @@ function withRoute(act, action) {
  * The state and the one thing to do now, from the engine's own fields only. A result type with
  * its own meaning is read by its rule; anything else uses the first explicit next action it returns.
  */
+// What a step still owes outside its draft. With nothing open it is small and stays in the result itself.
+const openUpstream = (result) => (result.upstream?.attention ? ['upstream'] : []);
+// Facts a result holds beyond its findings that the last check before publishing must show: a plan's
+// evidence repair, doc comments asked for in this turn, what the evidence says against this draft.
+const beforePublish = (result) => [
+  ...(result.planningEvidenceRepair ? ['planningEvidenceRepair'] : []),
+  ...(result.documentation?.status === 'missing' ? ['documentation'] : []),
+  ...(result.evidenceConsistency?.findings?.length ? ['evidenceConsistency.findings'] : [])
+];
+// And what repairing a finding rests on. A code step's skill says to follow the test handoff, and nothing else carries it.
+const repairFacts = (result) => [
+  ...(result.testExecution?.handoff?.guidance || result.testExecution?.commands?.length ? ['testExecution'] : []),
+  ...(result.planningRepair ? ['planningRepair'] : []),
+  ...beforePublish(result)
+];
+
 export function agentAct(result) {
   if (result?.resultType === 'sflow-application-review') return withRoute({
     state: result.status === 'opened' ? 'await-human' : 'next', do: null,
@@ -247,7 +263,7 @@ export function agentAct(result) {
       read: ['error.details.testCommandPin', 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
       said: 'Diagnose the changed test definition first. Preserve a repair that retains the pin when an incidental config edit is unnecessary; otherwise reuse/request the exact re-pin for human review. No automatic acceptance, blind restoration or unchanged retries.' };
     if (!plan.escalation && plan.repairContinuation?.revision === 'repair-continuation-v1' && plan.repairContinuation.currentTurnRepair === true) return withRoute({
-      state: 'repair', do: null, read: ['error.requiredTestExecution', 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
+      state: 'repair', do: null, read: ['error.requiredTestExecution', ...(result.error?.details?.testRunRisk ? ['error.details.testRunRisk'] : []), 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
       strategy: 'diagnose-repair-verify', said: 'The required test failed: diagnose its saved execution, repair within the admitted authoring scope, verify the changed condition, then rerun the original gate. Do not end authoring merely because tests failed or claim passing evidence from a diagnostic run.'
     }, (plan.steps ?? []).find((entry) => entry?.command));
     const step = (plan.steps ?? []).find((entry) => entry?.command) ?? null;
@@ -285,7 +301,7 @@ export function agentAct(result) {
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
-    read: result.publishIfReady?.published ? ['publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])]
+    read: result.publishIfReady?.published ? ['publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
       : ['submitIfReady.next', 'submitIfReady.result'],
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
       shell: done.commandGuidance.command ?? null, vscode: done.commandGuidance.modelFreeCommand ?? null } : null };
@@ -296,12 +312,13 @@ export function agentAct(result) {
     if (result.status === 'documents-required') return { state: 'ask-person', do: null,
       read: ['documentReadiness', 'next'],
       said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
-      ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? ['recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : [])],
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: [...(result.authoring ? ['authoring'] : []), 'mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
+      ...openUpstream(result), ...(result.clarification?.checkpoint?.newQuestionAction ? ['clarification.checkpoint.newQuestionAction'] : []),
+      ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? [...(result.recovery?.blockers?.length ? ['recovery.blockers'] : []), 'recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : [])],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     // The questions are one stage of this step: without what the task still owes, the turn ended at them.
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
-      read: ['clarification', 'context', ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : [])],
+      read: ['clarification', 'context', ...(result.authoring ? ['authoring'] : []), ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...openUpstream(result)],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
@@ -321,7 +338,7 @@ export function agentAct(result) {
     if (result.publishIfReady?.reason === 'person-authored') return { state: 'confirm-in-terminal', read: ['scopeReview'],
       do: { ...routes({ command: result.commands.publish, reason: 'Publish this draft as their own or their tool\'s work.' }), copilot: null },
       said: 'Ready, and this step permits only a person\'s or an external tool\'s authorship: show them do.shell to run in their own terminal; never run it.' };
-    if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview'],
+    if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview', ...beforePublish(result)],
       said: 'Ready: publish once with the returned command; it runs the required tests.' },
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });
     const next = result.commands?.next ? { command: result.commands.next, ...(result.commandGuidance?.next ? { commandGuidance: result.commandGuidance.next } : {}),
@@ -336,13 +353,13 @@ export function agentAct(result) {
     if (result.correction && result.correction.sameTurn !== true
         && ['human-input', 'phase-recovery', 'code-rework', 'human-context', 'upstream-issue'].includes(result.correction.class) && next) {
       const decide = ['human-input', 'human-context', 'upstream-issue'].includes(result.correction.class) || result.correction.skill === '/sf-decide';
-      return withRoute({ state: decide ? 'ask-person' : 'next', do: null, read: ['findings', 'correction', 'resolution'],
+      return withRoute({ state: decide ? 'ask-person' : 'next', do: null, read: ['findings', 'correction', 'resolution', ...repairFacts(result)],
         said: oneLine(`${result.correction.guidance ?? 'Take the returned route first.'} ${decide ? 'Tell the person; never decide or record it for them.' : ''}`),
         ...correctionList(result.findings) }, { ...next, reason: oneLine(result.correction.guidance ?? '') });
     }
     const count = Array.isArray(result.findings) ? result.findings.length : null;
-    // Not `resolution`: every finding's choices and repair task, 124 KB of a 150 KB result in a live run.
-    return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop'],
+    // Not `resolution` when the author fixes it this turn: every finding's choices and repair task, 124 KB of a 150 KB result in a live run.
+    return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop', ...repairFacts(result), ...(result.correction && result.correction.sameTurn !== true ? ['resolution'] : [])],
       said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),
       ...correctionList(result.findings) };
   }

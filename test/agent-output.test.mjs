@@ -93,6 +93,23 @@ test('act reads each result by its own fields and never invents a next action', 
   assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'implementation', generatesCode: true }).read.slice(-2), ['recovery.testExecution', 'intent']);
   assert.ok(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', generatesCode: true, recovery: { requiresRecovery: true } }).read.includes('recovery'));
   assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'planning' }).read.includes('intent'), false);
+  // What a skill checks or tells the author to follow must be read: every phase skill shares these lists.
+  const coding = agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', generatesCode: true, authoring: { policyVerified: true }, upstream: { attention: true },
+    clarification: { checkpoint: { newQuestionAction: { command: 'x' } } }, recovery: { blockers: [{ code: 'B' }] } }).read;
+  for (const field of ['authoring', 'upstream', 'clarification.checkpoint.newQuestionAction', 'recovery.blockers', 'recovery.testExecution']) assert.ok(coding.includes(field), field);
+  assert.equal(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', upstream: { attention: false } }).read.includes('upstream'), false);
+  assert.ok(agentAct({ resultType: 'sflow-phase-entry', status: 'clarification-required', authoring: {}, upstream: { attention: true } }).read.includes('upstream'));
+  // A failed test the environment could not run names the approver's route; a finding's repair keeps its facts.
+  assert.ok(agentAct({ error: { code: 'E', details: { testRunRisk: { command: 'x' } } }, remediationPlan: { repairContinuation: { revision: 'repair-continuation-v1', currentTurnRepair: true }, steps: [] } }).read.includes('error.details.testRunRisk'));
+  const facts = { testExecution: { handoff: { guidance: 'g' } }, planningRepair: { scope: 'current-draft' }, planningEvidenceRepair: { sameTurn: true }, documentation: { status: 'missing' }, evidenceConsistency: { findings: [{ message: 'm' }] } };
+  const correcting = agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [{}], correction: { sameTurn: true }, ...facts }).read;
+  for (const field of ['testExecution', 'planningRepair', 'planningEvidenceRepair', 'documentation', 'evidenceConsistency.findings']) assert.ok(correcting.includes(field), field);
+  assert.equal(correcting.includes('resolution'), false);
+  assert.ok(agentAct({ resultType: 'sflow-phase-prepublish', status: 'blocked', correction: { sameTurn: false, class: 'other' } }).read.includes('resolution'));
+  const publishing = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: 'p' }, ...facts }).read;
+  for (const field of ['planningEvidenceRepair', 'documentation', 'evidenceConsistency.findings']) assert.ok(publishing.includes(field), field);
+  assert.equal(publishing.includes('testExecution'), false);
+  assert.deepEqual(agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: 'p' }, documentation: { status: 'not-applicable' }, testExecution: { commands: [] } }).read, ['scopeReview']);
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', repairLoop: { status: 'escalate', instruction: 'Stop.' } }).state, 'escalate');
   const published = agentAct({ publishIfReady: { published: true, next: { instruction: 'Published. End the reply.', reason: 'Submit it.',
     commandGuidance: { copilotCommand: '/sf-submit', command: 'singularity-flow submit intake --work-id W', modelFreeCommand: null } } } });

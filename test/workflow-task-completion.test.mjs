@@ -81,6 +81,16 @@ test('completion covers registered phase authors and delegates, excluding explic
   }
 });
 
+test('the refresh after recorded answers turns the end-of-turn check on, for every kind of step', async t => {
+  for (const options of [{ phaseId: 'specification' }, { phaseId: 'implementation', skill: '/sf-code', code: true }, { phaseId: 'verification' }, { phaseId: 'release', skill: '/sf-release' }]) await t.test(options.phaseId, async t => {
+    const f = await fixture(t, options);
+    await f.arm({ ...f.entry, status: 'clarification-required', authoringAllowed: false, contextAdmission: { allowed: true } });
+    assert.deepEqual(await f.stop(), {}, 'waiting on the person is a real place to stop');
+    await f.arm();
+    assert.equal((await f.stop()).decision, 'block', 'once the answers are recorded and the entry refreshed, stopping is not');
+  });
+});
+
 test('planning, code, verification, release and custom tasks cannot finish at input reads or scaffolding', async t => {
   for (const options of [
     { phaseId: 'planning' }, { phaseId: 'implementation', skill: '/sf-code', code: true },

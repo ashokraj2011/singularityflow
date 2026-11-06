@@ -766,6 +766,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const parts = vscode as unknown as {
     LanguageModelToolResult: new (content: unknown[]) => unknown; LanguageModelTextPart: new (text: string) => unknown;
   };
+  // A command can answer nothing, as a repository command does with no repository ready. JSON.stringify(undefined)
+  // is undefined, and VS Code's chat crashes the whole turn on a text part with no value.
+  const toolAnswer = (answer: unknown, nothing: string) => new parts.LanguageModelToolResult([
+    new parts.LanguageModelTextPart(JSON.stringify(answer ?? { status: 'blocked', recorded: null, message: nothing }))
+  ]);
   if (typeof lm?.registerTool === 'function' && typeof parts.LanguageModelToolResult === 'function') {
     const toolRoute = (): GatewayRepositoryContext => activeRepositoryContext()
       ?? { root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'machine-local' };
@@ -792,9 +797,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     for (const name of ['sflow_resolve', 'sflow_read', 'sflow_next', 'sflow_run', 'sflow_explain']) {
       context.subscriptions.push(lm.registerTool(name, {
-        invoke: async (options: { input?: Record<string, any> }) => new parts.LanguageModelToolResult([
-          new parts.LanguageModelTextPart(JSON.stringify(await answer(name, options.input ?? {})))
-        ])
+        invoke: async (options: { input?: Record<string, any> }) => toolAnswer(await answer(name, options.input ?? {}), 'SFlow has no answer for this in this window.')
       }));
     }
   }
@@ -816,7 +819,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const failure = error as Error & { result?: unknown };
           result = { status: 'blocked', recorded: null, message: failure.message, ...(failure.result ? { refusal: failure.result } : {}) };
         }
-        return new parts.LanguageModelToolResult([new parts.LanguageModelTextPart(JSON.stringify(result))]);
+        return toolAnswer(result, 'Delivery validation could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, check Singularity Flow: Diagnostics, then ask again.');
       }
     }));
     context.subscriptions.push(lm.registerTool('singularityFlow_witnessReview', {
@@ -829,7 +832,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...(failure.result ? { refusal: failure.result } : {}),
             next: 'Follow the returned repair or recovery route before reopening this review. A failed publication can retain a local record; inspect its outcome instead of repeating an unchanged witness.' };
         }
-        return new parts.LanguageModelToolResult([new parts.LanguageModelTextPart(JSON.stringify(result))]);
+        return toolAnswer(result, 'Witness review could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, check Singularity Flow: Diagnostics, then ask again.');
       }
     }));
   }

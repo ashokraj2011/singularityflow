@@ -1815,6 +1815,17 @@ test('the five SFlow language-model tools answer through the gateway, and a paus
     assert.equal(refused.recorded, null);
     assert.match(refused.message, /accepts only an exact Story ID/u);
   }
+  // A command that answers nothing must not crash VS Code's chat: a text part with no value ends the whole turn.
+  const execute = api.commands.executeCommand;
+  api.commands.executeCommand = async () => undefined;
+  for (const [tool, input] of [[validationTool, { workId: 'HEX-1' }], [witnessTool, { workId: 'HEX-1' }]]) {
+    const { value } = (await tool.invoke({ input })).content[0];
+    assert.equal(typeof value, 'string');
+    assert.equal(JSON.parse(value).status, 'blocked');
+    assert.equal(JSON.parse(value).recorded, null);
+    assert.match(JSON.parse(value).message, /Nothing was recorded/u);
+  }
+  api.commands.executeCommand = execute;
   // Every answer fits one tool result, as the model reads it (host.mjs boundedToolAnswer).
   const call = async (name, input) => {
     const text = (await tools.get(name).invoke({ input })).content[0].value;

@@ -52,7 +52,9 @@ const TEST_REPORTERS = Object.freeze({
 /** For the test that pins the reporter arguments to inference's. */
 export const DIRECT_RUNNER_REPORTERS = TEST_REPORTERS;
 const NODE_SYSTEMS = ['node', 'nx'];
-const UNSUPPORTED_TOOLS = new Set(['cypress', 'mocha', 'ng', 'react-scripts', 'karma', 'jasmine', 'ava', 'tap', 'tox', 'nox', 'detox', 'phpunit', 'rspec']);
+const UNSUPPORTED_TOOLS = new Set(['karma', 'jasmine', 'ava', 'tap', 'tox', 'nox', 'detox', 'phpunit', 'rspec']);
+// Runners inference reads only from the package script that runs them, with the word that makes each a test run.
+const SCRIPT_RUNNERS = Object.freeze({ mocha: null, cypress: 'run', ng: 'test', 'react-scripts': 'test' });
 const PACKAGE_COMMANDS = new Set(['install', 'i', 'ci', 'add', 'remove', 'rm', 'uninstall', 'update', 'up', 'upgrade', 'audit', 'link',
   'publish', 'pack', 'init', 'create', 'outdated', 'list', 'ls', 'why', 'version', 'config', 'cache', 'dedupe', 'prune', 'rebuild']);
 const SCRIPT_NAME = /^(?:test|tests|unit|e2e|integration|spec)(?:[:._-][\w:.-]*)?$|^[\w.-]+[:_-](?:test|tests|unit|e2e|spec)$/iu;
@@ -275,6 +277,7 @@ function recognizeTool(argv, at) {
   if (tool === 'cargo') return { reason: 'cargo test needs an explicit command with a structured result adapter (cargo JSON lines); give it in full.' };
   if (tool === 'xcodebuild') return { reason: 'Xcode tests need an approved scheme, destination and result bundle; SFlow never guesses them. Give the command in full.' };
   if (tool === 'make') return { reason: 'It runs a Makefile target; SFlow reads the commands of that target from the Makefile instead.' };
+  if (Object.hasOwn(SCRIPT_RUNNERS, tool)) return !SCRIPT_RUNNERS[tool] || sub === SCRIPT_RUNNERS[tool] ? { runner: 'script-runner', tool, at } : { skip: true };
   if (UNSUPPORTED_TOOLS.has(tool)) return { reason: `SFlow does not complete ${tool} commands yet; give the command in full with its reporter and result.` };
   if (/\.(?:sh|ps1|py|js|mjs|cjs)$/u.test(String(argv[at])) || ['bash', 'sh', 'zsh', 'pwsh'].includes(tool)) {
     return { reason: 'It runs a script, and SFlow does not guess what a script runs (it reads scripts/test* itself).' };
@@ -409,7 +412,25 @@ async function completeRecognized(root, command, recognized, { platform, package
           return { ...completed, variables: only.env, notes: [...notes, ...completed.notes] };
         }
       }
-      return { reason: `The '${recognized.script}' script does not run a test runner SFlow reads results from (Jest, Vitest, Angular Karma, Playwright, node --test).`, notes };
+      const unread = (await import('./test-module-markers.mjs')).unreadRunnerOfScript(manifest.scripts[recognized.script]);
+      return { reason: unread ? `The '${recognized.script}' script runs ${unread}, whose results SFlow cannot read yet; give the command in full with a reporter SFlow reads.`
+        : `The '${recognized.script}' script does not run a test runner SFlow reads results from (Jest, Vitest, Mocha, Angular Karma, Playwright, Cypress, node --test).`, notes };
+    }
+    case 'script-runner': {
+      const module = await moduleOf(root, directory, NODE_SYSTEMS);
+      const manifestPath = path.posix.join(module?.root && module.root !== '.' ? module.root : '', 'package.json');
+      let manifest = null;
+      try { manifest = JSON.parse((await readRepositoryManifest(root, manifestPath)).bytes.toString('utf8')); } catch { /* it has no scripts to name */ }
+      const words = [recognized.tool, ...(SCRIPT_RUNNERS[recognized.tool] ? [SCRIPT_RUNNERS[recognized.tool]] : [])];
+      const plain = argv.length === recognized.at + words.length;
+      const script = Object.entries(manifest?.scripts ?? {}).find(([, text]) => typeof text === 'string' && new RegExp(`(?:^|[\\s/])${words.join(' ')}(?:\\s|$)`, 'u').test(text))?.[0] ?? null;
+      if (plain && script) {
+        notes.push(`The '${script}' script runs it, and SFlow adds its report there.`);
+        const completed = await completeRecognized(root, command, { runner: 'script', script, extras: [], prefix: recognized.prefix }, { platform, packageScript, scripts });
+        return { ...completed, notes: [...notes, ...completed.notes] };
+      }
+      return { reason: `SFlow adds ${recognized.tool}'s report through a package script, and ${plain ? `no script in ${manifestPath} runs it` : 'this call has arguments of its own'}. `
+        + 'Make a package script run it as written, or give the command in full with its reporter and result.', notes };
     }
     case 'playwright': case 'jest': case 'vitest': {
       return record({ argv: nodeRunnerArgv(recognized.runner, argv, recognized.at, result(recognized.runner).path, notes, { packageScript }),

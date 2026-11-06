@@ -121,6 +121,28 @@ test('an inferred command covers only its own ecosystem; a configured one keeps 
   assert.equal(testCommandCoversPath(trp, 'tools/generate.py'), true);
 });
 
+test('a package that plainly names a runner SFlow cannot read is told so, instead of being told about node:test', async (t) => {
+  const refusal = async (manifest) => {
+    const root = await repository(t, { 'package.json': JSON.stringify(manifest), 'lib/value.js': 'module.exports = 1;\n',
+      'test/value.test.js': "const test = require('x');\ntest('value', () => {});\n" });
+    return resolveDeliveryQualityCommands(root, codePhase({ sourcePaths: ['lib/value.js'], configurationPaths: [], testPaths: ['test/value.test.js'] })).then(() => null, (error) => error);
+  };
+  for (const [manifest, runner, where] of [
+    [{ scripts: { test: 'ava' } }, 'ava', "package.json's test script runs ava"],
+    [{ scripts: { test: 'tap test/*.js' } }, 'tap', "package.json's test script runs tap"],
+    [{ scripts: { test: 'cross-env NODE_ENV=test npx jasmine' } }, 'jasmine', "package.json's test script runs jasmine"],
+    [{ scripts: { test: 'npm run unit' }, devDependencies: { ava: '6.0.0' } }, 'ava', 'package.json depends on ava']
+  ]) {
+    const error = await refusal(manifest);
+    assert.equal(error.code, 'TEST_MODULE_UNCOVERED', JSON.stringify(manifest));
+    assert.equal(error.message.startsWith(`${where}, whose results SFlow cannot read yet`), true, error.message);
+    assert.doesNotMatch(error.message, /node:test/u);
+    assert.deepEqual([error.details.paths, error.details.runner, error.details.nextAction], [['test/value.test.js'], runner, { command: TEST_SETUP_COMMAND }]);
+  }
+  // A package that names nothing it can be told about keeps the reason it had.
+  assert.match((await refusal({ scripts: { test: 'custom-tool' } })).message, /^Test files test\/value\.test\.js do not import node:test/u);
+});
+
 test('the node --test fallback runs only node:test files; mocha, jasmine and tap tests are refused', async (t) => {
   const root = await repository(t, {
     'lib/value.js': 'module.exports = 1;\n', 'lib/value.mjs': 'export default 1;\n',

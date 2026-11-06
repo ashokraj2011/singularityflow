@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { inferModuleTestCommand, resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
-import { mavenReactorModuleCommands, moduleTestCommands } from './test-module-markers.mjs';
+import { mavenReactorModuleCommands, moduleTestCommands, unreadRunnerOfPackage } from './test-module-markers.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'vendor', 'target', 'build', 'dist', 'out', 'coverage', 'venv', '__pycache__', 'bin', 'obj']);
@@ -66,7 +66,12 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
         if (!suggestions.some(entry => JSON.stringify(entry.argv) === JSON.stringify(command.argv)
             && entry.workingDirectory === command.workingDirectory)) suggestions.push(command);
       }
-      if (!commands.length) diagnostics.push({ path: directory, code: 'TEST_CONFIGURATION_PENDING', message: 'No supported structured runner inferred. Provide the command and reporter, or select the exact nested application directory.' });
+      if (!commands.length) {
+        const named = await unreadRunnerOfPackage(root, directory);
+        diagnostics.push({ path: directory, code: 'TEST_CONFIGURATION_PENDING', message: named
+          ? `${named.words}, whose results SFlow cannot read yet. Provide the command and a reporter SFlow reads, or select the exact nested application directory.`
+          : 'No supported structured runner inferred. Provide the command and reporter, or select the exact nested application directory.' });
+      }
     } catch (error) {
       if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'TEST_MANIFEST_INVALID', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED'].includes(error.code)) throw error;
       // A runner that needs a device or a scheme comes with the command to complete [TCE:REQ-075].

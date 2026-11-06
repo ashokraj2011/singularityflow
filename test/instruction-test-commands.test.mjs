@@ -94,7 +94,7 @@ test('a written shell line becomes argv, variables and a folder; composed lines 
   assert.match((await completeWrittenTestCommand(root, { text: 'npx jest $FILES' })).reason, /which the shell expands/u);
   assert.equal(await completeWrittenTestCommand(root, { text: 'npm install' }), null, 'not a test run');
   assert.equal(await completeWrittenTestCommand(root, { text: 'npx playwright install --with-deps' }), null, 'not a test run');
-  assert.match((await completeWrittenTestCommand(root, { text: 'npx cypress run' })).reason, /does not complete cypress/u);
+  assert.match((await completeWrittenTestCommand(root, { text: 'npx cypress run' })).reason, /adds cypress's report through a package script, and no script in package\.json runs it/u);
   // An argv a team import read keeps its leading variables as variables.
   const imported = await completeWrittenTestCommand(root, { argv: ['CI=true', 'npm', 'test'] });
   assert.deepEqual([imported.command.argv, imported.command.env, imported.command.result.adapter],
@@ -108,6 +108,32 @@ test('a written Maven command for a whole reactor asks for one per module: no on
   assert.match((await completeWrittenTestCommand(root, { text: 'mvn test' })).reason, /pom\.xml is a reactor.*one command per module folder/u);
   assert.deepEqual((await completeWrittenTestCommand(root, { text: 'mvn -pl api -am test' })).command.result.path, 'api/target/surefire-reports');
   assert.deepEqual((await completeWrittenTestCommand(root, { text: 'cd api && mvn test' })).command.result.path, 'target/surefire-reports');
+});
+
+test('a runner inference supports, called directly, is completed through the script that runs it', async (t) => {
+  const complete = async (manifest, text, extra = {}) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-script-runner-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await files(root, { 'package.json': JSON.stringify(manifest), ...extra });
+    return completeWrittenTestCommand(root, { text });
+  };
+  const report = (command) => [command.argv.join(' '), command.result.adapter];
+  assert.deepEqual(report((await complete({ scripts: { test: 'mocha' } }, 'npx mocha')).command),
+    ['npm test -- --reporter json --reporter-option output=.sflow/results/node-tests.json', 'mocha-json']);
+  assert.deepEqual(report((await complete({ scripts: { 'cy:run': 'cypress run' }, devDependencies: { cypress: '13.0.0' } }, 'npx cypress run')).command),
+    ['npm run cy:run -- --reporter junit --reporter-options mochaFile=.sflow/results/cypress-tests/[hash].xml', 'junit-xml']);
+  assert.deepEqual(report((await complete({ scripts: { test: 'react-scripts test' } }, 'npx react-scripts test')).command),
+    ['npm test -- --watchAll=false --json --outputFile .sflow/results/node-tests.json', 'jest-json']);
+  assert.deepEqual(report((await complete({ scripts: { test: 'ng test' }, devDependencies: { karma: '6.4.4' } }, 'ng test')).command)[1], 'karma-text');
+  // No script runs it, or the call has arguments its script does not: say what to do, not that SFlow cannot.
+  assert.match((await complete({ scripts: { test: 'jest' } }, 'npx mocha')).reason, /adds mocha's report through a package script, and no script in package\.json runs it/u);
+  assert.match((await complete({ scripts: { test: 'mocha' } }, 'npx mocha test/one.js')).reason, /this call has arguments of its own/u);
+  // What is not a test run is not a candidate at all.
+  for (const text of ['ng build', 'npx cypress open', 'npx react-scripts build']) assert.equal(await complete({ scripts: { test: 'jest' } }, text), null, text);
+  // Tools inference does not read keep their reason, and a script's list of runners names the ones it does.
+  assert.match((await complete({ scripts: { test: 'jest' } }, 'phpunit')).reason, /does not complete phpunit/u);
+  assert.match((await complete({ scripts: { test: 'custom-tool' } }, 'npm test')).reason, /\(Jest, Vitest, Mocha, Angular Karma, Playwright, Cypress, node --test\)/u);
+  assert.match((await complete({ scripts: { test: 'ava' } }, 'npm test')).reason, /The 'test' script runs ava, whose results SFlow cannot read yet/u);
 });
 
 test('a runner called directly reports exactly as inference makes it report', async (t) => {

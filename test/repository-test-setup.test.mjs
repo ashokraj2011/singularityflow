@@ -65,6 +65,19 @@ test('empty repositories, unsupported scripts and ambiguous modules return pendi
   assert.equal(result.testsExecuted, false);
 });
 
+test('setup names a runner the package plainly shows and SFlow cannot read', async t => {
+  const message = async (manifest) => {
+    const root = await fixture(t);
+    await writeFile(path.join(root, 'package.json'), JSON.stringify(manifest));
+    const { diagnostics, status } = await inspectRepositoryTestSetup(root);
+    assert.equal(status, 'pending-configuration');
+    return diagnostics.find((entry) => entry.code === 'TEST_CONFIGURATION_PENDING').message;
+  };
+  assert.match(await message({ scripts: { test: 'ava' } }), /^package\.json's test script runs ava, whose results SFlow cannot read yet\. Provide the command and a reporter SFlow reads/u);
+  assert.match(await message({ scripts: { test: 'custom' }, devDependencies: { jasmine: '5.0.0' } }), /^package\.json depends on jasmine, whose results/u);
+  assert.match(await message({ scripts: { test: 'custom' } }), /^No supported structured runner inferred\./u);
+});
+
 test('inspection rejects escaping, glob, missing and symlinked module scopes', async t => {
   const root = await fixture(t);
   for (const scope of ['../other', '/tmp', 'C:/other', 'app/*', 'app\\client', 'app/../other']) {

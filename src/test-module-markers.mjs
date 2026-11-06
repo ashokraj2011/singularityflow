@@ -82,6 +82,35 @@ function deviceRefusal(relative, manifest, what, proposal) {
   { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: path.posix.basename(manifest), proposal }) });
 }
 
+// Runners a package can plainly name, and SFlow has no reader for.
+const UNREAD_RUNNERS = new Set(['ava', 'tap', 'tape', 'jasmine', 'qunit', 'uvu']);
+
+/** The runner of UNREAD_RUNNERS a package script's text starts, past its environment words, wrappers and their flags, or null. */
+export function unreadRunnerOfScript(script) {
+  for (const words of scriptSteps(script) ?? []) {
+    let at = 0;
+    while (ENVIRONMENT_WORD.test(words[at] ?? '') || WRAPPERS.has(commandName(words[at] ?? '')) || /^-/u.test(words[at] ?? '')) at += 1;
+    if (UNREAD_RUNNERS.has(commandName(words[at] ?? ''))) return commandName(words[at]);
+  }
+  return null;
+}
+
+/** The unread runner the nearest package.json at or above `directory` plainly shows, with the words that say where; null when none. */
+export async function unreadRunnerOfPackage(root, directory = '.') {
+  for (let at = directory; ; at = path.posix.dirname(at)) {
+    const manifestPath = path.posix.join(at === '.' ? '' : at, 'package.json');
+    const text = await packageText(root, manifestPath);
+    if (text) {
+      const manifest = parseTestManifest(text, manifestPath);
+      const script = unreadRunnerOfScript(manifest.scripts?.test);
+      if (script) return { runner: script, words: `${manifestPath}'s test script runs ${script}` };
+      const dependency = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).find((name) => UNREAD_RUNNERS.has(name));
+      return dependency ? { runner: dependency, words: `${manifestPath} depends on ${dependency}` } : null;
+    }
+    if (at === '.') return null;
+  }
+}
+
 /**
  * Refuse the `node --test` fallback for test files that do not import node:test: it would run a mocha,
  * jasmine or tap file with the wrong runner. A planned test not written yet does not decide.
@@ -93,6 +122,12 @@ export async function assertNodeTestFiles(root, tests) {
     if (secured.exists && !NODE_TEST_IMPORT.test(await readFile(secured.absolute, 'utf8'))) others.push(candidate);
   }
   if (others.length) {
+    const named = await unreadRunnerOfPackage(root, path.posix.dirname(others[0]));
+    if (named) {
+      throw new SingularityFlowError(`${named.words}, whose results SFlow cannot read yet, so no test command was inferred for ${others.join(', ')}. `
+        + 'Configure an approved test command that writes a report SFlow reads (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
+      { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ paths: others, runner: named.runner }) });
+    }
     throw new SingularityFlowError(`Test files ${others.join(', ')} do not import node:test, and node --test would run them `
       + 'with the wrong runner, so no test command was inferred for them. Configure an approved test command for their runner '
       + '(kind: test, argv, workingDirectory, affectedRoots and a result adapter).',

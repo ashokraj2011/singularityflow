@@ -34,6 +34,12 @@
     },
     "dirty-checkout-at-approval": {
       "read-only-route:LIFECYCLE_WORKTREE_REVIEW_REQUIRED": "The refusal names only /sf-recover, and 3 of 3 real sessions ended there. recover does name the person's set-aside, one step later than it should."
+    },
+    "test-fails-for-a-real-bug": {
+      "read-only-route:CODE_TEST_FAILED": "The same refusal as node-version: its own routes read. Here recover then names /sf-code, and a fix there gets through, so the way out is one step later than it should be."
+    },
+    "ending-with-items-open": {
+      "person-route-refused:STORY_TERMINAL_READINESS_REFUSED": "The preview says no unresolved blockers and to confirm this digest, and the confirmation is then refused by the final check. The person learns of the open obligations only after confirming."
     }
   },
   "readOnlyFirstRoutes": [

@@ -110,7 +110,7 @@ export async function codeStepTemplate(t, { configure = null } = {}) {
 
 // A person's decision: the command is theirs to run, or the turn exists to ask them.
 const PERSON_SKILLS = new Set(['/sf-decide', '/sf-approve', '/sf-converge', '/sf-confirm', '/sf-test-setup']);
-const PERSON_WORDS = /^(?:approve|decision(?!s? show)|decisions|choices begin|upstream-issue decide|story adjudicate|story intent-amendment|appeal (?:decide|submit|evidence-accept|risk-accept)|reopen|configuration approve)\b/u;
+const PERSON_WORDS = /^(?:approve|decision(?!s? show)|decisions|choices begin|upstream-issue (?:decide|raise)|story adjudicate|story intent-amendment|appeal (?:decide|submit|evidence-accept|risk-accept)|reopen|configuration approve)\b/u;
 // Ending the work is always open to a person, so it never counts as a way through.
 const GIVE_UP_WORDS = /^(?:cancel|reject|story discard-worktree|story abandon)\b/u;
 const GIVE_UP_SKILLS = new Set(['/sf-cancel', '/sf-reject']);
@@ -192,6 +192,15 @@ export function returnedRoutes(result) {
   return routes;
 }
 
+/** A route printed as lines rather than fields: a guard's reason, or a command that answers in text whatever it was asked. */
+export function lineRoutes(text, source) {
+  const copilot = String(text).match(/^\s*- Copilot: (\/sf[a-z-]+[^\n]*)/mu)?.[1]; const shell = String(text).match(/^\s*- Shell: (singularity-flow [^\n]+)/mu)?.[1];
+  return copilot || shell ? [{ command: shell ?? null, skill: copilot ?? null, source }] : [];
+}
+
+const guardCode = (answer) => (answer.permissionDecision === 'deny'
+  ? String(answer.permissionDecisionReason ?? '').match(/^([A-Z][A-Z0-9_]{3,})\b/u)?.[1] ?? 'GUARD_PROSE' : null);
+
 /** The command a skill names first, past its pause check; `<phase>` and `<WORK-ID>` come from the Story. */
 export function skillNamedCommands(skill, { phase = null } = {}) {
   const directory = `sflow-${String(skill).split(/\s+/u)[0].replace(/^\/sf-/u, '')}`;
@@ -250,6 +259,7 @@ function storyMark(story) {
  * - `scenario.writes`: { [refusal code or skill]: { path: contents } }; applied once, when that step comes up.
  * - `scenario.answers`: { [placeholder]: value } for what a person would give; `scenario.personFlags` their confirmation.
  * - `scenario.reasons`: { [code]: { mustMatch?, mustNotMatch?, because } }, for a stated reason a test can check.
+ * - `scenario.guard`: { prompt, toolName, toolArgs } in place of `start`, for a call the host's hook answers first.
  *
  * It ends at the outcome, at a person's command that really runs, on the third identical refusal,
  * or when a route moves the Story on without what was asked: following that route lost the person's goal.
@@ -319,13 +329,12 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
   let lastCode = null;
   // A guard names its routes in next[] and in its reason's Copilot and Shell lines.
   const guardRoutes = (answer) => {
-    const reason = String(answer.permissionDecisionReason ?? '');
-    const copilot = reason.match(/^- Copilot: (\/sf[a-z-]+[^\n]*)/mu)?.[1]; const shell = reason.match(/^- Shell: (singularity-flow [^\n]+)/mu)?.[1];
-    const lineRoute = copilot || shell ? [{ command: shell ?? null, skill: copilot ?? null, source: 'reason' }] : [];
     const returned = returnedRoutes(answer);
-    return (returned.some((entry) => entry.command === shell || entry.skill === copilot) ? returned : [...returned, ...lineRoute]).map((entry) => ({ ...entry, fromGuard: true }));
+    const lines = lineRoutes(answer.permissionDecisionReason ?? '', 'reason').filter((line) => !returned.some((entry) => entry.command === line.command || entry.skill === line.skill));
+    return [...returned, ...lines].map((entry) => ({ ...entry, fromGuard: true }));
   };
-  let startRefusedAtPerson = null;
+  // Set when what the scenario tried is refused, so it gets one more try if the state changes under it.
+  let startRefusedAt = null;
   const stack = [];
   // The route SFlow puts first goes next; the others wait their turn, so no read crowds out a way through.
   const pushRoutes = (routes) => { const [first, ...rest] = routes; stack.push(...rest); if (first) stack.unshift(first); };
@@ -341,10 +350,10 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
     if (refused) {
       const own = parsed?.error?.code ?? code ?? 'none';
       lastCode = own;
-      if (route.source === 'start' || route.source === 'retry') startRefusedAtPerson = state;
+      if (route.source === 'start' || route.source === 'retry') startRefusedAt = state;
       // The scenario's own start is what the person tried; a route the walk was given has to work.
       if (route.source !== 'start') finding('person-route-refused', own, filled.split(' ').slice(0, 3).join(' '));
-      const routes = returnedRoutes(parsed);
+      const routes = parsed ? returnedRoutes(parsed) : lineRoutes(output.stdout, 'lines');
       onRefusal(own, String(parsed?.error?.message ?? output.stderr), routes, parsed, state);
       pushRoutes(routes);
       return false;
@@ -357,21 +366,17 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
   if (scenario.guard) {
     const state = stateKey(story);
     const answer = guardCall(scenario.guard);
-    const denied = answer.permissionDecision === 'deny';
-    const reason = String(answer.permissionDecisionReason ?? '');
-    const code = denied ? reason.match(/^([A-Z][A-Z0-9_]{3,})\b/u)?.[1] ?? 'GUARD_PROSE' : null;
+    const code = guardCode(answer);
     trail.push({ guard: scenario.guard.toolName ?? 'bash', code });
-    if (!denied) return { outcome: 'allowed', findings, trail };
+    if (!code) return { outcome: 'allowed', findings, trail };
     lastCode = code;
     const routes = guardRoutes(answer);
-    onRefusal(code, reason, routes, answer, state);
+    onRefusal(code, String(answer.permissionDecisionReason), routes, answer, state);
     pushRoutes(routes);
   } else stack.push({ command: scenario.start, skill: null, source: 'start' });
 
   let steps = 0;
-  let startRefusedAt = null;
   while (steps < maxSteps && !stuck()) {
-    startRefusedAt ??= startRefusedAtPerson; startRefusedAtPerson = null;
     // Once every route is followed, what was refused gets one more try if the state changed under it.
     if (!stack.length && scenario.start && startRefusedAt && startRefusedAt !== stateKey(story)) { startRefusedAt = null; stack.push({ command: scenario.start, skill: null, source: 'retry' }); ran.clear(); }
     if (!stack.length) break;
@@ -387,12 +392,10 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
     if (route.fromGuard && route.skill && !retriedTurns.has(route.skill)) {
       retriedTurns.add(route.skill);
       const answer = guardCall({ ...scenario.guard, prompt: route.skill, sessionId: `walk-${scenario.id}-${retriedTurns.size}` });
-      const reason = String(answer.permissionDecisionReason ?? '');
-      const denied = answer.permissionDecision === 'deny';
-      const code = denied ? reason.match(/^([A-Z][A-Z0-9_]{3,})\b/u)?.[1] ?? 'GUARD_PROSE' : null;
+      const code = guardCode(answer);
       trail.push({ guard: scenario.guard.toolName ?? 'bash', turn: route.skill, code });
-      if (!denied) return { outcome: 'reached', by: route.skill, findings, trail };
-      onRefusal(code, reason, guardRoutes(answer), answer, state);
+      if (!code) return { outcome: 'reached', by: route.skill, findings, trail };
+      onRefusal(code, String(answer.permissionDecisionReason), guardRoutes(answer), answer, state);
     }
     if (effect === 'person-decision') {
       if (personRoute(route, lastCode, state)) return { outcome: 'person-decision', by: route.skill ?? route.command, findings, trail };
@@ -416,7 +419,7 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
         finding('goal-lost', lastCode ?? 'none', 'a route moved the Story on without what was asked');
         return { outcome: 'dead-end', findings, trail };
       }
-      const routes = returnedRoutes(parsed);
+      const routes = parsed ? returnedRoutes(parsed) : lineRoutes(output.stdout, 'lines');
       if (refused) {
         lastCode = code ?? 'NO_CODE';
         if (route.source === 'start' || route.source === 'retry') startRefusedAt = before;
@@ -435,10 +438,10 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
  * A spec-driven Story whose code is approved and whose convergence is prepared with items open: the
  * plan has a requirement the code never claimed. Coverage only records here, as a person decides it.
  */
-export async function openConvergenceTemplate(t) {
+export async function openConvergenceTemplate(t, { configure = null } = {}) {
   const { approvedSpecificationStory, implementationPlan } = await import('./submitted-planning-story.mjs');
   const { directory, root, cli, item } = await approvedSpecificationStory(t, WORK, {
-    configure: (configuration) => { configuration.workTypes['spec-driven-standard'].spec.coverage = 'record'; } });
+    configure: (configuration) => { configuration.workTypes['spec-driven-standard'].spec.coverage = 'record'; configure?.(configuration); } });
   const { write } = helpers(root);
   cli('prepare', 'planning');
   // The plan binds the second requirement to a test nobody delivers: the question convergence asks.

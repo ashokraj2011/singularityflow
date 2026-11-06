@@ -374,15 +374,21 @@ function wrapperFrom(platform, upward, unix, windows) {
 }
 
 /** Whether every POM from the reactor root down declares the next directory as a `<module>`. */
+/** The modules a pom declares below itself, each as its path's parts. */
+export function declaredMavenModules(pom) {
+  return [...String(pom ?? '').replace(/<!--[\s\S]*?-->/gu, '').matchAll(/<module>\s*([^<]+?)\s*<\/module>/gu)]
+    .map((match) => path.posix.normalize(match[1].replaceAll('\\', '/').replace(/\/pom\.xml$/u, '').replace(/\/+$/u, '')).split('/'))
+    .filter((parts) => parts.length && !parts.includes('..') && parts[0] !== '.');
+}
+
 async function mavenReactorDeclares(root, reactorRoot, below) {
   let current = reactorRoot === '.' ? '' : reactorRoot;
   let remaining = below.split('/');
   while (remaining.length) {
     let pom;
     try { pom = (await readRepositoryManifest(root, path.posix.join(current, 'pom.xml'))).bytes.toString('utf8'); } catch { return false; }
-    const declared = [...pom.replace(/<!--[\s\S]*?-->/gu, '').matchAll(/<module>\s*([^<]+?)\s*<\/module>/gu)]
-      .map((match) => path.posix.normalize(match[1].replaceAll('\\', '/').replace(/\/pom\.xml$/u, '').replace(/\/+$/u, '')).split('/'))
-      .filter((parts) => parts.length && !parts.includes('..') && parts[0] !== '.' && parts.every((part, index) => remaining[index] === part))
+    const declared = declaredMavenModules(pom)
+      .filter((parts) => parts.every((part, index) => remaining[index] === part))
       .sort((left, right) => right.length - left.length)[0];
     if (!declared) return false;
     current = path.posix.join(current, ...declared);

@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { inferModuleTestCommand, nearestWrapper, nodePackageManager, parseTestManifest, sourceEcosystem, testCommandCoversPath, testSetupRoute } from './code-delivery-tests.mjs';
+import { declaredMavenModules, inferModuleTestCommand, nearestWrapper, nodePackageManager, parseTestManifest, sourceEcosystem, testCommandCoversPath, testSetupRoute } from './code-delivery-tests.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { exists, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { androidTestVariant, gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
@@ -653,6 +653,33 @@ const failsafeBlocks = (text) => [...text.matchAll(/<plugin>[\s\S]*?<\/plugin>/g
   .filter((block) => /<artifactId>\s*maven-failsafe-plugin\s*<\/artifactId>/u.test(block));
 const bindsIntegrationTest = (block) => [...block.matchAll(/<execution>([\s\S]*?)<\/execution>/gu)]
   .some(([, execution]) => /<goal>\s*integration-test\s*<\/goal>/u.test(execution) && !/<phase>\s*none\s*<\/phase>/u.test(execution));
+
+const MAX_REACTOR_MODULES = 64;
+
+/**
+ * A command list with each Maven reactor's command replaced by what the gate runs for its modules that
+ * hold tests. An aggregator builds nothing itself and each module writes its own reports, so a command
+ * run at the reactor leaves none where its report path looks. Only test setup asks; it runs nothing.
+ */
+export async function mavenReactorModuleCommands(root, commands, { platform = process.platform } = {}) {
+  const modulesOf = async (directory) => {
+    const declared = declaredMavenModules(await packageText(root, path.posix.join(directory === '.' ? '' : directory, 'pom.xml')));
+    if (!declared.length) return [directory];
+    const below = [];
+    for (const parts of declared.slice(0, MAX_REACTOR_MODULES)) below.push(...await modulesOf(path.posix.join(directory === '.' ? '' : directory, ...parts)));
+    return below;
+  };
+  const expanded = [];
+  for (const command of commands) {
+    const reactor = /(?:^|-)maven-tests$/u.test(command.id) ? command.affectedRoots[0] : null;
+    const modules = reactor ? await modulesOf(reactor) : [];
+    if (!modules.length || modules[0] === reactor) { expanded.push(command); continue; }
+    for (const moduleRoot of modules.slice(0, MAX_REACTOR_MODULES)) {
+      if (await exists(path.join(root, moduleRoot, 'src', 'test'))) expanded.push(...await moduleTestCommands(root, { root: moduleRoot, system: 'maven', manifest: 'pom.xml' }, { platform }));
+    }
+  }
+  return expanded;
+}
 
 /**
  * Whether a Maven module's build runs the failsafe plugin's integration tests [TCE:REQ-073]: its POM or a

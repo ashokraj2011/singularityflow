@@ -101,6 +101,15 @@ test('a written shell line becomes argv, variables and a folder; composed lines 
     [['npm', 'test', '--', '--json', '--outputFile', '.sflow/results/node-tests.json'], { CI: 'true' }, 'jest-json']);
 });
 
+test('a written Maven command for a whole reactor asks for one per module: no one report path reads all of them', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-reactor-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await files(root, { 'pom.xml': '<project><modules><module>api</module></modules></project>\n', 'api/pom.xml': '<project/>\n' });
+  assert.match((await completeWrittenTestCommand(root, { text: 'mvn test' })).reason, /pom\.xml is a reactor.*one command per module folder/u);
+  assert.deepEqual((await completeWrittenTestCommand(root, { text: 'mvn -pl api -am test' })).command.result.path, 'api/target/surefire-reports');
+  assert.deepEqual((await completeWrittenTestCommand(root, { text: 'cd api && mvn test' })).command.result.path, 'target/surefire-reports');
+});
+
 test('a runner called directly reports exactly as inference makes it report', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-reporters-'));
   t.after(() => rm(root, { recursive: true, force: true }));

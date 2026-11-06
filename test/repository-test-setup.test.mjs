@@ -178,6 +178,47 @@ test('one build system at the root keeps its single command and its whole-reposi
   }
 });
 
+test('a Maven reactor root suggests what the gate runs for each module, never a report path no run writes', async t => {
+  const { moduleTestCommands } = await import('../src/test-module-markers.mjs');
+  const { resolveAffectedModule } = await import('../src/code-delivery-tests.mjs');
+  for (const [wrapper, argv, directory, report] of [
+    [true, ['./mvnw', '-pl', 'svc', '-am', 'test'], '.', 'svc/target/surefire-reports'],
+    [false, ['mvn', 'test'], 'svc', 'target/surefire-reports']
+  ]) {
+    const root = await fixture(t);
+    const module = (name) => `<project><artifactId>${name}</artifactId></project>`;
+    await mkdir(path.join(root, 'svc', 'src', 'test', 'java'), { recursive: true });
+    await mkdir(path.join(root, 'group', 'nested', 'src', 'test', 'java'), { recursive: true });
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await writeFile(path.join(root, 'pom.xml'), '<project><packaging>pom</packaging><modules><module>svc</module><module>docs</module><module>group</module></modules></project>');
+    await writeFile(path.join(root, 'svc', 'pom.xml'), module('svc'));
+    await writeFile(path.join(root, 'docs', 'pom.xml'), module('docs'));
+    await writeFile(path.join(root, 'group', 'pom.xml'), '<project><packaging>pom</packaging><modules><module>nested</module></modules></project>');
+    await writeFile(path.join(root, 'group', 'nested', 'pom.xml'), module('nested'));
+    if (wrapper) await writeFile(path.join(root, 'mvnw'), '');
+    const { suggestions, status } = await inspectRepositoryTestSetup(root);
+    assert.equal(status, 'suggestions-available');
+    assert.deepEqual(suggestions.map(entry => entry.id), ['svc-maven-tests', 'group/nested-maven-tests'], 'a module with no tests has nothing to run');
+    const svc = suggestions[0];
+    assert.deepEqual([svc.argv, svc.workingDirectory, svc.result.path, svc.affectedRoots, svc.ecosystem], [argv, directory, report, ['svc'], 'jvm']);
+    // The gate's answer for a change in that module, which is what setup is suggesting.
+    const [gate] = await moduleTestCommands(root, await resolveAffectedModule(root, 'svc/src/main/java/A.java'));
+    assert.deepEqual([svc.id, svc.argv, svc.workingDirectory, svc.result], [gate.id, gate.argv, gate.workingDirectory, gate.result]);
+  }
+});
+
+test('a Maven reactor named as the module directory is read the same way; a plain project keeps its command', async t => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, 'group', 'nested', 'src', 'test', 'java'), { recursive: true });
+  await writeFile(path.join(root, 'group', 'pom.xml'), '<project><modules><module>nested</module></modules></project>');
+  await writeFile(path.join(root, 'group', 'nested', 'pom.xml'), '<project/>');
+  const { suggestions } = await inspectRepositoryTestSetup(root, { sourceRoots: ['group'] });
+  assert.deepEqual(suggestions.map(entry => [entry.argv, entry.workingDirectory, entry.result.path]), [[['mvn', 'test'], 'group/nested', 'target/surefire-reports']]);
+  const plain = await fixture(t);
+  await writeFile(path.join(plain, 'pom.xml'), '<project><!-- <modules><module>old</module></modules> --></project>');
+  assert.deepEqual((await inspectRepositoryTestSetup(plain)).suggestions.map(entry => [entry.id, entry.result.path]), [['maven-tests', 'target/surefire-reports']]);
+});
+
 test('a malformed package.json is named with where its JSON breaks, and never hides the build beside it', async t => {
   const { moduleTestCommands } = await import('../src/test-module-markers.mjs');
   const root = await fixture(t);

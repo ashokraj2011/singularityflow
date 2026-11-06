@@ -23,7 +23,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { inferModuleTestCommand, normalizeRequiredTestCommand, resolveAffectedModule } from './code-delivery-tests.mjs';
+import { declaredMavenModules, inferModuleTestCommand, normalizeRequiredTestCommand, resolveAffectedModule } from './code-delivery-tests.mjs';
 import { ENVIRONMENT_DECLARATION_PATH } from './environment-declaration.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { classifyCommand, scanGuidanceText } from './guidance-scan.mjs';
@@ -465,6 +465,10 @@ async function completeMaven(root, argv, at, directory, notes) {
   const module = inside(directory, projects ?? (file ? path.posix.dirname(file) : '.'));
   if (!module || !await repositoryManifestExists(root, path.posix.join(module === '.' ? '' : module, 'pom.xml'))) {
     return { reason: `No pom.xml is at ${module ?? projects ?? file}, the module it builds.`, notes };
+  }
+  const pom = path.posix.join(module === '.' ? '' : module, 'pom.xml');
+  if (declaredMavenModules((await readRepositoryManifest(root, pom)).bytes.toString('utf8')).length) {
+    return { reason: `${pom} is a reactor: each module writes its own reports, and one report path cannot read them all. Propose one command per module folder (-pl <module> -am).`, notes };
   }
   return { record: { id: null, kind: 'test', argv: [...argv], workingDirectory: directory, affectedRoots: [module], modelPolicy: 'never',
     result: { adapter: 'junit-xml', path: path.posix.join(resultPath(directory, module), 'target/surefire-reports'), minimumDiscovered: 1 } }, notes };

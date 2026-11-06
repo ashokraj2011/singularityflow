@@ -23,8 +23,8 @@ test('witness preparation never pre-answers or executes a human checklist', asyn
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   const block = extension.slice(extension.indexOf("if (action === 'witness')"), extension.indexOf("if (action === 'appeal')", extension.indexOf("if (action === 'witness')")));
   assert.match(block, /'appeal', 'preflight'/);
-  assert.match(block, /'decision', 'witness'/);
-  assert.match(block, /client\.location\), false/);
+  // The native review asks each question and the reason itself, so nothing is left to fill in.
+  assert.match(block, /reviewWitness\(client, \{ workId, criterion: selected\.witness\.clauseId, slot: selected\.witness\.slot \}/);
   assert.doesNotMatch(block, /'--confirm'|'--deny'|client\.run[^\n]*\['decision'/);
   assert.match(block, /stillCurrent\(\)/);
 });

@@ -53,7 +53,8 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // 267: SF Guard M3's presence/counted.mjs (an import-free leaf: only a verified or excepted person record
   // counts) joined through plan-amendments.mjs in 6ad7b77af; main 74e9d6385 measures 267 against < 267.
   // 269: SPEC-ENVF v2's local-config-policy.mjs and config-values.mjs, reached through the scanner and the environment rules.
-  assert.ok(visited.size < 270, `review read closure grew to ${visited.size} local modules`);
+  // 271 measured 2026-11-06: plan accounts and the step sheet's reads, all reads. The forbidden writers above stay out.
+  assert.ok(visited.size < 275, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

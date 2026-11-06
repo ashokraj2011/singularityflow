@@ -10,10 +10,23 @@
  *
  * Publishing the seal never undoes or holds the approval it records: a seal that could not be
  * published is reported with its route (approve the same proposal again, which records it).
+ *
+ * The seal records who approved; it never decides who may. Anyone with access to the repository may
+ * change `sflow/config` (owner decision 2026-11-06, §10.10.1), so a person who cannot sign approves
+ * unsigned, and no reader refuses the commit that leaves.
  */
+import { SingularityFlowError } from '../util.mjs';
 import { CONFIGURATION_SEAL_ROOT, parseSeal, repositorySeal, repositorySealVerdict, sealBytes, sealedRecord } from './repository-seals.mjs';
 
 const COMMIT = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+
+// What keeps a person from signing here. An approver who can sign still signs, and may still decline.
+const CANNOT_SIGN = Object.freeze({
+  PSS_NOT_AN_APPROVER: 'you are not an approver in the approved configuration',
+  PSS_KEY_NOT_REGISTERED: 'you have no presence key registered',
+  PSS_SIGNER_UNAVAILABLE: 'this computer cannot sign with your presence key',
+  PSS_POLICY_UNREADABLE: 'the SF Guard policy cannot be read here'
+});
 
 /** Where the approval seal of `commit` lives on the state branch. */
 export function configurationSealPath(commit) {
@@ -28,16 +41,28 @@ export function configurationApprovalRecord({ proposalCommit, baseCommit = null,
 
 /**
  * Before `configuration approve` moves anything: the approver's seal over `reviewed` (the proposal as
- * inspected), or null while SF Guard is off in this repository. Refusals carry M2's routes.
+ * inspected), null while SF Guard is off in this repository, or `{ unsigned: <why> }` when the person
+ * cannot sign. An approval stays a person's step, so an agent's process is refused either way.
  */
 export async function signConfigurationApproval(root, reviewed) {
   const { signRepositoryStep } = await import('./repository-steps.mjs');
   const record = configurationApprovalRecord({ proposalCommit: reviewed.proposalCommit, baseCommit: reviewed.targetCommit ?? null, branch: reviewed.branch ?? null });
   const files = (reviewed.changedFiles ?? []).length;
-  const presence = await signRepositoryStep(root, { action: 'configuration.approve', title: `approve configuration proposal ${reviewed.branch ?? reviewed.proposalCommit}`,
-    lines: [`Proposal: ${reviewed.branch ?? '(unnamed)'}`, `Proposal commit: ${reviewed.proposalCommit}`, `Changes: ${files} file(s)`,
-      'Step: approve a configuration change for new Stories'], record: { ...record } });
-  return presence ? repositorySeal(presence, record) : null;
+  try {
+    const presence = await signRepositoryStep(root, { action: 'configuration.approve', title: `approve configuration proposal ${reviewed.branch ?? reviewed.proposalCommit}`,
+      lines: [`Proposal: ${reviewed.branch ?? '(unnamed)'}`, `Proposal commit: ${reviewed.proposalCommit}`, `Changes: ${files} file(s)`,
+        'Step: approve a configuration change for new Stories'], record: { ...record } });
+    return presence ? repositorySeal(presence, record) : null;
+  } catch (error) {
+    const unsigned = CANNOT_SIGN[error?.code];
+    if (!unsigned) throw error;
+    if ((await import('./person-records.mjs')).agentStarted()) {
+      const command = `singularity-flow configuration approve ${reviewed.branch ?? reviewed.proposalCommit}`;
+      throw new SingularityFlowError(`Approving a configuration change is a person's step, and an agent started this command. Nothing was written. Run it in your own terminal: ${command}`,
+        { code: 'PSS_CARD_NOT_SHOWN', details: { nextAction: { command, label: `Run in your own terminal: ${command}` } } });
+    }
+    return { unsigned };
+  }
 }
 
 /**

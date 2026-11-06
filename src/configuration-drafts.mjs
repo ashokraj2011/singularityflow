@@ -1122,13 +1122,16 @@ export async function approveProposal(root, requested, {
     }
   }
   // SF Guard (SPEC-PSS-v1 §10.9): the approver's one touch over the exact proposal, before anything moves.
-  const presenceSeal = await (await import('./presence/configuration-seal.mjs')).signConfigurationApproval(root, { ...reviewed, branch });
+  const approval = await (await import('./presence/configuration-seal.mjs')).signConfigurationApproval(root, { ...reviewed, branch });
   const result = await activate(root, branch, { confirm: reviewed.proposalCommit, acknowledgeUnprotected: true });
   if (result?.activated !== false && result?.status !== 'review-required' && result?.status !== 'activation-pending') {
     await forgetProposal(root, branch);
     print('Approved. New Stories use these changes; Stories already running keep the configuration they started with.');
-    if (presenceSeal) {
-      const sealed = await (await import('./presence/configuration-seal.mjs')).publishConfigurationSeal(root, presenceSeal);
+    if (approval?.unsigned) {
+      print(`SF Guard: approved without a signature, because ${approval.unsigned}. Anyone with access to this repository can change the configuration, so this holds nothing back; guard status shows the commit as unsigned.`);
+      result.presence = { status: 'unsigned', reason: approval.unsigned };
+    } else if (approval) {
+      const sealed = await (await import('./presence/configuration-seal.mjs')).publishConfigurationSeal(root, approval);
       result.presence = { status: sealed.status, path: sealed.path };
       if (sealed.status === 'failed') print(`SF Guard: ${sealed.message}.`);
     }

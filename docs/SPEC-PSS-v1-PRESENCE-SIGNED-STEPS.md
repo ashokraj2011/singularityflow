@@ -498,7 +498,7 @@ A repository-level person step has no Story to pin SF Guard's policy, so its rec
 
 | Step | Why not yet |
 | --- | --- |
-| Other `sflow/config` writers: capability map publication and activation, approver membership edits, recreate-sync | They write `sflow/config` without `configuration approve`, so the approved commit after one of them reads unsigned under SF Guard. That is why the configuration reader does not yet refuse an unsigned commit: refusing would block those flows. Each writer needs its own person step and seal first. |
+| Other `sflow/config` writers: capability map publication and activation, approver membership edits, recreate-sync | They write `sflow/config` without `configuration approve`, so the approved commit after one of them reads unsigned under SF Guard. No reader refuses that: see §10.10.1. |
 | The Epic, goal, intent, program, capability lease, host-policy, agents-lock and repair-authorize stores | Each has its own store and readers; each still takes the person's touch before it runs (§10.6). |
 | `story adjudicate`; test recovery admission at intake | As §10.8: a convergence hash-contract change (family v4), and the start-time pin threaded into intake. |
 | `action authorize` | A machine-local, single-use token, never committed. |
@@ -530,28 +530,35 @@ Every person step §10.6 to §10.9 left with a touch but no record now keeps its
 
 **Running repositories.** A lease, approval, completion, plan approval, lock entry or adjudication recorded while SF Guard was on, before this change, carries no signature and now counts for nothing; each refusal names the command that records it again, signed. A Story pinned before this change whose intake decisions have no review entry needs their re-review.
 
-#### 10.10.1 `sflow/config` writers: options (open decision)
+#### 10.10.1 `sflow/config` writers: open to anyone with repository access (decided 6 November 2026)
 
-`configuration approve` keeps a seal (§10.9), but readers of the approved configuration do not yet refuse an unsigned approved commit, because other writers move `sflow/config` with no person step. Each writer is one of:
+**Owner decision.** "sflow/config should be open to anyone who has the repo access." SF Guard records who approved a configuration change; it does not decide who may make one. Access to `sflow/config` is whatever the Git host grants.
 
-| Writer | Today | Class |
+| Writer | Step | Under SF Guard |
 | --- | --- | --- |
-| `configuration approve` (merge of a reviewed proposal) | sealed | (a) a person's signed approval |
-| `workflow activate --confirm <commit>` | the same merge as `configuration approve`, unsigned | (a), not yet signed |
-| `capability activate` (merge of a capability-map proposal) | `--confirm`, unsigned | (a), not yet signed |
-| `capability setup-activate` (fast-forward to a setup proposal) | `--confirm`, unsigned | (a), not yet signed |
-| `configuration recreate-sync --apply` | a digest confirmation, unsigned | (a), not yet signed |
-| `configuration publish` (commit and push the checked-out branch, which may be `sflow/config`) | no confirmation | (a), not yet signed |
-| `workspace refresh-configuration` (packaged configuration of the installed product) | `--confirm-plan` when given | (b) derived from the product, with no signed input |
-| Approver membership enrollment (`configuration add-current-identity`, and automatically on every Story start unless `autoEnrollNewIdentities: false`) | no person step | (b) derived from the person's Git identity, with no signed input |
-| Creating `sflow/config` (`bootstrap`, `onboard`, workspace initialization, the first capability map, a fresh capability onboard) | before any policy exists | (b) the root, before opt-in |
+| `configuration approve` (merge of a reviewed proposal) | `--yes` or a typed answer | An approver who can sign takes one touch and the seal is kept (§10.9). Anyone else approves unsigned. |
+| `workflow activate --confirm <commit>` | exact commit | Unsigned |
+| `capability activate` (merge of a capability-map proposal) | `--confirm` | Unsigned |
+| `capability setup-activate` (fast-forward to a setup proposal) | `--confirm` | Unsigned |
+| `configuration recreate-sync --apply` | digest confirmation | Unsigned |
+| `configuration publish` (commit and push the checked-out branch, which may be `sflow/config`) | none | Unsigned |
+| `workspace refresh-configuration` (packaged configuration of the installed product) | `--confirm-plan` when given | Unsigned |
+| Approver membership enrollment (`configuration add-current-identity`, and automatically on every Story start unless `autoEnrollNewIdentities: false`) | none | Unsigned |
+| Creating `sflow/config` (`bootstrap`, `onboard`, workspace initialization, the first capability map, a fresh capability onboard) | before any policy exists | Unsigned |
 
-The two decisions this needs are product decisions, not settled by this specification:
+What this settles:
 
-1. **Automatic enrollment.** It runs on every Story start and adds an approver with no person step. Options: (i) while SF Guard is on, stop automatic enrollment, so enrollment is `configuration add-current-identity` signed by an existing approver; (ii) keep it as a derived, membership-only publication: the reader accepts a commit whose change is exactly a member added to an existing group, on top of a counted commit, because under SF Guard a member counts only with a key pinned by a signed chain event, so the addition grants no approval power by itself (the §10.8 reasoning for approver refreshes); (iii) both, by repository setting.
-2. **Packaged refresh.** It is derived from the installed product, not from a signed input. Options: (i) route it through a configuration proposal that a person approves (`configuration approve`, sealed); (ii) seal the refresh plan at `--confirm-plan` as a person step, which then requires `--confirm-plan` while SF Guard is on.
+- **`configuration approve`** no longer refuses a person with `PSS_NOT_AN_APPROVER`, `PSS_KEY_NOT_REGISTERED`, `PSS_SIGNER_UNAVAILABLE` or `PSS_POLICY_UNREADABLE`. It approves, says so, and returns `presence: { status: 'unsigned', reason }`. An approver who can sign is still asked, and declining still writes nothing.
+- **Readers** never refuse an unsigned approved commit. `guard status` names one as a fact. The enrollment and packaged-refresh options once listed here, and the planned `configuration approve --current`, are not built.
+- **A repository's own setting stands.** `autoEnrollNewIdentities: false` and the `regulated` profile still stop automatic enrollment, because the repository chose that.
 
-**Recommendation.** Option (ii) for enrollment and option (i) for packaged refresh, and sign every class (a) writer at its own confirmation with the configuration seal of §10.9, keyed by the commit it produces. Then the reader, while SF Guard is on, walks `sflow/config` back from the tip to the newest commit with a seal that verifies, and accepts every commit after it only when it is a membership-only enrollment; anything else is refused with `PSS_RECORD_UNSIGNED` and a route a person can take that day: an approver approves the current configuration, a new `configuration approve --current` that seals the tip after showing its diff from the last counted commit. That command does not exist yet, so the reader cannot refuse until it does. Until this is decided, rows 1 to 3 above are built and the reader stays as §10.9 left it: `guard status` names an unsigned approved commit, and nothing refuses it.
+What stays:
+
+- **An approval is a person's step.** A process an agent started is refused (`PSS_CARD_NOT_SHOWN`), and the Copilot guard refuses `configuration approve` as before.
+- **Keys.** A member counts as a signer only with a key pinned by a signed chain event, and the chain counts only signed events, so writing to `singularity/presence.json` adds no key and turns nothing off. Story approvals are verified against those pins as before.
+- **A seal that does not verify** still fails the remote state check, because it claims a signature it does not have. Having no seal fails nothing.
+
+The consequence is deliberate: someone with repository access can change the workflow rules that later Stories start with, unsigned. A Story already running keeps the configuration it pinned, and the change is visible in `sflow/config`'s history. A team that wants a review on that branch sets it up on its Git host.
 
 ### 10.11 M5 as built (2 November 2026)
 

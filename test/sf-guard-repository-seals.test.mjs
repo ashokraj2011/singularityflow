@@ -216,6 +216,49 @@ test('SF Guard on: a published revision keeps its seal, only counted revisions a
   assert.ok(removed.failures.some((entry) => entry.code === 'PSS_RECORD_REMOVED' && /000002\/presence\.json/u.test(entry.message)), JSON.stringify(removed.failures));
 });
 
+test('SF Guard on: anyone with repository access may approve a configuration change, unsigned when they cannot sign, and an agent never may', async (t) => {
+  const key = softwarePresenceKey();
+  const { root, git } = await guardedLibrary(t, key);
+  const person = signer(key);
+  setPersonStepPresenceDependencies(person);
+  t.after(() => { setPersonStepPresenceDependencies({}); forgetPresenceContexts(); forgetRepositorySealPolicies(); });
+  git('config', 'user.email', 'stranger@example.com');
+  git('config', 'user.name', 'Stranger');
+  const base = git('rev-parse', 'HEAD');
+  git('commit', '--allow-empty', '-qm', 'A proposal');
+  const proposal = git('rev-parse', 'HEAD');
+  const reviewed = { proposalCommit: proposal, targetCommit: base, changedFiles: [], workflows: [], valid: true, branch: 'sflow/config-change/p' };
+  const printed = [];
+  let activated = 0;
+  const approve = () => inRoot(root, () => approveProposal(root, 'sflow/config-change/p', {
+    yes: true, print: (line) => printed.push(line), list: async () => [], inspect: async () => reviewed,
+    activate: async () => { activated += 1; return { activated: true, status: 'activated' }; }
+  }));
+
+  // Whatever started this test run, each half says who it is.
+  const markers = { COPILOT_CLI: process.env.COPILOT_CLI, AI_AGENT: process.env.AI_AGENT };
+  t.after(() => { for (const [name, value] of Object.entries(markers)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; } });
+  delete process.env.AI_AGENT;
+
+  // An agent's process.
+  process.env.COPILOT_CLI = '1';
+  const refused = await approve();
+  assert.equal(refused.error?.code, 'PSS_CARD_NOT_SHOWN');
+  assert.match(refused.error.details.nextAction.command, /configuration approve sflow\/config-change\/p/u);
+  assert.equal(activated, 0);
+  delete process.env.COPILOT_CLI;
+
+  // A person who is not an approver: approved, no touch, no seal, and it says so.
+  const outcome = await approve();
+  assert.equal(outcome.error, undefined, outcome.error?.message);
+  assert.equal(activated, 1);
+  assert.equal(person.shown.length, 0);
+  assert.deepEqual(outcome.value.presence, { status: 'unsigned', reason: 'you are not an approver in the approved configuration' });
+  assert.ok(printed.some((line) => /approved without a signature/u.test(line)), printed.join('\n'));
+  const state = stateCommit(root);
+  assert.equal(state ? committedFileBytes(root, state, configurationSealPath(proposal)) : null, null);
+});
+
 test('SF Guard on: a configuration approval takes one touch over the exact proposal, and its seal on the state branch makes the approved commit read signed', async (t) => {
   const key = softwarePresenceKey();
   const { root, git } = await guardedLibrary(t, key);

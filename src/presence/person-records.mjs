@@ -408,9 +408,12 @@ export async function presenceCountsFor(root, workflow) {
   return presenceCounts(workflow);
 }
 
+/** Whether an agent says it started this process. */
+export const agentStarted = (env = process.env) => AGENT_MARKERS.some((name) => env[name]);
+
 /** Whether this process is a person at their own terminal, as far as it can tell. */
 export function personTerminal({ env = process.env, stdin = process.stdin, stderr = process.stderr } = {}) {
-  if (AGENT_MARKERS.some((name) => env[name])) return { person: false, reason: 'an agent started this command' };
+  if (agentStarted(env)) return { person: false, reason: 'an agent started this command' };
   if (!stdin?.isTTY || !stderr?.isTTY) return { person: false, reason: 'this command has no terminal to show the card in' };
   return { person: true, reason: null };
 }

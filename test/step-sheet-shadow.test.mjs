@@ -352,7 +352,7 @@ test('VS Code reads the sheet: who clears a hold for the person looking, a way o
 
 test('where a step names a turn, that turn\'s guard admits the command, filled in as the person would', async (t) => {
   const { recordRepositoryBoundaryTurn, repositoryToolGuard } = await import('../src/copilot-repository-boundary.mjs');
-  const { captureMutationTurn } = await import('../src/copilot-mutation-guard.mjs');
+  const { captureMutationTurn, mutationPostToolGuard } = await import('../src/copilot-mutation-guard.mjs');
   const { mkdtemp, realpath } = await import('node:fs/promises');
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-sheet-guard-')));
   const root = path.join(directory, 'repository');
@@ -376,6 +376,8 @@ test('where a step names a turn, that turn\'s guard admits the command, filled i
     if (!sessions.has(prompt)) {
       const payload = { cwd: root, sessionId: `sheet-${prompt}`, prompt };
       await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record, { resolveRoot: async () => root, load: async () => accepted }) });
+      // The person has answered, as a chat decision must carry [copilot-answer-binding.mjs].
+      await mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' }, toolResult: { textResultForLlm: 'User responded: A reason the person gave here.' } });
       sessions.set(prompt, payload);
     }
     return sessions.get(prompt);

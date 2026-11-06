@@ -553,7 +553,7 @@ const personSaid = (payload, ...words) => mutationPostToolGuard({ ...payload, to
 
 test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-decide PMC-1');
-  await personSaid(payload, 'The person chose to ship', 'Skip ahead', 'Covered by the parent', 'Out of scope', 'Reviewed', 'Belongs to AC-001', 'The test script needs it', 'The test script needs this entry', 'The person dismissed it', 'The tests are the whole delivery');
+  await personSaid(payload, 'The person chose to ship', 'Skip ahead', 'Covered by the parent', 'Out of scope', 'Reviewed', 'Belongs to AC-001', 'The test script needs it', 'The test script needs this entry', 'The browser runner needs it', 'The person dismissed it', 'The tests are the whole delivery');
   assert.equal(mutationTurnMode('sf-decide'), 'decision-only');
   assert.equal(mutationTurnMode('sflow-decide'), 'decision-only');
   assert.equal(f.contract('decision-only').allow.application, false);

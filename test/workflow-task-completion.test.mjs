@@ -185,6 +185,21 @@ test('a real Story carries on after a person\'s answers, through the real comman
   assert.deepEqual(await stop(), {}, 'and that is the last nudge in this turn');
 });
 
+test('a chat whose shell starts outside the checkout is told where to run git, and only that chat', async t => {
+  const f = await fixture(t);
+  const outside = { ...f.payload, cwd: path.dirname(f.root) };
+  const told = await recordRepositoryBoundaryTurn(outside, { captureMutation: (value, record) => captureMutationTurn(value, record,
+    { resolveRoot: async () => f.root, load: async () => f.accepted }) });
+  assert.ok(told.additionalContext.includes(`run git and anything else in the repository as cd '${f.root}' && <command>.`), told.additionalContext);
+  const allowed = await repositoryToolGuard({ ...outside, toolName: 'bash', toolArgs: { command: `cd '${f.root}' && git status --short && git diff --name-status` } });
+  assert.notEqual(allowed.permissionDecision, 'deny', allowed.permissionDecisionReason);
+  assert.doesNotMatch((await f.start()).additionalContext, /shell starts outside/u);
+  const nested = path.join(f.root, 'singularity');
+  const below = await recordRepositoryBoundaryTurn({ ...f.payload, cwd: nested }, { captureMutation: (value, record) => captureMutationTurn(value, record,
+    { resolveRoot: async () => f.root, load: async () => f.accepted }) });
+  assert.doesNotMatch(below.additionalContext, /shell starts outside/u);
+});
+
 test('a host that sends no stop reason gets the end-of-turn check, and a reason other than the end of a turn does not', async t => {
   const f = await fixture(t);
   await f.arm();

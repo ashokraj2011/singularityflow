@@ -263,6 +263,15 @@ export function turnBoundaryContext(value, presented = mutationContractPresentat
   return { volatile, stable, digest: `sha256:${digest(stable).slice(0, 16)}` };
 }
 
+/** A chat's shell can start in Copilot's own folder. SFlow's commands find the Story from there; git and the rest do not. */
+async function shellStartNote(cwd, root) {
+  const start = typeof cwd === 'string' && cwd ? await realpath(cwd).catch(() => cwd) : root;
+  const inside = path.relative(root, start);
+  if (inside === '' || !inside.startsWith('..') && !path.isAbsolute(inside)) return '';
+  const folder = process.platform === 'win32' ? `"${root}"` : `'${root.replaceAll("'", "'\\''")}'`;
+  return ` This chat's shell starts outside the Story's checkout. SFlow commands find it from there; run git and anything else in the repository as cd ${folder} && <command>.`;
+}
+
 /** The additionalContext text: the stable rules whole, or by digest when this conversation has them. */
 export function turnBoundaryText(context, previous = null) {
   return previous === context.digest
@@ -304,7 +313,7 @@ export async function captureMutationTurn(payload, record, {
         originPath: payload.cwd, repositoryPath: root, workId: value.contract.workId
       }).catch(() => {});
     }
-    return { additionalContext: turnBoundaryText(context, given) };
+    return { additionalContext: turnBoundaryText({ ...context, volatile: `${context.volatile}${await shellStartNote(payload.cwd, root)}` }, given) };
   } catch {
     // An Epic or Initiative checkout binds no Story: its drafting skills still write the files their
     // own SFlow commands issue, and the Epic skills one source-text draft, named here.

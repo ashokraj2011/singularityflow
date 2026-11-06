@@ -167,6 +167,13 @@ test('a refused run names its cause: an environment cause with the approvers rou
   accept(workflow);
   assert.match(testRunRiskRefusalDetails(workflow, { phaseId: 'code', attempt: asserted, at: AT }).testRunCause.guidance, /never covers a code cause/u);
   assert.deepEqual(testRunRiskRefusalDetails(workflow, { phaseId: 'code', attempt: attempt({ status: 'passed' }), at: AT }), {});
+  // A test file that failed to load: the real cause in words; only the environment's may be accepted, and it says what happened.
+  const allPassed = { discovered: 1, passed: 1, failed: 0, skipped: 0 };
+  const foreign = attempt({ tests: allPassed, cause: { category: 'code', class: 'foreign-test-file', basis: 'tests', signal: 'Playwright spec under another runner', file: 'e2e/a.spec.js', failedSuites: 1 } });
+  assert.match(testRunRiskRefusalDetails(workflow, { phaseId: 'code', attempt: foreign, at: AT }).testRunCause.guidance,
+    /code cause, this runner collected a test file written for another runner in e2e\/a\.spec\.js .*never covers a code cause/u);
+  const uninstalled = attempt({ tests: allPassed, cause: { category: 'environment', class: 'dependency-missing', basis: 'tests', signal: 'module not found', failedSuites: 1 } });
+  assert.match(testRunRiskRoute(workflow, { phaseId: 'code', attempt: uninstalled, at: AT }).guidance, /^A test file of this run failed to load because of the environment:/u);
   const lapsed = testRunRiskRoute(workflow, { phaseId: 'code', attempt: attempt(), at: '2026-11-05T00:00:00.000Z' });
   assert.equal(lapsed.lapsed, 'expired');
   assert.match(lapsed.guidance, /TRR-001 expired on 2026-11-01\./u);

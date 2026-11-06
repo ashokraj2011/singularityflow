@@ -4281,9 +4281,11 @@ async function attachRequiredTestExecution(error, root, command, check) {
     try {
       const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
       const failureExamples = await requiredTestFailureExamples(parsed, command.result.adapter).catch(() => []);
+      const failedSuites = (await import('./test-case-messages.mjs')).failedSuiteMessages(command.result.adapter, (parsed.rawReports ?? []).map((entry) => entry.contents)).length;
       report = {
         status: 'observed', tests: parsed.tests,
         ...(failureExamples.length ? { failureExamples } : {}),
+        ...(failedSuites ? { failedSuites } : {}),
         sha256: parsed.result.sha256, bytes: parsed.result.bytes,
         failedTestcases: (parsed.testcaseObservation?.occurrences ?? [])
           .filter((entry) => entry.outcome === 'failed').slice(0, 20)

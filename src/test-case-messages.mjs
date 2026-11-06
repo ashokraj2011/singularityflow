@@ -99,6 +99,23 @@ function javascriptJsonMessages(json) {
   return messages;
 }
 
+const MAX_FAILED_SUITES = 50;
+
+/**
+ * The test files of a Vitest or Jest report that failed without a failed test: they did not load, so
+ * none of their tests is counted. Each with its name and bounded message; none when the report does
+ * not read or the adapter has no such level.
+ */
+export function failedSuiteMessages(adapter, contents) {
+  if (!['jest-json', 'vitest-json'].includes(adapter) || !Array.isArray(contents) || !contents.length) return [];
+  try {
+    const { testResults } = JSON.parse(Buffer.concat(contents.map((content) => Buffer.from(content))).toString('utf8'));
+    return testResults.filter((suite) => String(suite?.status ?? '').toLowerCase() === 'failed'
+      && !(suite.assertionResults ?? []).some((assertion) => String(assertion?.status ?? '').toLowerCase() === 'failed'))
+      .slice(0, MAX_FAILED_SUITES).map((suite) => ({ name: String(suite.name ?? ''), message: boundedCaseMessage(suite.message) }));
+  } catch { return []; }
+}
+
 /**
  * The failure message of each occurrence of one command's report, aligned with its occurrences, or
  * null when the adapter gives totals only or the report does not read (or does not align).

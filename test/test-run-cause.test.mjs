@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { failedSuiteMessages } from '../src/test-case-messages.mjs';
 import { classifyTestRunCause, failedTestMessages, testRunCauseCategory, testRunCauseWords } from '../src/test-run-cause.mjs';
 
 const failed = (stderr, extra = {}) => ({ status: 'failed', exitCode: 1, stdout: '', stderr, ...extra });
@@ -24,6 +25,14 @@ const ENVIRONMENT_OUTPUTS = [
   ['Playwright browser not installed', 'browser-missing', failed("Error: browserType.launch: Executable doesn't exist at /home/dev/.cache/ms-playwright/chromium-1091/chrome-linux/chrome\n"
     + '╔══════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers: ║\n║     npx playwright install ║\n╚══════════╝\n')],
   ['refused database connection', 'service-unreachable', failed('Error: connect ECONNREFUSED 127.0.0.1:5432\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1607:16)\n')],
+  ['Chromium refused a connection', 'service-unreachable', failed('Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:4294/\nCall log:\n  - navigating to "http://127.0.0.1:4294/", waiting until "load"\n')],
+  ['Firefox refused a connection', 'service-unreachable', failed('Error: page.goto: NS_ERROR_CONNECTION_REFUSED\n')],
+  ['a Playwright webServer port already used', 'port-in-use', failed('Error: http://127.0.0.1:4293 is already used, make sure that nothing is running on the port/url or set reuseExistingServer:true in config.webServer.\n')],
+  ['a Vite strictPort already used', 'port-in-use', failed('error when starting dev server:\nError: Port 4173 is already in use\n')],
+  ['a Node server already bound', 'port-in-use', failed('Error: listen EADDRINUSE: address already in use 127.0.0.1:4173\n')],
+  ['a Python server already bound', 'port-in-use', failed('OSError: [Errno 48] Address already in use\n')],
+  ['a JVM server already bound', 'port-in-use', failed('java.net.BindException: Address already in use\n')],
+  ['python without pytest', 'dependency-missing', failed('/usr/bin/python3: No module named pytest\n')],
   ['JDK older than the build', 'toolchain-version', failed('Exception in thread "main" java.lang.UnsupportedClassVersionError: com/example/Main has been compiled by a more recent version of the Java Runtime (class file version 61.0), '
     + 'this version of the Java Runtime only recognizes class file versions up to 55.0\n')],
   ['Maven compiler target the JDK lacks', 'toolchain-version', failed('[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project app: Fatal error compiling: error: invalid target release: 21\n')],
@@ -102,6 +111,80 @@ test('a hang, an unrecognised exit and passing tests in a failed run are never e
   assert.equal(testRunCauseCategory('syntax-error+service-unreachable'), null, 'a code class never joins an environment one');
   assert.equal(testRunCauseCategory('service-unreachable+browser-missing'), null, 'joined classes are sorted');
   assert.equal(testRunCauseCategory('nonsense'), null);
+});
+
+test('what widens a person\'s choice stays behind the code: a code marker or an assertion still wins, and a near miss stays unknown', () => {
+  const tests = { discovered: 1, passed: 0, failed: 1, skipped: 0 };
+  // Tests failing on a refused page are the environment; the same words beside an assertion are the code's.
+  assert.equal(classOf(failed(''), { tests, failedMessages: ['Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:4294/'] }).class, 'service-unreachable');
+  assert.equal(classOf(failed(''), { tests, failedMessages: ['Error: expect(received).toBe(expected)\nnet::ERR_CONNECTION_REFUSED'] }).class, 'assertion-failure');
+  // The whole message real Playwright writes: its quote of the test's source is no assertion of its own.
+  const quoted = 'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:4294/\nCall log:\n  - navigating to "http://127.0.0.1:4294/"\n\n\n  1 | import { test, expect } from \'@playwright/test\'\n'
+    + "> 2 | test('home',async({page})=>{ await page.goto('/'); await expect(page.locator('h1')).toHaveText('hi') })\n    |                                         ^\n  3 |\n    at /work/repo/e2e/a.spec.js:2:41";
+  assert.equal(classOf(failed(''), { tests, failedMessages: [quoted] }).class, 'service-unreachable');
+  const failedExpect = 'Error: expect(locator).toHaveText(expected) failed\n\nLocator: locator(\'h1\')\nExpected: "hi"\n\n> 2 | await expect(page.locator(\'h1\')).toHaveText(\'hi\')\n    |                                 ^\n';
+  assert.equal(classOf(failed(''), { tests, failedMessages: [failedExpect] }).class, 'assertion-failure');
+  // Vitest's and Jest's quotes.
+  assert.equal(classOf(failed(''), { tests, failedMessages: ['Error: connect ECONNREFUSED 127.0.0.1:5432\n  3|   expect(await query()).toBe(1)\n   |          ^'] }).class, 'service-unreachable');
+  assert.equal(classOf(failed(''), { tests, failedMessages: ['Error: connect ECONNREFUSED 127.0.0.1:5432\n> 3 |   expect(await query()).toBe(1);\n    |          ^'] }).class, 'service-unreachable');
+  assert.equal(classOf(failed('src/a.ts(1,1): error TS2322: nope\nError: Port 4173 is already in use\n')).category, 'code');
+  assert.equal(classOf(failed('SyntaxError: Unexpected token\n/usr/bin/python3: No module named pytest\n')).category, 'code');
+  assert.equal(classOf(failed("ModuleNotFoundError: No module named 'pytest_plugin'\n"), { changedPaths: ['tests/test_a.py', 'pytest_plugin/x.py'] }).category, 'code');
+  for (const unknown of ['/usr/bin/python3: No module named mypkg.__main__\n', 'Port 4173 is free\n', 'ERR_CONNECTION\n']) {
+    assert.deepEqual([classOf(failed(unknown)).category, classOf(failed(unknown)).class], ['unknown', 'unrecognised'], unknown);
+  }
+  // Tests passed and the run failed: a marker in its output is still not known to be the cause.
+  assert.equal(classOf(failed('Error: Port 4173 is already in use\n'), { tests: { discovered: 2, passed: 2, failed: 0, skipped: 0 } }).class, 'unrecognised');
+});
+
+// The report real Vitest 4 writes when it collects a Playwright spec: one suite with no tests, a message and no failed test.
+const VITEST_LOAD_FAILURE = 'Playwright Test did not expect test() to be called here.\nMost common reasons include:\n- You are calling test() in a configuration file.\n';
+const vitestReport = (...suites) => ({
+  numTotalTestSuites: suites.length, numFailedTestSuites: suites.filter((suite) => suite.status === 'failed').length,
+  numTotalTests: suites.flatMap((suite) => suite.assertionResults).length,
+  numPassedTests: suites.flatMap((suite) => suite.assertionResults).filter((test) => test.status === 'passed').length,
+  numFailedTests: suites.flatMap((suite) => suite.assertionResults).filter((test) => test.status === 'failed').length,
+  numPendingTests: 0, success: false, testResults: suites
+});
+const passedSuite = { assertionResults: [{ ancestorTitles: [], fullName: 'ok', status: 'passed', title: 'ok', failureMessages: [] }], status: 'passed', message: '', name: '/work/repo/src/a.test.js' };
+const loadFailure = (message, name = '/work/repo/e2e/a.spec.js') => ({ assertionResults: [], status: 'failed', message, name });
+const reportBytes = (report) => [Buffer.from(JSON.stringify(report))];
+
+test('a test file that failed to load is read from the report, and names the real cause when every test passed', () => {
+  const contents = reportBytes(vitestReport(loadFailure(VITEST_LOAD_FAILURE), passedSuite));
+  const failedSuites = failedSuiteMessages('vitest-json', contents);
+  assert.deepEqual(failedSuites.map((suite) => suite.name), ['/work/repo/e2e/a.spec.js']);
+  assert.match(failedSuites[0].message, /^Playwright Test did not expect test\(\)/u);
+  const tests = { discovered: 1, passed: 1, failed: 0, skipped: 0 };
+  assert.deepEqual(classOf(failed(''), { tests, failedSuites, changedPaths: ['e2e/a.spec.js'] }), { category: 'code', class: 'foreign-test-file', basis: 'tests',
+    signal: 'Playwright spec under another runner', file: 'e2e/a.spec.js', failedSuites: 1 });
+  assert.match(testRunCauseWords('foreign-test-file'), /another runner/u);
+  // Jest's own wording of the same collision.
+  const jest = failedSuiteMessages('jest-json', reportBytes({ numFailedTests: 0, testResults: [loadFailure('  ● Test suite failed to run\n\n    Playwright Test needs to be invoked via \'npx playwright test\' and excluded from Jest test runs.\n')] }));
+  assert.equal(classOf(failed(''), { tests: { discovered: 0, passed: 0, failed: 0, skipped: 0 }, failedSuites: jest }).class, 'foreign-test-file');
+  // Any other load failure is what its message names; when it names nothing it is the code's, never the environment's.
+  const read = (message, changedPaths = []) => classOf(failed(''), { tests, failedSuites: [{ name: '/work/repo/src/b.test.js', message }], changedPaths });
+  assert.deepEqual([read('SyntaxError: Unexpected token').category, read('SyntaxError: Unexpected token').class], ['code', 'syntax-error']);
+  assert.equal(read('Failed to resolve import "./gone" from "src/b.test.js"').class, 'import-error');
+  assert.deepEqual([read("Cannot find package 'pg' imported from /work/repo/src/b.test.js").category, read("Cannot find package 'pg' imported from /work/repo/src/b.test.js").class], ['environment', 'dependency-missing']);
+  assert.equal(read("Cannot find package 'pg' imported from /work/repo/src/b.test.js", ['src/b.test.js']).class, 'import-error');
+  const unknown = read('boom', ['src/b.test.js']);
+  assert.deepEqual([unknown.category, unknown.class, unknown.file], ['code', 'suite-load-failure', 'src/b.test.js']);
+  assert.equal(testRunCauseWords('suite-load-failure'), 'a test file failed to load');
+});
+
+test('a failed suite cannot be hidden by failed tests that look like the environment, and only a suite with no failed test counts', () => {
+  const tests = { discovered: 1, passed: 0, failed: 1, skipped: 0 };
+  const refused = 'connect ECONNREFUSED 127.0.0.1:5432';
+  assert.equal(classOf(failed(''), { tests, failedMessages: [refused] }).category, 'environment');
+  assert.equal(classOf(failed(''), { tests, failedMessages: [refused], failedSuites: [{ name: 'a', message: 'boom' }] }).category, 'code');
+  assert.equal(classOf(failed(''), { tests, failedMessages: [refused], failedSuites: [{ name: 'a', message: refused }] }).class, 'service-unreachable');
+  // A suite with a failed test reports that test; its message is not a load failure.
+  const failedTest = { assertionResults: [{ ancestorTitles: [], fullName: 'x', status: 'failed', title: 'x', failureMessages: ['AssertionError'] }], status: 'failed', message: '● x', name: '/work/repo/src/c.test.js' };
+  assert.deepEqual(failedSuiteMessages('jest-json', reportBytes(vitestReport(failedTest, passedSuite))), []);
+  for (const [adapter, contents] of [['playwright-json', reportBytes(vitestReport(loadFailure('x')))], ['vitest-json', [Buffer.from('not json')]], ['vitest-json', []]]) {
+    assert.deepEqual(failedSuiteMessages(adapter, contents), [], adapter);
+  }
 });
 
 test('a report that counts no tests says so, and is never an environment cause on that alone', () => {

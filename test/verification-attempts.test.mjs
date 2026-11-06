@@ -98,6 +98,22 @@ test('every run is one immutable attempt with lineage, occurrences and content-a
   assert.equal(third.attempt.parentAttemptId, second.attempt.attemptId);
 });
 
+test('a run that exits 1 with every test passed because a test file failed to load fails, and its attempt says why', async (t) => {
+  const root = await fixture(t);
+  const startedAt = new Date(Date.now() - 1000).toISOString();
+  const report = jestReport([{ title: 'ok', status: 'passed' }]);
+  report.numFailedTestSuites = 1;
+  report.testResults.unshift({ assertionResults: [], status: 'failed', name: '/repo/e2e/a.spec.js', message: 'Playwright Test did not expect test() to be called here.' });
+  await writeFile(path.join(root, '.sflow/results/node-tests.json'), JSON.stringify(report));
+  const { attempt } = await recordTestAttempt(root, ITEM, { command, check: check('failed', 1, startedAt), purpose: 'preflight', workId: 'PAY-1', phaseId: 'implementation', generation: 1,
+    delivery: { testPaths: ['e2e/a.spec.js'] } });
+  assert.equal(attempt.status, 'failed');
+  assert.equal(testReceiptPassing(attempt), false, 'the exit code rules: every counted test passed and the run still failed');
+  assert.deepEqual(attempt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.deepEqual([attempt.cause.category, attempt.cause.class, attempt.cause.file, attempt.cause.failedSuites], ['code', 'foreign-test-file', 'e2e/a.spec.js', 1]);
+  assert.equal(JSON.stringify(attempt.cause).includes('did not expect'), false, 'the record keeps a marker name, never the run\'s output');
+});
+
 test('a retained report replays to exactly the counts and occurrences its attempt recorded', async (t) => {
   const root = await fixture(t);
   const startedAt = new Date(Date.now() - 1000).toISOString();

@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 31
+version: 32
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -229,15 +229,18 @@ Every failed or blocked run is classified by what stopped it, read from its exit
 | Toolchain version | `toolchain-version` | `UnsupportedClassVersionError`, `invalid target release`, engine requirements, a `.nvmrc` no installed Node matches |
 | Browser missing | `browser-missing` | Playwright `Executable doesn't exist … npx playwright install`, Cypress binary missing |
 | No emulator, simulator or device | `device-unavailable` | Android `No connected devices!` / `DeviceException`, `adb: no devices/emulators found`, Xcode `Unable to find a destination matching`; SFlow never starts one |
-| Service unreachable | `service-unreachable` | `ECONNREFUSED`, `Connection refused` |
+| Service unreachable | `service-unreachable` | `ECONNREFUSED`, `Connection refused`, a browser's `net::ERR_CONNECTION_REFUSED` |
+| Port already in use | `port-in-use` | `EADDRINUSE`, `address already in use`, `Port 4173 is already in use`, Playwright's `webServer` port `is already used` |
 | Docker | `docker-unavailable` | `Cannot connect to the Docker daemon`, `Could not find a valid Docker environment` |
 | Permission | `permission-denied` | `EACCES: permission denied`, `PermissionError` |
 | Every discovered test skipped | `all-tests-skipped` | the report |
 | Compile error (code) | `compile-error` | `error TS…`, javac, kotlinc, rustc, `error CS…`, Go `[build failed]` |
 | Syntax error (code) | `syntax-error` | `SyntaxError`, `IndentationError` |
 | Import error (code) | `import-error` | a missing repository path, a package imported from a file the Story changed, a missing export |
+| A runner collected another runner's test file (code) | `foreign-test-file` | Vitest or Jest loading a Playwright spec: `Playwright Test did not expect test() to be called here` in the report |
+| A test file failed to load (code) | `suite-load-failure` | a file the report marks failed with no failed test, whose message names no other cause here |
 | Tests ran and failed (code) | `assertion-failure` | a failed test whose message is not an environment cause |
-| Timed out, or nothing recognised | `timeout`, `unrecognised` | neither is known to be the environment |
+| Timed out, no tests in the report, or nothing recognised | `timeout`, `no-tests`, `unrecognised` | none of these is known to be the environment |
 
 A code marker wins over an environment one. A run in which tests executed is an environment cause only when every failed test failed from one; a suite whose every test hit a refused database connection is `service-unreachable`. The class is recorded as `cause` on the run's attempt, and the refusal names it: an environment cause with the way out in `error.details.testRunRisk` (with `causeClass`), a code cause as never covered.
 

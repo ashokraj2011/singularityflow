@@ -265,7 +265,8 @@ export function testRunRiskRoute(workflow, { phaseId, attempt, at }) {
     ? ` ${state.decision.id} ${state.state === 'expired' ? `expired on ${state.decision.expiresAt.slice(0, 10)}` : 'was revoked'}.` : '';
   return {
     eligible: true, phase: phaseId, commandId: attempt.commandId, causeClass: cause.class, decision: state?.decision.id ?? null, lapsed: state?.state ?? null, command,
-    guidance: `${noTestExecuted(attempt) ? 'No test executed in this run, so the environment may be what stopped it' : 'Every failed test of this run failed from the environment'}:`
+    guidance: `${noTestExecuted(attempt) ? 'No test executed in this run, so the environment may be what stopped it'
+      : Number(attempt.tests?.failed) > 0 ? 'Every failed test of this run failed from the environment' : 'A test file of this run failed to load because of the environment'}:`
       + ` ${testRunCauseText(cause)}.${lapsed} Fix the environment and run it again, or a person who approves ${phaseId} can accept the risk in their own terminal`
       + ` (an agent cannot), for later runs with this same cause only: ${command}`
   };

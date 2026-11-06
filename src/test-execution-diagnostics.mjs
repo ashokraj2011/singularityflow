@@ -1,4 +1,6 @@
 /** Bounded, content-safe diagnostics for a refused required test execution. */
+import path from 'node:path';
+
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
 const MAX_TEXT = 2000;
@@ -42,6 +44,11 @@ const FAILURE_GUIDANCE = Object.freeze({
   'model-policy-skipped': {
     guidance: 'The test command was not run because it declares no modelPolicy and models are disabled for this run. Rerun with the model enabled, or have configuration declare modelPolicy: never for the command (then adopt it with story test-policy amend).',
     retryCondition: 'runtime-changed'
+  },
+  // A test file did not load, so none of its tests is counted, and the counts alone look like a pass.
+  'suite-failed': {
+    guidance: 'A test file failed to load, so the run failed whatever the counted tests did. Read the example: fix the file, or, if this runner collected a file written for another runner (a Playwright spec under Vitest or Jest), keep it out of this runner\'s reach.',
+    retryCondition: 'test-failure-repaired'
   },
   // The report was read and counts nothing: the fault is what ran, not the reporter.
   'no-tests': {
@@ -100,6 +107,7 @@ function projectedReport(value) {
     sha256: typeof value.sha256 === 'string' && SHA256.test(value.sha256) ? value.sha256 : null,
     bytes: safeCount(value.bytes),
     failedTestcases: status === 'observed' ? cases : [],
+    ...(status === 'observed' && safeCount(value.failedSuites) > 0 ? { failedSuites: value.failedSuites } : {}),
     ...(status === 'observed' && Array.isArray(value.failureExamples) ? { failureExamples: [...new Set(value.failureExamples
       .filter(entry => typeof entry === 'string').map(entry => boundedText(entry, 600)))].slice(0, 3) } : {}),
     reason: status === 'unavailable' && value.reason != null
@@ -142,6 +150,7 @@ export function classifyRequiredTestFailure(errorCode, check = null, report = nu
       && safeCount(report.tests.skipped) === discovered) {
     return failureOf('all-tests-skipped');
   }
+  if (observed && safeCount(report.failedSuites) > 0) return failureOf('suite-failed');
   if (observed && discovered === 0 && failed === 0) return failureOf('no-tests');
   if (observed && failed === 0 && !(discovered > 0 && passed > 0)) {
     return failureOf('invalid-or-missing-report');
@@ -217,10 +226,14 @@ export function requiredTestExecutionForRefusal(error) {
 
 /** Bounded examples from this invocation's parsed report, before transient reports are restored. */
 export async function requiredTestFailureExamples(parsed, adapter) {
-  const { testCaseMessages } = await import('./test-case-messages.mjs');
+  const { failedSuiteMessages, testCaseMessages } = await import('./test-case-messages.mjs');
   const occurrences = parsed.testcaseObservation?.occurrences ?? [];
-  const messages = testCaseMessages(adapter, (parsed.rawReports ?? []).map(entry => entry.contents), occurrences.length);
+  const contents = (parsed.rawReports ?? []).map(entry => entry.contents);
+  const messages = testCaseMessages(adapter, contents, occurrences.length);
   const examples = new Set();
+  for (const suite of failedSuiteMessages(adapter, contents).slice(0, 3)) {
+    if (suite.message) examples.add(boundedText(`${path.posix.basename(suite.name.replaceAll('\\', '/'))}: ${suite.message}`, 600));
+  }
   for (let index = 0; index < occurrences.length && examples.size < 3; index += 1) {
     if (occurrences[index].outcome === 'failed' && messages?.[index]) examples.add(boundedText(messages[index], 600));
   }

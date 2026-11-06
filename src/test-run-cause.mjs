@@ -8,10 +8,11 @@
  *
  * - Environment: the launcher is missing or not executable, a dependency is not installed, a
  *   registry, the network or a proxy cannot be reached, the toolchain is the wrong version, a
- *   browser is missing, a service the tests connect to is not reachable, Docker is not available,
- *   permission was denied, or every discovered test skipped itself.
+ *   browser is missing, a service the tests connect to is not reachable, a port they need is taken,
+ *   Docker is not available, permission was denied, or every discovered test skipped itself.
  * - Code: a compile error, a syntax error, an import that does not resolve (a repository path, or
- *   a package imported from a file the Story changed), or tests that ran and failed.
+ *   a package imported from a file the Story changed), a test file that failed to load, or tests
+ *   that ran and failed.
  * - Unknown: the run timed out (a hang the change caused looks like a slow machine), its report
  *   counts no tests, or its output names nothing recognised here.
  *
@@ -21,7 +22,7 @@
  * [TCE:REQ-043]. Deterministic; the record holds this module's own class and marker names and a
  * path the Story changed, never the run's output.
  */
-import { testCaseMessages } from './test-case-messages.mjs';
+import { failedSuiteMessages, testCaseMessages } from './test-case-messages.mjs';
 
 const ENVIRONMENT = 'environment';
 const CODE = 'code';
@@ -36,12 +37,15 @@ export const TEST_RUN_CAUSES = Object.freeze({
   'browser-missing': [ENVIRONMENT, 'the browser the tests drive is not installed'],
   'device-unavailable': [ENVIRONMENT, 'no emulator, simulator or device is attached'],
   'service-unreachable': [ENVIRONMENT, 'a service the tests connect to is not reachable'],
+  'port-in-use': [ENVIRONMENT, 'a port the tests need is already in use'],
   'docker-unavailable': [ENVIRONMENT, 'Docker is not available'],
   'permission-denied': [ENVIRONMENT, 'the run was denied access to a file or directory'],
   'all-tests-skipped': [ENVIRONMENT, 'every discovered test skipped itself'],
   'compile-error': [CODE, 'the code does not compile'],
   'syntax-error': [CODE, 'a syntax error'],
   'import-error': [CODE, 'an import that does not resolve'],
+  'foreign-test-file': [CODE, 'this runner collected a test file written for another runner'],
+  'suite-load-failure': [CODE, 'a test file failed to load'],
   'assertion-failure': [CODE, 'tests ran and failed'],
   timeout: [UNKNOWN, 'the run timed out'],
   'no-tests': [UNKNOWN, 'the run found no tests'],
@@ -64,8 +68,9 @@ const ENVIRONMENT_MARKERS = Object.freeze([
   ['toolchain-version', 'engine version', /The engine "node" is incompatible|npm ERR! code EBADENGINE|requires a different Python|requires Node(?:\.js)? (?:version )?[>=^~v]*\d|requires rustc \d|does not support targeting \.NET|go\.mod requires go >=/iu],
   ['registry-unreachable', 'artifact transfer', /Could not transfer artifact|Could not (?:GET|HEAD) '?https?:|Cannot access \S+ \([^)]*\) in offline mode|Could not resolve all (?:files|dependencies|artifacts) for configuration/u],
   ['registry-unreachable', 'network or proxy', /npm ERR! (?:network|code (?:ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|E407|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_GET_ISSUER_CERT_LOCALLY))|\b(?:ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH)\b|Temporary failure in name resolution|Could not resolve host|nodename nor servname provided|Network is unreachable|No route to host|Proxy Authentication Required|tunneling socket could not be established|PKIX path building failed|unable to find valid certification path|self[- ]signed certificate in certificate chain|unable to get local issuer certificate|CERTIFICATE_VERIFY_FAILED|NewConnectionError|Max retries exceeded with url/iu],
-  ['service-unreachable', 'ECONNREFUSED', /\bECONNREFUSED\b|Connection refused|connect ETIMEDOUT \S+:\d+|Communications link failure|Is the server running on host|could not connect to server|Can't connect to (?:local )?MySQL server|MongoServerSelectionError|MongoNetworkError|Connection to \S+:\d+ refused/iu],
-  ['dependency-missing', 'missing package', new RegExp(`npm ERR! missing|Could not resolve dependencies|Could not find artifact|No matching distribution found|Could not find a version that satisfies the requirement|or one of its dependencies could not be resolved|${SHELL}(?:${PACKAGE_BINARIES}): (?:command )?not found|${SHELL}command not found: (?:${PACKAGE_BINARIES})\\b`, 'mu')],
+  ['service-unreachable', 'ECONNREFUSED', /\bECONNREFUSED\b|Connection refused|\bnet::ERR_CONNECTION_REFUSED\b|\bNS_ERROR_CONNECTION_REFUSED\b|connect ETIMEDOUT \S+:\d+|Communications link failure|Is the server running on host|could not connect to server|Can't connect to (?:local )?MySQL server|MongoServerSelectionError|MongoNetworkError|Connection to \S+:\d+ refused/iu],
+  ['port-in-use', 'address in use', /\bEADDRINUSE\b|\baddress already in use\b|\bPort \d+ is already in use\b|\bis already used, make sure that nothing is running on the port/iu],
+  ['dependency-missing', 'missing package', new RegExp(`npm ERR! missing|Could not resolve dependencies|Could not find artifact|No matching distribution found|Could not find a version that satisfies the requirement|or one of its dependencies could not be resolved|\\bNo module named pytest\\b|${SHELL}(?:${PACKAGE_BINARIES}): (?:command )?not found|${SHELL}command not found: (?:${PACKAGE_BINARIES})\\b`, 'mu')],
   ['launcher-unavailable', 'command not found', new RegExp(`${SHELL}(?:\\S+: (?:command )?not found|command not found: \\S+|\\S+: Permission denied)|is not recognized as an internal or external command|^(?:/usr/bin/)?env: [^\\n]*No such file or directory`, 'mu')],
   ['permission-denied', 'EACCES', /\b(?:EACCES|EPERM)\b|PermissionError: \[Errno 13\]|AccessDeniedException|Operation not permitted/u]
 ]);
@@ -76,6 +81,9 @@ const CODE_MARKERS = Object.freeze([
   ['compile-error', 'compiler error', /COMPILATION ERROR|^(?:\[ERROR\] )?\S+\.(?:java|kt|kts|scala|groovy):\[\d+,\d+\]|^\S+\.(?:java|scala|groovy|cs|swift|c|cc|cpp|cxx|h|hpp|m|mm|go):\d+(?::\d+)?: (?:fatal )?error\b|^e: (?:file:\/\/)?\S+\.kts?:|Compilation failed; see the compiler error output|Execution failed for task '[^']*:compile\w*'|\berror\[E\d{4}\]|^error: could not compile `|\berror (?:CS|FS|BC)\d{4}\b|\[(?:build|setup) failed\]/mu],
   ['syntax-error', 'SyntaxError', /^(?![^\n]*\bJSON\b)[^\n]*\b(?:SyntaxError|IndentationError|TabError)\b|Jest encountered an unexpected token/mu]
 ]);
+
+// Playwright refusing to load under Vitest or Jest, which collected its spec.
+const FOREIGN_TEST_FILE = /Playwright Test did not expect test\(\) to be called here|Playwright Test needs to be invoked via/u;
 
 // An assertion in a failed test's message: the test ran and checked something.
 const ASSERTION = /AssertionError|ERR_ASSERTION|AssertionFailedError|ComparisonFailure|opentest4j|expect\(|Expected values to be|Expected[^\n]*(?:Received|but (?:was|got))|^E\s+assert\b|\bassert(?:ion)? failed\b/mu;
@@ -165,11 +173,35 @@ function environmentCause(text, changedPaths) {
   return imported;
 }
 
+// A runner's quote of the test's own source (`> 2 | await expect(…)`), which says what the test goes on to
+// do, not what stopped it: a refused page.goto above an expect() is not an assertion that failed.
+const SOURCE_QUOTE = /^[ \t]*>?[ \t]*\d+[ \t]*\|.*$|^[ \t]*\|[ \t]*\^[ \t]*$/gmu;
+
 /** One failed test's message: its code or environment cause, or null when it names neither. */
 function failedTestCause(message, changedPaths) {
-  return codeCause(message, changedPaths)
-    ?? (ASSERTION.test(message) ? cause('assertion-failure', 'assertion', 'tests') : null)
-    ?? environmentCause(message, changedPaths);
+  const told = message.replace(SOURCE_QUOTE, '');
+  return codeCause(told, changedPaths)
+    ?? (ASSERTION.test(told) ? cause('assertion-failure', 'assertion', 'tests') : null)
+    ?? environmentCause(told, changedPaths);
+}
+
+/**
+ * A test file that failed to load (`{ name, message }`): what its message names. One that names nothing
+ * is the code's, never the environment's: the report says the file did not run, and not why.
+ */
+function failedSuiteCause({ name, message }, changedPaths) {
+  const text = String(message ?? '').slice(0, 4_000);
+  const file = namedChangedPath(name, changedPaths);
+  const where = file ? { file } : {};
+  if (FOREIGN_TEST_FILE.test(text)) return cause('foreign-test-file', 'Playwright spec under another runner', 'tests', where);
+  const named = codeCause(text, changedPaths) ?? environmentCause(text, changedPaths);
+  return named ? { ...named, basis: 'tests' } : cause('suite-load-failure', 'suite failed with no failed test', 'tests', where);
+}
+
+/** Environment causes read together: their classes joined, sorted, in one cause. */
+function joinedEnvironment(causes, extra) {
+  return { category: ENVIRONMENT, class: [...new Set(causes.map((entry) => entry.class))].sort().join('+'), basis: 'tests',
+    signal: [...new Set(causes.map((entry) => entry.signal))].sort().join(', '), ...extra };
 }
 
 function count(value) {
@@ -179,11 +211,12 @@ function count(value) {
 /**
  * Classify one failed or blocked run. `check` is the run (status, timedOut, infrastructureUnavailable,
  * bounded stdout and stderr), `tests` its report's counts, `failedMessages` the failure message of
- * each failed test in report order (null when the adapter gives none), `changedPaths` the paths the
- * Story changed. Returns `{ category, class, basis, signal }`, with `failedTests` when read from
- * the tests and `file` when a code cause names a changed path.
+ * each failed test in report order (null when the adapter gives none), `failedSuites` the test files
+ * that failed to load (src/test-case-messages.mjs), `changedPaths` the paths the Story changed.
+ * Returns `{ category, class, basis, signal }`, with `failedTests` or `failedSuites` when read from
+ * them and `file` when a code cause names a changed path.
  */
-export function classifyTestRunCause({ check = null, tests = null, failedMessages = null, changedPaths = [] } = {}) {
+export function classifyTestRunCause({ check = null, tests = null, failedMessages = null, failedSuites = null, changedPaths = [] } = {}) {
   const changed = [...new Set((changedPaths ?? []).filter((entry) => typeof entry === 'string' && entry))];
   const output = `${String(check?.stderr ?? '')}\n${String(check?.stdout ?? '')}`.slice(0, 32_000);
   const failed = count(tests?.failed);
@@ -194,6 +227,8 @@ export function classifyTestRunCause({ check = null, tests = null, failedMessage
   if (check?.timedOut === true) return cause('timeout', 'timeout', 'process');
   const code = codeCause(output, changed);
   if (code) return code;
+  // A file that failed to load counts no test: the tests beside it passing or failing says nothing of it.
+  const suites = (failedSuites ?? []).map((suite) => failedSuiteCause(suite, changed));
   if (failed > 0) {
     const messages = Array.isArray(failedMessages) && failedMessages.length === failed ? failedMessages : null;
     // Identical messages read once: a suite whose every test hit the same refused port is one reading.
@@ -202,14 +237,15 @@ export function classifyTestRunCause({ check = null, tests = null, failedMessage
       const text = String(message ?? '').slice(0, 4_000);
       if (!read.has(text)) read.set(text, text ? failedTestCause(text, changed) : null);
     }
-    const causes = messages && read.size <= 2_000 ? [...read.values()] : [null];
-    if (causes.every((entry) => entry?.category === ENVIRONMENT)) {
-      return { category: ENVIRONMENT, class: [...new Set(causes.map((entry) => entry.class))].sort().join('+'), basis: 'tests',
-        signal: [...new Set(causes.map((entry) => entry.signal))].sort().join(', '), failedTests: failed };
-    }
+    const causes = [...(messages && read.size <= 2_000 ? read.values() : [null]), ...suites];
+    if (causes.every((entry) => entry?.category === ENVIRONMENT)) return joinedEnvironment(causes, { failedTests: failed });
     const named = causes.find((entry) => entry?.category === CODE && entry.class !== 'assertion-failure');
     return named ? { ...named, basis: 'tests', failedTests: failed }
       : cause('assertion-failure', messages ? 'failed test' : 'failed tests without messages', 'tests', { failedTests: failed });
+  }
+  if (suites.length) {
+    return suites.every((entry) => entry.category === ENVIRONMENT) ? joinedEnvironment(suites, { failedSuites: suites.length })
+      : { ...suites.find((entry) => entry.category === CODE), failedSuites: suites.length };
   }
   // Tests ran and none failed, yet the run did: nothing here says the environment did it.
   if (executed > 0) return cause('unrecognised', 'tests passed, run failed', 'process');
@@ -263,6 +299,6 @@ export function attemptRunCause({ check, parsed, attempt, delivery }) {
   const occurrences = attempt.occurrences ?? [];
   const failedMessages = attempt.tests?.failed > 0
     ? failedTestMessages(attempt.adapter, occurrences, testCaseMessages(attempt.adapter, contents, occurrences.length), contents) : null;
-  return classifyTestRunCause({ check, tests: attempt.tests, failedMessages,
+  return classifyTestRunCause({ check, tests: attempt.tests, failedMessages, failedSuites: failedSuiteMessages(attempt.adapter, contents),
     changedPaths: [...(delivery?.sourcePaths ?? []), ...(delivery?.testPaths ?? [])] });
 }

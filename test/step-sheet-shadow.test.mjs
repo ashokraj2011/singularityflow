@@ -296,6 +296,15 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.deepEqual([dirty.sheet.holds[0].code, dirty.sheet.holds[0].source, dirty.sheet.holds[0].clearedBy.kind, dirty.sheet.approval.mayApproveNow],
     ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'door', 'checkout', false]);
   assert.equal(attemptApprove().code, 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'the door refuses with what the sheet said');
+  // /sf-approve's packet stops on the sheet, with its next as the route; no receipt, no document read.
+  const stopped = json('choices', 'begin', 'approve', WORK, '--for-agent', '--json', '--review-packet');
+  assert.deepEqual([stopped.begun, stopped.reason, stopped.approvalPacket.review], [false, 'approval-holds', null]);
+  // An agent's view of a route carries --for-agent; the route is the sheet's.
+  assert.equal(stopped.nextAction.command.replace(' --for-agent', ''), dirty.sheet.next.command);
+  assert.equal(stopped.act.do.shell.replace(' --for-agent', ''), dirty.sheet.next.command);
+  assert.deepEqual(stopped.approvalPacket.sheet.holds.map((hold) => hold.code), ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED']);
+  assert.equal(stopped.approvalPacket.readiness.approvalCheck, undefined, 'the sheet says it, once');
+  assert.deepEqual(stopped.act.read, ['approvalPacket.sheet', 'approvalPacket.readiness.owedDecisions']);
   await rm(stray);
 
   // Application source committed during review: the gate's own refusals, and recording refuses with the first.

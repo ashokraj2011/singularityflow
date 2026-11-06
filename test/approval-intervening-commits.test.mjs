@@ -247,7 +247,7 @@ test('approving a submitted phase names each later commit, and an undecided amen
   const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
   assert.equal(packet.begun, false, 'a known hold returns before any receipt or document packet (79e0fefa5)');
   assert.equal(packet.approvalPacket.review, null);
-  assert.deepEqual(packet.approvalPacket.readiness.approvalCheck.holds, readiness.approvalCheck.holds);
+  assert.deepEqual(packet.approvalPacket.sheet.holds.map((hold) => hold.code), readiness.approvalCheck.holds.map((hold) => hold.code));
   const shown = cli('phase', 'show', 'planning');
   assert.ok(shown.stderr.includes('An approver of Specification decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);
   assert.ok(shown.stderr.includes(`Shell: ${STATUS}`), shown.stderr);

@@ -242,8 +242,9 @@ export function agentAct(result) {
     }
   }
   if (result.resultType === 'sflow-approval-packet' && result.begun === false && result.reason === 'approval-holds') {
-    return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness.approvalCheck', 'approvalPacket.readiness.owedDecisions'],
-      said: 'Approval has known holds. Show their owners and follow the returned route. Only approvalCheck.holds block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.' }, result.nextAction);
+    const holds = result.approvalPacket?.sheet ? 'approvalPacket.sheet' : 'approvalPacket.readiness.approvalCheck';
+    return withRoute({ state: 'blocked', do: null, read: [holds, 'approvalPacket.readiness.owedDecisions'],
+      said: `Approval has known holds. Show their owners and follow the returned route. Only ${holds === 'approvalPacket.sheet' ? 'approvalPacket.sheet.holds' : 'approvalCheck.holds'} block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.` }, result.nextAction);
   }
   if (result.resultType === 'sflow-approval-packet' && result.begun === false && result.preserveDraft === true) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness', 'nextAction'],

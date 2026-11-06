@@ -11,6 +11,14 @@ export const blockingHolds = (sheet) => (sheet?.holds ?? []).filter((hold) => ho
 
 const sentence = (text) => String(text ?? '').replace(/[.:\s]+$/u, '');
 
+/** A sheet as an agent shows it: who clears each hold, and what comes next. The options stay on the list. */
+export function sheetForAgent(sheet) {
+  return { step: sheet.step?.id ?? null, holds: blockingHolds(sheet).map((hold) => ({ code: hold.code, title: hold.title, who: hold.clearedBy?.words ?? '' })),
+    approval: { needed: sheet.approval?.needed ?? null, recorded: sheet.approval?.recorded?.length ?? 0, mayApproveNow: sheet.approval?.mayApproveNow === true },
+    ...(sheet.waitingFor ? { waitingFor: sheet.waitingFor.words, share: sheet.waitingFor.share ?? null } : {}),
+    owedLater: (sheet.owedLater ?? []).map((hold) => hold.title) };
+}
+
 /**
  * The sheet's one next step as `{ command, skill, copilotCommand, label, reason }`, or null when it
  * has none. `skill` is null where no turn takes it: the person's own terminal.

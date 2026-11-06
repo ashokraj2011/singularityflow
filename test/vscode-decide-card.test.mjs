@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
+import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionAnswersFromChoices } from '../apps/vscode/src/views/decision-list-model.ts';
 
 const allowed = { allowed: true, words: 'You may decide this (Plan approvers).', groups: ['planners'] };
@@ -87,6 +87,15 @@ test('the person confirms every answer with its reason, and what stays undecided
   assert.match(summary, /Say where a\.js belongs: Add to REQ-001\. Reason: Its own reason\./u);
   assert.match(summary, /Until 2026-12-02\. What stops the tests: No browser\. Reason: Another\./u);
   assert.match(summary, /Still undecided: Say where package\.json belongs; Check the screenshot; A dirty checkout/u);
+});
+
+test('a Story signed with SF Guard hands over one command with nothing to fill in, and keeps the answers on the page', () => {
+  const html = decideHtml(packet(), { error: GUARD_WORDS, route: guardRoute('PAY-1'), draft: decideDraftFrom({ type: 'x', rows: [answer('d1', 'Say where a.js belongs', 'row-req-2', 'Kept here.')] }) });
+  assert.match(html, /Touch ID is taken in your own terminal, so nothing was written here/u);
+  assert.match(html, /<code>singularity-flow decisions record PAY-1<\/code><button type="button" data-route>/u);
+  assert.doesNotMatch(guardRoute('PAY-1'), /</u, 'nothing to fill in');
+  assert.match(html, /value="Kept here\."/u);
+  assert.doesNotMatch(decideHtml(packet()), /data-route/u);
 });
 
 test('the page script uses the one VS Code handle page() already took', () => {

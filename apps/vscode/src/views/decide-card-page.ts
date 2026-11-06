@@ -67,7 +67,7 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
     <td>${what}</td><td>${select}${reviews}${own}</td><td class="dc-fields">${choices.length ? fieldsHtml(item, entered) : ''}</td></tr>`;
 }
 
-export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined } = {}): string {
+export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null } = {}): string {
   const rows = decideRows(packet);
   const shared = sharedAnswers(packet);
   const yours = rows.some((item) => item.decidedBy?.allowed && item.options.some(decidable));
@@ -76,6 +76,7 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <p class="muted">${escape(packet.headline)} Nothing is recorded until you review the list and confirm it.</p></header>
     ${error ? `<p class="dc-error" role="alert">${escape(error)}</p>` : ''}
     ${notice ? `<p class="dc-notice" role="status">${escape(notice)}</p>` : ''}
+    ${route ? `<div class="dc-own"><code>${escape(route)}</code><button type="button" data-route>Put it in a terminal</button></div>` : ''}
     ${shared.length ? `<section class="dc-all"><label for="dc-all-choice">One answer for all that offer it</label>
       <select id="dc-all-choice"><option value="">Choose…</option>${shared.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.label)} (${entry.rows} rows)</option>`).join('')}</select>
       <input id="dc-all-reason" aria-label="One reason for all of them" placeholder="One reason" maxlength="1000"><button type="button" data-apply-all>Apply to all</button></section>` : ''}
@@ -124,6 +125,10 @@ export function decideSummary(packet: DecisionPacket, choices: readonly Decision
   const left = rows.filter((item) => item.decidedBy?.allowed && !choices.some((choice) => choice.item === item.id));
   return [...lines, ...(left.length ? ['', `Still undecided: ${left.map((item) => item.title).join('; ')}`] : [])].join('\n');
 }
+
+/** With SF Guard the signature is taken in the person's own terminal: the one command with nothing to fill in, which asks the same questions there. */
+export const guardRoute = (workId: string) => `singularity-flow decisions record ${workId}`;
+export const GUARD_WORDS = 'This Story signs each decision with SF Guard, and Touch ID is taken in your own terminal, so nothing was written here. Put this in a terminal and press Enter; it asks the same questions and shows the card to sign.';
 
 export const DECIDE_STYLE = `
 .dc { display:grid; gap:1rem; padding:1rem 0; max-width:80rem; }
@@ -176,6 +181,7 @@ document.addEventListener('click', (event) => {
     const type = step.dataset.terminal ? 'decide.terminal' : step.dataset.copy ? 'decide.copy' : 'decide.witness';
     return vscode.postMessage({ type, item: row.dataset.item, option: step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness, rows: answers() });
   }
+  if (event.target.closest('[data-route]')) return vscode.postMessage({ type: 'decide.route' });
   if (event.target.closest('[data-cancel]')) return vscode.postMessage({ type: 'decide.cancel' });
   if (event.target.closest('[data-apply-all]')) {
     const chosen = document.getElementById('dc-all-choice');

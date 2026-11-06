@@ -218,6 +218,11 @@ export async function runCard({ ask, show, read, record, witness, inspect }) {
       recorded.push(...(result.recorded ?? []).map((entry) => entry.record ?? entry.item));
       answers = [];
     } catch (error) {
+      // With SF Guard the signature is taken in the person's own terminal: one command, nothing to fill in, the same questions there.
+      if (error.code === 'PSS_CARD_NOT_SHOWN') {
+        return { status: 'needs-terminal', recorded, remaining: [], command: `singularity-flow decisions record ${packet.workId}`,
+          message: `This Story signs each decision with SF Guard, and Touch ID is taken in your own terminal, so nothing was written here. In a second pane run: singularity-flow decisions record ${packet.workId}` };
+      }
       if (error.code !== 'DECISIONS_PACKET_CHANGED') throw error;
       packet = await read();
       answers = answersOnCurrentList(packet, answers);

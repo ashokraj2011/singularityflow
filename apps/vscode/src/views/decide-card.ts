@@ -13,10 +13,11 @@ import { registerMessageRouter, stringField, type InboundMessage } from './messa
 import { navigateTo } from './navigate.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import { createTerminalIn } from '../terminal-start.ts';
+import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, type DecideDraft } from './decide-card-page.ts';
+import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, type DecideDraft } from './decide-card-page.ts';
 
 export interface DecideResult { status: string; message: string; recorded?: string[]; remaining?: string[]; next?: unknown }
 
@@ -57,9 +58,10 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     let settled = false;
     let draft: DecideDraft | undefined;
     let recorded: string[] = [];
+    let route: string | null = null;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
-      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(packet, { error, notice, busy, draft })}`,
+      panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(packet, { error, notice, busy, draft, route })}`,
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
     const finish = (result: DecideResult) => { if (settled) return; settled = true; resolve(result); panel.dispose(); };
@@ -87,6 +89,12 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
         terminal.show(false);
         terminal.sendText(command, false);
+      },
+      'decide.route': () => {
+        if (!route) return;
+        const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
+        terminal.show(false);
+        terminal.sendText(route, false);
       },
       'decide.witness': async (message) => {
         if (busy) return;
@@ -124,6 +132,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           const failure = error as Error & { result?: unknown };
           const { outcome, packet: fresh } = decisionRecordOutcome(null, { message: failure.message, result: failure.result });
           busy = false;
+          if (cliRefusalCode(error) === 'PSS_CARD_NOT_SHOWN') { route = guardRoute(workId); panel.reveal(); return render(GUARD_WORDS); }
           if (outcome.recorded.length) recorded = [...recorded, ...outcome.recorded];
           if (fresh) packet = fresh; else await reread();
           panel.reveal();

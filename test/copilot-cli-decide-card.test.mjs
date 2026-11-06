@@ -107,6 +107,16 @@ test('a changed list records nothing, and only answers that still mean the same 
   assert.equal(result.status, 'recorded');
 });
 
+test('a Story signed with SF Guard hands over one command with nothing to fill in, and writes nothing here', async () => {
+  const { seen, ui } = person([accept({ choice: EACH }), accept({ decision0: 'Add to REQ-002', reason0: 'Its own reason, long enough.' }), accept({ confirm: RECORD })]);
+  seen.fail = Object.assign(new Error('needs a card'), { code: 'PSS_CARD_NOT_SHOWN' });
+  const result = await runCard(ui);
+  assert.equal(result.status, 'needs-terminal');
+  assert.equal(result.command, 'singularity-flow decisions record PAY-1');
+  assert.match(result.message, /Touch ID is taken in your own terminal, so nothing was written here/u);
+  assert.equal(seen.recorded.length, 0);
+});
+
 test('a sign-off is one form, the same three questions, recorded only on its own confirmation', async () => {
   const signed = packet({ items: [{ id: 'd1', kind: 'evidence-obligation', title: 'Check the screenshot', why: 'A person looks.', decidedBy: allowed, options: [{ id: 'witness-1', label: 'I checked', recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: 'singularity-flow decision witness', humanReview: review } }] }] });
   const form = witnessForm(review);

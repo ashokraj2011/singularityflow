@@ -31,26 +31,13 @@ import { readRepositoryManifest, repositoryManifestExists } from './repository-m
 import { classifyVariable, looksSecretName, looksSecretValue } from './secret-looking.mjs';
 import { blockedPath, EXCLUDED_DIRECTORIES, recognizeFormat } from './team-import/formats.mjs';
 import { declaredGradleProjects } from './test-module-markers.mjs';
+import { DIRECT_REPORTERS } from './test-runners.mjs';
 
 const LIMITS = Object.freeze({ files: 200, fileBytes: 256 * 1024, candidates: 200, skillDepth: 3, nxDirectories: 2_000 });
 const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su;
 const RESULTS = '.sflow/results';
-/**
- * The reporter a runner called directly gets: the arguments inference (inferModuleTestCommand) adds to
- * the same runner, its adapter and report extension. A package script or Nx target is completed by
- * inference itself; only a direct call needs this, and a test pins it to inference's arguments. It is
- * kept here rather than shared, because every lifecycle command loads code-delivery-tests.mjs.
- */
-const TEST_REPORTERS = Object.freeze({
-  jest: { adapter: 'jest-json', extension: 'json', arguments: (report) => ['--json', '--outputFile', report] },
-  vitest: { adapter: 'vitest-json', extension: 'json', arguments: (report) => ['--reporter=json', `--outputFile=${report}`] },
-  playwright: { adapter: 'playwright-json', extension: 'json', arguments: () => ['--reporter=json'] },
-  pytest: { adapter: 'junit-xml', extension: 'xml', arguments: (report) => [`--junitxml=${report}`] },
-  go: { adapter: 'go-test-json', extension: 'jsonl', arguments: () => ['-json'] },
-  dotnet: { adapter: 'dotnet-trx', extension: null, arguments: (directory) => ['--logger', 'trx', '--results-directory', directory] }
-});
-
-/** For the test that pins the reporter arguments to inference's. */
+/** The reporter a runner called directly gets, from its row: for the test that pins it to inference's arguments. */
+const TEST_REPORTERS = DIRECT_REPORTERS;
 export const DIRECT_RUNNER_REPORTERS = TEST_REPORTERS;
 const NODE_SYSTEMS = ['node', 'nx'];
 const UNSUPPORTED_TOOLS = new Set(['karma', 'jasmine', 'ava', 'tap', 'tox', 'nox', 'detox', 'phpunit', 'rspec']);

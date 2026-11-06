@@ -66,7 +66,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 467: SF Guard M3's presence/counted.mjs, the import-free leaf each person-step family reader counts through,
     // joined submit.mjs's graph through evidence/risk-decisions.mjs, scope/decisions.mjs and the other family modules.
     // 468: SPEC-ENVF v2's config-values.mjs and local-config-policy.mjs, both import-light leaves, on the entry that was one under.
-    assert.ok(closure.files.size <= 468, `${file} loads ${closure.files.size} local files (budget 468; retired graph 597)`);
+    // 469: the runner table (test-runners.mjs), an import-free leaf, which code-delivery-tests.mjs reads a report's language from.
+    assert.ok(closure.files.size <= 469, `${file} loads ${closure.files.size} local files (budget 469; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.

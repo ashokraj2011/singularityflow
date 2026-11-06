@@ -14,6 +14,7 @@ import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 import { gradleBuildKind } from './gradle-manifests.mjs';
 import { SWIFT_TEST_ARGUMENTS, SWIFT_TEST_REPORT_DIRECTORY } from './swift-manifests.mjs';
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
+import { ecosystemOfAdapter, ecosystemOfProgram } from './test-runners.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
   '__fixtures__', '__mocks__', '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
@@ -97,11 +98,8 @@ export function isTestSourceName(candidate) {
 const LANGUAGE = /\.(?:([cm]?[jt]sx?|vue|svelte)|(pyx?|pyi)|(java|kts?|scala|groovy)|(cs|fsx?|vb)|(go)|(rs)|(swift|mm?)|(rb|erb|rake)|(php)|(dart))$/iu;
 // In LANGUAGE's group order; a command's `ecosystem` names one of them.
 const ECOSYSTEMS = TEST_COMMAND_ECOSYSTEMS;
-const ADAPTERS = { 'jest-json': 'node', 'vitest-json': 'node', 'playwright-json': 'node', 'node-tap': 'node', 'karma-text': 'node',
-  'mocha-json': 'node', 'go-test-json': 'go', 'dotnet-trx': 'dotnet', 'cargo-json': 'rust' };
-// A JUnit report's ecosystem is its launcher's: a package manager or Node, a Python interpreter or project tool, and so on.
-const LAUNCHERS = [[/^(?:npm|npx|pnpm|yarn|bunx?|node)$/u, 'node'], [/^(?:py(?:thon[\d.]*)?|uv|poetry)$/u, 'python'], [/^(?:mvnw?|gradlew?)$/u, 'jvm'],
-  [/^swift$/u, 'swift'], [/^dotnet$/u, 'dotnet'], [/^cargo$/u, 'rust'], [/^go$/u, 'go']];
+// A JUnit report's ecosystem is its launcher's: a package manager or Node, a Python interpreter or project tool, or a runner's own program.
+const LAUNCHERS = [[/^(?:npm|npx|pnpm|yarn|bunx?|node)$/u, 'node'], [/^(?:py(?:thon[\d.]*)?|uv|poetry)$/u, 'python']];
 const lastSegment = (value) => String(value ?? '').split(/[\\/]/u).at(-1);
 
 /** The ecosystem whose source a file is, by its extension, or null for a file of no language. */
@@ -113,7 +111,7 @@ export function sourceEcosystem(candidate) {
 /** The ecosystem an inferred command's runner tests: its report adapter, else its launcher. */
 export function testCommandEcosystem(command) {
   const launcher = lastSegment(command?.argv?.[0]).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
-  return ADAPTERS[command?.result?.adapter] ?? LAUNCHERS.find(([pattern]) => pattern.test(launcher))?.[1] ?? null;
+  return ecosystemOfAdapter(command?.result?.adapter) ?? LAUNCHERS.find(([pattern]) => pattern.test(launcher))?.[1] ?? ecosystemOfProgram(launcher);
 }
 
 /** Whether `command` (with its `provenance` or declared `ecosystem`) covers a changed repository path. */

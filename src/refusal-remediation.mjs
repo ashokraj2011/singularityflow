@@ -284,7 +284,26 @@ function appealMissingFileSteps(argv, error) {
   Object.freeze({ ...step('create-appealed-file', `Create ${details.missingPath} in this step's own code turn.`, null, 'remediation'), skill: '/sf-code', copilotCommand: '/sf-code' })];
 }
 
-const APPEAL_ROUTES = Object.freeze({ PHASE_APPEAL_INVALID: appealNeedsSteps, PHASE_APPEAL_PATH_UNSUPPORTED: appealMissingFileSteps });
+/** `session current` with what it does not take: the selection it was reaching for is a command of its own, and the read needs nothing. */
+function sessionOptionsSteps(argv) {
+  const workspace = argv[argv.indexOf('--workspace') + 1];
+  return [argv.includes('--workspace') && workspace && !workspace.startsWith('--') ? step('select-workspace', 'Select that workspace, then read the binding it gives.',
+    `singularity-flow session workspace ${shellWord(workspace)}`, 'remediation', '/sf-session') : null,
+  step('read-current-binding', 'Run it as it is: it reads the binding, and takes no other option.', 'singularity-flow session current --for-agent --json', 'remediation', '/sf-session')];
+}
+
+/** No repository is active: selecting one is the way through, and the list says which. */
+const sessionRepositorySteps = () => [
+  step('select-workspace', 'Select the workspace that holds this work; a person names it if there are several.', 'singularity-flow session workspace <WORKSPACE>', 'remediation', '/sf-session'),
+  step('list-workspaces', 'The workspaces this machine knows.', 'singularity-flow workspace list --json', 'diagnostic', '/sf-workspaces')
+];
+
+/** A source-review step with a flag only its entry takes: the same command without it. */
+const reviewSourceOptionSteps = (argv) => (['stage', 'submit', 'decide'].includes(argv[1]) ? [step('run-without-agent-flag', 'The same command without --for-agent: this one keeps its own authority boundary.',
+  retriedCommand([...argv]), 'remediation', '/sf-review-source')] : []);
+
+const APPEAL_ROUTES = Object.freeze({ PHASE_APPEAL_INVALID: appealNeedsSteps, PHASE_APPEAL_PATH_UNSUPPORTED: appealMissingFileSteps,
+  SESSION_AGENT_OPTIONS_INVALID: sessionOptionsSteps, SESSION_REPOSITORY_REQUIRED: sessionRepositorySteps, REVIEW_SOURCE_OPTIONS_INVALID: reviewSourceOptionSteps });
 
 function requiredTestFailureSteps(argv, error) {
   const context = phaseRemediationContext(argv, error);

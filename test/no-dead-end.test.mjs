@@ -54,6 +54,10 @@ const unplannedHelper = async (story) => {
 // Each one a fault a real run met; `real` says where it came from in the logs' ranking, and `meets` is
 // what the walk must run into, so a fault that stopped firing cannot pass as a route that works.
 const SCENARIOS = Object.freeze([
+  { id: 'session-current-with-an-option-it-does-not-take', meets: 'SESSION_AGENT_OPTIONS_INVALID', real: 'SESSION_AGENT_OPTIONS_INVALID: the session ended there, with help as its route',
+    start: 'singularity-flow session current --for-agent --json --fetch', reached: (result) => result?.ready === true },
+  { id: 'review-source-status-as-an-agent-asks', meets: null, real: 'REVIEW_SOURCE_OPTIONS_INVALID: 4 hits, 0 advanced: every command takes --for-agent, and this read refused it',
+    start: 'singularity-flow review-source status implementation --for-agent --json', reached: (result) => Boolean(result?.outcome ?? result?.status ?? result?.required !== undefined) },
   { id: 'release-on-a-reused-run', meets: 'next', real: 'a real Story: Release marked every clause partial because Verification reused its runs', template: 'release', phase: 'release',
     start: 'singularity-flow phase prepublish release --for-agent --json --publish-if-ready', reached: published },
   { id: 'release-says-less-than-the-record', meets: 'CONFORMANCE_BLOCKING_VERDICTS', real: 'a real Story: "raise one against implementation", with nothing wrong with Implementation', template: 'releasePartial', phase: 'release',

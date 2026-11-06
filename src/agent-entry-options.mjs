@@ -6,7 +6,7 @@ export function validateAgentEntryRequest(command, { positionals, options }) {
   const refuse = message => { throw new SingularityFlowError(message, { code }); };
   if (options['for-agent'] !== true || options.json !== true) refuse('--for-agent requires --json; both are boolean flags.');
   if (command === 'review-source') {
-    if (positionals[1] !== 'context' || positionals.length > 3) refuse('Compact source review accepts context and one optional active phase only.');
+    if (positionals[1] !== 'context' || positionals.length > 3) refuse(`--for-agent belongs to review-source context, check and status${positionals[1] && positionals[1] !== 'context' ? `; run review-source ${positionals[1]} without it` : ', with one optional active phase'}.`);
   } else if (positionals.length > 2) refuse(`${command} accepts only one optional identity.`);
   const allowed = new Set(['json', 'for-agent', 'no-model', 'timings', 'timing',
     ...(command === 'inputs' ? ['dry-run'] : [])]);

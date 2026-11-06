@@ -1871,7 +1871,8 @@ async function mutationToolDecision(payload, record) {
         call.args.cwd ?? payload.cwd ?? contract.repositoryRoot, 'read');
       if (correction) return correction;
     }
-    if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED');
+    // Real calls here asked a sub-agent to open a page or run a step's route: this turn does it, and this says so.
+    if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: a sub-agent does not run in this turn. Do the work here yourself with the route below; only this turn holds its contract');
     if (TERMINALS.has(call.name)) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');

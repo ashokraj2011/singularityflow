@@ -22,9 +22,9 @@ export function agentViewRequested(options, { stream = process.stdout, env = pro
  * options: appeal, environment, sgos and others refuse an option they do not know.
  */
 export function interpretsForAgent([command, subcommand] = []) {
-  // This read-only operation needs bounded repair hints in Copilot's non-TTY shell. Context still
+  // These read-only operations need bounded output in Copilot's non-TTY shell. Context still
   // owns its strict entry protocol; stage/submit/decide keep their existing authority boundaries.
-  if (command === 'review-source' && subcommand === 'check') return false;
+  if (command === 'review-source' && ['check', 'status'].includes(subcommand)) return false;
   return ['phase', 'approve', 'nextsteps', 'inputs', 'review-source', 'session', 'app-review'].includes(command);
 }
 

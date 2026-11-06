@@ -323,7 +323,8 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
     const namesPerson = ['ask-person', 'await-human', 'confirm', 'escalate'].includes(result?.act?.state)
       || followable.some((route) => routeEffect(route, isRead) === 'person-decision');
     if (!followable.length && !namesPerson) finding('no-route', code);
-    else if (!namesPerson && followable.every((route) => routeEffect(route, isRead) === 'read-only')) finding('read-only-route', code, followable.map((route) => route.skill ?? route.command.split(' ').slice(0, 3).join(' ')).join(', '));
+    // The refused command itself, corrected, is the way through, even where that command only reads.
+    else if (!namesPerson && followable.every((route) => routeEffect(route, isRead) === 'read-only' && !(scenario.start && route.command && commandWords(route.command).join(' ') === commandWords(scenario.start).join(' ')))) finding('read-only-route', code, followable.map((route) => route.skill ?? route.command.split(' ').slice(0, 3).join(' ')).join(', '));
   };
 
   let lastCode = null;

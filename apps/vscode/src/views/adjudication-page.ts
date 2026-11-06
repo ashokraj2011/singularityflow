@@ -150,7 +150,8 @@ export function adjudicationAnswersFrom(list: AdjudicationList, message: Inbound
     if (disposition === 'update-intent' && !clauseIds.length) return { answers: [], problem: `Name the clauses that should change for ${itemName(item)}.` };
     // One row of a group answers for each of its files, and only for files of that same group on this list.
     const ids = typeof row.ids === 'string' && row.ids ? row.ids.split(',') : [item.id];
-    if (ids.some((id) => id !== item.id && (!known.has(id) || !item.group || known.get(id)?.group !== item.group))) return { answers: [], problem: 'The page named an item that is not on this list. Nothing was recorded.' };
+    const groupOf = (entry?: AdjudicationItem | SettledItem) => (entry && 'group' in entry ? entry.group : undefined);
+    if (ids.some((id) => id !== item.id && (!known.has(id) || !groupOf(item) || groupOf(known.get(id)) !== groupOf(item)))) return { answers: [], problem: 'The page named an item that is not on this list. Nothing was recorded.' };
     for (const id of ids) answers.push({ itemId: id, disposition, reason, clauseIds: disposition === 'update-intent' ? clauseIds : [] });
   }
   return answers.length ? { answers, problem: null } : { answers, problem: 'Choose a decision for at least one row.' };

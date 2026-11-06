@@ -27,7 +27,7 @@ import {
   assertConvergenceSources, assertLegacyConvergenceSourceIdentity, exactConvergencePhaseArtifactRef
 } from '../src/convergence-context.mjs';
 import { recordSha256 } from '../src/records.mjs';
-import { readRecord } from '../src/schema-migrations.mjs';
+import { readRecord, convergenceSealCore } from '../src/schema-migrations.mjs';
 
 const RECONCILIATION = {
   reconciliationSha256: 'a'.repeat(64),
@@ -342,10 +342,8 @@ test('stored convergence integrity binds its projection, complete candidate snap
   const forged = structuredClone(reviewed);
   forged.allowedNext = ['advance-to-verification'];
   forged.unresolvedBlockers = [];
-  const forgedCore = structuredClone(forged);
-  delete forgedCore.convergenceSha256;
-  delete forgedCore.candidateSnapshot;
-  forged.convergenceSha256 = recordSha256(forgedCore);
+  // Sealed the way a real record is, so this reaches the check that derives the state.
+  forged.convergenceSha256 = recordSha256(convergenceSealCore(forged));
   assert.throws(
     () => assertConvergenceIntegrity(forged),
     (error) => error.code === 'CONVERGENCE_DERIVED_STATE_MISMATCH'

@@ -33,7 +33,9 @@ test('the decisions table on both hosts says it is settled, by which entry, and 
   assert.match(html, /these 2 changed files/u);
   assert.match(html, /PAM-001 under BIN:REQ-001: Test-only/u);
   assert.match(html, /data-open="package\.json"/u, 'a settled file cannot be opened from the table');
-  assert.equal((html.match(/data-item=/gu) ?? []).length, 1, 'a settled path became a question on the page');
+  // A settled row can be overruled, so it has a row of its own, and only the open one is a question.
+  assert.equal((html.match(/data-item="[^"]*" data-accept-all/gu) ?? []).length, 1, 'a settled path became a question on the page');
+  assert.equal((html.match(/data-settled=/gu) ?? []).length, 2);
   assert.match(html, /Accept all 1 changed file with one reason/u, 'Accept all reached a settled path');
 
   // Copilot CLI: the forms reach only the file nobody answered.
@@ -47,15 +49,16 @@ test('the decisions table on both hosts says it is settled, by which entry, and 
   assert.match(decisionsTable(stillAsked), /Supporting file: lock the dependency\. · Still asked: the file was deleted, which the entry does not record\./u);
   assert.match(adjudicationHtml(stillAsked), /Supporting file: lock the dependency\. · Still asked: the file was deleted, which the entry does not record\./u);
 
-  // Nothing open is not a question: no form, and the page has nothing to record.
+  // Nothing open is not a question in a chat: no form. A person who opens it themselves may overrule (copilot-cli-decisions).
   const none = { ...list, items: [], open: 0 };
   const shown = [];
-  const quiet = await runDecisions({ read: async () => none, show: async (text) => { shown.push(text); }, ask: async () => assert.fail('asked with nothing open'), record: async () => assert.fail('recorded with nothing open') });
+  const quiet = await runDecisions({ askedInChat: true, read: async () => none, show: async (text) => { shown.push(text); }, ask: async () => assert.fail('asked with nothing open'), record: async () => assert.fail('recorded with nothing open') });
   assert.equal(quiet.status, 'nothing-open');
   assert.match(shown[0], /2 settled by the plan, not asked\./u);
   const closed = adjudicationHtml(none);
   assert.match(closed, /Nothing here needs a decision\./u);
-  assert.doesNotMatch(closed, /data-review/u);
+  assert.match(closed, /data-review/u, 'a settled row can still be overruled here, with nothing chosen');
+  assert.doesNotMatch(closed, /<option [^>]*selected/u);
   assert.match(closed, /PAM-001 under BIN:REQ-001/u);
 });
 

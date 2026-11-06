@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { joinSession } from '@github/copilot-sdk/extension';
+import { leaveIfTwinCopy } from '../twin-copy.mjs';
 import { runCard } from './card.mjs';
 import { runDecisions } from './decisions.mjs';
 
@@ -138,4 +139,4 @@ session = await joinSession({
       catch (error) { return JSON.stringify({ status: 'unavailable', recorded: null, message: `Nothing was recorded. ${error.message}` }); }
     }
   }]
-});
+}).catch(leaveIfTwinCopy);

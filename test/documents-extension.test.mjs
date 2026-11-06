@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createDocumentsCanvasResult,
   DOCUMENTS_CANVAS_ID,
@@ -11,6 +13,8 @@ import {
   renderDocumentsHtml,
   startDocumentsServer
 } from '../plugin/extensions/documents/documents.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('Documents extension parses list, work-item, view, and help commands safely', () => {
   assert.deepEqual(parseDocumentsArguments(''), { action: 'list', workId: null, reference: null });
@@ -90,4 +94,44 @@ test('Documents loopback server renders a populated canvas at the returned URL',
   } finally {
     await new Promise((resolve) => host.server.close(resolve));
   }
+});
+
+test('the second copy of a plugin in one session steps aside quietly, and only for that', async () => {
+  // VS Code loads the plugin from Copilot's install and from its own copy; the host refuses whichever joins second.
+  const { leaveIfTwinCopy } = await import('../plugin/extensions/twin-copy.mjs');
+  const exits = [];
+  const realExit = process.exit;
+  process.exit = (code) => { exits.push(code); };
+  try {
+    for (const message of [
+      'Request session.resume failed with message: Canvas "plugin:singularity-flow:documents/singularity-flow-documents" is already registered.',
+      'Request session.resume failed with message: GenericFailure, External tool name clash: sflow_decide, sflow_adjudicate already registered by another connection',
+      'Request session.resume failed with message: External tool name clash: sflow_decide already registered by another connection'
+    ]) leaveIfTwinCopy(new Error(message));
+    assert.deepEqual(exits, [0, 0, 0]);
+    for (const message of [
+      'Request session.resume failed with message: Extension "plugin:singularity-flow:documents" was denied permission access and will not be loaded.',
+      'Request session.resume failed with message: connection lost'
+    ]) assert.throws(() => leaveIfTwinCopy(new Error(message)), { message });
+    assert.deepEqual(exits, [0, 0, 0], 'any other failure stays a failure');
+  } finally {
+    process.exit = realExit;
+  }
+  for (const name of ['documents', 'decisions']) {
+    const source = await readFile(path.join(root, 'plugin', 'extensions', name, 'extension.mjs'), 'utf8');
+    assert.match(source, /joinSession\(\{[\s\S]*\}\)\.catch\(leaveIfTwinCopy\);/u, name);
+  }
+});
+
+test('Documents and Decisions share no canvas, command or tool, so they never refuse each other', async () => {
+  const declared = async (name) => {
+    const source = await readFile(path.join(root, 'plugin', 'extensions', name, 'extension.mjs'), 'utf8');
+    return new Set([...source.matchAll(/\bname: '([^']+)'/gu)].map((match) => match[1])
+      .concat(/createCanvas\(/u.test(source) ? ['canvas'] : []));
+  };
+  const documents = await declared('documents');
+  const decisions = await declared('decisions');
+  assert.ok(documents.has('documents') && documents.has('canvas'));
+  assert.ok(decisions.has('sflow_decide') && decisions.has('adjudicate') && !decisions.has('canvas'));
+  assert.deepEqual([...documents].filter((name) => decisions.has(name)), []);
 });

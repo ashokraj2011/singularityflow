@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createCanvas, joinSession } from '@github/copilot-sdk/extension';
+import { leaveIfTwinCopy } from '../twin-copy.mjs';
 import {
   createDocumentsCanvasResult,
   DOCUMENTS_CANVAS_ID,
@@ -170,4 +171,4 @@ session = await joinSession({
       }
     })
   ]
-});
+}).catch(leaveIfTwinCopy);

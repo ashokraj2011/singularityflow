@@ -8,10 +8,12 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { cli, repository, startQuickFix } from './helpers/run-and-test-fixture.mjs';
@@ -162,4 +164,64 @@ test('a pin replaces only the version a person was shown', { ...posix }, async (
   await writeFile(path.join(root, '.nvmrc'), '18\n');
   await assert.rejects(commitNodePin(root, {}, {}, { version: '22', replaces: '18', reason: 'r' }, { actor: {} }));
   assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '18\n');
+});
+
+// Real tools, with no fake Node: what a real Story met, a Vitest suite failing on Node's own localStorage.
+test('real Vitest on real Node: the localStorage failure walks to the pin, the answer is real, and the pinned gate passes', { ...posix, ...slowLane({ timeout: 600_000 }) }, async (t) => {
+  const modules = path.join(process.env.SINGULARITY_FLOW_TEST_NODE_TOOLS ?? path.join(path.dirname(fileURLToPath(import.meta.url)), '..'), 'node_modules');
+  const { installedNodeOfMajor } = await import('../src/node-pin.mjs');
+  if (!existsSync(path.join(modules, '.bin', 'vitest')) || !existsSync(path.join(modules, 'jsdom'))) return t.skip('vitest and jsdom are not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS');
+  if (Number(process.versions.node.split('.')[0]) < 25) return t.skip('this Node has no localStorage of its own: run it on Node 25 or later');
+  const node22 = await installedNodeOfMajor('22');
+  if (!node22) return t.skip('no Node 22 is installed here');
+  const repo = await repository(t, { implementCommands: false, files: {
+    '.gitignore': 'node_modules\n.vitecache\n',
+    'package.json': JSON.stringify({ private: true, type: 'module', scripts: { test: 'vitest run' }, devDependencies: { vitest: '4', jsdom: '*' } }),
+    'vite.config.js': "export default { cacheDir: '.vitecache', test: { environment: 'jsdom', globals: true, include: ['test/**/*.test.mjs'] } }\n" } });
+  const { root, sflow } = repo;
+  // A real folder, as a real repository has: a link to it is not copied into a throwaway checkout.
+  await cp(modules, path.join(root, 'node_modules'), { recursive: true, verbatimSymlinks: true });
+  await startQuickFix(repo);
+  sflow('phase', 'begin', 'implement', '--json');
+  await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n');
+  await writeFile(path.join(root, 'test/value.test.mjs'), "import { test, expect } from 'vitest';\nimport { value } from '../src/value.mjs';\n\n"
+    + "// @ac:QF-1:AC-001\ntest('value is kept', () => { localStorage.clear(); localStorage.setItem('value', String(value)); expect(localStorage.getItem('value')).toBe('2'); });\n");
+  sflow('prepare', 'implement');
+  const run = (...args) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: root, env: repo.env, encoding: 'utf8', timeout: childTimeout(240_000) });
+  const json = (...args) => { const result = run(...args, '--json'); return { status: result.status, value: JSON.parse(result.stdout), stderr: result.stderr }; };
+
+  // Before any run the choice is on the list, stopping nothing.
+  const early = json('decisions', 'QF-1').value.data.items.find((item) => item.kind === 'node-pin');
+  assert.ok(early, 'listed before any run');
+  assert.equal(early.details.version, '22');
+  assert.match(early.why, /own localStorage/u);
+
+  // The gate really fails on this Node, and its first route is the choice.
+  const gate = json('phase', 'prepublish', 'implement', '--for-agent', '--publish-if-ready');
+  assert.notEqual(gate.status, 0, JSON.stringify(gate.value.publishIfReady ?? {}));
+  assert.equal(gate.value.error.code, 'CODE_TEST_FAILED', gate.value.error.message);
+  assert.equal(gate.value.error.details.nodePin.version, '22', JSON.stringify(gate.value.error.details));
+  assert.equal(gate.value.remediationPlan.steps[0].id, 'pin-node-version');
+  assert.equal(gate.value.remediationPlan.steps[1].id, 'try-node-version');
+
+  // The question has a real answer: the same tests, on real Node 22, in a throwaway copy.
+  const tried = json('tests', 'node', '--work-id', 'QF-1', '--phase', 'implement', '--node', '22');
+  assert.equal(tried.status, 0, JSON.stringify(tried.value));
+  const answer = tried.value.data ?? tried.value;
+  assert.equal(answer.node, node22);
+  assert.deepEqual(answer.results.map((entry) => [entry.status, entry.tests?.passed, entry.tests?.failed]), [['passed', 1, 0]], JSON.stringify(answer.results));
+  await assert.rejects(stat(path.join(root, '.nvmrc')), 'trying it creates nothing');
+
+  const list = json('decisions', 'QF-1').value.data;
+  const offered = list.items.find((item) => item.kind === 'node-pin');
+  assert.match(offered.why, new RegExp(`It passes on Node ${node22.replaceAll('.', '\\.')} \\(1 of 1 passed\\)`, 'u'), offered.why);
+  const reason = 'The Vitest suite needs Node 22; the code does not change.';
+  const recorded = json('decisions', 'record', 'QF-1', '--choose', `${offered.id}=pin-node`, '--reason', `${offered.id}=${reason}`, '--confirm', list.packetSha256);
+  assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '22\n');
+
+  // The same gate, now on real Node 22.
+  const published = run('phase', 'publish', 'implement');
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  assert.match(published.stderr, new RegExp(`Using Node ${node22.replaceAll('.', '\\.')} from \\S+ for this run: \\.nvmrc asks for 22\\.`, 'u'));
 });

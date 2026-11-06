@@ -651,7 +651,9 @@ async function nodeStory(root, options) {
       const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [command], { candidateRoot: candidate.root, candidateIsOtherCode: true });
       try {
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt }).catch(() => null);
-        results.push({ commandId: command.id, status: check.status, exitCode: check.exitCode ?? null, tests: parsed?.tests ?? null });
+        // Exit 127 is the shell finding no runner in the copy: that says nothing about this Node.
+        results.push(check.exitCode === 127 && !parsed?.tests ? { commandId: command.id, status: 'not-run', exitCode: 127, tests: null, why: 'its runner was not found in the throwaway copy of this checkout' }
+          : { commandId: command.id, status: check.status, exitCode: check.exitCode ?? null, tests: parsed?.tests ?? null });
       } finally { await kernel.restoreTransientQualityResult(check); }
     } finally { await candidate.dispose(); }
   }

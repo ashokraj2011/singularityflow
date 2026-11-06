@@ -54,6 +54,8 @@ export async function nodeTryWords(root, workId, version, { head = null } = {}) 
   const counts = answer.results.map((entry) => (entry.tests ? `${entry.tests.passed} of ${entry.tests.discovered} passed` : entry.status)).join(', ');
   const passed = answer.results.length > 0 && answer.results.every((entry) => entry.status === 'passed');
   const later = head && answer.head !== head ? ' The code has been committed since, so that answer may be out of date.' : '';
+  const unrun = answer.results.find((entry) => entry.status === 'not-run');
+  if (unrun) return { passed: false, words: `Whether it passes on Node ${answer.node} is still not known: ${unrun.why ?? 'it did not run'}.${later}` };
   return { passed, words: `${passed ? 'It passes' : 'It does not pass'} on Node ${answer.node} (${counts}), on a throwaway copy of this checkout; nothing was recorded as evidence.${later}` };
 }
 

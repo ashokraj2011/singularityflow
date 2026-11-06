@@ -4302,6 +4302,8 @@ async function attachRequiredTestExecution(error, root, command, check, { workId
   }
   refusal.details = {
     ...(refusal.details ?? {}),
+    // The Story's own ID: without it the refusal's steps could not name the base run or the decision list.
+    ...(workId && !refusal.details?.workId ? { workId } : {}),
     requiredTestExecution: {
       ...requiredTestExecutionDiagnostic(root, command, check),
       report,
@@ -4316,6 +4318,12 @@ async function attachRequiredTestExecution(error, root, command, check, { workId
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
       + `See error.requiredTestExecution in --json for the command and bounded output. To see whether it also fails without this change: singularity-flow tests base --work-id ${workId ?? '<WORK-ID>'} --command ${command.id}.`
       + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
+    // The Node here is what stops it, and another is installed: the way through is one person's choice.
+    const pin = await (await import('./node-pin.mjs')).nodePinOffer(root, [command], { attempts: [{ commandId: command.id, status: check?.status ?? 'failed', cause: refusal.details?.testRunRisk ?? refusal.details?.testRunCause ?? null }] }).catch(() => null);
+    if (pin) {
+      refusal.details.nodePin = { file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, words: pin.words };
+      refusal.message += ` ${pin.words} A person can choose Pin Node ${pin.version} on the decision list: singularity-flow decisions ${workId ?? '<WORK-ID>'}. It creates ${pin.file} and amends the plan in one step.`;
+    }
   }
   return refusal;
 }

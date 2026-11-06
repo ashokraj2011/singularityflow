@@ -28,7 +28,7 @@ const JAVASCRIPT_TEST = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const BROWSER_TEST_PATH = /(?:^|\/)(?:e2e|playwright|cypress)\/|\.(?:e2e|pw|cy)\.[cm]?[jt]sx?$/u;
 const SKIPPED_FOLDERS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', 'singularity', '.sflow', 'test-results', 'playwright-report']);
 
-const fileReads = (root) => ({
+export const fileReads = (root) => ({
   read: async (relative) => {
     try { return (await readRepositoryManifest(root, relative, { maxBytes: MAX_TEXT_BYTES })).bytes.toString('utf8'); } catch { return null; }
   },
@@ -419,7 +419,7 @@ async function usesVitestDomStorage(root, directory, commands, reads) {
 }
 
 /** A Node that does not suit the repository: asked for by name, or one known to break what it uses. */
-async function nodeVersionChecks(root, commands, { environment, reads }) {
+export async function nodeVersionChecks(root, commands, { environment, reads }) {
   const { runnerFamily, nodeVersion } = await import('./test-toolchain.mjs');
   const node = commands.filter((command) => runnerFamily(command) === 'node');
   if (!node.length) return [];
@@ -439,15 +439,17 @@ async function nodeVersionChecks(root, commands, { environment, reads }) {
     const others = await installedNodeVersions(environment).catch(() => []);
     const installed = others.filter((other) => major(other) !== major(version)).slice(0, 3);
     const offer = installed.length ? ` Also installed here: Node ${installed.join(', ')}.` : '';
+    // The one a person can pin: installed here and suiting what the repository asks, never a guess at a path (node-pin.mjs).
+    const pin = (node) => (node ? { pin: { file: '.nvmrc', version: String(major(node)), node } } : {});
     const range = parsedManifest(await reads.read(joined(directory, 'package.json')))?.engines?.node;
     if (typeof range === 'string' && nodeRangeAccepts(range, version) === false) {
       found.push(check('node-version', `${joined(directory, 'package.json')} asks for Node ${range}, and tests here would run on Node ${version}.${offer}`,
-        'Switch Node before starting, or a person pins it: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.', { node: version, installed }));
+        'Switch Node before starting, or a person pins it: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.', { node: version, installed, ...pin(others.find((other) => nodeRangeAccepts(range, other) === true)) }));
       continue;
     }
     if (major(version) >= 25 && await usesVitestDomStorage(root, directory, node, reads)) {
       found.push(check('node-version', `Tests here would run on Node ${version}, whose own localStorage stands in front of the DOM environment's under Vitest. Tests that use localStorage then fail with errors such as "Cannot read properties of undefined (reading 'clear')", and the change is not the cause.${offer}`,
-        'Do not stub localStorage to get past it. Switch Node before starting, or a person pins an earlier one: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.', { node: version, installed }));
+        'Do not stub localStorage to get past it. Switch Node before starting, or a person pins an earlier one: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.', { node: version, installed, ...pin(others.find((other) => major(other) < 25)) }));
     }
   }
   return found;

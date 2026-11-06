@@ -7,15 +7,16 @@
  * next publication or submission admits it with the others, and its gates still run their own.
  */
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base']);
+const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
 const OPTIONS = Object.freeze({
   plan: ['capability', 'work-id', 'phase', 'command', 'json'],
   base: ['work-id', 'phase', 'command', 'json'],
+  node: ['work-id', 'phase', 'command', 'node', 'json'],
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'json']
 });
@@ -614,6 +615,51 @@ async function baseStory(root, options) {
   return { resultType: 'sflow-test-base', scope, baseCommit, results };
 }
 
+/**
+ * `tests node`: would these tests pass on another installed Node? Each command once, as a gate runs it, on a
+ * throwaway copy of this checkout that holds the version file a pin would create, so the answer is what
+ * pinning it would give. Never evidence: it records no attempt and refuses nothing, and it leaves the
+ * checkout as it was. A model asks this instead of a chain of shell commands (bin-opr2).
+ */
+async function nodeStory(root, options) {
+  const version = String(optionString(options, 'node', '') ?? '').replace(/^v/u, '');
+  const [{ installedNodeOfMajor, keepNodeTry, NODE_PIN_FILE, nodePinVersion }, { installedNodeVersions }] = await Promise.all([
+    import('../node-pin.mjs'), import('../project-node-version.mjs')]);
+  const major = nodePinVersion(version);
+  if (!major) fail(`tests node takes a major version such as --node 22; '${version.slice(0, 20)}' is not one.`);
+  const node = await installedNodeOfMajor(major);
+  if (!node) {
+    fail(`Node ${major} is not installed here, so nothing ran. Installed: ${(await installedNodeVersions(process.env).catch(() => [])).join(', ') || 'none found'}.`, 'TESTS_NODE_NOT_INSTALLED');
+  }
+  const [state, { localTestRunKernel: kernel }, { materializeCandidate }, { applicationPathContext, isApplicationChangePath }, { changedFiles, head, untrackedFiles }, { parseTestResult }] = await Promise.all([
+    import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../candidate-isolation.mjs'), import('../application-paths.mjs'), import('../git.mjs'), import('../code-delivery-tests.mjs')]);
+  const context = await storyContext(root, options);
+  const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId: optionString(options, 'phase', null) });
+  const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };
+  const pathContext = applicationPathContext(context.config, context.workflow);
+  const untracked = new Set(untrackedFiles(root));
+  const included = changedFiles(root).filter((file) => isApplicationChangePath(file, { ...pathContext, untracked: untracked.has(file) }));
+  const results = [];
+  for (const command of context.select(commands)) {
+    const candidate = await materializeCandidate(root, { included, treeHash: async () => 'not-compared' });
+    if (!candidate.available) {
+      results.push({ commandId: command.id, status: 'not-run', why: candidate.reason });
+      continue;
+    }
+    try {
+      await writeFile(path.join(candidate.root, NODE_PIN_FILE), `${major}\n`);
+      const [check] = await kernel.qualityChecks(root, phase, context.config, context.workflow, [command], { candidateRoot: candidate.root, candidateIsOtherCode: true });
+      try {
+        const parsed = await parseTestResult(root, command, { startedAt: check.startedAt }).catch(() => null);
+        results.push({ commandId: command.id, status: check.status, exitCode: check.exitCode ?? null, tests: parsed?.tests ?? null });
+      } finally { await kernel.restoreTransientQualityResult(check); }
+    } finally { await candidate.dispose(); }
+  }
+  const answer = { workId: scope.workId, phase: phase.id, version: major, node, head: head(root), at: new Date().toISOString(), results };
+  await keepNodeTry(root, scope.workId, answer);
+  return { resultType: 'sflow-test-node', scope, ...answer };
+}
+
 async function runStory(root, options) {
   const [state, store] = await Promise.all([import('../local-test-runs.mjs'), import('../test-runs.mjs')]);
   const context = await storyContext(root, options);
@@ -694,6 +740,19 @@ export async function run(_argv, { positionals, options = {} }) {
     else {
       console.log(`${result.scope.workId} step ${result.scope.phase}, against its base commit ${result.baseCommit.slice(0, 12)}. This is a fact for a person: it is not evidence and refuses nothing.`);
       for (const entry of result.results) console.log(`  ${entry.commandId}${entry.reused ? ' (already run on this base)' : ''}: ${entry.words}`);
+    }
+    return result;
+  }
+  if (subcommand === 'node') {
+    if (!story) fail('tests node asks about a Story step; name it with --work-id.');
+    const result = await nodeStory(root, options);
+    const { nodeTryWords } = await import('../node-pin.mjs');
+    const told = await nodeTryWords(root, result.workId, result.version);
+    if (json) console.log(JSON.stringify({ ...result, passed: told?.passed === true, words: told?.words ?? null }, null, 2));
+    else {
+      console.log(`${result.workId} step ${result.phase}, on Node ${result.node}. This is a fact for a person: it is not evidence and refuses nothing.`);
+      for (const entry of result.results) console.log(`  ${entry.commandId}: ${entry.status}${entry.tests ? `, ${entry.tests.passed} of ${entry.tests.discovered} passed` : ''}${entry.why ? ` (${entry.why})` : ''}`);
+      if (told?.passed) console.log(`To run them on it from now on, a person chooses Pin Node ${result.version}: singularity-flow decisions ${result.workId}`);
     }
     return result;
   }

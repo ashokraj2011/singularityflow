@@ -250,7 +250,14 @@ function phaseContainmentSteps(context) {
 function requiredTestFailureSteps(argv, error) {
   const context = phaseRemediationContext(argv, error);
   const failure = requiredTestExecutionForRefusal(error)?.failure;
+  const pin = error?.details?.nodePin;
   return [
+    ...(pin && context?.workId ? [step('pin-node-version',
+      `A person chooses Pin Node ${pin.version}: ${pin.words} Node ${pin.node} is installed here. Choosing it creates ${pin.file} and amends the plan in one step, with their reason; an agent cannot record it. Show them this, then rerun the gate once it is recorded.`,
+      `singularity-flow decisions ${context.workId}`, 'remediation', '/sf-decide'),
+    step('try-node-version',
+      `Find out whether the tests pass on Node ${pin.version}: it runs them once on a throwaway copy of this checkout and records nothing as evidence.`,
+      `singularity-flow tests node --work-id ${context.workId} --phase ${context.phaseId} --node ${pin.version}`, 'diagnostic')] : []),
     step('recover-required-test',
       'Inspect the refused phase and its saved test evidence before changing or retrying it.',
       context?.recoveryCommand ?? 'singularity-flow recover --json',
@@ -2235,6 +2242,7 @@ export function refusalDetails(details) {
         commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
         summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
   }
+  if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null };
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
     applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',

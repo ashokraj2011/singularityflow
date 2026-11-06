@@ -267,6 +267,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     ? await (await import('./test-command-pins.mjs')).pendingTestCommandReviews(root, config, workflow, phase, requests)
     : { pending: requests, inactive: [], bindings: [], unavailable: [] };
   blocking.unavailable = [...(blocking.unavailable ?? []), ...commandReviews.unavailable];
+  // A full list only, like what waits on a plan's paths: a count reads no test command.
+  const nodePin = answering ? await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase).catch(() => null) : null;
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   return {
@@ -275,6 +277,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     repositoryPath: root,
     evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,
+    nodePin,
     testRisks: tests.risks,
     testNarrowings: tests.narrowings,
     testCommands: commandReviews.pending,

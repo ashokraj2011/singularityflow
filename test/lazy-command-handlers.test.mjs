@@ -336,7 +336,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,499,900 (measured 9,499,891, commands/phase-lifecycle.mjs): convergence-record family v6 keeps a replaced answer (convergence.mjs, schema-migrations.mjs, story reads none of it eagerly).
     // 9,500,250 (measured 9,500,246, commands/phase-lifecycle.mjs): a plan amendment holds the hash it accounted for (plan-amendments.mjs, plan-accounts.mjs). The reading stays lazy; no new eager file.
     // 9,524,400 (measured 9,524,302, commands/phase-lifecycle.mjs): the runner table's eager data, accepted for now (test-runners.mjs), with the decisions and fixes above.
-    assert.ok(closure.bytes <= 9_524_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,526,350 (measured 9,526,318, commands/phase-lifecycle.mjs): the Node-version failure offers one choice: its item (decision-list.mjs +1641), the refusal's first step (refusal-remediation.mjs +921, state.mjs +760), recovery's lead (recovery-plan.mjs +665). What reads and records it stays lazy (node-pin.mjs).
+    assert.ok(closure.bytes <= 9_526_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -401,7 +402,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 857,450 (measured 857,408): `story test-policy scope` classifies in command-registry.mjs (+168), which every command reads to dispatch.
   // 858,350 (measured 858,295): convergence-record family v5's step and seal (schema-migrations.mjs +870). Every command reads the registry to dispatch.
   // 858,800 (measured 858,796): convergence-record family v6's step and seal (schema-migrations.mjs +501). Every command reads the registry to dispatch.
-  assert.ok(root.bytes <= 858_800, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
+  assert.ok(root.bytes <= 858_810, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

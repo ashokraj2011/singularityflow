@@ -15,6 +15,7 @@
  * authority check. Accepting reused evidence never certifies a run that was not recorded: a reused
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
+import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -37,7 +38,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
@@ -87,7 +88,7 @@ function issueGroups(workflow, phaseId) {
 function effectGroups(workflow, effect) {
   if (effect.kind === 'upstream-issue') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
-  if (effect.kind === 'plan-amendment') return planAuthorities(workflow);
+  if (effect.kind === 'plan-amendment' || effect.kind === 'node-pin') return planAuthorities(workflow);
   if (EFFECTS_NAMING_GROUPS.includes(effect.kind)) return effect.groups ?? [];
   return testRunRiskAuthorities(workflow, effect.phase);
 }
@@ -409,6 +410,30 @@ function testRiskItem(workflow, context, risk) {
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
       causeClass: risk.causeClass ?? null,
       commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId}${risk.causeClass ? ` --cause-class ${risk.causeClass}` : ''} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
+  };
+}
+
+/**
+ * One choice for a Node that does not suit the tests: a person pins an installed one, and that one
+ * answer creates the file and accounts for it in the plan (src/node-pin.mjs). Before any run it is offered
+ * beside what waits; after a failed run it is what the step waits on.
+ */
+function nodePinItem(workflow, context, pin) {
+  const name = stepName(workflow, pin.phase);
+  const workId = workflow.workItem.id;
+  const tryIt = `singularity-flow tests node --work-id ${workId} --phase ${pin.phase} --node ${pin.version}`;
+  return {
+    kind: 'node-pin',
+    title: `${name}'s tests need another Node: Pin Node ${pin.version}`,
+    why: `${pin.words} Node ${pin.node} is installed here. ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} Pinning it creates ${pin.file} and amends the plan; the code and its tests stay as they are.`,
+    options: [option(workflow, context, {
+      id: 'pin-node', label: `Pin Node ${pin.version}: create ${pin.file} and amend the plan`,
+      words: `Creates ${pin.file} holding ${pin.version} in this checkout and lists it in the plan as a supporting change (${NODE_PIN_CLASS}) with your reason. SFlow then runs this repository's tests on Node ${pin.node}.`,
+      effects: [{ kind: 'node-pin', phase: pin.phase, file: pin.file, version: pin.version, class: NODE_PIN_CLASS }],
+      needs: { reason: textNeed('', SUPPORTING_REASON) }
+    })],
+    details: { phase: pin.phase, file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, stage: pin.stage, commandId: pin.commandId ?? null,
+      commands: [`singularity-flow decisions record ${workId}`, tryIt] }
   };
 }
 
@@ -880,7 +905,7 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting']);
 
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
@@ -926,6 +951,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(pending.appeals ?? []).map((appeal) => appealItem(workflow, context, appeal)),
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
+    ...(facts.nodePin?.stage === 'failed' ? [nodePinItem(workflow, context, facts.nodePin)] : []),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
     ...(facts.testNarrowings ?? []).map((entry) => testNarrowingItem(workflow, context, entry)),
     ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
@@ -964,7 +990,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
   }
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
-  const offered = (facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []).map((item, index) => ({ id: `d${items.length + index + 1}`, ...item,
+  const offered = [...(facts.nodePin?.stage === 'early' ? [nodePinItem(workflow, context, facts.nodePin)] : []),
+    ...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : [])].map((item, index) => ({ id: `d${items.length + index + 1}`, ...item,
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false }));
   if (door) items.unshift({ id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true });
   // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
@@ -1193,6 +1220,7 @@ export function effectWords(workflow, effect, values = {}) {
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `${(effect.changes ?? [effect.change]).map(words).join(', ')} (plan amendment)`;
   }
+  if (effect.kind === 'node-pin') return `create ${effect.file} holding ${effect.version} and list it as a supporting change, ${effect.class} (Node pin and plan amendment)`;
   if (effect.kind === 'scope-disposition') return `record scope item ${effect.item} as ${effect.disposition}${values.clause?.length ? `, carried by ${values.clause.map((id) => clauseName(workflow, id)).join(', ')}` : ''} (scope decision)`;
   if (effect.kind === 'completeness-review') return 'record that you reviewed the scope for completeness (completeness review)';
   if (effect.kind === 'applicability') return `record that ${effect.responsibility} does not apply to this Story (applicability decision)`;

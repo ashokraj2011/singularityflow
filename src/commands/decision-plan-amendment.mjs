@@ -2,6 +2,9 @@
  * The one write of a narrow plan amendment [E2G-012]: `decision plan` and a choice recorded from the
  * decision list both come here, so the authority check, the record and the commit are the same.
  */
+import { rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { planAuthorities, recordPlanAmendment } from '../plan-amendments.mjs';
@@ -65,4 +68,36 @@ export async function commitPlanAmendment(root, config, workflow, { changes, rea
     }
   );
   return { amendment, publication };
+}
+
+/**
+ * A person's choice to pin an installed Node: the file and the plan amendment that accounts for it, in
+ * one action (src/node-pin.mjs). The file comes first, so the amendment binds what it holds; if the
+ * amendment cannot be recorded, the file goes again and nothing changed. An amendment that already lists
+ * the file stands, and only the file is created: a plan amended by hand must not need a second reason.
+ */
+export async function commitNodePin(root, config, workflow, { version, reason }, { actor, agent = null }) {
+  const { NODE_PIN_CLASS, NODE_PIN_FILE, installedNodeOfMajor, nodePinVersion } = await import('../node-pin.mjs');
+  const major = nodePinVersion(version);
+  const node = major ? await installedNodeOfMajor(major) : null;
+  if (!node) {
+    throw new SingularityFlowError(`Node ${String(version).slice(0, 20)} is not installed here, so it cannot be pinned. Nothing was changed; install it with your version manager, or choose again.`, { code: 'NODE_PIN_NOT_INSTALLED' });
+  }
+  const file = path.join(root, NODE_PIN_FILE);
+  try { await writeFile(file, `${major}\n`, { flag: 'wx' }); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    throw new SingularityFlowError(`${NODE_PIN_FILE} already exists in this checkout, so it was left as it is and nothing was recorded. Its version is what SFlow runs the tests on; change it by hand if it is wrong.`, { code: 'NODE_PIN_FILE_EXISTS' });
+  }
+  const listed = (workflow.planAmendments ?? []).find((record) => (record.changes ?? []).some((change) => change.path === NODE_PIN_FILE));
+  if (listed) return { id: listed.id, file: NODE_PIN_FILE, version: major, node };
+  try {
+    const { amendment } = await commitPlanAmendment(root, config, workflow, {
+      changes: [{ kind: 'add-supporting', path: NODE_PIN_FILE, class: NODE_PIN_CLASS, reason }], reason
+    }, { actor, agent });
+    return { ...amendment, file: NODE_PIN_FILE, version: major, node };
+  } catch (error) {
+    await rm(file, { force: true }).catch(() => null);
+    throw error;
+  }
 }

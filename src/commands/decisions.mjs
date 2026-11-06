@@ -326,6 +326,10 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const changes = (effect.changes ?? [effect.change]).map((change) => (change.kind === 'add-supporting' ? { ...change, reason: step.values.reason } : change));
     return (await commitPlanAmendment(root, config, workflow, { changes, reason: step.values.reason }, { actor, agent })).amendment;
   }
+  if (effect.kind === 'node-pin') {
+    const { commitNodePin } = await import('./decision-plan-amendment.mjs');
+    return commitNodePin(root, config, workflow, { version: effect.version, reason: step.values.reason }, { actor, agent });
+  }
   if (effect.kind === 'obligation-risk') {
     const { commitRiskDecision } = await import('./decision-obligation-risk.mjs');
     return (await commitRiskDecision(root, config, workflow, { obligationId: effect.obligation, category: effect.category,

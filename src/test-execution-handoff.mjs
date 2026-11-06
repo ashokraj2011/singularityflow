@@ -39,7 +39,8 @@ export function testExecutionHandoff(testExecution, { published = false, command
   const earlyChecks = testExecution.earlyChecks ?? [];
   // A plan whose test needs a runner the package lacks does need one: "no runner change" misled bin-opr's first turn.
   const needsRunner = earlyChecks.some((entry) => entry.id === 'planned-runner-missing');
-  const earlyWords = earlyChecks.length ? ` Before starting, read testExecution.earlyChecks: ${earlyChecks.length === 1 ? 'one thing' : `${earlyChecks.length} things`} found in this checkout that would otherwise surface at the end of the step, each with what to do. None of them stops the step.` : '';
+  const pin = earlyChecks.find((entry) => entry.pin)?.pin ?? null;
+  const earlyWords = earlyChecks.length ? ` Before starting, read testExecution.earlyChecks: ${earlyChecks.length === 1 ? 'one thing' : `${earlyChecks.length} things`} found in this checkout that would otherwise surface at the end of the step, each with what to do. None of them stops the step. Say each to the person in your next message, in a sentence, and carry on.${pin ? ` One has a choice for them: Pin Node ${pin.version}, on /sf-decide. Another Node on PATH does not get past it: only the gate's own run counts.` : ''}` : '';
   if (blockedByDelivery) return {
     runnerStatus: 'blocked', configurationRequired: false, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,

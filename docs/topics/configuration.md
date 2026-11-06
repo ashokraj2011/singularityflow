@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 18
+version: 19
 commands:
   - configuration
   - workflow
@@ -114,7 +114,10 @@ references and `&&`/`;` steps to the runner, whatever the script is called; a ru
 runs through it with the reporter after `--`, one inside a chain runs alone through the package
 manager's exec (`npx --no-install`, `pnpm exec`, `yarn`). Scripts running a runner the same way collapse
 into one, a narrower run (`--project`, `--grep`) beside the whole one is left out, and two that differ
-in configuration are refused with both named. A Playwright config no script runs is run directly.
+in configuration are refused with both named. A Playwright config no script runs is run directly, and
+so is one a script runs through bare `npx` (which could download a runner), with the arguments that
+script selects. Vitest with its own printing reporter (`--reporter=verbose`) runs with both; one that
+writes a file is not a gate's run, because it would take SFlow's report path too.
 Playwright and pytest results name each test, so an `@ac` tag on one is credited only when that test
 ran and passed (a test that passed only on a retry is flaky, not passed). mocha reports through
 `mocha-junit-reporter` when installed, else its JSON reporter (`mocha-json`); Cypress through its JUnit
@@ -122,7 +125,8 @@ reporter.
 
 Elsewhere: a .NET product project runs the test projects that reference it (`tests/App.Tests` beside
 `src/App`), and is refused when none does; a Maven module with the failsafe plugin runs `verify` and
-reads `failsafe-reports` with the `surefire-reports` beside it; a Python module without
+reads `failsafe-reports` with the `surefire-reports` beside it (at a reactor root, test setup suggests
+the command of each declared module that holds tests, since each writes its own reports); a Python module without
 `pyproject.toml` (requirements files, `setup.py`, `setup.cfg`, `Pipfile`, `tox.ini`, `noxfile.py`) runs
 pytest, under `uv run --locked` beside a `uv.lock` or `poetry run` beside a `poetry.lock` with no `.venv`
 (tox and nox environments run only when configured). An Android module runs

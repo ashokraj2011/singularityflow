@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7925d3bb5e8cb67e0df5164a53de4b92c8973173",
+  "sourceCommit": "fa0be5d3601caca888f2e214593466c4eb440f1e",
   "topicCount": 90,
-  "contentSha256": "603e569dda1bfe4a994aea8517d2a0c73c970c47b24f4310154a9eb4c2335882",
+  "contentSha256": "2172621a830463829a309a6ea219b6376d4b6e993dde37f2bb7b857a6f95835c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 18,
-      "sha256": "c5fb8e9dffccc0312fb638a95a3c30e9885d106cda701c9e1588f19ad81d4d11",
+      "version": 19,
+      "sha256": "d4f5ca470341060fb27b0be21c9b45738577cbb8c12955cff928b4be4d901a4d",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -560,8 +560,8 @@
     {
       "id": "sf-guard",
       "title": "SF Guard",
-      "version": 16,
-      "sha256": "a8257aabbe70b3bbd4326795860662b43059836dc7f765281dd4ceb2211d300c",
+      "version": 15,
+      "sha256": "da25778fcd41c96a2f3f0dd0807c654f460520ba47dbe4bd6d97bfc405ed2a00",
       "routingSha256": "1730dab865bf605dcd8d5bbf24f48b0a5b12910437e6a5b62423dbe686c80cf6",
       "file": "sf-guard.md"
     },

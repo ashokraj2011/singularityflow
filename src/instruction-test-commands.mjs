@@ -391,7 +391,7 @@ async function completeRecognized(root, command, recognized, { platform, package
       let manifest = null;
       try { manifest = JSON.parse((await readRepositoryManifest(root, path.posix.join(module.root === '.' ? '' : module.root, 'package.json'))).bytes.toString('utf8')); } catch { /* inference reports it */ }
       if (typeof manifest?.scripts?.[recognized.script] !== 'string') return { reason: `${module.root}/package.json has no '${recognized.script}' script.`.replace(/^\.\//u, ''), notes };
-      const inferred = await inferModuleTestCommand(root, { root: module.root, system: 'node', manifest: 'package.json' }, { platform, nodeScript: recognized.script });
+      const inferred = await inferModuleTestCommand(root, { root: module.root, system: 'node', manifest: 'package.json' }, { platform, nodeScript: recognized.script, scriptAlone: true });
       if (inferred) {
         const completed = withScriptArguments(inferred, recognized.extras, notes);
         if (!completed) return { reason: 'The script runs through Nx, which takes no extra arguments here; give the command in full.', notes };

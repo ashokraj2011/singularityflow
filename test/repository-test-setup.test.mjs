@@ -166,6 +166,7 @@ test('the test script itself is suggested when two scripts are ambiguous, not on
   assert.deepEqual(inspection.suggestions.map((entry) => [entry.id, entry.argv.slice(0, 3)]), [['test-tests', ['npm', 'test', '--']], ['test:b-tests', ['npm', 'run', 'test:b']]]);
   assert.notEqual(inspection.suggestions[0].result.path, inspection.suggestions[1].result.path, 'each writes its own report');
   assert.ok(inspection.diagnostics.some((entry) => entry.code === 'TEST_MODULE_AMBIGUOUS'));
+  assert.deepEqual(inspection.instructionCandidates, [], 'the scripts themselves are not listed again as commands that cannot be completed');
   // The gate still guesses neither.
   const { inferModuleTestCommand } = await import('../src/code-delivery-tests.mjs');
   await assert.rejects(inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' }), { code: 'TEST_MODULE_AMBIGUOUS' });

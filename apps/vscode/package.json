@@ -137,6 +137,27 @@
         }
       },
       {
+        "name": "singularityFlow_decide",
+        "displayName": "SFlow decisions",
+        "toolReferenceName": "sflowDecide",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Open everything a Story's step waits on as one table: answer all with one reason, or each with its own.",
+        "modelDescription": "Open the native page where the person decides everything a Story's step waits on. Pass only the exact workId. The person answers and confirms on the page, and the extension records it; no answer, reason or selection comes from you. It returns what was recorded and what remains. When it returns, carry on with what remains.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workId"
+          ],
+          "properties": {
+            "workId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            }
+          }
+        }
+      },
+      {
         "name": "singularityFlow_witnessReview",
         "displayName": "SFlow human evidence review",
         "toolReferenceName": "sflowWitnessReview",
@@ -900,6 +921,11 @@
         "command": "singularityFlow.decideStory",
         "title": "Singularity Flow: Choose What Happens Next",
         "icon": "$(git-compare)"
+      },
+      {
+        "command": "singularityFlow.decide",
+        "title": "Decide Everything This Step Waits On",
+        "category": "Singularity Flow"
       },
       {
         "command": "singularityFlow.adjudicate",

@@ -49,6 +49,7 @@ export interface DecisionPacket {
   headline: string; rule?: string;
   items: DecisionItemPacket[];
   packetSha256: string;
+  next?: { item: string; kind: string; title: string; command: string; copilotCommand: string | null } | null;
   record?: { form?: string; recommended?: string | null; interactive?: string; share?: string };
   unavailable?: Array<{ phase?: string; reason?: string }>;
 }
@@ -149,7 +150,7 @@ function ordered(options: DecisionOptionPacket[]): DecisionOptionPacket[] {
     .map((entry) => entry.option);
 }
 
-function optionRow(option: DecisionOptionPacket): DecisionOptionRow {
+export function optionRow(option: DecisionOptionPacket): DecisionOptionRow {
   const yours = option.action?.command ? { command: option.action.command, alternativeCommands: option.action.alternativeCommands ?? [], ...(option.action.humanReview ? { humanReview: true } : {}) } : null;
   const recorded = option.recordable !== false;
   const available = option.available !== false;

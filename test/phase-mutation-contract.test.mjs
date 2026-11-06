@@ -561,6 +561,8 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     'singularity-flow decision scope PMC-1 --fetch --item S-1 --as excluded --reason "Out of scope."',
     `singularity-flow decision completeness PMC-1 --fetch --confirm ${'b'.repeat(64)} --article completeness=satisfied --reason "Reviewed."`,
     'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/App.jsx --reason "Belongs to AC-001."',
+    // The other choice a plan-accounting item offers, as its `chat.command` writes it.
+    'singularity-flow decision plan PMC-1 --fetch --add-supporting package.json=build-configuration --supporting-reason "The test script needs it." --reason "The test script needs this entry."',
     'singularity-flow upstream-issue list --work-id PMC-1 --open --json',
     'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "The person dismissed it."',
     // The route a final check names for an earlier step's defect (2026-10-28), with the person's words.
@@ -818,7 +820,8 @@ test('every step only a person takes in their own terminal is refused in every t
       .map((rest) => `singularity-flow decision ${rest.replace(/^(\S+)/u, '$1 PMC-1')} --reason "Decided by the approver."`),
     'test-command-decision': ['singularity-flow decision test-command PMC-1 --accept TCD-001',
       'singularity-flow decision test-command PMC-1 --revoke TCD-001 --reason "The repository configures this runner now."'],
-    'decision-list-record': [`singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
+    'decision-list-record': [`singularity-flow decisions record PMC-1 --answers /tmp/card-answers.json --json`,
+      `singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
       `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`],
     'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
     'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`,
@@ -1056,6 +1059,10 @@ test('a person\'s decision is refused in every turn but the one they start for i
   // The decisions page is a tool that takes a Story ID; the person answers on it, so no turn is refused it.
   for (const toolName of ['singularityFlow_adjudicate', 'sflowAdjudicate', 'sflow_adjudicate']) {
     const opening = await repositoryToolGuard({ ...await f.enter('/sf-converge', 'page-opener'), toolName, toolArgs: { workId: 'PMC-1' } });
+    assert.notEqual(opening.permissionDecision, 'deny', toolName);
+  }
+  for (const toolName of ['singularityFlow_decide', 'sflowDecide', 'sflow_decide']) {
+    const opening = await repositoryToolGuard({ ...await f.enter('/sf-decide PMC-1', 'card-opener'), toolName, toolArgs: { workId: 'PMC-1' } });
     assert.notEqual(opening.permissionDecision, 'deny', toolName);
   }
   // A chain in the turn that owns the decision keeps the person's answers: run them one at a time.

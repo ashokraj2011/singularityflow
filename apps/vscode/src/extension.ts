@@ -833,6 +833,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return toolAnswer(result, 'The decisions page could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, or ask the person to run /sf-converge in it.');
       }
     }));
+    context.subscriptions.push(lm.registerTool('singularityFlow_decide', {
+      invoke: async (options: { input?: Record<string, unknown> }) => {
+        let result;
+        try { result = await vscode.commands.executeCommand('singularityFlow.decide', options.input ?? {}); }
+        catch (error) {
+          const failure = error as Error & { result?: unknown };
+          result = { status: 'blocked', message: failure.message, recorded: null, ...(failure.result ? { refusal: failure.result } : {}) };
+        }
+        return toolAnswer(result, 'The decisions page could not open here, because this window has no SFlow repository ready. Nothing was recorded. Open the Story\'s checkout, or ask the person to run /sf-decide in it.');
+      }
+    }));
     context.subscriptions.push(lm.registerTool('singularityFlow_witnessReview', {
       invoke: async (options: { input?: Record<string, unknown> }) => {
         let result;
@@ -1279,7 +1290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation',
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.sfGuard',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.decide', 'singularityFlow.sfGuard',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -9499,6 +9510,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.adjudicate': async (target?: { workId?: unknown }) => {
       const selected = target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
       const result = await lazyPanels().reviewAdjudications(client, selected, refreshAfterKnownMutation);
+      if (result.message) void showCompactInformationMessage(result.message);
+      return result;
+    },
+    // Everything a step waits on, on one page: a Story ID in, and what the person recorded back.
+    'singularityFlow.decide': async (target?: { workId?: unknown }) => {
+      const selected = target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
+      const result = await lazyPanels().reviewDecisions(client, selected, refreshAfterKnownMutation);
       if (result.message) void showCompactInformationMessage(result.message);
       return result;
     },

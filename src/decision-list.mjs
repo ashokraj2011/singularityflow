@@ -598,7 +598,8 @@ function othersDecide(workflow, { authorities }, { groups, people = [], anyIdent
 /**
  * Who clears a hold, for the person looking: the real groups, from the facts the refusal carries
  * (`clearedBy`), whether this identity holds one, and otherwise who does. Where the refusal names
- * nobody it says so; only what truly needs no group (what Singularity Flow finishes) is open to anyone.
+ * nobody it says so; only what truly needs no group (this checkout's own changes, what Singularity
+ * Flow finishes) is open to anyone.
  */
 function holdParty(hold, workflow, context) {
   const phaseId = workflow.currentPhase;
@@ -607,6 +608,7 @@ function holdParty(hold, workflow, context) {
   if (clearedBy.plan || /^singularity-flow decision plan /u.test(hold.action?.command ?? '')) {
     return stepDecidedBy(workflow, context, planAuthorities(workflow), clearedBy.plan ? words : 'Choose the row it belongs to and give your reason, then run it.');
   }
+  if (hold.owner === 'this-checkout') return anyone('These changes are in this checkout, so they are for whoever works in it, not for an approval group.');
   if (hold.owner === 'machine') return anyone(`${hold.who}. ${words}`.trimEnd());
   // The author revises it; returning it for changes is an approver's step, by the route it names.
   if (hold.owner === 'author-repairs') {
@@ -754,7 +756,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
   const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
   const carried = new Set(listed.map((item) => item.kind));
-  const extra = holds.filter((hold) => holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
+  const extra = holds.filter((hold) => hold.owner !== 'this-checkout' && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
     .map((hold) => holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
   const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (awaiting && heldKinds.has(item.kind)
@@ -765,11 +767,18 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     const options = [...item.options].sort((left, right) => Number(right.recommended) - Number(left.recommended));
     return { id: `d${index + 1}`, ...item, options, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) };
   });
+  const heldHere = items.filter((item) => item.holdsApproval).map((item) => item.id);
+  // This checkout's own changes come first, as the door refuses them first, as d0 and outside the
+  // digest: setting them aside changes neither which item a number means nor what a person chose.
+  const dirty = holds.find((hold) => hold.owner === 'this-checkout');
+  const door = dirty ? holdItem(workflow, context, 'approval-hold', dirty) : null;
   if (awaiting) {
-    const approval = approvalItem(workflow, context, phase, { heldBy: items.filter((item) => item.holdsApproval).map((item) => item.id),
+    const approval = approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
       youDecide: holds.filter((hold) => hold.owner === 'you-decide').map((hold) => hold.summary) });
     items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
   }
+  const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
+  if (door) items.unshift({ id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true });
   // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
   // item, the approval included: what every surface shows.
   const holding = items.filter((item) => item.holdsApproval).length;
@@ -778,7 +787,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const bound = {
     revision: DECISION_LIST_REVISION, workId, phase: phaseId, at: String(at).slice(0, 10),
     // A person's own step and a refusal's words are not confirmed here: bound by what they are, not their prose.
-    items: items.map(({ id, kind, title, why, options, details }) => (DECIDED_HERE.has(kind) && !details?.code ? { id, kind, title, why, details,
+    items: boundItems.map(({ id, kind, title, why, options, details }) => (DECIDED_HERE.has(kind) && !details?.code ? { id, kind, title, why, details,
       options: options.map(({ id: optionId, label, recommended, effects, needs, decidedBy: who }) => ({ id: optionId, label, recommended, effects, needs, groups: who.groups })) }
       : { id, kind, details: Object.fromEntries(Object.entries(details ?? {}).filter(([key]) => key !== 'commands')) })),
     state: facts.state ?? null

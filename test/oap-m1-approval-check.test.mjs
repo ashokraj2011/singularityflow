@@ -15,7 +15,7 @@ import { APPROVAL_HOLD_OWNERS, approvalHoldOwner } from '../src/approval-check.m
 import { SingularityFlowError } from '../src/util.mjs';
 import { CLI, specification, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
-const OWNERS = ['you-decide', 'someone-decides', 'author-repairs', 'machine'];
+const OWNERS = ['you-decide', 'someone-decides', 'author-repairs', 'machine', 'this-checkout'];
 const stateSource = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
 const evaluateSource = stateSource.slice(stateSource.indexOf('export async function evaluateApproval('),
   stateSource.indexOf('export async function approvePhase('));

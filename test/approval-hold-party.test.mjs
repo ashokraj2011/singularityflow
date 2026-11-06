@@ -7,11 +7,16 @@
  * the top real refusal of /sf-approve, passed "every check" until the door refused it.
  */
 import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
+import { agentAct } from '../src/agent-output.mjs';
 import { approvalHold, approvalHoldOwner } from '../src/approval-check.mjs';
 import { decisionPacket, pendingSummary } from '../src/decision-list.mjs';
+import { approvalCheckLines } from '../src/owed-decisions.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
+import { CLI, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
 
 const AT = '2026-11-06T00:00:00.000Z';
 const ME = { name: 'Reviewer', email: 'reviewer@example.test' };
@@ -206,4 +211,72 @@ test('a step still open is not told a sign-off stops its approval', () => {
   const stopped = open({ testRisks: [risk] });
   assert.equal(stopped.headline, 'Implementation needs 1 decision before it can be approved. 1 other decision does not hold its approval.');
   assert.equal(stopped.next.kind, 'test-run-risk');
+});
+
+test('the door\'s other refusal, a hidden change, belongs to this checkout too and says what clears it', () => {
+  const hidden = approvalHold(refusal('WORKTREE_HIDDEN_CHANGE', { paths: ['src/a.mjs'] }, 'Lifecycle decision cannot continue because Git index flags hide visible changes in: src/a.mjs.'), story(), story().phases.implementation);
+  assert.equal(hidden.owner, 'this-checkout');
+  assert.match(hidden.action.label, /^Clear the flags it names/u);
+  assert.equal(hidden.action.skill, '/sf-recover');
+});
+
+test('a dirty checkout holds the check, the list and the packet first; the door stays as it was', async (t) => {
+  const WORK = 'HOLD-DOOR';
+  const { cli, git, run } = await submittedPlanningStory(t, WORK);
+  const root = git('rev-parse', '--show-toplevel');
+  const payload = (result) => { const parsed = JSON.parse(result.stdout); return parsed.resultType === 'command-result' ? parsed.data : parsed; };
+  const readiness = () => JSON.parse(cli('status', WORK, '--submission-readiness', '--json').stdout);
+  const clean = readiness();
+  assert.equal(clean.approvalCheck.ready, true);
+  const cleanList = payload(cli('decisions', WORK, '--json'));
+
+  // Test runner output and Singularity Flow's own results are what the door already exempts: still nothing to clear.
+  await mkdir(path.join(root, 'test-results'), { recursive: true });
+  await writeFile(path.join(root, 'test-results', '.last-run.json'), '{}\n');
+  assert.deepEqual(readiness().approvalCheck.holds, [], 'files the door exempts stay exempt');
+
+  await writeFile(path.join(root, 'stray-note.js'), 'export const stray = 1;\n');
+  const dirty = readiness();
+  const check = dirty.approvalCheck;
+  assert.equal(check.ready, false);
+  assert.equal(check.statement, 'Approving planning now would be refused until one hold is cleared.');
+  assert.deepEqual(check.holds.map((hold) => [hold.code, hold.owner, hold.who]),
+    [['LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'this-checkout', 'Whoever works in this checkout clears it']]);
+  const [hold] = check.holds;
+  assert.equal(hold.summary, 'The checkout has changes that are not part of this lifecycle decision: stray-note.js.');
+  assert.match(hold.message, /stray-note\.js\.\nA person reviews them and sets them aside/u);
+  assert.equal(hold.action.command, `singularity-flow recover ${WORK} --json`);
+  assert.doesNotMatch(JSON.stringify(check), /test-results/u);
+  assert.match(approvalCheckLines(check).join('\n'), /Whoever works in this checkout clears it: The checkout has changes .*stray-note\.js\./u);
+  assert.equal(dirty.classification, 'already-submitted', 'readiness still says what it said');
+  assert.equal(dirty.nextSkill, '/sf-recover');
+
+  const list = payload(cli('decisions', WORK, '--json'));
+  assert.deepEqual(list.items.map((item) => [item.kind, item.holdsApproval]), [['approval-hold', true], ['approval', false]]);
+  assert.equal(list.next.command, hold.action.command);
+  assert.equal(list.next.copilotCommand, `/sf-recover ${WORK}`);
+  assert.equal(list.items[0].decidedBy.allowed, true);
+  assert.equal(list.items[0].id, 'd0');
+  assert.deepEqual(list.items.at(-1).details.heldBy, ['d0']);
+  assert.equal(list.holding, 1);
+  assert.equal(list.packetSha256, cleanList.packetSha256, 'setting it aside leaves what a person chose valid, so nothing newly refuses as a changed list');
+  assert.equal(list.items.at(-1).id, cleanList.items.at(-1).id, 'no number changes what it means');
+
+  const packet = JSON.parse(cli('choices', 'begin', 'approve', WORK, '--json', '--review-packet').stdout);
+  assert.deepEqual([packet.begun, packet.reason], [false, 'approval-holds'], 'said first, before any receipt');
+  const act = agentAct(packet);
+  assert.equal(act.state, 'blocked');
+  assert.equal(act.do.copilot, `/sf-recover ${WORK}`);
+  assert.equal(act.do.shell, hold.action.command);
+
+  // The door refuses exactly as it did, and recovery really is the way through.
+  const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'planning', '--work-id', WORK, '--yes', '--json'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.equal(JSON.parse(refused.stdout).error.code, 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED');
+  const recovery = payload(cli('recover', WORK, '--json'));
+  const setAside = recovery.actions.find((action) => action.id === 'set-aside-worktree');
+  assert.deepEqual(setAside.paths, ['stray-note.js']);
+  run(process.execPath, [CLI, ...setAside.argv ?? setAside.command.split(' ').slice(1)]);
+  assert.deepEqual(readiness().approvalCheck.holds, [], 'what the route said clears it');
+  cli('approve', 'planning', '--work-id', WORK, '--yes', '--json');
 });

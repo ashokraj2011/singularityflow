@@ -612,9 +612,9 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
 /**
  * Who can clear each refusal approval can raise [SPEC-OAP M1]: the approver now (`you-decide`),
  * another person or group (`someone-decides`), the author with a fresh submission (`author-repairs`),
- * or Singularity Flow itself (`machine`). Every code the gate throws is listed; the guard in
- * test/oap-m1-approval-check.test.mjs fails on a new one. A code not listed here is `unknown`: nothing
- * about it says who clears it, so nothing claims to.
+ * Singularity Flow itself (`machine`), or whoever works in this checkout (`this-checkout`). Every code
+ * the gate throws is listed; the guard in test/oap-m1-approval-check.test.mjs fails on a new one. A
+ * code not listed here is `unknown`: nothing about it says who clears it, so nothing claims to.
  */
 export const APPROVAL_HOLD_OWNERS = Object.freeze({
   ARA_REVIEW_REQUIRED: 'you-decide',
@@ -666,14 +666,19 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   WEL_WITNESS_MAPPING_UNREVIEWED: 'you-decide',
   APPROVAL_SELF_APPROVAL_PROHIBITED: 'someone-decides',
   APPROVAL_INTENT_AMENDMENT_PENDING: 'someone-decides',
-  SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs'
+  SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs',
+  // The door's own refusals, before any stage runs; approvalAdvisories adds them to the preview.
+  LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 'this-checkout',
+  WORKTREE_HIDDEN_CHANGE: 'this-checkout'
 });
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);
 const CANNOT_SAY = 'Singularity Flow cannot say who clears this';
+const SET_ASIDE_WORDS = 'A person looks at these changes and sets them aside with the set-aside-worktree route recovery returns (a private copy is kept), or moves them out of the checkout. Nothing needs rejecting.';
 const MAX_HOLD_MESSAGE = 4000;
 // Every surface shows these to whoever is looking, so each is true for any reader.
 const OWNER_WORDS = Object.freeze({ 'you-decide': 'You decide', 'someone-decides': CANNOT_SAY,
-  'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it', unknown: CANNOT_SAY });
+  'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it',
+  'this-checkout': 'Whoever works in this checkout clears it', unknown: CANNOT_SAY });
 
 /** Who clears a refusal, by its code and what it says: a pending amendment or a lapsed test-run risk waits for a person. */
 export function approvalHoldOwner(error) {
@@ -693,8 +698,8 @@ export function approvalHoldOwner(error) {
 /**
  * The way through a hold: the route its refusal names for itself (its next action, recovery command,
  * test-run risk renewal or first action), else the one its owner implies: work the author revises is
- * returned for changes, and what Singularity Flow finishes and a refusal nothing here knows are
- * inspected with recover. Only a known author-repairs code ever offers reject.
+ * returned for changes, and what Singularity Flow finishes, this checkout's changes and a refusal
+ * nothing here knows are inspected with recover. Only a known author-repairs code ever offers reject.
  */
 function holdRoute(error, owner, workflow, phase) {
   const details = error.details ?? {};
@@ -704,8 +709,8 @@ function holdRoute(error, owner, workflow, phase) {
     .map((entry) => (typeof entry === 'string' ? { command: entry } : entry))
     .map((entry) => (typeof entry?.command === 'string' ? { ...entry, command: entry.command.replaceAll('<WORK-ID>', workId) } : entry))
     .find((entry) => typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command }));
-  if (named) return { label: String(named.label ?? named.detail ??
-    (owner === 'someone-decides' && error.code === 'SPEC_COVERAGE_INCOMPLETE' && details.coverage?.unclaimedChangedPaths?.length
+  if (named) return { label: String(named.label ?? named.detail ?? (owner === 'this-checkout' ? SET_ASIDE_WORDS :
+    owner === 'someone-decides' && error.code === 'SPEC_COVERAGE_INCOMPLETE' && details.coverage?.unclaimedChangedPaths?.length
       ? `An approver of the plan accounts for the exact changed path; preserve the submitted code and test evidence.${details.planRows?.length
         ? ` The plan's rows: ${details.planRows.map((row) => row.clauseId).join(', ')}.` : ''}` : '')).replaceAll('<WORK-ID>', workId).slice(0, 400),
   command: safeCommandGuidance({ command: named.command }).command };
@@ -713,6 +718,7 @@ function holdRoute(error, owner, workflow, phase) {
     command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` };
   const recover = `singularity-flow recover ${workId} --phase ${phase.id} --json`;
   if (owner === 'machine') return { label: 'See what Singularity Flow finishes first.', command: recover };
+  if (owner === 'this-checkout') return { label: 'Clear the flags it names and review the resulting diff; recover shows the checkout as it then stands.', command: recover };
   if (owner === 'unknown') return { label: 'See what recovery can say about this refusal.', command: recover };
   return null;
 }
@@ -835,19 +841,42 @@ function decidedAfterSubmission(rejected = []) {
 }
 
 /**
- * Whether approving the current step would pass, before anyone reviews it: the gate itself, run as a
- * preview (evaluateApproval) for the person looking [SPEC-OAP M1]. `approvalCheck` lists every hold
- * with who clears it, and notes each rejected amendment decided since the submission;
- * `blockingCommits` names the commits after the submission that approval would refuse for.
- * Advisory: it refuses nothing and changes no route, and recording runs the same checks again. Null
- * when the step does not await approval or the check could not run here.
+ * What the door refuses before any stage runs: this checkout's changes, by the same check with the
+ * same exemptions (lifecycle-worktree.mjs), its paths in the words since the refusal's are general.
+ * Empty on a clean checkout, or when Git cannot say; the door itself still checks.
+ */
+async function worktreeRefusals(root, config, workflow) {
+  const { assertLifecycleWorktreeClean } = await import('./lifecycle-worktree.mjs');
+  try {
+    assertLifecycleWorktreeClean(root, config, workflow);
+    return [];
+  } catch (error) {
+    if (error?.code === 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED') {
+      const paths = error.details?.paths ?? [];
+      const [lead, rest] = [error.message.slice(0, error.message.indexOf('. ')), error.message.slice(error.message.indexOf('. ') + 2)];
+      return [new SingularityFlowError(`${lead}: ${paths.slice(0, 5).join(', ')}${paths.length > 5 ? ` and ${paths.length - 5} more` : ''}.\n${rest}`,
+        { code: error.code, details: error.details })];
+    }
+    return error instanceof SingularityFlowError ? [error] : [];
+  }
+}
+
+/**
+ * Whether approving the current step would pass, before anyone reviews it: the door's own check of
+ * this checkout, then the gate itself, run as a preview (evaluateApproval) for the person looking
+ * [SPEC-OAP M1]. `approvalCheck` lists every hold with who clears it, in the order approving would
+ * meet them, and notes each rejected amendment decided since the submission; `blockingCommits` names
+ * the commits after the submission that approval would refuse for. Advisory: it refuses nothing, and
+ * recording runs the same checks again. Null when the step does not await approval or the check could
+ * not run here.
  */
 export async function approvalAdvisories(root, config, workflow, phase) {
   if (!config || phase?.status !== 'awaiting_approval' || phase.id !== workflow?.currentPhase) return null;
   try {
     const { evaluateApproval } = await import('./state.mjs');
     const checked = await evaluateApproval(root, config, structuredClone(workflow), { phaseId: phase.id, preview: true });
-    const holds = checked.holds.map((error) => approvalHold(error, workflow, phase));
+    const refusals = [...await worktreeRefusals(root, config, workflow), ...checked.holds];
+    const holds = refusals.map((error) => approvalHold(error, workflow, phase));
     const blocking = holds.filter((hold) => hold.owner !== 'you-decide');
     const intervening = checked.holds.find((error) => error.code === 'STORY_REVIEW_INTERVENING_COMMIT');
     // A first hold whose route has a skill of its own is where a chat goes next (approvalHoldContinuation).

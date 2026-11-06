@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -22,6 +22,8 @@ import {
 import { startAutoFlight } from '../src/auto/auto-flight.mjs';
 import { adhocStatus } from '../src/adhoc/session.mjs';
 import { executeAutoFlightStep, mutateAutoExecutorState } from '../src/auto/auto-executor.mjs';
+import { candidateGateTests } from '../src/local-test-runs.mjs';
+import { latestStepAttempts } from '../src/verification/attempts.mjs';
 import { listAutoContractRecords } from '../src/auto/auto-contract-records.mjs';
 import { authorizeAutoRepair, planAutoRepair } from '../src/auto/auto-p1-control.mjs';
 import { listAutoP1Records } from '../src/auto/auto-p1-records.mjs';
@@ -1202,6 +1204,111 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
       expected, family
     );
   }
+});
+
+// One flight whose test leaves a line outside the repository on each run, so runs are counted, not inferred.
+async function loggedTestFlight(t, workId, options = {}) {
+  const root = await executableRepository(options);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-runs-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const log = path.join(directory, 'runs.log');
+  const plan = await createAutoPlan(root, 'Change the exported application value from one to two.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'], suggestedUntil: 'phase-complete:implement'
+  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  let calls = 0;
+  return {
+    root, started,
+    author: (expected = () => 2) => async ({ cwd }) => {
+      calls += 1;
+      await writeFile(path.join(cwd, 'app.mjs'), 'export const value = 2;\n');
+      await mkdir(path.join(cwd, 'test'), { recursive: true });
+      await writeFile(path.join(cwd, 'test/app.test.mjs'), [
+        "import assert from 'node:assert/strict';", "import { appendFileSync } from 'node:fs';", "import test from 'node:test';",
+        "import { value } from '../app.mjs';",
+        `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), ci: process.env.CI ?? null, inherited: process.env.AUTO_FIXTURE_INHERITED ?? null }) + '\\n');`,
+        `test('value', () => assert.equal(value, ${expected(calls)}));`, ''
+      ].join('\n'));
+      return { invocationId: `INV-${workId}-${calls}`, usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4 } };
+    },
+    runs: async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)),
+    attempts: async (worktree) => {
+      const directory = path.join(worktree, 'singularity/work-items', workId, 'context/code-delivery/tests/attempts/implement');
+      return Promise.all((await readdir(directory)).map(async (name) => JSON.parse(await readFile(path.join(directory, name), 'utf8'))));
+    }
+  };
+}
+
+test('a Candidate run stands for publication and submission, so the tests run once [TCE:REQ-084]', async (t) => {
+  const inherited = process.env.AUTO_FIXTURE_INHERITED;
+  process.env.AUTO_FIXTURE_INHERITED = 'from-the-shell';
+  t.after(() => { if (inherited == null) delete process.env.AUTO_FIXTURE_INHERITED; else process.env.AUTO_FIXTURE_INHERITED = inherited; });
+  const flight = await loggedTestFlight(t, 'AUT-RUN-ONCE');
+  const final = await runFlightStep(flight.root, flight.started.flight, { invokeModel: flight.author() });
+  assert.equal(final.position, 'submitted', `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  const runs = await flight.runs();
+  assert.equal(runs.length, 1, 'candidate verification, publication and submission share one run on one digest');
+  // It ran where the receipt says, and in the environment a gate gives a run, which tests can read.
+  assert.match(runs[0].cwd, /sflow-auto-candidate-verify-/u);
+  assert.deepEqual([runs[0].ci, runs[0].inherited], ['1', 'from-the-shell']);
+  const receipt = await readAutoCandidateVerification(final.worktree, { flightId: final.flightId, candidateId: final.candidate.candidateId });
+  assert.equal(receipt.status, 'passed');
+  assert.equal(receipt.candidateTreeUnchanged, true);
+  const attempts = await flight.attempts(final.worktree);
+  assert.deepEqual(attempts.map((attempt) => attempt.purpose).sort(), ['candidate', 'preflight']);
+  const stood = attempts.find((attempt) => attempt.purpose === 'candidate');
+  const gate = attempts.find((attempt) => attempt.purpose === 'preflight');
+  assert.deepEqual(stood.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(gate.reusedFrom.attemptId, stood.attemptId, 'the publication names the run it stands on');
+  assert.equal(gate.reusedFrom.purpose, 'candidate');
+  await access(path.join(final.worktree, stood.rawReports[0].path));
+  // Decisions and test-run risks read only what a gate recorded.
+  const latest = await latestStepAttempts(final.worktree, 'singularity/work-items/AUT-RUN-ONCE', 'AUT-RUN-ONCE', 'implement');
+  assert.deepEqual([...latest.values()].map((attempt) => attempt.purpose), ['preflight']);
+  const workflow = JSON.parse(await readFile(path.join(final.worktree, 'singularity/work-items/AUT-RUN-ONCE/workflow.json'), 'utf8'));
+  const check = workflow.phases.implement.checks.find((entry) => entry.reusedFrom);
+  assert.equal(check.evidenceUse, 'reused');
+  // A person reading the step's tests is told it stands on that run, and never that publication ran it.
+  const summary = JSON.parse(run(process.execPath, [cli, 'tests', 'summary', '--work-id', 'AUT-RUN-ONCE', '--phase', 'implement', '--json'], final.worktree).stdout);
+  assert.match(summary.run.label, new RegExp(`Reused from ${stood.attemptId}`, 'u'));
+});
+
+test('another environment at publication runs the tests again and says why [TCE:REQ-084]', async (t) => {
+  const flight = await loggedTestFlight(t, 'AUT-RUN-AGAIN');
+  const notes = [];
+  const final = await runFlightStep(flight.root, flight.started.flight, {
+    invokeModel: flight.author(),
+    childLifecycle: async (cwd, args, options = {}) => {
+      const gate = args[1] === 'publish' || args[0] === 'submit';
+      const result = run(process.execPath, [cli, ...args], cwd, { env: { ...options.env, ...(gate ? { NODE_OPTIONS: '--max-old-space-size=2048' } : {}) } });
+      if (gate) notes.push(result.stderr);
+      return { status: result.status, stdout: result.stdout, stderr: result.stderr, signal: null };
+    }
+  });
+  assert.equal(final.position, 'submitted', `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  assert.equal((await flight.runs()).length, 2, 'the Candidate run, then one at publication that submission reuses');
+  assert.match(notes[0], /Running \S+ again: the environment changed since TA-/u);
+  const attempts = await flight.attempts(final.worktree);
+  assert.deepEqual(attempts.map((attempt) => attempt.purpose).sort(), ['candidate', 'preflight']);
+  assert.equal(attempts.find((attempt) => attempt.purpose === 'preflight').reusedFrom ?? null, null);
+});
+
+test('a failed Candidate run is kept, never stands, and its repair runs once on the new code [TCE:REQ-084]', async (t) => {
+  const flight = await loggedTestFlight(t, 'AUT-RUN-REPAIR', { repairPolicy: 'auto-on-machine-actionable' });
+  const final = await runFlightStep(flight.root, flight.started.flight, { invokeModel: flight.author((call) => (call === 1 ? 99 : 2)) });
+  assert.equal(final.position, 'submitted', `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  assert.equal(final.repairAttempts.length, 1);
+  assert.equal((await flight.runs()).length, 2, 'one run for each version of the code');
+  const attempts = await flight.attempts(final.worktree);
+  const candidates = attempts.filter((attempt) => attempt.purpose === 'candidate');
+  assert.deepEqual(candidates.map((attempt) => attempt.status).sort(), ['failed', 'passed']);
+  const gate = attempts.find((attempt) => attempt.purpose === 'preflight');
+  assert.equal(gate.reusedFrom.attemptId, candidates.find((attempt) => attempt.status === 'passed').attemptId);
+});
+
+test('the test-recovery pilot observes each run itself, so its Candidates keep their own verification run', async () => {
+  assert.equal(await candidateGateTests('/nowhere', {}, { testRecovery: {} }, { id: 'implement' }), null);
+  assert.equal(await candidateGateTests('/nowhere', {}, { resolution: { testRecovery: { enabled: true } } }, { id: 'implement' }), null);
 });
 
 test('counterfeit model claims never grant authority or bypass protected-path refusal', async () => {

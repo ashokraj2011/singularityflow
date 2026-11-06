@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 30
+version: 31
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -339,7 +339,7 @@ Evidence reuse and test-run risk answer different questions. Test-run risk accep
 
 ### When tests do not run again
 
-Tests run once per version of the code. A gate that needs a test run reuses a passing one, automatically, when nothing that run depended on has moved. Nobody has to decide anything. Publish runs the tests, submit reuses that run, and a later verification or testing step reuses it too when its command is the same.
+Tests run once per version of the code. A gate that needs a test run reuses a passing one, automatically, when nothing that run depended on has moved. Nobody has to decide anything. Publish runs the tests, submit reuses that run, and a later verification or testing step reuses it too when its command is the same. On an Auto flight the first of those runs is the Candidate's own verification, in its own worktree and in the same environment a gate gives a run, and publish reuses it.
 
 | What must be the same | How it is compared |
 |---|---|

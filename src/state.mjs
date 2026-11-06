@@ -4733,11 +4733,13 @@ export const localTestRunKernel = Object.freeze({
   qualityChecks: (...args) => qualityChecks(...args),
   stageTransientQualityResult: (...args) => stageTransientQualityResult(...args),
   restoreTransientQualityResult: (...args) => restoreTransientQualityResult(...args),
+  environmentQualityCommandGate: (...args) => environmentQualityCommandGate(...args),
+  mayReuseUnchangedRuns: (workflow) => mayReuseUnchangedRuns(workflow),
   stdoutReportCaptured, boundedQualityDiagnostic, defaultTimeoutMs: DEFAULT_QUALITY_COMMAND_TIMEOUT_MS
 });
 
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
-  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null
+  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null
 } = {}) {
   const checks = [];
   // Null unless the pinned capability policy allows local integration evidence [RUN M3].
@@ -4754,8 +4756,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   let isolatedResultRestore = null;
   // Changed files no plan names stay in the worktree, and verification runs on exactly the
   // candidate in a worktree materialized beside it [E2G-027, D9].
-  const isolationNeed = commands.length ? await candidateIsolationNeed(root, config, workflow) : null;
-  let isolation = null;
+  const isolationNeed = commands.length && !candidateRoot ? await candidateIsolationNeed(root, config, workflow) : null;
+  // An Auto Candidate brings its own isolated worktree, which its verification removes [TCE:REQ-084].
+  let isolation = candidateRoot ? { root: candidateRoot, dispose: async () => {} } : null;
   if (isolationNeed?.excluded.length) {
     isolation = workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true
       ? { available: false, reason: 'the test-recovery pilot captures reports from this worktree' }
@@ -4958,7 +4961,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
       workingDirectory: policy.workingDirectory,
       resultIsolated: Boolean(structuredResultTarget),
-      ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...isolationNeed.excluded] } : {}),
+      ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...(isolationNeed?.excluded ?? [])] } : {}),
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),

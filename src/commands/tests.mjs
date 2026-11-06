@@ -20,7 +20,8 @@ const OPTIONS = Object.freeze({
 });
 // Runs a gate made itself (evidence class `governed`), in words.
 const GATE_LABELS = Object.freeze({
-  preflight: 'Run by publication', submission: 'Run by submission', epoch: 'Run by a runner amendment'
+  preflight: 'Run by publication', submission: 'Run by submission', epoch: 'Run by a runner amendment',
+  candidate: 'Run on the Auto Candidate before publication'
 });
 
 function fail(message, code = 'TESTS_COMMAND_INVALID', details = null) {
@@ -482,7 +483,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
       countsForStep: entries.every((entry) => entry.countsForStep),
       startedAt: group.members.map((attempt) => attempt.process?.startedAt).filter(Boolean).sort()[0] ?? null,
       commit: first.candidate?.commit ?? null,
-      uncommittedChanges: first.uncommittedChanges ?? first.purpose === 'preflight',
+      uncommittedChanges: first.uncommittedChanges ?? ['preflight', 'candidate'].includes(first.purpose),
       ranBy: first.ranBy ?? null
     },
     entries,

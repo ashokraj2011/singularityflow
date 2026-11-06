@@ -35,7 +35,7 @@ const CANDIDATE_ENV = Object.freeze({
   bindingSha256: 'SFLOW_AUTO_CANDIDATE_BINDING_SHA256',
   verificationReceiptSha256: 'SFLOW_AUTO_CANDIDATE_VERIFICATION_SHA256'
 });
-const MAX_VERIFICATION_COMMANDS = 32;
+export const MAX_VERIFICATION_COMMANDS = 32;
 const MAX_VERIFICATION_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_CANDIDATE_RESOURCES = 20_000;
 const STRUCTURED_TEST_ADAPTERS = new Set(TEST_RESULT_ADAPTERS);
@@ -1140,6 +1140,32 @@ async function runVerificationCommand(command, workspace, signal, testRuntime) {
   });
 }
 
+/**
+ * A test command run by the gates' own kernel on this worktree [TCE:REQ-084]. The receipt keeps its
+ * usual observations; the report belongs to the attempt the kernel staged, and is read from there.
+ * Null when that run could not stand for the gate's, and the command then runs as any other.
+ */
+async function runGateVerificationCommand(runGateTest, original, command, workspace) {
+  const gate = await runGateTest(original, workspace);
+  if (!gate) return null;
+  const { check = null, parsed = null } = gate;
+  return {
+    gate: true,
+    parsed,
+    record: {
+      id: command.id,
+      argvSha256: digest(command.argv),
+      workingDirectory: command.workingDirectory,
+      status: check?.exitCode ?? 1,
+      signal: check?.signal ?? null,
+      timedOut: check?.timedOut === true,
+      overflow: false,
+      outputSha256: digest({ stdout: check?.stdout ?? '', stderr: check?.stderr ?? '', report: parsed?.result?.sha256 ?? null }),
+      outputBytes: (check?.stdoutBytes ?? 0) + (check?.stderrBytes ?? 0)
+    }
+  };
+}
+
 function verificationCore(record) {
   const core = structuredClone(record);
   delete core.verificationReceiptSha256;
@@ -1297,7 +1323,7 @@ export function validateAutoCandidateVerification(record) {
 }
 
 export async function verifyAutoCandidate(root, binding, {
-  commands, signal = null, verifiedAt = new Date().toISOString(), pathContext = null, testRuntime = {}
+  commands, signal = null, verifiedAt = new Date().toISOString(), pathContext = null, testRuntime = {}, runGateTest = null
 } = {}) {
   const retained = await readAutoCandidateBinding(root, {
     flightId: binding?.flightId, candidateId: binding?.candidateId
@@ -1382,7 +1408,9 @@ export async function verifyAutoCandidate(root, binding, {
     }
     for (const [commandIndex, command] of normalized.entries()) {
       if (signal?.aborted) fail('Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
-      const execution = await runVerificationCommand(command, workspace, signal, testRuntime);
+      const gateRun = runGateTest && command.kind === 'test'
+        ? await runGateVerificationCommand(runGateTest, commands[commandIndex], command, workspace) : null;
+      const execution = gateRun ?? await runVerificationCommand(command, workspace, signal, testRuntime);
       results.push(execution.record);
       if (command.resultPath) {
         // Re-prove containment after the command. Candidate tests may create the result, but they
@@ -1391,7 +1419,10 @@ export async function verifyAutoCandidate(root, binding, {
           label: `Candidate verification evidence path '${verificationResultPath(command)}'`
         });
       }
-      if (execution.record.status !== 0 && command.result) {
+      if (execution.gate) {
+        const evidence = structuredRepairEvidence(command, execution, execution.parsed, candidateTestPaths);
+        if (evidence) repairEvidence.push(evidence);
+      } else if (execution.record.status !== 0 && command.result) {
         try {
           let resultRoot = workspace;
           let resultCommand = command;

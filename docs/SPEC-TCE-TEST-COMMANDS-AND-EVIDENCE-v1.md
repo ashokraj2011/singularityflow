@@ -244,6 +244,17 @@ the later step's submit, and again on each retried publish. Conformance, approva
   times of the run that happened. Publish then submit binds the one attempt; a new generation or a local run gets
   an attempt of this step and generation naming it in `reusedFrom`, so replay's binding rules did not change.
   A later non-code step's own repository run is recorded as an attempt too, so it is not repeated either.
+- `[TCE:REQ-084]` An Auto flight's Candidate verification is that run when it can be. Measured on a real flight at
+  main e4dbdf690: the tests ran in the Candidate's worktree and again at publication, on one source digest. The two
+  were not the same run: the Candidate's had an allowlist of variables and no `CI`, ignored `.nvmrc`, kept no report,
+  and chose its commands without the delivery's paths, so a test that needs an inherited variable skipped there and ran
+  at publication. So each test command publication would run now runs by the gates' own kernel on the Candidate's
+  worktree (the isolated run of `[E2G-027]`), in the gate's environment, and is staged as one attempt with purpose
+  `candidate`. Publication and submission reuse it through `[TCE:REQ-080]`, with `reusedFrom` naming it; a
+  decision or a test-run risk never reads it. The receipt, still immutable, keeps how each command ended; a quality
+  command that is not a test still runs under the allowlist. Anything that differs runs again: an unequal digest (a
+  file no plan names), another environment at publication, the test-recovery pilot, a command tied to an environment's
+  values, a private store lost to a fresh clone. A failed Candidate run is kept like any attempt and never stands.
 
 ### M9 A test scope that changes `[TCE:REQ-090]`
 

@@ -25,10 +25,11 @@ import { posix, secureRepositoryPath, writeAtomicExclusive } from '../util.mjs';
 import { classifyTestCommand } from './adapters.mjs';
 import { profileForCommand } from './profiles.mjs';
 
-// `local` is a run started with tests run for a Story step [RUN M2]: staged and later admitted like
-// the others. A gate reuses a passing one while nothing it ran on moved [TCE:REQ-082]; a decision or
-// a test-run risk never reads one.
-export const ATTEMPT_PURPOSES = Object.freeze(['preflight', 'submission', 'epoch', 'local']);
+// `local` is a run started with tests run for a Story step [RUN M2], and `candidate` an Auto Candidate's
+// run on its own worktree [TCE:REQ-084]: staged and later admitted like the others. A gate reuses a
+// passing one while nothing it ran on moved [TCE:REQ-082]; a decision or a test-run risk never reads one.
+export const ATTEMPT_PURPOSES = Object.freeze(['preflight', 'submission', 'epoch', 'local', 'candidate']);
+const RUN_OUTSIDE_A_GATE = new Set(['local', 'candidate']);
 const ATTEMPT_FILE = /^TA-[a-f0-9]{20}\.json$/u;
 const MAX_ATTEMPT_FILES = 10_000;
 
@@ -88,11 +89,11 @@ export async function stepAttempts(root, itemRelative, workId, phaseId) {
 // A reused run keeps the times of the run it reuses; its place in the history is when a gate reused it.
 const attemptRecordedAt = (attempt) => attempt.reusedFrom?.at ?? attempt.process?.completedAt ?? '';
 
-/** The latest recorded gate run of each test command of a step, by command ID; local runs only when asked. */
+/** The latest recorded gate run of each test command of a step, by command ID; other runs only when asked. */
 export async function latestStepAttempts(root, itemRelative, workId, phaseId, { includeLocal = false } = {}) {
   const latest = new Map();
   for (const attempt of await stepAttempts(root, itemRelative, workId, phaseId)) {
-    if (attempt.purpose === 'local' && !includeLocal) continue;
+    if (RUN_OUTSIDE_A_GATE.has(attempt.purpose) && !includeLocal) continue;
     latest.set(attempt.commandId, attempt);
   }
   return latest;
@@ -169,7 +170,7 @@ async function rawReportBytes(root, workId, attempt) {
 async function recordReusedAttempt(root, itemRelative, { command, check, purpose, workId, phaseId, generation, epoch, random, pin, narrowing }) {
   const { attempt: source, reports, path: sourcePath, sha256: sourceSha256 } = check.unchangedRun;
   const parsed = { adapter: source.adapter, tests: source.tests, minimumDiscovered: command.result.minimumDiscovered, minimumPassed: command.result.minimumPassed };
-  if (source.phase === phaseId && Number(source.generation) === Number(generation) && source.purpose !== 'local'
+  if (source.phase === phaseId && Number(source.generation) === Number(generation) && !RUN_OUTSIDE_A_GATE.has(source.purpose)
       && source.commandId === command.id && (source.pin?.sha256 ?? null) === (pin?.sha256 ?? null)) {
     return { attempt: source, parsed, reportError: null, path: sourcePath, sha256: sourceSha256 };
   }

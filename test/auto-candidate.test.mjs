@@ -491,6 +491,40 @@ test('isolated Candidate captures bounded Karma failure output as scoped repair 
   assert.match(evidence.resultSha256, /^sha256:[a-f0-9]{64}$/);
 });
 
+test('a test command run by the gates keeps its receipt shape; a run that cannot stand runs as before [TCE:REQ-084]', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(root, 'src', 'app.mjs'), 'export const value = 5;\n');
+  const freeze = (letter) => {
+    const flightId = `AFL-${letter.repeat(26)}`;
+    return freezeAutoCandidate(root, {
+      flightId, attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }), baselineCommit, executionUnitId: 'copilot-cli'
+    });
+  };
+  const seen = [];
+  const commands = [{ id: 'gate-test', kind: 'test', workingDirectory: '.', argv: [process.execPath, '-e', 'process.exit(9)'] },
+    { id: 'lint', kind: 'quality', workingDirectory: '.', argv: [process.execPath, '-e', 'process.exit(0)'] }];
+  const gated = await verifyAutoCandidate(root, await freeze('A'), {
+    commands,
+    runGateTest: async (command, workspace) => {
+      seen.push([command, workspace]);
+      return { check: { exitCode: 0, signal: null, stdout: 'ok', stderr: '', stdoutBytes: 2, stderrBytes: 0 }, parsed: null };
+    }
+  });
+  assert.equal(gated.status, 'passed', 'the kernel ran the test, so its own argv never ran here');
+  assert.deepEqual(seen.map(([command]) => command.id), ['gate-test'], 'a quality command is not a gate test run');
+  assert.equal(seen[0][0], commands[0], 'the kernel gets the command as resolved, with what normalizing leaves out');
+  assert.deepEqual(gated.commands.map(({ id, status }) => [id, status]), [['gate-test', 0], ['lint', 0]]);
+  assert.equal(gated.commands[0].outputBytes, 2);
+  // Null: the kernel declined, so the command runs here and its exit decides.
+  await assert.rejects(verifyAutoCandidate(root, await freeze('B'), { commands, runGateTest: async () => null }),
+    (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_FAILED');
+  // The kernel saw the source change under its run: never a pass, whatever the tree comparison finds.
+  await assert.rejects(verifyAutoCandidate(root, await freeze('C'), { commands, runGateTest: async () => ({ mutated: true }) }),
+    (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_FAILED');
+});
+
 test('isolated Candidate verification refuses a tracked symlink working directory', async (t) => {
   if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
   const root = await repository();

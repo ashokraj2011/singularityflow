@@ -36,7 +36,7 @@ import {
 } from './auto-contract-records.mjs';
 import {
   assertAutoCandidateMatches, autoAttemptId, autoCandidateEnvironment,
-  discoverAutoCandidateRecoveryAuthority, freezeAutoCandidate,
+  discoverAutoCandidateRecoveryAuthority, freezeAutoCandidate, MAX_VERIFICATION_COMMANDS,
   observeAutoCandidateWorktree, readAutoCandidateBinding,
   readAutoCandidateVerification, restoreAutoCandidateWorktree, verifyAutoCandidate
 } from './auto-candidate.mjs';
@@ -1658,11 +1658,17 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           worktree, candidate, applicationPathContext(definition, workflow)
         );
         assertAutoCandidateMatches(candidate, candidateObservation);
-        const commands = await resolveDeliveryQualityCommands(worktree, phase,
+        const quality = await resolveDeliveryQualityCommands(worktree, phase,
           { executionMode: storyTestScope(workflow) });
+        // The tests its publication would run, run as a gate runs them, so it need not run them again [TCE:REQ-084].
+        const gateTests = await (await import('../local-test-runs.mjs')).candidateGateTests(worktree, definition, workflow, phase);
+        const others = quality.filter((command) => command?.kind !== 'test');
+        const asGate = gateTests && others.length + gateTests.commands.length <= MAX_VERIFICATION_COMMANDS;
         candidateVerification = await verifyAutoCandidate(worktree, candidate, {
-          commands, pathContext: applicationPathContext(definition, workflow),
-          testRuntime: workflow.resolution?.testRuntime
+          commands: asGate ? [...others, ...gateTests.commands] : quality,
+          pathContext: applicationPathContext(definition, workflow),
+          testRuntime: workflow.resolution?.testRuntime,
+          runGateTest: asGate ? gateTests.run : null
         });
         const verificationActiveMilliseconds = Date.now() - activeAccountedAt;
         activeAccountedAt = Date.now();

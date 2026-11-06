@@ -322,7 +322,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,484,450 (measured 9,484,368): no rerun on unchanged code (verification/attempts.mjs +7637, state.mjs +5581) and a Story's test scope
     // (code-delivery-policy.mjs +441, narration/messages.mjs +333, code-delivery-tests.mjs +291, test-recovery-intake.mjs +110,
     // command-registry.mjs +168, command-skills.mjs +59). Each gate runs them; the scope command and file selection stay lazy, no new eager file.
-    assert.ok(closure.bytes <= 9_484_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,486,450 (measured 9,486,361 with the Auto Candidate's run standing): auto-candidate.mjs +1443, state.mjs +377,
+    // verification/attempts.mjs +173. What runs it (local-test-runs.mjs) stays lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_486_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -482,7 +484,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,105,550 (measured 4,105,507): the same config-values.mjs +1290 and secrets.mjs +452 as start.
   // 4,106,650 (measured 4,106,564): the same code-delivery-policy.mjs +441, code-delivery-tests.mjs +291, test-recovery-intake.mjs +110,
   // command-registry.mjs +168 and command-skills.mjs +59 as start, less delivery-evidence.mjs -12.
-  assert.ok(current.bytes <= 4_106_650, `session current loads ${current.bytes} source bytes`);
+  // 4,108,100 (measured 4,108,007): the same auto-candidate.mjs +1443 as start.
+  assert.ok(current.bytes <= 4_108_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

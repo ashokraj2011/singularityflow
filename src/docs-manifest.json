@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "3c0a0b5e6cc72d8b23c79e2e256ddb272b15d958",
+  "sourceCommit": "e4dbdf690876623f8f0c168dafe33a5b905cc01d",
   "topicCount": 90,
-  "contentSha256": "ad09af8fee05656e5ff8a1edff4b3964b7b3f095aa6a8d44d86fbcb77f9bea56",
+  "contentSha256": "4204ba64bc08224bb0d93b6eb299ae4a0340f103074c6b95ebb6933ef1ceb76b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -88,8 +88,8 @@
     {
       "id": "auto-mode",
       "title": "Bounded Auto mode",
-      "version": 11,
-      "sha256": "5c13f535d0a2a195742e1e3ed6e1fee9e94165c231d0a4f979bef6b21c5bbb00",
+      "version": 12,
+      "sha256": "106c587b9a786192db81e44cb4d0f05615eaba74d4df1a176d22e8cb99981b9d",
       "routingSha256": "5e13fc1070186507fd232923db25b8e09b8e47b869690d71ee880dc9b95eed1f",
       "file": "auto-mode.md"
     },
@@ -640,8 +640,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 30,
-      "sha256": "e2a1f40f5d3a6ec1f247365367658b5616cdacbb7ab133b9ee8190a15e0a318b",
+      "version": 31,
+      "sha256": "6091dcd8dea24951f3653f9f5d7263b227f4752141c9b2d84889cd6ce846bbe8",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

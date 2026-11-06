@@ -1,9 +1,10 @@
 /**
  * Local test runs a person starts with `tests run` [RUN M2]: a capability preview outside any
- * Story, and a Story step's run staged as attempts. Both use the gates' own kernel pieces from
- * state.mjs, so they run exactly what publication runs; nothing here admits or publishes.
+ * Story, and a Story step's run staged as attempts. An Auto Candidate's tests take the same route.
+ * All use the gates' own kernel pieces from state.mjs, so they run exactly what publication runs;
+ * nothing here admits or publishes.
  */
-import { mkdir } from 'node:fs/promises';
+import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { storyTestScope } from './code-delivery-policy.mjs';
@@ -14,7 +15,7 @@ import { head } from './git.mjs';
 import { operationContext } from './operation-context.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
-import { localTestRunKernel as kernel, sourceTreeHash } from './state-stores.mjs';
+import { localTestRunKernel as kernel, sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { workDirRelative } from './story-paths.mjs';
 import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
@@ -191,4 +192,43 @@ export async function resolveStoryLocalTestCommands(root, config, workflow, { ph
     return { phase, commands: await (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, resolved, deliveryEvidence?.testPaths ?? []) };
   }
   return { phase, commands: resolved };
+}
+
+/**
+ * An Auto Candidate's test commands, run as a gate runs them [TCE:REQ-084]: those the step's publish
+ * preflight would run, by the gates' own kernel, on the Candidate's isolated worktree, each staged as
+ * one attempt. Publication then finds a passing run on this code and does not run it again; the
+ * Candidate's receipt still records only how each command ended on the frozen bytes. Null when no
+ * gate could reuse the runs (the test-recovery pilot) or the commands do not resolve: verification
+ * runs as it did, and publication runs and refuses for itself.
+ */
+export async function candidateGateTests(root, config, workflow, phase) {
+  if (!kernel.mayReuseUnchangedRuns(workflow)) return null;
+  const { commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId: phase.id }).catch(() => ({ commands: [] }));
+  const reports = commands.filter(({ result }) => result.path).map(({ workingDirectory, result }) => path.posix.join(workingDirectory, result.path));
+  if (!commands.length || new Set(reports).size !== reports.length) return null;
+  const compared = async (directory) => JSON.stringify([await sourceTreeHash(directory, config, workflow), await testInputTreeHash(directory, config, workflow)]);
+  return {
+    commands,
+    // `{ check, parsed }`, `{ mutated: true }`, or null when this run could not stand for the gate's.
+    async run(command, workspace) {
+      try {
+        // A file no plan names is committed in the Candidate and left out at the gate: a gate would not reuse the run.
+        if (await compared(workspace) !== await compared(root)) return null;
+        const { block, run } = await kernel.environmentQualityCommandGate(root, command, {});
+        if (block || run) return null;
+        const [check] = await kernel.qualityChecks(root, phase, config, workflow, [command], { candidateRoot: await realpath(workspace) });
+        try {
+          const { parsed } = await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+            command, check, purpose: 'candidate', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase)
+          });
+          return { check, parsed };
+        } finally {
+          await kernel.restoreTransientQualityResult(check);
+        }
+      } catch (error) {
+        return error?.code === 'QUALITY_COMMAND_SOURCE_MUTATION' ? { mutated: true } : null;
+      }
+    }
+  };
 }

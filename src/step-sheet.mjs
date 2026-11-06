@@ -196,7 +196,7 @@ export function stepSheet(workflow, packet, { approvalCheck = null, authorities 
   const generation = Number(phase?.generation ?? 0);
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) => entry.phase === packet.phase && Number(entry.generation) === generation);
   const sheet = {
-    schema: STEP_SHEET_SCHEMA, story: workflow.workItem.id,
+    schema: STEP_SHEET_SCHEMA, story: workflow.workItem.id, headline: packet.headline ?? null,
     step: { id: packet.phase, label: packet.phaseLabel, generation, status: phase?.status ?? null, packetSha256: submission?.packetSha256 ?? null },
     viewer: { email: actor?.email ?? null, login: actor?.login ?? null, known: Boolean(actor?.email || actor?.login) },
     approval, holds, owedLater, next, waitingFor,

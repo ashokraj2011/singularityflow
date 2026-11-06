@@ -314,7 +314,7 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   // So does what a review, and the step just submitted, say comes next.
   const reviewed = json('phase', 'show', 'planning', '--for-agent', '--json').continuation;
   assert.equal(reviewed.nextCommand.replace(' --for-agent', ''), dirty.sheet.next.command);
-  assert.match(reviewed.nextAction.reason, /^The checkout has changes/u);
+  assert.match(reviewed.nextAction.reason, /can't be approved yet: 1 decision needed\. The checkout has changes/u);
   assert.equal(nextAfterStep({ continuation: reviewed }, 'Submitted.').commandGuidance.command, reviewed.nextCommand);
   assert.deepEqual(stopped.act.read, ['approvalPacket.sheet', 'approvalPacket.readiness.owedDecisions']);
   await rm(stray);

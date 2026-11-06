@@ -28,7 +28,8 @@ export function sheetRoute(sheet) {
   if (!next?.command) return null;
   const blocking = blockingHolds(sheet);
   const [first] = blocking;
-  const lead = first ? `${blocking.length > 1 ? `${blocking.length} holds on this approval; first: ` : ''}${sentence(first.title)}. ` : '';
+  // The list's own headline says what it holds up; the first hold and who clears it say what to do.
+  const lead = first ? `${sheet.headline ? `${sentence(sheet.headline)}. ` : ''}${blocking.length > 1 ? 'First: ' : ''}${sentence(first.title)}. ` : '';
   const copilotCommand = next.where?.copilot ?? null;
   return { command: shownCommand(next.command), skill: copilotCommand?.split(' ')[0] ?? null, copilotCommand, label: next.label,
     reason: `${lead}${sheet.waitingFor?.words ?? first?.clearedBy?.words ?? ''}`.trim() || next.label };

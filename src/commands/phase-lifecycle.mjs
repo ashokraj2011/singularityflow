@@ -14,6 +14,7 @@ import { verifyOpenGenerationIntent, generationStartPublicationBinding } from '.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 import { loadSession } from '../session.mjs';
+import { phaseAgentMutationRestriction } from '../phase-actor-policy.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepublish.mjs';
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
@@ -273,7 +274,9 @@ export async function phaseCommand(positionals, options) {
   const sourcePath = optionString(options, 'from');
   // A publish after a publish: planning went 1, 2, 3, 4 on one real run, each pair seconds apart. A
   // document unchanged since its publication already is that publication, so nothing is recorded.
-  if (!sourcePath && await (await import('../phase-publication-unchanged.mjs')).documentUnchangedSincePublication(root, config, workflow, requestedPhase)) {
+  // A read-only agent may not publish at all, so it goes on to the refusal in its own words.
+  if (!sourcePath && !phaseAgentMutationRestriction(config, workflow, requestedPhase, await loadSession(root), 'publish')
+    && await (await import('../phase-publication-unchanged.mjs')).documentUnchangedSincePublication(root, config, workflow, requestedPhase)) {
     if (optionBoolean(options, 'json')) {
       console.log(JSON.stringify({
         schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'retained',

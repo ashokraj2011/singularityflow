@@ -122,11 +122,29 @@ test('/sf-explain answers a topic in its own turn, with the command its turn adm
   const skill = await readFile(path.join(root, 'plugin/skills/sflow-explain/SKILL.md'), 'utf8');
   const [first] = skill.match(/^1\. [\s\S]*?(?=^2\. )/mu);
   for (const subject of XPL2_SUBJECTS) assert.ok(first.includes(`\`${subject}\``), `${subject} is listed, so it is never read as a topic`);
-  assert.ok(first.includes(`\`singularity-flow explain '$ARGUMENTS' --json\``));
-  assert.match(first.replace(/\s+/gu, ' '), /answered in this turn/u);
+  // A real model asked what to explain 3 times in 4 for a one-word topic, and a long topic overran the host's limit.
+  assert.ok(first.includes(`\`singularity-flow explain '$ARGUMENTS' --for-agent --json\``));
+  assert.match(first, /^1\. The person typed `\/sf-explain \$ARGUMENTS`, so `\$ARGUMENTS` is their whole request\./u);
+  assert.match(first.replace(/\s+/gu, ' '), /`change` and `gap` need nothing more/u);
+  assert.match(first.replace(/\s+/gu, ' '), /--subject <SUBJECT> <REMAINING ARGUMENTS> --for-agent --json/u);
+  assert.match(first, /Nothing after `\/sf-explain`: run nothing and ask what to explain/u);
+  assert.match(first.replace(/\s+/gu, ' '), /even one word alone, is a documentation topic or question, so never ask what to explain; answer in this turn/u);
   assert.match(first, /`data\.served\.text`/u);
   assert.match(first, /`data\.citation`/u);
-  assert.equal(argvAllowed(['explain', 'environment-bindings', '--json'], mutationTurnMode('sf-explain')), true);
+  assert.equal(argvAllowed(['explain', 'environment-bindings', '--for-agent', '--json'], mutationTurnMode('sf-explain')), true);
+  assert.equal(argvAllowed(['explain', '--subject', 'gap', '--for-agent', '--json'], mutationTurnMode('sf-explain')), true);
+});
+
+test('/sf-explain: the longest topic reaches an agent bounded, with its text to read, and a plain question finds its topic', async (t) => {
+  const fixture = await repository(t);
+  const bounded = cli(fixture, 'explain', 'workflow-authoring', '--for-agent', '--json');
+  assert.ok(Buffer.byteLength(bounded.stdout) < 7500, `${Buffer.byteLength(bounded.stdout)} bytes`);
+  const result = JSON.parse(bounded.stdout);
+  assert.equal(result.agentOutput.complete, false);
+  const text = result.omittedFields.flatMap((field) => field.textFiles ?? []).find((file) => file.field === 'data.served.text');
+  assert.equal(text.need, true);
+  assert.ok(text.read.length > 0);
+  assert.equal(json(cli(fixture, 'explain', 'how do I stop a key being committed', '--json')).outcome.slots.topic, 'secrets');
 });
 
 test('XPL2-AC-018 path, line and side are separate portable fields', async (t) => {

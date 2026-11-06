@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "74fc3317c6543608753d4274891378d4976d0137",
+  "sourceCommit": "070635cc1bc67670efe23e96c9404ec688974bd9",
   "topicCount": 90,
-  "contentSha256": "0a4e5c15d34fb290b4dce512d919371789e2b7a5c7cc465814c669d59d37155e",
+  "contentSha256": "d654f20f103a655ee563de521bbb3be5a0d424ac7376c1c52de4f6b9d5263d80",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -544,9 +544,9 @@
     {
       "id": "secrets",
       "title": "Refusing to commit a credential",
-      "version": 5,
+      "version": 6,
       "sha256": "6ba9d243802f03a7e6367f9084958d435a0586a6b1a309d76f3326777db1f3ee",
-      "routingSha256": "49da34867a0d139cd67eb4f9775ee43b0eb4819eb33db5a2aee70d81bd20dae3",
+      "routingSha256": "5d0b121e8ac30beccedccbd95b7e3ac088d5d2f7af517dea3c020be68fb33180",
       "file": "secrets.md"
     },
     {

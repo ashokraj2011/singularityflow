@@ -15,14 +15,16 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 <!-- sflow-execution-boundary -->
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`, or as is from a non-Git (chat) folder: SFlow finds the bound checkout; never refuse or wrap for it; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. In the Boundary repository, when the first word of `$ARGUMENTS` is `change`, `clause`, `test`, `line`, `gap` or
-   `generation`, it is the subject. Run exactly one subject command:
-   `singularity-flow explain --subject <SUBJECT> <REMAINING ARGUMENTS> --json`.
-   Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
-   Any other words are a documentation topic or question, answered in this turn: run
-   `singularity-flow explain '$ARGUMENTS' --json`, one single-quoted argument with each inner `'` as `'\''` (PowerShell
-   `''`) so nothing expands. Answer only from its `data.served.text`, ending with `data.citation` verbatim. When it
-   returns `data.candidates` or `data.nearest` instead, list those topic ids and ask which one.
+1. The person typed `/sf-explain $ARGUMENTS`, so `$ARGUMENTS` is their whole request. In the Boundary repository:
+   - Nothing after `/sf-explain`: run nothing and ask what to explain.
+   - A first word of `change`, `clause`, `test`, `line`, `gap` or `generation` is the subject. Run exactly one subject
+     command: `singularity-flow explain --subject <SUBJECT> <REMAINING ARGUMENTS> --for-agent --json`. `change` and `gap`
+     need nothing more. Never guess a missing `--id`, `--path`, `--line` or `--gen`; ask the user for the exact value instead.
+   - Any other word, even one word alone, is a documentation topic or question, so never ask what to explain; answer in
+     this turn. Run `singularity-flow explain '$ARGUMENTS' --for-agent --json`, one single-quoted argument with each inner
+     `'` as `'\''` (PowerShell `''`) so nothing expands. Answer only from `data.served.text`, ending with `data.citation`
+     verbatim. When it returns `data.candidates` or `data.nearest` instead, list those topic ids and ask which one.
+   Either result may be bounded: view what its `agentOutput` lists first.
 2. For a subject, relay the returned statements with their citation IDs, the `Needs attention` items, availability reasons, the
    `authority: none` label and the next actions unchanged. When `subject.status` is `ambiguous`, list its exact
    `choices` and ask which one; when it is `unavailable`, relay its reason code.

@@ -243,7 +243,7 @@ export function agentAct(result) {
   }
   if (result.resultType === 'sflow-approval-packet' && result.begun === false && result.reason === 'approval-holds') {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness.approvalCheck', 'approvalPacket.readiness.owedDecisions'],
-      said: 'Approval has known holds. Show their owners and inspect the returned decision list. Only approvalCheck.holds block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.' }, result.nextAction);
+      said: 'Approval has known holds. Show their owners and follow the returned route. Only approvalCheck.holds block this approval; report owed items separately. No receipt or approval was created; do not request confirmation, edit submitted work or repeat document reads.' }, result.nextAction);
   }
   if (result.resultType === 'sflow-approval-packet' && result.begun === false && result.preserveDraft === true) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalPacket.readiness', 'nextAction'],
@@ -254,7 +254,7 @@ export function agentAct(result) {
     read: ['approvalPacket', 'approvalContext', 'choiceSets'] };
   if (result.resultType === 'sflow-submission-readiness' && result.approvalContinuation) {
     return withRoute({ state: 'blocked', do: null, read: ['approvalCheck', 'owedDecisions', 'pending'],
-      said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Open the returned decision list; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
+      said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
   }
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
     state: 'correct', do: null, read: ['error.details.repair', 'error.details.findings'],

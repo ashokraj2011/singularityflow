@@ -6,8 +6,8 @@ export function approvalHoldContinuation(workId, check) {
   if (check?.ready !== false || !(check.holds ?? []).some(hold => hold.owner !== 'you-decide')) return null;
   return { command: `singularity-flow decisions ${workId} --for-agent --json`,
     skill: '/sf-decide', copilotCommand: `/sf-decide ${workId}`,
-    label: 'Inspect the exact holds and owner actions. No approval confirmation or code rewrite is requested.',
-    reason: check.statement ?? 'Clear the known approval holds through their named owners before approval.' };
+    label: 'Inspect the exact holds and who clears each. No approval confirmation is requested.',
+    reason: check.statement ?? 'Clear the known approval holds through their named owners before approval.', ...check.directRoute };
 }
 
 /**

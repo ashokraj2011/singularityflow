@@ -156,3 +156,54 @@ test('a person\'s own step never claims it is yours because nothing names a grou
     intentAmendments: [{ id: 'AMD-001', status: 'approved', changedClauses: [] }] } }, { authorities: AUTHORITIES, actor: SOMEONE, at: AT });
   assert.ok(open.items.filter((item) => item.kind !== 'approval').every((item) => item.decidedBy.allowed), 'neither command checks a group');
 });
+
+test('a hold whose route /sf-decide never takes goes to that route\'s skill, not back to /sf-decide', () => {
+  const unknown = listFor(refusal('A_CODE_NOBODY_LISTED'));
+  assert.equal(unknown.packet.next.copilotCommand, '/sf-recover W-1');
+  assert.equal(unknown.item.decidedBy.allowed, false, 'nothing says it is this person\'s');
+  const changed = listFor(refusal('STORY_REVIEW_SOURCE_CHANGED'));
+  assert.equal(changed.packet.next.copilotCommand, '/sf-reject W-1');
+  assert.equal(changed.packet.record.copilotCommand, null, 'no choice left is recorded in a /sf-decide turn');
+  assert.equal(changed.item.decidedBy.allowed, true, 'returning it is this approver\'s step');
+  assert.match(changed.item.decidedBy.words, /^You may do this \(Engineering reviewers\)\. An approver returns implementation for changes/u);
+  // A person decides this one on the list: /sf-decide shows it and names them.
+  const person = listFor(refusal('APPROVAL_IDENTITY_NOT_AUTHORIZED', { authorities: ['engineering'], eligibleApprovers: ['reviewer@example.test'] }), { actor: SOMEONE });
+  assert.equal(person.packet.next.copilotCommand, '/sf-decide W-1');
+});
+
+test('holding, heldBy, the headline and next describe one situation (the real bin-opr list)', () => {
+  const workflow = story();
+  const owed = { kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: ['shots/home.png'], owners: ['implementation'], command: 'singularity-flow decision witness --work-id W-1' };
+  const gap = refusal('SPEC_COVERAGE_INCOMPLETE', { coverage: { unclaimedChangedPaths: ['src/test/setup.js'], unimplemented: [], withdrawnButClaimed: [], invalidEvidence: [] },
+    recoveryCommands: ['singularity-flow decision plan W-1 --add-location <clause>=src/test/setup.js --reason <why>'] },
+  "Phase 'implementation' cannot be approved because specification coverage is incomplete:\n- changed path is not claimed by a clause: src/test/setup.js; add it to a row\nRun singularity-flow recover W-1.");
+  const { packet } = listFor(gap, { workflow, facts: { pending: { owed: [owed] } } });
+  const [d1, d2, d3] = packet.items;
+  assert.deepEqual([d1.kind, d1.holdsApproval, d2.kind, d2.holdsApproval, d3.kind], ['owed-decision', false, 'approval-hold', true, 'approval']);
+  assert.equal(packet.holding, 1);
+  assert.deepEqual(d3.details.heldBy, ['d2']);
+  assert.equal(packet.open, 3);
+  assert.equal(packet.next.item, 'd2', 'next is what holds the approval, not the first item');
+  assert.equal(packet.headline, "Implementation can't be approved yet: 1 decision needed. 1 other decision does not hold its approval.");
+  // The whole message, and a title that does not end on a colon with the path cut off.
+  assert.equal(d2.title, "Phase 'implementation' cannot be approved because specification coverage is incomplete: changed path is not claimed by a clause: src/test/setup.js");
+  assert.match(d2.why, /- changed path is not claimed by a clause: src\/test\/setup\.js; add it to a row\nRun singularity-flow recover W-1\./u);
+  // Nothing holds it: the approval is next, and the owed sign-off stays listed.
+  const clear = decisionPacket(workflow, { phaseId: 'implementation', pending: { owed: [owed] }, approvalCheck: { holds: [] } }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  assert.deepEqual([clear.next.kind, clear.holding, clear.open], ['approval', 0, 2]);
+  assert.equal(clear.headline, 'Implementation has 1 open decision; none holds its approval.');
+});
+
+test('a step still open is not told a sign-off stops its approval', () => {
+  const workflow = story({ status: 'in_progress' });
+  const owed = { kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual', method: 'visual', files: ['shots/home.png'], owners: ['implementation'], command: 'singularity-flow decision witness --work-id W-1' };
+  const open = (extra) => decisionPacket(workflow, { phaseId: 'implementation', pending: { owed: [owed] }, ...extra }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  const only = open({});
+  assert.equal(only.headline, 'Implementation has 1 open decision; none holds its approval.');
+  assert.deepEqual([only.holding, only.next.kind], [0, 'owed-decision']);
+  // A test-run risk does stop it, at submission: that still reads as needed first, and comes first.
+  const risk = { phase: 'implementation', commandId: 'unit', status: 'blocked' };
+  const stopped = open({ testRisks: [risk] });
+  assert.equal(stopped.headline, 'Implementation needs 1 decision before it can be approved. 1 other decision does not hold its approval.');
+  assert.equal(stopped.next.kind, 'test-run-risk');
+});

@@ -626,11 +626,12 @@ function holdItem(workflow, context, kind, hold) {
   return {
     kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].split(/;\s/u)[0].slice(0, 200), why: `${hold.message ?? hold.summary} ${decided.words}${rows ? ` The plan's rows: ${rows}.` : ''}`,
     options: [{ ...personalStep({ id: 'route', label: hold.action?.label || decided.words, command, words: decided.words, decidedBy: decided }) }],
-    details: { code: hold.code, owner: hold.owner, commands: [command], ...(hold.planRows ? { planRows: hold.planRows } : {}) }
+    details: { code: hold.code, owner: hold.owner, commands: [command], ...(hold.planRows ? { planRows: hold.planRows } : {}) },
+    ...(hold.action?.skill ? { routeSkill: hold.action.skill } : {})
   };
 }
 
-/** The step's approval itself: always the list's last item, so the first open item is what to do next. */
+/** The step's approval itself: always the list's last item. */
 function approvalItem(workflow, context, phase, { heldBy, youDecide }) {
   const workId = workflow.workItem.id;
   const name = stepName(workflow, phase.id);
@@ -769,9 +770,9 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       youDecide: holds.filter((hold) => hold.owner === 'you-decide').map((hold) => hold.summary) });
     items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
   }
-  // The decisions approval refuses for: what pendingDecisionSummary counts for readiness and the
-  // refusal (SPEC-OAP D5). `open` counts every item, the approval included: what every surface shows.
-  const holding = items.filter((item) => APPROVAL_HOLDING_KINDS.includes(item.kind)).length;
+  // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
+  // item, the approval included: what every surface shows.
+  const holding = items.filter((item) => item.holdsApproval).length;
   const workId = workflow.workItem.id;
   const phaseId = facts.phaseId;
   const bound = {
@@ -787,17 +788,22 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const recommended = items.filter((item) => item.decidedBy.allowed).map((item) => [item.id, item.options.find((entry) => entry.recommended && entry.decidedBy.allowed)?.id])
     .filter(([, chosen]) => chosen);
   const decisions = items.filter((item) => item.kind !== 'approval' && !item.machine);
-  const holdingAll = decisions.filter((item) => item.holdsApproval).length;
+  // What stops this step: what holds its approval; before it is submitted, everything but a sign-off
+  // owed to the Story's ending (a test-run risk stops the submission, a sign-off stops nothing here).
+  const stopsStep = (item) => item.holdsApproval || (!awaiting && item.kind !== 'owed-decision');
+  const holdingAll = decisions.filter(stopsStep).length;
   const others = decisions.length - holdingAll;
   const headline = !decisions.length && awaiting ? `${stepName(workflow, phaseId)} has nothing left to decide; its approval is next.`
-    : !awaiting || !others ? decisionHeadline(workflow, phaseId, decisions.length)
+    : !others ? decisionHeadline(workflow, phaseId, decisions.length)
       : holdingAll ? `${decisionHeadline(workflow, phaseId, holdingAll)} ${others === 1 ? '1 other decision does' : `${others} other decisions do`} not hold its approval.`
         : `${stepName(workflow, phaseId)} has ${others === 1 ? '1 open decision' : `${others} open decisions`}; none holds its approval.`;
-  const [first] = items;
+  // What to do next: the first item that holds the approval; with none, the approval itself; before
+  // submission, what stops the step, then whatever is left.
+  const first = items.find((item) => item.holdsApproval) ?? (awaiting ? items.at(-1) : items.find(stopsStep) ?? items[0]);
   // When every option left is a person's own terminal step, /sf-decide would only show it again: a
-  // command no skill runs (a witness, an obligation risk), or a choice recorded on this list that a
-  // /sf-decide turn may not record (an accepted test command). The route is that command.
-  const theirsAlone = (item) => item.options.length > 0 && item.options.every((entry) => (entry.recordable === false
+  // command no skill runs (a witness, an obligation risk), a choice recorded on this list that a
+  // /sf-decide turn may not record (an accepted test command), or a hold's route with its own skill.
+  const theirsAlone = (item) => Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.recordable === false
     ? typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command)
     : !DECISION_LIST_CHAT_OPTIONS.includes(entry.id)));
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
@@ -810,9 +816,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     headline, rule: CONFORMANCE_GAP_RULE,
     items, holding, open: items.length,
     ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
-    // What to do next: the first open item, with its first route.
     next: first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
-      copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : listRoute } : null,
+      copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute } : null,
     packetSha256: digest,
     record: {
       form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,

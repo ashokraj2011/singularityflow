@@ -10,6 +10,7 @@
  * and rejecting it lets the phase be approved as submitted.
  */
 import { createHash } from 'node:crypto';
+import { skillForCommandLine } from './command-skills.mjs';
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { scopeStepOf } from './phase-roles.mjs';
@@ -768,10 +769,21 @@ function holdWho(owner, clearedBy, workflow, route, code) {
   return `${clearedBy.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
 }
 
+/**
+ * The skill that takes a route no /sf-decide turn takes (recover, a return for changes), for a hold no
+ * list item decides: /sf-decide would only route back to itself. Null when a person decides it there.
+ */
+function holdRouteSkill(owner, route) {
+  if (!route || ['you-decide', 'someone-decides'].includes(owner)) return null;
+  const skill = skillForCommandLine(route.command);
+  return skill && skill !== 'sf-decide' ? `/${skill}` : null;
+}
+
 /** One hold as every surface shows it: who clears it, what it says (a line, and the whole message when that is more) and its route. */
 export function approvalHold(error, workflow, phase) {
   const owner = approvalHoldOwner(error);
   const route = holdRoute(error, owner, workflow, phase);
+  const skill = holdRouteSkill(owner, route);
   const clearedBy = holdClearedBy(error, workflow, phase);
   const message = String(error.message ?? '').replaceAll('<WORK-ID>', workflow.workItem.id);
   const summary = holdSummary(message);
@@ -780,7 +792,7 @@ export function approvalHold(error, workflow, phase) {
     code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner, who: holdWho(owner, clearedBy, workflow, route, error.code), summary,
     ...(message.slice(0, MAX_HOLD_MESSAGE) !== summary ? { message: message.slice(0, MAX_HOLD_MESSAGE) } : {}),
     ...(clearedBy ? { clearedBy } : {}),
-    ...(route ? { action: route } : {}),
+    ...(route ? { action: { ...route, ...(skill ? { skill } : {}) } } : {}),
     ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {})
   };
 }
@@ -838,6 +850,8 @@ export async function approvalAdvisories(root, config, workflow, phase) {
     const holds = checked.holds.map((error) => approvalHold(error, workflow, phase));
     const blocking = holds.filter((hold) => hold.owner !== 'you-decide');
     const intervening = checked.holds.find((error) => error.code === 'STORY_REVIEW_INTERVENING_COMMIT');
+    // A first hold whose route has a skill of its own is where a chat goes next (approvalHoldContinuation).
+    const direct = blocking[0]?.action?.skill ? blocking[0].action : null;
     const approvalCheck = {
       advisory: true,
       ready: !blocking.length,
@@ -845,6 +859,7 @@ export async function approvalAdvisories(root, config, workflow, phase) {
         : !blocking.length ? `Approving ${phase.id} needs your own answers first: ${holds.length === 1 ? 'one' : holds.length} in the approval itself.`
           : `Approving ${phase.id} now would be refused until ${blocking.length === 1 ? 'one hold is' : `${blocking.length} holds are`} cleared.`,
       holds,
+      ...(direct ? { directRoute: { command: direct.command, skill: direct.skill, copilotCommand: `${direct.skill} ${workflow.workItem.id}`, ...(direct.label ? { label: direct.label } : {}) } } : {}),
       ...decidedAfterSubmission(checked.rejectedIntentAmendments),
       ...(checked.warnings.length ? { warnings: checked.warnings.slice(0, 20) } : {})
     };

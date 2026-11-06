@@ -492,7 +492,8 @@ test('an accepted test command is the person\'s own record: no route sends it ba
   const item = packet.items.find((entry) => entry.kind === 'test-command');
   assert.deepEqual(item.options.map((option) => option.id), ['accept-test-command']);
   assert.equal(DECISION_LIST_CHAT_OPTIONS.includes('accept-test-command'), false);
-  assert.deepEqual([packet.next.copilotCommand, packet.record.copilotCommand], [null, null]);
+  // Nothing holds the release: its approval is next, and the request is the person's own record.
+  assert.deepEqual([packet.next.kind, packet.next.copilotCommand, packet.record.copilotCommand], ['approval', '/sf-approve release --work-id BIN-501', null]);
   const record = decisionRecordCommand('BIN-501', { choices: [[item.id, 'accept-test-command']], digest: packet.packetSha256 });
   for (const command of [record, item.details.commands[0]]) assert.equal(skillForCommandLine(command), null, command);
   // With a decision a /sf-decide turn may record open too (the story's gap), the list keeps that route.

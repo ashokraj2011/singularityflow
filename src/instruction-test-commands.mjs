@@ -260,11 +260,11 @@ function recognizeTool(argv, at) {
   if (tool === 'dotnet') return sub === 'test' ? { runner: 'dotnet', at } : { skip: true };
   if (tool === 'swift') return sub === 'test' ? { runner: 'swift', at } : { skip: true };
   if (tool === 'nx') return { runner: 'nx', at };
-  // A runner its row reports directly, by what a build file implies.
-  if (tool === 'phpunit') return { runner: 'row', key: tool, at };
-  if (tool === 'deno') return ['test', 'task'].includes(sub) ? { runner: 'row', key: tool, at } : { skip: true };
-  if (['rspec', 'bazel'].includes(tool) && (tool === 'rspec' || sub === 'test')) return { reason: TEST_RUNNERS[tool].proposal.words };
-  if (tool === 'bazel') return { skip: true };
+  // What the runner's row says: a report it can add, or what a person must add or choose first.
+  const row = TEST_RUNNERS[tool];
+  const verbs = row?.selection?.verbs ?? row?.proposal?.verbs ?? [];
+  if (row?.module && row.direct) return !verbs.length || verbs.includes(sub) ? { runner: 'row', key: tool, at } : { skip: true };
+  if (row?.proposal && !row.written) return !verbs.length || verbs.includes(sub) ? { reason: row.proposal.words } : { skip: true };
   if (tool === 'node') {
     return argv.slice(at + 1).some((value) => value === '--test' || value.startsWith('--test='))
       ? { runner: 'node-test', at } : { reason: 'It runs a Node program, not node --test; SFlow cannot see which tests it runs.' };

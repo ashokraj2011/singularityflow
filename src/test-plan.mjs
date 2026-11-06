@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { launcherName, resolveTestCommand, SCRIPT_RUNNERS, unwrapRunner } from './test-command-resolution.mjs';
-import { runnerNamed, runnerNameOfAdapter, runnerNameOfLauncher, TEST_RUNNERS, TOOLS_ON_PATH } from './test-runners.mjs';
+import { runnerNamed, runnerNameOfAdapter, runnerNameOfLauncher, runnerOfLauncher, TEST_RUNNERS, TOOLS_ON_PATH } from './test-runners.mjs';
 import { profileForCommand, profileIsExact } from './verification/profiles.mjs';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -235,6 +235,12 @@ async function toolChecks(root, commands, environment) {
     if (seen.has(key)) continue;
     seen.add(key);
     const { onPath, runnerFamily, runnerToolchain } = await import('./test-toolchain.mjs');
+    const { installs } = runnerOfLauncher(launcher) ?? {};
+    if (installs && !await isFile(path.join(root, directory, installs.file))) {
+      found.push(check('dependencies-not-installed', `${joined(directory, installs.file)} is not there, so ${command.id} would stop at its first run. A new Story checkout starts without it.`,
+        `Run ${installs.command} in ${where(directory)}.`, { command: installs.command, workingDirectory: directory }));
+      continue;
+    }
     if (TOOLS_ON_PATH[launcher]) {
       if (!await onPath(launcher, environment, path.join(root, directory))) {
         found.push(check('tool-not-found', `${TOOLS_ON_PATH[launcher]} (${launcher}) is not on this machine's PATH, and ${command.id} starts it.`, `Install ${TOOLS_ON_PATH[launcher]} here, or run this step where it is installed.`));

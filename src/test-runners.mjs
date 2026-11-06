@@ -13,7 +13,8 @@
  *   which says nothing itself; a package manager's run takes its report's word instead.
  * - `direct`: the reporter a call of the runner itself gets: its adapter, report extension and arguments. A package
  *   script or Nx target is completed by inference; a test pins these to inference's arguments.
- * - `buildFiles`: the build files a command is found from, for saying why.
+ * - `buildFiles`: the build files a command is found from, for saying why. `installs`: the file a repository's own
+ *   install puts there, and the command that does, for saying so before a first run stops on it.
  * - `pins`: what can select its tests, which a pin binds (`config`, file names; `keys`, package.json keys).
  *   `setupFiles`: its other configuration a test setup changes.
  * - `collection`: where its configuration says its tests are (src/test-collection-limits.mjs).
@@ -25,6 +26,7 @@
  *   runner (`holds`), and its command. It must write a report SFlow reads with no change to the repository.
  * - `proposal`: a runner SFlow can name and cannot complete alone: it needs a gem, a person's choice or a target.
  *   Setup and the refusal offer the command with what is `missing`, and nothing runs until a person approves it.
+ *   `written`: a written call of it already has its own route, so the proposal's words are not its answer.
  *
  * Flags of runners not installed where this was written (PHPUnit, Bun, Deno, RSpec, minitest, Bazel, Nx) come from
  * their documentation; test/real-test-tools.test.mjs runs each where it is installed, and skips visibly where not.
@@ -77,7 +79,7 @@ export const TEST_RUNNERS = Object.freeze({
     selection: { filters: ['-run', '-skip', '-short'], valueless: ['-short'], verbs: ['test'], testFiles: /_test\.go$/u } },
   dotnet: { name: '.NET', ecosystem: 'dotnet', programSaysEcosystem: true, launchers: ['dotnet'], adapter: 'dotnet-trx', onPath: { dotnet: '.NET' },
     direct: { adapter: 'dotnet-trx', extension: null, arguments: (directory) => ['--logger', 'trx', '--results-directory', directory] }, selection: { filters: ['--filter'], valueless: [] } },
-  cargo: { name: 'Cargo', ecosystem: 'rust', programSaysEcosystem: true, launchers: ['cargo'], adapter: 'cargo-json', onPath: { cargo: 'Cargo' }, buildFiles: ['Cargo.toml'],
+  cargo: { name: 'Cargo', ecosystem: 'rust', programSaysEcosystem: true, launchers: ['cargo'], adapter: 'cargo-json', onPath: { cargo: 'Cargo' }, buildFiles: ['Cargo.toml'], written: true,
     // Stable cargo refuses its JSON format, so a person chooses: that flag on a stable compiler, or nextest's JUnit report.
     proposal: { files: [/^Cargo\.toml$/u], holds: () => true, runner: 'cargo',
       words: 'Stable cargo writes no structured report. Choose one: RUSTC_BOOTSTRAP=1 with its JSON format, which reads each result, or cargo-nextest with a JUnit profile, which needs that tool. Either is a person\'s choice.',
@@ -85,13 +87,14 @@ export const TEST_RUNNERS = Object.freeze({
       missing: ['which of the two'], choices: ['RUSTC_BOOTSTRAP=1 cargo test -- -Z unstable-options --format json', 'cargo nextest run --profile ci, with [profile.ci.junit] path = "junit.xml" in .config/nextest.toml; its report is target/nextest/ci/junit.xml'] } },
   swiftpm: { name: 'SwiftPM', ecosystem: 'swift', programSaysEcosystem: true, launchers: ['swift'], onPath: { swift: 'Swift' }, buildFiles: ['Package.swift'] },
   xcode: { name: 'Xcode', ecosystem: 'swift', launchers: ['xcodebuild'], onPath: { xcodebuild: 'Xcode' } },
-  nx: { name: 'Nx', ecosystem: 'node', launchers: ['nx'], buildFiles: ['project.json', 'nx.json'],
+  nx: { name: 'Nx', ecosystem: 'node', launchers: ['nx'], buildFiles: ['project.json', 'nx.json'], written: true,
     // That @nx/vite:test hands these to Vitest is unproven here: no real Nx has run it, so a person approves it first.
     proposal: { files: [/^project\.json$/u], holds: (text) => /["']@nx\/vite:test["']/u.test(text), runner: 'Vitest under @nx/vite:test',
       words: 'SFlow has not seen this executor pass a report option to Vitest, so it does not run this by itself. If its report is written, approve it as this project\'s test command.',
       command: (text) => ({ argv: ['npx', '--no-install', 'nx', 'run', `${/"name"\s*:\s*"([^"]+)"/u.exec(text)?.[1] ?? '<project>'}:test`, '--skip-nx-cache', '--run', '--reporters=json', '--outputFile=.sflow/results/vitest-tests.json'],
         result: { adapter: 'vitest-json', path: '.sflow/results/vitest-tests.json' } }), missing: [] } },
   phpunit: { name: 'PHPUnit', ecosystem: 'php', programSaysEcosystem: true, launchers: ['phpunit'], buildFiles: ['phpunit.xml', 'phpunit.xml.dist', 'composer.json'],
+    installs: { file: 'vendor/bin/phpunit', command: 'composer install' },
     pins: { config: [/^phpunit\.xml(?:\.dist)?$/u], keys: [] },
     direct: { adapter: 'junit-xml', extension: 'xml', arguments: (report) => ['--log-junit', report] },
     selection: { filters: ['--filter', '--group', '--exclude-group', '--testsuite'], valueless: [], verbs: [], testFiles: /Test\.php$/u },
@@ -118,7 +121,7 @@ export const TEST_RUNNERS = Object.freeze({
       words: 'SFlow reads results from JUnit reports, and minitest writes one only through a reporter gem. Add minitest-reporters and use its JUnitReporter, or ask a person to accept a Story-only command.',
       command: () => ({ argv: ['bundle', 'exec', 'rake', 'test'], result: { adapter: 'junit-xml', path: 'test/reports' } }), missing: ['the minitest-reporters gem with its JUnitReporter'] } },
   bazel: { name: 'Bazel', launchers: ['bazel'], onPath: { bazel: 'Bazel' }, pins: { config: [/^\.bazelrc$/u], keys: [] }, selection: { filters: ['--test_filter', '--test_tag_filters'], valueless: [] },
-    proposal: { files: [/^MODULE\.bazel$/u, /^WORKSPACE(?:\.bazel)?$/u], holds: () => true, runner: 'Bazel',
+    proposal: { files: [/^MODULE\.bazel$/u, /^WORKSPACE(?:\.bazel)?$/u], holds: () => true, runner: 'Bazel', verbs: ['test'],
       words: 'Bazel writes each test target\'s JUnit report under bazel-testlogs. Which targets to run is a person\'s choice, and SFlow does not guess it.',
       command: () => ({ argv: ['bazel', 'test', '//...', '--test_output=errors'], result: { adapter: 'junit-xml', path: 'bazel-testlogs' } }), missing: ['the targets, if not //...'] } }
 });

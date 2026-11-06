@@ -536,8 +536,8 @@
     {
       "id": "run-and-test",
       "title": "Run the application and its tests from a capability",
-      "version": 11,
-      "sha256": "70c9b47f983c1d309fd16396814ec112cde28cf162afed8f04f97d2dd2c82b8e",
+      "version": 12,
+      "sha256": "18650f04d4f9c30390583020266273746c8cd0cb3b746c45930d4d1a4fe55a12",
       "routingSha256": "be1e49b28a51b83f11b412f03a2964a94b7ed465e089f3f19143492ac1b3fb43",
       "file": "run-and-test.md"
     },

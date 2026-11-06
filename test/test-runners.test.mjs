@@ -4,10 +4,12 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 import { isTestSourceName, parseTestResult, resolveAffectedModule, testCommandCoversPath, testCommandEcosystem } from '../src/code-delivery-tests.mjs';
 import { TEST_RESULT_ADAPTERS } from '../src/external-command-policy.mjs';
@@ -17,7 +19,12 @@ import { inspectRepositoryTestSetup } from '../src/repository-test-setup.mjs';
 import { commandDefinition } from '../src/test-command-pins.mjs';
 import { moduleTestCommands } from '../src/test-module-markers.mjs';
 import { commandFilters, pathOperands } from '../src/test-narrowing.mjs';
+import { describeTestCommand, earlyTestChecks } from '../src/test-plan.mjs';
 import { profileForCommand } from '../src/verification/profiles.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
+
+const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 import { isRunnerConfigurationName, runnerNameOfAdapter, runnerNameOfLauncher, runnerNamed, runnerOfLauncher, scriptRunnerOf, selectingRunner, TEST_RUNNERS, TOOLS_ON_PATH } from '../src/test-runners.mjs';
 
 test('every row has a person\'s word and the programs that start it, and no two rows claim one program', () => {
@@ -28,6 +35,9 @@ test('every row has a person\'s word and the programs that start it, and no two 
     for (const launcher of row.launchers) { assert.ok(!seen.has(launcher), `${launcher} in two rows`); seen.add(launcher); }
     if (row.adapter) assert.ok(TEST_RESULT_ADAPTERS.includes(row.adapter), `${key}: ${row.adapter} is no adapter a command can name`);
     if (row.selection) assert.ok(row.selection.valueless.every((option) => row.selection.filters.includes(option)), `${key}: a valueless option it does not filter by`);
+    // The path check reads a runner's operands only with both: which words are verbs, and which files are its tests.
+    if (row.selection) assert.equal(Boolean(row.selection.verbs), Boolean(row.selection.testFiles), `${key}: verbs and testFiles go together`);
+    if (row.module) assert.ok(row.direct, `${key}: a runner a build file implies can also be written by hand`);
     assert.equal(runnerNamed(row.name)?.key, key);
   }
 });
@@ -73,6 +83,10 @@ test('PHPUnit: a project that names it runs it with a JUnit report, and a Compos
   // The configuration is pinned; the installed binary is a dependency, so installing it changes nothing.
   const [command] = await gate(root, 'src/App.php');
   assert.deepEqual((await commandDefinition(root, command)).entries.map((entry) => entry.path), ['phpunit.xml']);
+  // A new Story checkout has no vendor folder: said before the first run, not found by it.
+  const environment = { PATH: path.dirname(process.execPath), HOME: root };
+  assert.deepEqual((await earlyTestChecks(root, [command], { environment })).filter((entry) => entry.command === 'composer install').map((entry) => entry.id), ['dependencies-not-installed']);
+  assert.match((await describeTestCommand(root, command, { provenance: 'inferred' })).title, /PHPUnit/u);
   // What narrows it reads as anywhere else.
   assert.deepEqual(commandFilters(['vendor/bin/phpunit', '--filter', 'one', '--log-junit', 'r.xml']).map((entry) => [entry.option, entry.value]), [['--filter', 'one']]);
   const plain = await makeRepository(t, { 'composer.json': JSON.stringify({ require: { php: '^8' } }), 'src/App.php': '' });
@@ -152,4 +166,99 @@ test('the JUnit a runner with no installed tool writes, as its documentation sho
     const parsed = await parseTestResult(root, { id: runner, kind: 'test', argv: [runner], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'junit-xml', path: 'r.xml', minimumDiscovered: 1 } }, { startedAt: '2000-01-01T00:00:00.000Z' });
     assert.deepEqual([parsed.tests.discovered, parsed.tests.passed, parsed.tests.failed], [2, 1, 1], runner);
   }
+});
+
+// A stand-in for a runner not installed here: it writes the JUnit report its documented flag names.
+const STAND_IN = (flag) => `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const given = process.argv.find((word) => word.startsWith('${flag}='));
+const report = given ? given.split('=')[1] : process.argv[process.argv.indexOf('${flag}') + 1];
+fs.mkdirSync(path.dirname(report), { recursive: true });
+fs.writeFileSync(report, '<testsuites><testsuite name="s" tests="1" failures="0" errors="0"><testcase classname="s" name="value"/></testsuite></testsuites>');
+`;
+
+/** A quick-fix Story of the given files, walked through its code step's publication and submission. */
+async function storyThroughGates(t, { files, source, testFile, sourceText, testText, executable = [], pathFolder = null }) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-runner-story-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'repo');
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Runner Tester', SINGULARITY_FLOW_AGENT_OUTPUT: 'full',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
+    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Runner Tester', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'runner.tester@example.invalid' };
+  delete env.NODE_TEST_CONTEXT;
+  if (pathFolder) env.PATH = `${pathFolder}${path.delimiter}${env.PATH}`;
+  const must = (command, args, cwd = root) => {
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(240_000) });
+    assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const sflow = (...args) => must(process.execPath, [cli, '--no-model', ...args]);
+  must('git', ['init', '-q', '-b', 'main', root], base);
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), text);
+  }
+  for (const relative of executable) await chmod(path.join(root, relative), 0o755);
+  sflow('init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  await writeFile(configPath, YAML.stringify(config));
+  must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'A repository of this runner']);
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);
+  must('git', ['remote', 'add', 'origin', path.join(base, 'remote.git')]); must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), ['# QF-1 — Quick fix scope and plan', '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [QF-1:AC-001] | The exported value equals 2. |', '', '## Planned implementation evidence', '',
+    '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|', `| \`QF-1:AC-001\` | \`${source}\` | \`${testFile}\` | modified | The test reads 2. |`, '',
+    '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
+  sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  sflow('submit', 'intake');
+  sflow('approve', 'intake', '--yes');
+  sflow('resume', 'QF-1');
+  sflow('phase', 'begin', 'implement', '--json');
+  await writeFile(path.join(root, source), sourceText);
+  await writeFile(path.join(root, testFile), testText);
+  sflow('prepare', 'implement');
+  sflow('phase', 'publish', 'implement');
+  sflow('submit', 'implement');
+  return JSON.parse(await readFile(path.join(root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
+}
+
+test('a Story runs through its gates under the PHPUnit, Deno and Bun rows, with a stand-in for each tool: pinned, reported and counted', slowLane({ timeout: 900_000 }), async (t) => {
+  const installedAt = await mkdtemp(path.join(os.tmpdir(), 'sflow-runner-bin-'));
+  t.after(() => rm(installedAt, { recursive: true, force: true }));
+  for (const [name, flag] of [['deno', '--junit-path'], ['bun', '--reporter-outfile']]) {
+    await writeFile(path.join(installedAt, name), STAND_IN(flag));
+    await chmod(path.join(installedAt, name), 0o755);
+  }
+  const ignored = { '.gitignore': 'vendor/\n.sflow/results/\n', '.gitattributes': '* text=auto eol=lf\n' };
+  const walked = (story, id, adapter) => {
+    const pin = story.testCommandPins.find((entry) => entry.commandId === id);
+    assert.ok(pin, JSON.stringify(story.testCommandPins?.map((entry) => entry.commandId)));
+    assert.equal(pin.adapter, adapter);
+    return pin;
+  };
+  const php = await storyThroughGates(t, { executable: ['vendor/bin/phpunit'],
+    files: { ...ignored, 'composer.json': JSON.stringify({ 'require-dev': { 'phpunit/phpunit': '^11' } }), 'phpunit.xml': '<phpunit/>', 'src/Value.php': '<?php\nfunction value() { return 1; }\n', 'tests/ValueTest.php': '<?php\n// a test\n', 'vendor/bin/phpunit': STAND_IN('--log-junit') },
+    source: 'src/Value.php', testFile: 'tests/ValueTest.php',
+    sourceText: '<?php\n// @clause:QF-1:AC-001 the exported value is the approved 2\nfunction value() { return 2; }\n', testText: '<?php\n// @ac:QF-1:AC-001\n// a test that reads 2\n' });
+  const phpPin = walked(php, '.-php-tests', 'junit-xml');
+  assert.deepEqual(phpPin.definition.map((entry) => entry.path), ['phpunit.xml'], 'the binary is a dependency, and only the configuration is bound');
+  const deno = await storyThroughGates(t, { pathFolder: installedAt,
+    // Deno's other name, value_test.ts, is a test to Deno and product source to SFlow's path boundary outside a test folder.
+    files: { ...ignored, 'deno.json': '{ "tasks": { "test": "deno test --allow-read" } }', 'src/value.ts': 'export const value = 1;\n', 'src/value.test.ts': '// a test\n' },
+    source: 'src/value.ts', testFile: 'src/value.test.ts',
+    sourceText: '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n', testText: '// @ac:QF-1:AC-001\nDeno.test("value", () => {});\n' });
+  assert.deepEqual(walked(deno, '.-deno-tests', 'junit-xml').argv, ['deno', 'task', 'test', '--junit-path=.sflow/results/deno-tests.xml']);
+  const bun = await storyThroughGates(t, { pathFolder: installedAt,
+    files: { ...ignored, 'package.json': JSON.stringify({ private: true, name: 'x', scripts: { test: 'bun test' } }), 'bun.lock': '', 'src/value.ts': 'export const value = 1;\n', 'src/value.test.ts': '// a test\n' },
+    source: 'src/value.ts', testFile: 'src/value.test.ts',
+    sourceText: '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n', testText: '// @ac:QF-1:AC-001\nimport { test } from "bun:test";\ntest("value", () => {});\n' });
+  assert.deepEqual(walked(bun, '.-node-tests', 'junit-xml').argv, ['bun', 'run', 'test', '--', '--reporter=junit', '--reporter-outfile=.sflow/results/node-tests.xml']);
 });

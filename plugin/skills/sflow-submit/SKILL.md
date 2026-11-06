@@ -26,7 +26,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command; ask the person for each `decisionInputs` value, never fill one. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs: automation only; preserve the manual/owner route. Never loop quality commands or waive gates. Recovery never replaces terminal decisions.
 8. Use `submitIfReady.result`, else `singularity-flow phase show <phase> --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief's identity, generation/hash and verified Markdown-preview link; never reproduce document bodies, code or diffs. Tool output or summaries are not review.
-9. Offer the approval route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
-10. Report commit/push/hashes/checks/cost; offer `/sf-approve <PHASE-ID> --work-id <WORK-ID>` with real IDs; never approve.
+9. Offer the next route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
+10. Report commit/push/hashes/checks/cost; offer `submitIfReady.next`'s routes, else `/sf-approve <PHASE-ID> --work-id <WORK-ID>` with real IDs; never approve.
 
 TRP: `singularity-flow explain test-recovery`.

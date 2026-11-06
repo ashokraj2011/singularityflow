@@ -1121,7 +1121,8 @@ test('submit skill links generated documents without treating a summary as appro
   assert.match(content, /Work-ID-pinned submit command/);
   assert.match(content, /list each artifact\/brief's identity, generation\/hash and verified Markdown-preview link/);
   assert.match(content, /singularity-flow phase show <phase>/);
-  assert.match(content, /Offer the approval route, not an approval decision/);
+  assert.match(content, /Offer the next route, not an approval decision/);
+  assert.match(content, /offer `submitIfReady\.next`'s routes, else `\/sf-approve/);
   assert.match(content, /Never infer review from a summary, opening a preview or successful submission/);
 });
 

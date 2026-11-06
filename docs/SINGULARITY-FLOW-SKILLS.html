@@ -2813,7 +2813,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2198 body tokens</span>
+          <span class="pill">~2226 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-decide</code></dd></div>
@@ -2859,7 +2859,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 11. Lead with `data.headline`; show each item&#39;s `title` and `why`. Not yours (`decidedBy.allowed` false): say `decidedBy.words`, give `decidedBy.share`, skip it.
 12. Use the native review at 1 for `action.humanReview`; `chat.command` options at 9; otherwise `ask_user` per other item: option `label`s (recommended first) plus Not now, then each `needs` value with its `default`. `action` is theirs to do: give `action.command`; never record it.
 13. Preview: `singularity-flow decisions &lt;WORK-ID&gt; --choose &lt;ID&gt;=&lt;OPTION&gt;... --for-agent --json`, adding `--reason|--expires|--cause &lt;ID&gt;=&lt;VALUE&gt;` only for changed values; show `data.preview.summary` and `refused` `words`/`share`.
-14. `data.preview.withApproval.recordInChat`: after an explicit yes, do /sf-approve 1-6 now with `withApproval.flags` on its approve command (one commit). Else `data.preview.record.recordInChat`: after an explicit yes run `data.preview.record.command` once, exactly; report IDs and remaining items; if `data.remaining` is only `approval`, do /sf-approve 1-6 now. Otherwise give the person `withApproval.command` or that command for their own terminal (reused runs and test-run risks are theirs to record). Never edit a digest; `DECISIONS_PACKET_CHANGED`: show the fresh list, restart at 11.
+14. `data.preview.withApproval.recordInChat`: after an explicit yes, do /sf-approve 1-6 now with `withApproval.flags` on its approve command (one commit). Else `data.preview.record.recordInChat`: after an explicit yes run `data.preview.record.command` once, exactly; report IDs and remaining items; if `data.remaining` is only `approval`, do /sf-approve 1-6 now. Else `data.preview.record.chatSteps`: run each `command` once, exactly, one at a time, then read the list again. Otherwise give the person `withApproval.command` or that command for their own terminal (reused runs and test-run risks are theirs to record). Never edit a digest; `DECISIONS_PACKET_CHANGED`: show the fresh list, restart at 11.
 </code></pre>
       </div>
     </details>

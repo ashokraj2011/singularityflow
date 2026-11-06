@@ -416,6 +416,9 @@ test('an agent reading the list asks the person; a preview that needs the person
   const chat = agentAct({ data: { ...packet, preview: { record: { command: 'singularity-flow decisions record BIN-501', recordInChat: true } } } });
   assert.equal(chat.state, 'confirm');
   assert.equal(chat.do, null, 'the agent asks for an explicit yes before it records');
+  const answered = agentAct({ data: { ...packet, preview: { record: { command: 'singularity-flow decisions record BIN-501', recordInChat: false, chatSteps: [{ item: 'd1', command: 'singularity-flow decision plan BIN-501 --fetch --reason x' }] } } } });
+  assert.equal(answered.state, 'record-answers', 'what the turn may run itself is not sent to a terminal');
+  assert.match(answered.said, /chatSteps\[\]\.command once, one at a time/u);
 });
 
 // [decision list parity]: what the approval refusal asks a person to decide about evidence is on the list.

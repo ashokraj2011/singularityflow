@@ -401,6 +401,8 @@ export function agentAct(result) {
     if (record) return record.recordInChat
       ? { state: 'confirm', do: null, read: [`${at}preview`],
         said: `Show ${at}preview.summary and ask the person for an explicit yes in this chat. In a /sf-decide turn run ${at}preview.record.command once; otherwise give it to them for their own terminal. Never change its digest.` }
+      : record.chatSteps?.length ? { state: 'record-answers', do: null, read: [`${at}preview`],
+        said: `Show ${at}preview.summary. In a /sf-decide turn run each ${at}preview.record.chatSteps[].command once, one at a time, exactly as written: each carries what the person already answered, so ask nothing more. Then read the list again for anything left. Anywhere else give them ${at}preview.record.command for their own terminal.` }
       : { state: 'confirm-in-terminal', do: null, read: [`${at}preview`],
         said: `Show ${at}preview.summary. The person records it by running ${at}preview.record.command in their own terminal; never run it or change its digest.` };
     // Nothing on the list can be taken yet: say why, and go on with the Story, which is what makes it possible.

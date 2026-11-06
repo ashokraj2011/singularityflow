@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { approvalHold } from '../src/approval-check.mjs';
-import { decisionPacket, decisionRecordPlan, effectWords, parseDecisionAnswers, pendingSummary, planBatches, runDecisionPlan } from '../src/decision-list.mjs';
+import { decisionChatSteps, decisionPacket, decisionRecordPlan, effectWords, parseDecisionAnswers, pendingSummary, planBatches, runDecisionPlan } from '../src/decision-list.mjs';
 import { testSetupFiles } from '../src/test-support-files.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 
@@ -157,4 +157,19 @@ test('one amendment never holds more than its format allows', () => {
   const choose = Object.fromEntries(paths.map((_, index) => [`d${index + 1}`, 'row-w-1-req-001']));
   const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose, reason: Object.fromEntries(paths.map((_, index) => [`d${index + 1}`, reason])) }), { at: AT });
   assert.deepEqual(planBatches(plan).map((batch) => batch.length), [50, 1]);
+});
+
+test('a person who answered in chat is not sent to a terminal: each choice with a chat command runs it, with their words in it', () => {
+  const packet = listFor(refusal(['src/helper.mjs', 'package.json']));
+  const [source, build] = packet.items.filter((item) => item.kind === 'plan-accounting');
+  const said = "It's the $(helper) the clause reads";
+  const { steps } = decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${source.id}=row-w-1-req-001`, `${build.id}=supporting`], reason: [`${source.id}=${said}`, `${build.id}=Build configuration this change needs`] }), { at: AT });
+  assert.deepEqual(decisionChatSteps(packet, steps), [
+    { item: source.id, command: `singularity-flow decision plan W-1 --fetch --add-location W-1:REQ-001=src/helper.mjs --reason 'It'"'"'s the $(helper) the clause reads'` },
+    { item: build.id, command: decisionChatSteps(packet, steps)[1].command }]);
+  const supporting = decisionChatSteps(packet, steps)[1].command;
+  assert.doesNotMatch(supporting, /<REASON>/u, 'every blank of it is filled');
+  assert.match(supporting, /--add-supporting package\.json=build-configuration --supporting-reason 'Build configuration this change needs'/u);
+  assert.deepEqual(decisionChatSteps(packet, [{ item: source.id, option: 'row-w-1-req-001', values: {} }]), [], 'one still short of an answer is not offered');
+  assert.deepEqual(decisionChatSteps(packet, [{ item: 'd9', option: 'none', values: { reason: 'x' } }]), [], 'nor one with no chat command');
 });

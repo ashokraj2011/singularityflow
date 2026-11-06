@@ -790,10 +790,9 @@ function holdItem(workflow, context, kind, hold) {
  */
 function planPathItems(workflow, context, hold) {
   const workId = workflow.workItem.id;
-  const quoted = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
   const need = { reason: textNeed('', PLAN_REASON) };
   const setup = testSetupFiles(hold.unclaimedPaths);
-  return [...(setup.length ? [testSetupItem(workflow, context, hold, setup, { quoted, need })] : []), ...hold.unclaimedPaths.filter((file) => !setup.includes(file)).map((file) => {
+  return [...(setup.length ? [testSetupItem(workflow, context, hold, setup, { need })] : []), ...hold.unclaimedPaths.filter((file) => !setup.includes(file)).map((file) => {
     const rows = (hold.planRows ?? []).filter((row) => !row.testOnly || isTestAutomationPath(file));
     const supporting = classifySupportingChange(file).class ?? null;
     const flag = (entry) => `singularity-flow decision plan ${workId} --fetch ${entry} --reason "<REASON>"`;
@@ -806,12 +805,12 @@ function planPathItems(workflow, context, hold) {
           label: `Add to ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}`,
           words: `${file} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery.`,
           effects: [{ kind: 'plan-amendment', change: { kind: 'add-location', clauseId: row.clauseId, path: file } }], needs: need }),
-        chat: { command: flag(`--add-location ${quoted(`${row.clauseId}=${file}`)}`) } })),
+        chat: { command: flag(`--add-location ${shellQuoted(`${row.clauseId}=${file}`)}`) } })),
         ...(supporting ? [{ ...option(workflow, context, {
           id: 'supporting', label: `List it as a supporting change (${supporting})`,
           words: 'It stays out of every requirement, listed with your reason.',
           effects: [{ kind: 'plan-amendment', change: { kind: 'add-supporting', path: file, class: supporting } }], needs: { reason: textNeed('', SUPPORTING_REASON) } }),
-        chat: { command: flag(`--add-supporting ${quoted(`${file}=${supporting}`)} --supporting-reason "<REASON>"`) } }] : [])
+        chat: { command: flag(`--add-supporting ${shellQuoted(`${file}=${supporting}`)} --supporting-reason "<REASON>"`) } }] : [])
       ],
       details: { path: file, commands: [`singularity-flow decision plan ${workId} --fetch --add-location <clause>=${file} --reason "<why>"`] }
     };
@@ -823,14 +822,14 @@ function planPathItems(workflow, context, hold) {
  * What can be a supporting change is listed as one; a file that cannot, such as a setup file under a test folder,
  * goes to the row a person picks, as it would alone. One amendment records every file by name.
  */
-function testSetupItem(workflow, context, hold, files, { quoted, need }) {
+function testSetupItem(workflow, context, hold, files, { need }) {
   const workId = workflow.workItem.id;
   const classes = new Map(files.map((file) => [file, classifySupportingChange(file).class ?? null]));
   const supporting = files.filter((file) => classes.get(file));
   const located = files.filter((file) => !classes.get(file));
   const line = (changes) => {
-    const flags = changes.map((change) => (change.kind === 'add-location' ? `--add-location ${quoted(`${change.clauseId}=${change.path}`)}`
-      : `--add-supporting ${quoted(`${change.path}=${change.class}`)} --supporting-reason "<REASON>"`));
+    const flags = changes.map((change) => (change.kind === 'add-location' ? `--add-location ${shellQuoted(`${change.clauseId}=${change.path}`)}`
+      : `--add-supporting ${shellQuoted(`${change.path}=${change.class}`)} --supporting-reason "<REASON>"`));
     return `singularity-flow decision plan ${workId} --fetch ${flags.join(' ')} --reason "<REASON>"`;
   };
   const listed = supporting.map((file) => ({ kind: 'add-supporting', path: file, class: classes.get(file) }));
@@ -934,17 +933,33 @@ export function decisionRecordCommand(workId, { phaseId = null, choices = [], di
     ...choiceFlags(choices, values), `--confirm ${digest}`].join(' ');
 }
 
+/**
+ * What a /sf-decide turn runs for choices with a chat command of their own: each command, with the person's
+ * words in it. A preview offered only `decisions record`, which no turn may run for them, so someone who had
+ * just answered everything in chat was sent to a terminal (paid run, 2026-11-07). One still short of an answer is left out.
+ */
+export function decisionChatSteps(packet, steps) {
+  const items = [...packet.items, ...(packet.offered ?? [])];
+  return steps.flatMap((step) => {
+    const template = items.find((item) => item.id === step.item)?.options.find((option) => option.id === step.option)?.chat?.command;
+    const { reason = '', clause = [] } = step.values ?? {};
+    const command = template?.replaceAll('"<REASON>"', () => (reason ? shellQuoted(reason) : '<REASON>')).replaceAll('<CLAUSES>', () => clause.join(',') || '<CLAUSES>');
+    return command && !/<[A-Z][A-Z-]*>/u.test(command) ? [{ item: step.item, command }] : [];
+  });
+}
+
 /** The same choices recorded with the step's approval, in its one commit [SPEC-OAP M4]: the flags approve adds. */
 export function decisionApprovalFlags({ choices = [], digest, values = {} } = {}) {
   return [...choiceFlags(choices, values), `--decisions ${digest}`].join(' ');
 }
 
+// POSIX single quotes, as canonicalDisplayToken in safe-command-guidance.mjs: a JSON double-quoted
+// reason would still expand `$()`, `$NAME` and backticks when the person pastes the command.
+const shellQuoted = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
+
 function choiceFlags(choices, values) {
-  // POSIX single quotes, as canonicalDisplayToken in safe-command-guidance.mjs: a JSON double-quoted
-  // reason would still expand `$()`, `$NAME` and backticks when the person pastes the command.
-  const quote = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
   const extra = Object.entries(values).flatMap(([flag, entries]) => Object.entries(entries ?? {})
-    .map(([item, value]) => `--${flag} ${quote(`${item}=${value}`)}`));
+    .map(([item, value]) => `--${flag} ${shellQuoted(`${item}=${value}`)}`));
   return [...choices.map(([item, chosen]) => `--choose ${item}=${chosen}`), ...extra];
 }
 

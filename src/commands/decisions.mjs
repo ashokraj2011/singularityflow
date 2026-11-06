@@ -100,7 +100,7 @@ function changedValues(packet, plan) {
 }
 
 async function previewOf(workflow, packet, plan) {
-  const [{ decisionApprovalFlags, decisionRecordCommand, effectWords, ISSUE_ONLY_OPTIONS }, { recordableInApproval }] = await Promise.all([
+  const [{ decisionApprovalFlags, decisionChatSteps, decisionRecordCommand, effectWords, ISSUE_ONLY_OPTIONS }, { recordableInApproval }] = await Promise.all([
     import('../decision-list.mjs'), import('../approval-decisions.mjs')]);
   const summary = plan.steps.map((step) => `${step.item}. ${listedItem(packet, step.item).title}: ${step.label}. `
     + `Records: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}.`);
@@ -117,11 +117,13 @@ async function previewOf(workflow, packet, plan) {
     return item.holdsApproval && recordableInApproval(item.options.find((option) => option.id === step.option));
   }) ? { phase: packet.phase, flags: decisionApprovalFlags(chosen), recordInChat: recordInChat && plan.steps.every((step) => step.option !== 'return'),
     command: `singularity-flow approve ${packet.phase} --work-id ${packet.workId} --fetch ${decisionApprovalFlags(chosen)}` } : null;
+  const chatSteps = decisionChatSteps(packet, plan.steps);
   return {
     steps: plan.steps, refused: plan.refused, summary,
     record: command ? {
       command,
       recordInChat,
+      ...(chatSteps.length ? { chatSteps } : {}),
       // A choice no /sf-decide turn may record has no Copilot route: that turn would only preview it again.
       copilotCommand: recordInChat ? `/sf-decide ${packet.workId}` : null,
       terminal: 'Run it in your own terminal to record these decisions; nothing is recorded until then.'

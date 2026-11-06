@@ -218,8 +218,8 @@ async function phaseReadiness(root, config, workflow, {
   if (phase?.status === 'awaiting_approval'
       && completionPhaseOf(workflow)?.id === phase.id) {
     try {
-      const { evaluateTerminalReadiness } = await import('./evidence/terminal.mjs');
-      const terminal = await evaluateTerminalReadiness(root, config, workflow);
+      const { terminalReadinessOnce } = await import('./evidence/terminal.mjs');
+      const terminal = await terminalReadinessOnce(root, config, workflow);
       if (terminal.blockers.length) {
         const command = terminal.recovery[0] ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`;
         return {

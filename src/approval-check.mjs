@@ -673,12 +673,19 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs',
   // The door's own refusals, before any stage runs; approvalAdvisories adds them to the preview.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 'this-checkout',
-  WORKTREE_HIDDEN_CHANGE: 'this-checkout'
+  WORKTREE_HIDDEN_CHANGE: 'this-checkout',
+  // SF Guard's own [presence/person-records.mjs]. The card asks only for this person's own terminal, so
+  // it holds nothing back: VS Code's Approve hands the refused command to that terminal, and so may a chat.
+  PSS_CARD_NOT_SHOWN: 'you-decide',
+  PSS_NOT_AN_APPROVER: 'someone-decides',
+  PSS_POLICY_UNREADABLE: 'this-checkout',
+  PSS_KEY_NOT_REGISTERED: 'this-checkout',
+  PSS_SIGNER_UNAVAILABLE: 'this-checkout'
 });
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);
 const CANNOT_SAY = 'Singularity Flow cannot say who clears this';
 /** Every kind of party a hold can be cleared by; `clearedBy.kind` is always one of them. */
-export const HOLD_PARTY_KINDS = Object.freeze(['approvers', 'anyone', 'listed', 'author', 'sflow', 'viewer-form', 'checkout', 'nobody']);
+export const HOLD_PARTY_KINDS = Object.freeze(['approvers', 'anyone', 'listed', 'author', 'sflow', 'viewer-form', 'viewer-terminal', 'checkout', 'nobody']);
 const SET_ASIDE_WORDS = 'A person looks at these changes and sets them aside with the set-aside-worktree route recovery returns (a private copy is kept), or moves them out of the checkout. Nothing needs rejecting.';
 const MAX_HOLD_MESSAGE = 4000;
 // Who an owner class names when the refusal says no more than that.
@@ -763,7 +770,7 @@ function refusalParty(error, workflow, phase) {
   }
   if (code === 'PHASE_APPEAL_REVIEW_REQUIRED') return { plan: true };
   // An application review is taken by its step's approvers [application-review.mjs reviewAuthority].
-  if (code.startsWith('ARA_')) return { steps: [phase.id] };
+  if (code.startsWith('ARA_') || code === 'PSS_NOT_AN_APPROVER') return { steps: [phase.id] };
   return null;
 }
 
@@ -777,6 +784,7 @@ function holdClearedBy(error, owner, workflow, phase, route) {
   if (LISTED_HOLDS.includes(error.code)) return { kind: 'listed' };
   // Whoever is on the Story acknowledges an approved amendment; the list says the same of it.
   if (error.code === 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED') return { kind: 'anyone' };
+  if (String(error.code).startsWith('PSS_') && owner !== 'someone-decides') return { kind: 'viewer-terminal' };
   const party = refusalParty(error, workflow, phase);
   if (party?.plan) return { kind: 'approvers', ...party };
   return owner === 'someone-decides' && party ? { kind: 'approvers', ...party } : { kind: OWNER_PARTY[owner] };
@@ -795,7 +803,7 @@ export function partyWords(party, workflow) {
     return `${party.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
   }
   return ({ anyone: 'Anyone on this Story may do this', listed: 'The decision list names who decides each', author: 'The author revises it',
-    sflow: 'Singularity Flow finishes it', 'viewer-form': 'You decide', checkout: 'Whoever works in this checkout clears it' })[party.kind] ?? CANNOT_SAY;
+    sflow: 'Singularity Flow finishes it', 'viewer-form': 'You decide', 'viewer-terminal': 'You take this step in your own terminal', checkout: 'Whoever works in this checkout clears it' })[party.kind] ?? CANNOT_SAY;
 }
 
 /**
@@ -887,6 +895,46 @@ async function worktreeRefusals(root, config, workflow) {
   }
 }
 
+// Where a refusal of SF Guard's door sends the person; its own words already name the others' routes.
+const PRESENCE_ROUTES = Object.freeze({
+  PSS_POLICY_UNREADABLE: { command: 'singularity-flow sync', label: 'Bring the configuration up to date; another approver can also decide.' },
+  PSS_KEY_NOT_REGISTERED: { command: 'singularity-flow guard register', label: 'Register your presence key in your own terminal; another approver can also decide.' },
+  PSS_SIGNER_UNAVAILABLE: { command: 'singularity-flow guard status', label: 'See what this computer can sign; run the step on the Mac that holds your key, or another approver can decide.' }
+});
+
+/**
+ * What SF Guard's door refuses before any stage runs, on a Story that requires it: the same function
+ * approve calls, which writes nothing before its signature. An identity the gate already refuses is
+ * not refused twice. Empty where SF Guard does not apply.
+ */
+async function presenceRefusals(root, workflow, phase, actor, gateHolds, dependencies) {
+  if (!workflow.resolution?.presence || !actor) return [];
+  try {
+    await (await import('./presence/person-records.mjs')).preparePersonPresence(root, { workflow, phase, actor, action: 'phase.approve' }, dependencies);
+    return [];
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) return [];
+    if (error.code === 'PSS_NOT_AN_APPROVER' && gateHolds.some((hold) => hold.code === 'APPROVAL_IDENTITY_NOT_AUTHORIZED')) return [];
+    return [PRESENCE_ROUTES[error.code] ? new SingularityFlowError(error.message, { code: error.code, details: { ...error.details, nextAction: PRESENCE_ROUTES[error.code] } }) : error];
+  }
+}
+
+/**
+ * What the Story's ending would refuse, after the gate, when this approval ends it: the evaluation
+ * approve runs as it moves the Story on, read before anything is recorded (once per command:
+ * terminalReadinessOnce). An approval that does not reach the step's minimum ends nothing yet.
+ */
+async function endingRefusals(root, workflow, phase, checked, readEnding) {
+  const { completionPhaseOf } = await import('./lifecycle-transitions.mjs');
+  if (completionPhaseOf(workflow)?.id !== phase.id || (checked.decision && !checked.reached)) return [];
+  try {
+    const { terminalReadinessOnce, terminalRefusalMessage } = await import('./evidence/terminal.mjs');
+    const ending = await (readEnding ?? terminalReadinessOnce)(root, checked.config, workflow);
+    return ending.blockers.length ? [new SingularityFlowError(terminalRefusalMessage(workflow.workItem.id, ending), { code: 'STORY_COMPLETION_REFUSED',
+      details: { blockers: ending.blockers.slice(0, 20), recoveryCommands: ending.recovery, ...(ending.decisions?.nextAction ? { nextAction: ending.decisions.nextAction } : {}) } })] : [];
+  } catch (error) { return error instanceof SingularityFlowError ? [error] : []; }
+}
+
 /**
  * A read-only agent selected in this checkout holds nothing back when the step's own author is not:
  * approve selects that author before the gate runs (decisionWorkflow), so the gate never sees it.
@@ -898,21 +946,25 @@ function doorSelectsAnotherAgent(error, config, workflow, phase) {
 
 /**
  * Whether approving the current step would pass, before anyone reviews it: the door's own check of
- * this checkout, then the gate itself, run as a preview (evaluateApproval) for the person looking
- * [SPEC-OAP M1]. `approvalCheck` lists every hold with who clears it, in the order approving would
- * meet them, and notes each rejected amendment decided since the submission; `blockingCommits` names
- * the commits after the submission that approval would refuse for. Advisory: it refuses nothing, and
- * recording runs the same checks again. Null when the step does not await approval or the check could
- * not run here.
+ * this checkout and SF Guard's readiness, then the gate itself, run as a preview (evaluateApproval)
+ * for the person looking [SPEC-OAP M1], then the Story's ending if this approval ends it. `approvalCheck`
+ * lists every hold with who clears it, in the order approving would meet them, and notes each rejected
+ * amendment decided since the submission; `blockingCommits` names the commits after the submission
+ * that approval would refuse for. Advisory: it refuses nothing, and recording runs the same checks
+ * again. Null when the step does not await approval or the check could not run here. `presence`
+ * replaces SF Guard's signer and its readers, and `readEnding` the final evaluation (tests only).
  */
-export async function approvalAdvisories(root, config, workflow, phase) {
+export async function approvalAdvisories(root, config, workflow, phase, { presence: presenceDependencies = {}, readEnding = null } = {}) {
   if (!config || phase?.status !== 'awaiting_approval' || phase.id !== workflow?.currentPhase) return null;
   try {
     const { evaluateApproval } = await import('./state.mjs');
     const checked = await evaluateApproval(root, config, structuredClone(workflow), { phaseId: phase.id, preview: true });
-    const refusals = [...await worktreeRefusals(root, config, workflow), ...checked.holds.filter((error) => !doorSelectsAnotherAgent(error, checked.config, workflow, phase))];
+    const gateHolds = checked.holds.filter((error) => !doorSelectsAnotherAgent(error, checked.config, workflow, phase));
+    const refusals = [...await worktreeRefusals(root, config, workflow), ...await presenceRefusals(root, workflow, phase, checked.session?.actor, gateHolds, presenceDependencies),
+      ...gateHolds, ...await endingRefusals(root, workflow, phase, checked, readEnding)];
     const holds = refusals.map((error) => approvalHold(error, workflow, phase));
     const blocking = holds.filter((hold) => hold.owner !== 'you-decide');
+    const answers = holds.filter((hold) => hold.clearedBy.kind === 'viewer-form');
     const intervening = checked.holds.find((error) => error.code === 'STORY_REVIEW_INTERVENING_COMMIT');
     // A first hold whose route has a skill of its own is where a chat goes next (approvalHoldContinuation).
     const direct = blocking[0]?.action?.skill ? blocking[0].action : null;
@@ -920,7 +972,8 @@ export async function approvalAdvisories(root, config, workflow, phase) {
       advisory: true,
       ready: !blocking.length,
       statement: !holds.length ? `Approving ${phase.id} would pass every check.`
-        : !blocking.length ? `Approving ${phase.id} needs your own answers first: ${holds.length === 1 ? 'one' : holds.length} in the approval itself.`
+        : !blocking.length && !answers.length ? `Approving ${phase.id} takes your signature, in your own terminal.`
+        : !blocking.length ? `Approving ${phase.id} needs your own answers first: ${answers.length === 1 ? 'one' : answers.length} in the approval itself.`
           : `Approving ${phase.id} now would be refused until ${blocking.length === 1 ? 'one hold is' : `${blocking.length} holds are`} cleared.`,
       holds,
       ...(direct ? { directRoute: { command: direct.command, skill: direct.skill, copilotCommand: `${direct.skill} ${workflow.workItem.id}`, ...(direct.label ? { label: direct.label } : {}) } } : {}),

@@ -8,6 +8,7 @@
  * matches the evidence, can label the Story Complete.
  */
 import { runGovernanceGate } from '../governance.mjs';
+import { recordSha256 } from '../records.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { evaluateEvidence, testOnlyCorrection } from './evaluate.mjs';
 import { WITNESS_CHECKLIST } from '../verification/witness-records.mjs';
@@ -303,6 +304,20 @@ export function terminalRefusalMessage(workId, { blockers, recovery, decisions =
     'Nothing was recorded; the Story stays where it was.',
     ...(recovery.length ? ['Recover:', ...recovery.map((command) => `  ${command}`)] : [])
   ].join('\n');
+}
+
+const readinessOnce = new WeakMap();
+/**
+ * evaluateTerminalReadiness for one read of the Story: the slowest read on these paths, which the
+ * approval check, readiness and the list each ask for at its last step. A changed workflow reads again.
+ */
+export function terminalReadinessOnce(root, definition, workflow, { stage = 'approval' } = {}) {
+  const key = `${stage}:${recordSha256(workflow)}`;
+  const known = readinessOnce.get(workflow);
+  if (known?.key === key) return known.result;
+  const result = evaluateTerminalReadiness(root, definition, workflow, { stage });
+  readinessOnce.set(workflow, { key, result });
+  return result;
 }
 
 /**

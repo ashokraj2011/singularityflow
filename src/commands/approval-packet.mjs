@@ -31,6 +31,14 @@ export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runSt
     return { resultType: 'sflow-approval-packet', begun: false,
       reason: readiness.classification, approvalPacket: { readiness, review: null } };
   }
+  // SF Guard takes this signature in the person's own terminal, so no chat can record it: it says so
+  // here, with their exact command, not after the review they would read again there.
+  const ownTerminal = (readiness?.approvalCheck?.holds ?? []).find((hold) => hold.owner === 'you-decide' && hold.clearedBy?.kind === 'viewer-terminal');
+  if (ownTerminal && readiness.approvalCheck.ready !== false && ownTerminal.action?.command) {
+    return { resultType: 'sflow-approval-packet', begun: false, reason: 'approval-holds',
+      nextAction: { command: ownTerminal.action.command, label: ownTerminal.action.label, reason: ownTerminal.summary, skill: null, copilotCommand: null },
+      approvalPacket: { readiness, review: null } };
+  }
   if (readiness?.approvalCheck?.ready === false && readiness.approvalCheck.holds?.length) {
     return { resultType: 'sflow-approval-packet', begun: false, reason: 'approval-holds',
       nextAction: readiness.approvalContinuation ?? approvalHoldContinuation(workId, readiness.approvalCheck),

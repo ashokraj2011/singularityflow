@@ -57,8 +57,8 @@ function evidenceDecisionsApply(workflow, phase) {
  */
 export async function evidenceDecisionFacts(root, config, workflow, phase) {
   if (!evidenceDecisionsApply(workflow, phase)) return [];
-  const { evaluateTerminalReadiness, terminalEvidenceDecisions } = await import('./evidence/terminal.mjs');
-  const readiness = await evaluateTerminalReadiness(root, config, workflow, { stage: 'approval' });
+  const { terminalReadinessOnce, terminalEvidenceDecisions } = await import('./evidence/terminal.mjs');
+  const readiness = await terminalReadinessOnce(root, config, workflow, { stage: 'approval' });
   return terminalEvidenceDecisions(workflow.workItem.id, readiness.evaluation, workflow);
 }
 

@@ -740,7 +740,7 @@ function holdParty(hold, workflow, context) {
   if (clearedBy.plan || /^singularity-flow decision plan /u.test(hold.action?.command ?? '')) {
     return stepDecidedBy(workflow, context, planAuthorities(workflow), clearedBy.plan ? words : 'Choose the row it belongs to and give your reason, then run it.');
   }
-  if (clearedBy.kind === 'anyone') return anyone(`${hold.who}. ${words}`.trimEnd());
+  if (['anyone', 'viewer-terminal'].includes(clearedBy.kind)) return anyone(`${hold.who}. ${words}`.trimEnd());
   if (hold.owner === 'this-checkout') return anyone('These changes are in this checkout, so they are for whoever works in it, not for an approval group.');
   if (hold.owner === 'machine') return anyone(`${hold.who}. ${words}`.trimEnd());
   // The author revises it; returning it for changes is an approver's step, by the route it names.
@@ -841,7 +841,7 @@ function testSetupItem(workflow, context, hold, files, { quoted, need }) {
 }
 
 /** The step's approval itself: always the list's last item. */
-function approvalItem(workflow, context, phase, { heldBy, youDecide }) {
+function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal }) {
   const workId = workflow.workItem.id;
   const name = stepName(workflow, phase.id);
   const approvals = (phase.approvals ?? []).filter((entry) => !entry.invalidatedAt && entry.decision === 'approved').length;
@@ -849,7 +849,7 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide }) {
   const waiting = heldBy.length ? `It waits for ${listWords(heldBy)} first.` : 'Nothing above holds it.';
   return {
     kind: 'approval', title: `Approve ${name}`,
-    why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}`,
+    why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
     options: [{ ...personalStep({ id: 'approve', label: heldBy.length ? `Approve ${name} once ${listWords(heldBy)} ${heldBy.length === 1 ? 'is' : 'are'} done` : `Review and approve ${name}`,
       command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: 'You review it and confirm once in your own terminal, in VS Code or with /sf-approve.' }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You review it and confirm once.') }],
@@ -971,11 +971,14 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // This checkout's own changes come first, as the door refuses them first, as d0 and outside the
   // digest: setting them aside changes neither which item a number means nor what a person chose.
   const dirty = holds.find((hold) => hold.owner === 'this-checkout');
-  const extra = holds.filter((hold) => hold !== dirty && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
+  // The Story's ending names what is already on the list, so only an ending nothing lists is an item of its own.
+  const ending = holds.some((hold) => hold.code === 'STORY_COMPLETION_REFUSED');
+  const carriedByEnding = (hold) => hold.code === 'STORY_COMPLETION_REFUSED' && listed.some((item) => [...APPROVAL_HOLDING_KINDS, 'owed-decision'].includes(item.kind));
+  const extra = holds.filter((hold) => hold !== dirty && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)) && !carriedByEnding(hold))
     .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
       : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
-  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (awaiting && heldKinds.has(item.kind)
+  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && heldKinds.has(item.kind)
     && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const items = built.map((item, index) => {
@@ -987,7 +990,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const door = dirty ? holdItem(workflow, context, 'approval-hold', dirty) : null;
   if (awaiting) {
     const approval = approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
-      youDecide: holds.filter((hold) => hold.owner === 'you-decide').map((hold) => hold.summary) });
+      youDecide: holds.filter((hold) => hold.owner === 'you-decide' && hold.clearedBy?.kind !== 'viewer-terminal').map((hold) => hold.summary),
+      ownTerminal: holds.some((hold) => hold.clearedBy?.kind === 'viewer-terminal' && hold.owner === 'you-decide') });
     items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
   }
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));

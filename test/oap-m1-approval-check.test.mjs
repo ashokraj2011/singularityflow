@@ -151,7 +151,8 @@ test('every hold says who clears it: a kind, always, and words only from that ki
 
 test('only what the approval\'s own form asks counts as an answer in the approval: nothing else says ready', () => {
   const answered = Object.entries(APPROVAL_HOLD_OWNERS).filter(([, owner]) => owner === 'you-decide').map(([code]) => code).sort();
-  assert.deepEqual(answered, ['APPROVAL_CHECKLIST_INCOMPLETE', 'WEL_WITNESS_MAPPING_UNREVIEWED']);
+  // The third is where the same approval is taken, in the person's terminal, not one more thing to clear.
+  assert.deepEqual(answered, ['APPROVAL_CHECKLIST_INCOMPLETE', 'PSS_CARD_NOT_SHOWN', 'WEL_WITNESS_MAPPING_UNREVIEWED']);
   // Each of these is a step of its own, whatever the check once said: the gate refused after "ready".
   for (const code of ['ARA_REVIEW_REQUIRED', 'ARA_EVIDENCE_UNAVAILABLE', 'ARA_REVIEW_STALE', 'READ_ONLY_AGENT_CANNOT_MUTATE', 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE', 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED']) {
     assert.notEqual(approvalHoldOwner(new SingularityFlowError('refused', { code })), 'you-decide', code);

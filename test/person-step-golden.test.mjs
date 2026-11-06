@@ -19,6 +19,7 @@ import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
 
+import { slowLane } from './helpers/slow-lane.mjs';
 import { recordableInApproval } from '../src/approval-decisions.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS, OWN_TERMINAL_STEPS, ownTerminalStep, skillForCommandLine } from '../src/command-skills.mjs';
 import { captureMutationTurn, mutationPostToolGuard } from '../src/copilot-mutation-guard.mjs';
@@ -241,7 +242,26 @@ function unpacked({ turnGroups, ...record }) {
   return { ...record, inProgress: rows(record.inProgress), awaitingApproval: rows(record.awaitingApproval) };
 }
 
-test('every person\'s step, against every turn: who may run it and how it refuses have not moved', async (t) => {
+// The turns that differ most, for the default lane: a full run takes about a minute.
+const QUICK_TURNS = Object.freeze(['/sf-phase', '/sf-recover', '/sf-next', '/sf-decide PMC-1', '/sf-approve', '/sf-reject', '/sf-spec-author', '/sf-converge', '/sf-fix', '/sf-help', ...SPECIAL_TURNS]);
+
+test('the tables, and every person\'s step against the turns that differ most, have not moved', async (t) => {
+  const golden = unpacked(JSON.parse(readFileSync(GOLDEN, 'utf8')));
+  assert.deepEqual(tablesToday(), golden.tables, 'a table of person steps changed');
+  assert.ok(QUICK_TURNS.every((turn) => golden.turns.includes(turn)), 'a quick turn is no longer a turn');
+  for (const [field, status] of [['inProgress', 'in_progress'], ['awaitingApproval', 'awaiting_approval']]) {
+    const before = new Map(golden[field].map((row) => [row.command, row]));
+    const moved = [];
+    for (const row of await turnMatrix(t, status, QUICK_TURNS)) {
+      const was = before.get(row.command);
+      const outcomeIn = (entry, turn) => Object.entries(entry.other ?? {}).find(([, turns]) => turns.includes(turn))?.[0] ?? entry.usual;
+      for (const turn of QUICK_TURNS) if (!was || outcomeIn(row, turn) !== outcomeIn(was, turn)) moved.push(`${turn}: ${row.command}: now ${outcomeIn(row, turn)}, was ${was ? outcomeIn(was, turn) : 'not recorded'}`);
+    }
+    assert.deepEqual(moved, [], `${field}: a person's step changed who may run it or how it refuses`);
+  }
+});
+
+test('every person\'s step, against every turn: who may run it and how it refuses have not moved', slowLane({ timeout: 900_000 }), async (t) => {
   const { skills } = YAML.parse(readFileSync(new URL('../plugin/skills/registry.yml', import.meta.url), 'utf8'));
   const names = (Array.isArray(skills) ? skills : Object.keys(skills)).map((entry) => (typeof entry === 'string' ? entry : entry.id ?? entry.name)).map((name) => String(name).replace(/^sflow-/u, 'sf-'));
   const turns = [...new Set(names.map((name) => `/${name}`)), '/sf-decide PMC-1', ...SPECIAL_TURNS].sort();

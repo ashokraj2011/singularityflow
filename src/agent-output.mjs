@@ -33,6 +33,10 @@ import { parseArgs, writeAtomic } from './util.mjs';
 // which a session turn may not run. Measured over 9,519 recorded shell results (Copilot 1.0.92 to
 // 1.0.95, 2026-10-16): the largest inline was 8,191 characters, the smallest saved 8.0 KB. A 16 KB
 // view was therefore still saved. 7,500 bytes leaves room for the stderr lines in the same result.
+// A text's last newline ends its last line and starts no other. Counting one more, an agent asked
+// for a line that does not exist and the read was refused (real source reviews, 2026-11-06).
+const lineCount = (text) => text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+
 export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
 // An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
 // slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
@@ -473,7 +477,7 @@ async function externalize(value, directory, base, trail, written, reviewSources
     const name = trail.join('.') === 'context.text' ? resultBase('context-text', value) : `${base}.${trail.join('.').replace(/[^A-Za-z0-9_.-]/gu, '_').slice(0, 80)}`;
     const file = path.join(directory, `${name}.txt`);
     await writeAtomic(file, value, { mode: 0o600 });
-    const entry = { textFile: file, bytes: bytes(value), lines: value.split('\n').length, sha256: sha256(value) };
+    const entry = { textFile: file, bytes: bytes(value), lines: lineCount(value), sha256: sha256(value) };
     written.push({ field: trail.join('.'), ...entry });
     return entry;
   }
@@ -541,7 +545,7 @@ async function referenceTexts(full, ordered, omitted, kept, seen, { directory, b
     if (!entry) {
       const file = path.join(directory, `${base}.${candidate.trail.join('.').replace(/[^A-Za-z0-9_.-]/gu, '_').slice(0, 80)}.txt`);
       await writeAtomic(file, candidate.text, { mode: 0o600 });
-      entry = { textFile: file, bytes: bytes(candidate.text), lines: candidate.text.split('\n').length, sha256: sha256(candidate.text) };
+      entry = { textFile: file, bytes: bytes(candidate.text), lines: lineCount(candidate.text), sha256: sha256(candidate.text) };
       // Registered as an issued read path with the rest, so the agent may still open it.
       texts.push({ field: candidate.trail.join('.'), ...entry, reference: true });
     }
@@ -1065,7 +1069,7 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
     catch (error) { unkept = error; warnUnkept(error); }
   }
   // The bounded fallback: the start that fits, and what could not be kept. `[OUT:REQ-014]`
-  const total = text.split('\n').length;
+  const total = lineCount(text);
   const why = unkept ? 'The rest could not be written here; the command ran: never run it again to read the rest.'
     : 'No repository was found from here to keep the rest; run the command from the Story checkout to read all of it.';
   const footer = (shown) => `\n[Output not kept] Lines 1-${shown} of ${total} are above. ${why}\n`;

@@ -68,7 +68,7 @@ test('a result that cannot be written still shows the command ran, with what fit
 
   const plain = await captured(process.stderr, () => boundedAgentText('a line of output\n'.repeat(5000), { cwd: root }));
   assert.ok(Buffer.byteLength(plain.value) <= DEFAULT_AGENT_OUTPUT_BYTES);
-  assert.match(plain.value, /\[Output not kept\] Lines 1-\d+ of 5001 are above\. The rest could not be written here; the command ran/u);
+  assert.match(plain.value, /\[Output not kept\] Lines 1-\d+ of 5000 are above\. The rest could not be written here; the command ran/u);
 });
 
 test('the CLI prints a committed result, never a refusal, when its view cannot be written', async (t) => {

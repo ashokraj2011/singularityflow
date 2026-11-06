@@ -246,7 +246,7 @@ test('even short pinned review sources get exact line-readable files, not JSON l
   const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
   const sourceFile = full.sources[0].text;
   assert.equal(await readFile(sourceFile.textFile, 'utf8'), source, 'do not normalize or prefix pinned bytes');
-  assert.equal(sourceFile.lines, 5);
+  assert.equal(sourceFile.lines, 4, 'its last newline ends line 4 and starts no fifth');
   assert.ok(path.relative(await realpath(root), sourceFile.textFile).startsWith(path.join('.sflow', 'out', 'source-review-agent-context-')));
   assert.ok(view.omittedFields.find(entry => entry.field === 'sources').textFiles[0].path === sourceFile.textFile);
 });
@@ -665,7 +665,7 @@ test('the bound has no gaps: literal output, no repository, many omitted fields 
   assert.equal(JSON.parse(unkeptLiteral).agentOutput.state, 'detail-unavailable');
   const unkeptText = await boundedAgentText('a line of output\n'.repeat(5000), { cwd: outside });
   fits(unkeptText);
-  assert.match(unkeptText, /\[Output not kept\] Lines 1-\d+ of 5001 are above\. No repository was found from here/u);
+  assert.match(unkeptText, /\[Output not kept\] Lines 1-\d+ of 5000 are above\. No repository was found from here/u);
 
   // Many omitted fields: the view names a few, their count, and an index of every one.
   const wide = { resultType: 'wide', repositoryPath: root, ...Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`field${index}`, 'v'.repeat(400)])) };
@@ -909,4 +909,17 @@ test('the next step after publishing or submitting says when it starts in a new 
   const after = (copilotCommand) => nextAfterStep({ continuation: { nextAction: { reason: 'Go.' }, copilotCommand, nextCommand: 'singularity-flow status' } }, 'Done.').instruction;
   for (const route of ['/sf-review-source planning', '/sf-submit', '/sf-approve planning --work-id W']) assert.match(after(route), /Say to run it in a new chat/u, route);
   for (const route of ['/sf-code', '/sf-phase', '/sf-next', '/sf-outcome W', '/sf-review-decide planning']) assert.doesNotMatch(after(route), /new chat/u, route);
+});
+
+test('a saved text counts the lines it has, with or without a last newline', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-line-count-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const body = Array.from({ length: 200 }, (_, index) => `Line ${index + 1} of a long text the agent reads from its own saved file.`).join('\n');
+  for (const [text, lines] of [[`${body}\n`, 200], [body, 200], [`${body}\n\n`, 201]]) {
+    const view = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'custom', repositoryPath: root, body: text }), { cwd: root }));
+    const saved = view.omittedFields.flatMap((entry) => entry.textFiles ?? []).find((entry) => entry.field === 'body');
+    assert.equal(saved.lines, lines, JSON.stringify(saved));
+    if (saved.read) assert.equal(saved.read.at(-1)[1], lines, 'the plan and the count agree');
+  }
 });

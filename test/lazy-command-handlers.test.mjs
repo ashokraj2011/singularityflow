@@ -331,7 +331,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,492,350 (measured 9,492,324): a code step's handoff points to its early checks (test-execution-handoff.mjs +630). The checks stay lazy; no new eager file.
     // 9,492,700 (measured 9,492,668): a failed run names `tests base`, and a base run hashes its own worktree (state.mjs +229, command-registry.mjs +8). The run itself stays lazy; no new eager file.
     // 9,492,850 (measured 9,492,843): TypeScript tests under a runner SFlow cannot read hear its name (delivery-evidence.mjs +175). The refusal itself is lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_492_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,497,300 (measured 9,497,262, commands/phase-lifecycle.mjs): plan accounts settling convergence paths, and the test plan's early checks and re-pin words.
+    assert.ok(closure.bytes <= 9_497_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -498,7 +499,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,109,041 measured 2026-11-06: an approval hold carries the plan's rows, in state.mjs and approval-check.mjs.
   // 4,113,100 (measured 4,113,040 with those hold words and that refusal): the same test-execution-diagnostics.mjs +1330 and code-delivery-tests.mjs +1102 as start.
   // 4,113,250 (measured 4,113,223): the same delivery-evidence.mjs +175 as start.
-  assert.ok(current.bytes <= 4_113_250, `session current loads ${current.bytes} source bytes`);
+  // 4,117,100 (measured 4,117,025): the same.
+  assert.ok(current.bytes <= 4_117_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

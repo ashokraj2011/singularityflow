@@ -4,9 +4,11 @@
  *
  * Only what really counts settles a path. A supporting file counts while a person's approval of that
  * plan generation stands, and an amendment while its record counts (SF Guard) and someone in the
- * plan's group decided it. An entry holds a path, a class and a reason and binds no content, so
- * nothing here can tell whether a change stayed within that reason. What the record can show is
- * checked below, and the entry stays beside the file for the reviewer to read.
+ * plan's group decided it. A plan entry holds a path, a class and a reason and binds no content, so
+ * nothing here can tell whether a change stayed within that reason. An amendment made since it could
+ * holds the hash of what it accounted for, so a file changed after it is a question again; one from
+ * before has no hash and reads as it did. What the record can show is checked below, and the entry
+ * stays beside the file for the reviewer to read.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -76,7 +78,7 @@ function amendmentEntries(workflow, plans) {
   return countedRecords(workflow, workflow?.planAmendments).filter(decided).flatMap((amendment) => (amendment.changes ?? [])
     .filter((change) => change?.path).map((change) => ({ file: posix(change.path), approved: true,
       problem: change.clauseId && !plans.some((record) => record.claims?.[change.clauseId]) ? `the plan no longer has the row ${change.clauseId}` : null,
-      entry: { kind: 'amendment', id: amendment.id, ...(change.clauseId ? { clause: change.clauseId } : {}), class: change.class ?? null, text: change.reason ?? amendment.reason ?? null } })));
+      entry: { kind: 'amendment', id: amendment.id, ...(change.clauseId ? { clause: change.clauseId } : {}), class: change.class ?? null, ...(amendment.contentHashes?.[change.path] ? { sha256: amendment.contentHashes[change.path] } : {}), text: change.reason ?? amendment.reason ?? null } })));
 }
 
 /** Why a path this entry names must still be asked, from what reconciliation recorded. Null when it is settled. */
@@ -87,6 +89,7 @@ function stillAsked(finding, { problem, entry }, keptByPerson) {
   if (finding.protected) return 'it is a protected path';
   if (finding.status === 'deleted') return 'the file was deleted, which the entry does not record';
   if (finding.status !== 'present') return 'reconciliation does not record it as an ordinary file';
+  if (entry.sha256 && finding.sha256 !== entry.sha256) return `the file changed after ${entry.id} accounted for it`;
   // A row expected this path and no observed claim cites it: a gap in that row's trace, not supporting work.
   if (finding.clauseIds?.length) return `${finding.clauseIds.join(', ')} expected it and no observed claim cites it`;
   if (entry.class) {

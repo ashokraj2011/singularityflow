@@ -332,7 +332,8 @@ export async function decidePhaseAppeal(root, config, workflow, { id, decision, 
     let amendment = null;
     if (decision === 'account-scope') amendment = recordPlanAmendment(aggregate, { changes: packet.changes, reason,
       actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null,
-      at: nowIso(), plan: await activePlan(root, config, aggregate) });
+      at: nowIso(), plan: await activePlan(root, config, aggregate),
+      contentHashes: await (await import('./commands/decision-plan-amendment.mjs')).amendmentContentHashes(root, packet.changes) });
     // An SF Guard pin writes v2, which can keep the approver's signature; anywhere else stays v1.
     const record = PhaseAppealDecisionSchema.parse({ schemaVersion: aggregate.resolution?.presence ? currentSchemaVersion('phase-appeal-decision') : 1, kind: 'phase-appeal-decision', appealId: id, packetSha256: packet.packetSha256,
       decision, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -49,6 +50,8 @@ test('publication and prepublish detect excluded HTML before committing; narrow 
   assert.equal(included.status, 0, JSON.stringify(included));
   const after = JSON.parse(await readFile(workflowFile));
   assert.deepEqual(after.phases.intake, JSON.parse(before).phases.intake, 'earlier approved planning bytes remain unchanged');
+  // The amendment binds what the person accounted for, by the hash reconciliation reads a file with.
+  assert.equal(after.planAmendments[0].contentHashes['index.html'], createHash('sha256').update(await readFile(path.join(repo.root, 'index.html'))).digest('hex'));
   assert.equal(after.currentPhase, 'implement');
   assert.ok(after.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'));
   assert.equal(repo.must('git', ['status', '--porcelain', '--', 'index.html']), '');

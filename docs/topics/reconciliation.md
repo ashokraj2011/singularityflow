@@ -13,7 +13,7 @@ related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 13
+version: 14
 ---
 `sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
@@ -32,6 +32,7 @@ Use this topic when the current goal matches **reconciliation**. Start in a repo
 1. Reconcile the active work interval, then run `sflow story converge`.
 2. Record each human disposition with `sflow story adjudicate`. An `update-intent` decision must name the clause with `--clause` and blocks advancement just like rework.
    A changed path no claim cites is not asked when the approved plan already accounts for it: a supporting file of a plan a person approved, or a change of a plan amendment that counts. The convergence record, the report and the decisions table say which entry settled it, and anyone in the group may still answer it with `sflow story adjudicate`. It is asked as usual when the file was deleted, is a protected path, a row expected it, or the entry's class is not what the path is. An entry binds no file content, so nothing checks that a change stayed within its stated reason: that part stays with the reviewer.
+   A plan amendment holds the hash of the file it accounted for: when that file has changed since, the path is asked again and says why. An amendment from before this has no hash and settles the path as it did, and so does one for a file that did not exist yet.
    A person may change an answer, whoever gave it. The answer it replaces stays on the record with who gave it and when, and the report's **Changed answers** table, `sflow story adjudications` and the decisions table all show it.
 3. For code that must change, use the separately offered `sflow story rework --confirm` transition.
    If that return was a mistake, run `sflow story rework roll-forward --work-id <ID> --change-request <CR-ID> --json` first. Review the exact path list, then repeat it with the emitted `--confirm sha256:...`. Flow backs up the current rework bytes locally and creates a new restoration commit; it never resets or rewrites the rejection history.

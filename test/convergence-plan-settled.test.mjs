@@ -19,6 +19,9 @@ import { convergencePreparationState } from '../src/commands/shared/convergence-
 import { countedConvergence } from '../src/presence/counted-convergence.mjs';
 import { forgetPersonCounts, presencePinKey, registerPersonCounts } from '../src/presence/counted.mjs';
 import { pathsKeptByPerson, planAccounts, settleChangedPaths } from '../src/plan-accounts.mjs';
+import { recordPlanAmendment } from '../src/plan-amendments.mjs';
+import { amendmentContentHashes } from '../src/commands/decision-plan-amendment.mjs';
+import { fileEvidence } from '../src/work-intervals.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
 
@@ -449,4 +452,71 @@ test('a new record is the current version, and a build from before it says so in
   assert.ok(Array.isArray(projection.settledByPlan));
   assert.deepEqual(projected({ facts: EVERY_FACT, settled: [] }).settledByPlan, [], 'a new record with nothing settled must not read as one from before v5');
   assert.throws(() => readRecord('convergence-record', JSON.stringify({ ...projection, schemaVersion: 7 })), (error) => error.code === 'SCHEMA_VERSION_FUTURE');
+});
+
+test('an amendment binds the file it accounted for: changed since, a person is asked again', () => {
+  const held = { ...LOCATED, contentHashes: { 'src/test/setup.js': 'a'.repeat(64) } };
+  const located = settle(story({ amendments: [held] })).settled.find((item) => item.paths[0] === 'src/test/setup.js');
+  assert.equal(located.settledBy.sha256, 'a'.repeat(64), 'the same bytes stay settled, and the record says which');
+
+  const moved = { ...LOCATED, contentHashes: { 'src/test/setup.js': 'b'.repeat(64) } };
+  const result = settle(story({ amendments: [moved] }));
+  assert.ok(!settledPaths(result).includes('src/test/setup.js'));
+  assert.ok(result.facts.some((item) => item.paths[0] === 'src/test/setup.js'), 'it is a question again');
+  const account = planAccounts(story({ amendments: [moved] }), PLANNED)(CHANGED.find((entry) => entry.path === 'src/test/setup.js'));
+  assert.equal(account.id, 'PAM-001');
+  assert.match(account.askedBecause, /changed after PAM-001 accounted for it/u);
+
+  // A person accounts for the new bytes in a later amendment, and it is settled again.
+  const again = { ...LOCATED, id: 'PAM-002', contentHashes: { 'src/test/setup.js': 'a'.repeat(64) } };
+  const settledAgain = settle(story({ amendments: [moved, again] })).settled.find((item) => item.paths[0] === 'src/test/setup.js');
+  assert.equal(settledAgain.settledBy.id, 'PAM-002');
+});
+
+test('an amendment from before it bound content reads exactly as it did', () => {
+  assert.equal(LOCATED.contentHashes, undefined);
+  const located = settle().settled.find((item) => item.paths[0] === 'src/test/setup.js');
+  assert.deepEqual(located.settledBy, { kind: 'amendment', id: 'PAM-001', clause: REQ, class: null, text: LOCATED.reason });
+  assert.equal(Object.hasOwn(located.settledBy, 'sha256'), false, 'so its sealed record reads the same');
+});
+
+test('a sealed record that holds what an amendment bound verifies', () => {
+  const held = { ...LOCATED, contentHashes: { 'src/test/setup.js': 'a'.repeat(64) } };
+  const result = settle(story({ amendments: [held] }));
+  const record = projected(result);
+  const read = decodeConvergenceRecord(serializeConvergence(record), { workId: WORK, iteration: 1 });
+  assert.equal(read.convergenceSha256, record.convergenceSha256);
+  assert.equal(read.settledByPlan.find((item) => item.paths[0] === 'src/test/setup.js').settledBy.sha256, 'a'.repeat(64));
+});
+
+test('a new amendment holds the hash it is given, for only the paths that have one', () => {
+  const plan = { [REQ]: { expectedPaths: ['src/app.js'] } };
+  const reason = 'Test-only support the suite needs to run.';
+  const workflow = { planAmendments: [] };
+  const amendment = recordPlanAmendment(workflow, { reason, actor: 'reviewer-one', authorityGroup: GROUP, at: '2026-11-06T05:00:00.000Z', plan,
+    changes: [{ kind: 'add-location', clauseId: REQ, path: 'src/test/setup.js' }, { kind: 'add-location', clauseId: REQ, path: 'src/test/future.js' }],
+    contentHashes: { 'src/test/setup.js': 'a'.repeat(64) } });
+  assert.deepEqual(amendment.contentHashes, { 'src/test/setup.js': 'a'.repeat(64) }, 'a file not there yet has nothing to bind');
+  assert.deepEqual(amendment.changes, [{ kind: 'add-location', clauseId: REQ, path: 'src/test/setup.js' }, { kind: 'add-location', clauseId: REQ, path: 'src/test/future.js' }],
+    'the changes stay as an appeal decision binds them');
+  assert.equal(Object.hasOwn(recordPlanAmendment(workflow, { reason, actor: 'reviewer-one', authorityGroup: GROUP, at: '2026-11-06T05:00:00.000Z', plan,
+    changes: [{ kind: 'add-location', clauseId: REQ, path: 'src/test/other.js' }] }), 'contentHashes'), false, 'with nothing to bind it reads as an older one');
+});
+
+test('the hash an amendment holds is the one reconciliation reads the file with', async (t) => {
+  const repository = await mkdtemp(path.join(os.tmpdir(), 'sflow-amendment-hash-'));
+  t.after(() => rm(repository, { recursive: true, force: true }));
+  const file = 'src/test/setup.js';
+  await mkdir(path.join(repository, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(repository, file), 'export const standIn = {};\n');
+  const hashes = await amendmentContentHashes(repository, [{ path: file }, { path: 'src/test/not-yet.js' }, { path: 'src/test' }]);
+  assert.deepEqual(Object.keys(hashes), [file], 'a file not there and a folder have nothing to bind, and refuse nothing');
+  const workflow = story({ amendments: [{ ...LOCATED, contentHashes: hashes }] });
+  const account = async () => {
+    const [evidence] = await fileEvidence(repository, [file]);
+    return planAccounts(workflow, PLANNED)({ ...present(file), ...evidence });
+  };
+  assert.equal((await account()).askedBecause, undefined, 'the same bytes are settled');
+  await writeFile(path.join(repository, file), 'export const standIn = { changed: true };\n');
+  assert.match((await account()).askedBecause, /changed after PAM-001/u);
 });

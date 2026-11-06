@@ -331,7 +331,7 @@ export async function changedApplicationPathsSinceBaseline(root, workflow, {
   return pathsSince(root, current.sourceBaseCommit, applicationPathContext(workflow));
 }
 
-async function fileEvidence(root, paths) {
+export async function fileEvidence(root, paths) {
   const entries = [];
   for (const relative of paths) {
     const absolute = path.join(root, relative);

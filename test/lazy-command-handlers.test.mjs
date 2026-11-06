@@ -333,7 +333,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,492,850 (measured 9,492,843): TypeScript tests under a runner SFlow cannot read hear its name (delivery-evidence.mjs +175). The refusal itself is lazy; no new eager file.
     // 9,497,300 (measured 9,497,262, commands/phase-lifecycle.mjs): plan accounts settling convergence paths, and the test plan's early checks and re-pin words.
     // 9,499,900 (measured 9,499,891, commands/phase-lifecycle.mjs): convergence-record family v6 keeps a replaced answer (convergence.mjs, schema-migrations.mjs, story reads none of it eagerly).
-    assert.ok(closure.bytes <= 9_499_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,500,250 (measured 9,500,246, commands/phase-lifecycle.mjs): a plan amendment holds the hash it accounted for (plan-amendments.mjs, plan-accounts.mjs). The reading stays lazy; no new eager file.
+    assert.ok(closure.bytes <= 9_500_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -503,7 +504,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,113,250 (measured 4,113,223): the same delivery-evidence.mjs +175 as start.
   // 4,117,100 (measured 4,117,025): the same.
   // 4,119,700 (measured 4,119,654): the same convergence-record family v6 as start.
-  assert.ok(current.bytes <= 4_119_700, `session current loads ${current.bytes} source bytes`);
+  // 4,120,050 (measured 4,120,009): the same plan-amendments.mjs and plan-accounts.mjs as start.
+  assert.ok(current.bytes <= 4_120_050, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

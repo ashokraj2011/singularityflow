@@ -792,6 +792,7 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     ({ definition, workflow } = await f.load());
     assert.equal(workflow.phases.implementation.status, 'in_progress');
     assert.equal(workflow.planAmendments.at(-1).changes[0].path, 'src/helper.mjs');
+    assert.match(workflow.planAmendments.at(-1).contentHashes['src/helper.mjs'], /^[a-f0-9]{64}$/u, 'it binds what the person accounted for');
     assert.equal((await phaseAppealStatus(f.root, definition, workflow)).status, 'ready');
     assert.equal(f.git('ls-files', '--', 'src/helper.mjs', 'NOTES.md').stdout, '', 'application additions were not committed by review');
     assert.equal(f.git('diff', '--cached').stdout, index);

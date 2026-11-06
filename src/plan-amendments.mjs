@@ -41,8 +41,11 @@ function exactPath(value, label) {
 /**
  * Validate and record one amendment. `plan` is the Story's merged planned claims, keyed by clause.
  * Each change is `{ kind: 'add-location', clauseId, path }` or `{ kind: 'add-supporting', path, class, reason }`.
+ * `contentHashes` holds what each file held when this was decided, so a later change to that file is
+ * a question again. It sits beside `changes`, which an appeal's decision binds exactly as it was reviewed.
+ * A file that is not there yet has nothing to bind.
  */
-export function recordPlanAmendment(workflow, { changes = [], reason, actor, authorityGroup, identityAssurance = null, at, plan = {} }) {
+export function recordPlanAmendment(workflow, { changes = [], reason, actor, authorityGroup, identityAssurance = null, at, plan = {}, contentHashes = {} }) {
   if (!changes.length || changes.length > MAX_CHANGES) {
     throw new SingularityFlowError(`Name 1 to ${MAX_CHANGES} changes with --add-location <clause>=<path> or --add-supporting <path>=<class>.`, { code: 'PLAN_AMENDMENT_INVALID' });
   }
@@ -90,7 +93,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
   workflow.planAmendments ??= [];
   const amendment = {
     id: `PAM-${String(workflow.planAmendments.length + 1).padStart(3, '0')}`,
-    changes: normalized, reason: text, actor, authorityGroup, identityAssurance, at
+    changes: normalized, ...(Object.keys(contentHashes).length ? { contentHashes } : {}), reason: text, actor, authorityGroup, identityAssurance, at
   };
   workflow.planAmendments.push(amendment);
   return amendment;

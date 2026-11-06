@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { adjudicationTableCommand, runAdjudicationTable, terminalForms } from '../src/commands/story-adjudicate-terminal.mjs';
 import { adjudicationTableStep } from '../src/command-skills.mjs';
-import { confirmForm, firstForm, KEEP, LEAVE, OVERRULE, rowForms, settledRows } from '../plugin/extensions/decisions/decisions.mjs';
+import { acceptAllForm, confirmForm, detailForm, firstForm, KEEP, LEAVE, OVERRULE, rowForms, settledRows } from '../plugin/extensions/decisions/decisions.mjs';
 import { hasRealTerminal, openRealTerminal } from './helpers/real-terminal.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,14 +28,21 @@ test('a form is asked field by field in the cards\' own words, and only what the
   const each = typing(['2']);
   assert.deepEqual(await each.ask(firstForm(list()).form), { action: 'accept', content: { choice: 'Decide each one' } }, 'no reason is asked of a row-by-row answer');
   assert.match(each.said.join(''), /How do you want to decide\?\n {2}1\) Accept all 2 changed files with one reason\n {2}2\) Decide each one\n {2}3\) Not now\nChoose 1-3: /u);
-  const all = typing(['1', 'All of it is test setup.']);
-  assert.deepEqual((await all.ask(firstForm(list()).form)).content.reason, 'All of it is test setup.');
+  const all = typing(['All of it is test setup.']);
+  assert.deepEqual((await all.ask(acceptAllForm(list()))).content.reason, 'All of it is test setup.');
+  assert.match(all.said.join(''), /One reason for accepting all of them \(1 to 1000 characters\): /u);
   const rows = rowForms(list(), list().items)[0].form;
-  const answered = typing(['1', '4', 'The spec is wrong here.', 'SP-1:REQ-001']);
-  const { content } = await answered.ask(rows);
-  assert.deepEqual(content, { decision0: LEAVE, decision1: 'The spec should change', reason1: 'The spec is wrong here.', clauses1: 'SP-1:REQ-001' }, 'a row left undecided asks nothing more');
-  const noClauses = typing(['2', 'Fine as it is, it is test setup.', '1']);
-  assert.deepEqual((await noClauses.ask(rows)).content, { decision0: 'Accept as is', reason0: 'Fine as it is, it is test setup.', decision1: LEAVE }, 'clauses are only for a spec change');
+  const answered = typing(['1', '4']);
+  assert.deepEqual((await answered.ask(rows)).content, { decision0: LEAVE, decision1: 'The spec should change' }, 'the choices alone');
+  const spec = typing(['The spec is wrong here.', 'SP-1:REQ-001']);
+  assert.deepEqual((await spec.ask(detailForm(list(), list().items[1], 'update-intent'))).content, { reason: 'The spec is wrong here.', clauses: 'SP-1:REQ-001' });
+  const noClauses = typing(['Fine as it is, it is test setup.']);
+  assert.deepEqual((await noClauses.ask(detailForm(list(), list().items[0], 'accepted-deviation'))).content, { reason: 'Fine as it is, it is test setup.' }, 'clauses are only for a spec change');
+  const kept = typing(['']);
+  const again = detailForm(list(), list().items[0], 'accepted-deviation');
+  again.requestedSchema.properties.reason.default = 'What they typed before.';
+  assert.deepEqual((await kept.ask(again)).content, { reason: 'What they typed before.' }, 'a bare Enter keeps it');
+  assert.match(kept.said.join(''), /\[Enter keeps: What they typed before\.\]/u);
   assert.equal(confirmForm(list(), [{ itemId: 'CF-1', disposition: 'rework', reason: '', clauseIds: [] }]).requestedSchema.properties.confirm.enum[0], 'Record these decisions');
 });
 
@@ -44,7 +51,7 @@ test('overruling a settled row is asked the same way, and keeping the plan asks 
   assert.deepEqual((await typing(['3']).ask(firstForm(settled).form)).content, { choice: OVERRULE }, 'no reason is asked of it');
   const form = rowForms(settled, settledRows(settled))[0].form;
   assert.deepEqual((await typing(['1']).ask(form)).content, { decision0: KEEP });
-  assert.deepEqual((await typing(['3', 'It should not have changed.']).ask(form)).content, { decision0: 'Send back to fix', reason0: 'It should not have changed.' });
+  assert.deepEqual((await typing(['3']).ask(form)).content, { decision0: 'Send back to fix' });
 });
 
 test('nothing is chosen for the person: Enter asks again, a wrong number asks again, and input ending is a cancel', async () => {
@@ -52,7 +59,7 @@ test('nothing is chosen for the person: Enter asks again, a wrong number asks ag
   assert.equal((await again.ask(firstForm(list()).form)).content.choice, 'Decide each one');
   assert.equal(again.said.filter((text) => /Type a number from 1 to 3/u.test(text)).length, 3);
   assert.deepEqual(await typing([]).ask(firstForm(list()).form), { action: 'cancel' });
-  assert.deepEqual(await typing(['1']).ask(firstForm(list()).form), { action: 'cancel' }, 'input ending at the reason');
+  assert.deepEqual(await typing([]).ask(acceptAllForm(list())), { action: 'cancel' }, 'input ending at the reason');
 });
 
 test('with no terminal it asks nothing, reads nothing and names the exact command', async () => {
@@ -91,7 +98,7 @@ test('in a real terminal: one reason for all, then the exact list, then the one 
   assert.match(term.screen, /\| src\/CF-1\.js \| Not in the plan \| Undecided \|/u);
   assert.doesNotMatch(term.screen, /\*\*/u, 'plain words in a terminal');
   term.type(term.number('Accept all'));
-  await term.waitFor(/Reason for accepting all: $/u);
+  await term.waitFor(/One reason for accepting all of them \(1 to 1000 characters\): $/u);
   term.type('All of it is test setup.');
   await term.waitFor(/Record 2 decisions on PAY-1, each under your name:\nsrc\/CF-1\.js: Accept as is\. Reason: All of it is test setup\.\nsrc\/CF-2\.js: Accept as is\. Reason: All of it is test setup\.[\s\S]*Choose 1-2: $/u);
   assert.doesNotMatch(term.screen, /RECORD/u, 'nothing is written before the person confirms');
@@ -110,7 +117,7 @@ test('in a real terminal: Not now, a cancelled confirmation and input ending all
   const noConfirm = fakeTable();
   await noConfirm.waitFor(/Choose 1-3: $/u);
   noConfirm.type(noConfirm.number('Accept all'));
-  await noConfirm.waitFor(/Reason for accepting all: $/u);
+  await noConfirm.waitFor(/One reason for accepting all of them \(1 to 1000 characters\): $/u);
   noConfirm.type('All of it is test setup.');
   await noConfirm.waitFor(/Choose 1-2: $/u);
   noConfirm.type(noConfirm.number('Not now'));

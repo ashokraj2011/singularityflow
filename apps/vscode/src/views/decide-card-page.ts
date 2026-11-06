@@ -37,8 +37,8 @@ export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label
 function fieldsHtml(item: DecisionItemPacket, entered: DecideDraft extends ReadonlyMap<string, infer V> ? V | undefined : never): string {
   const name = escape(item.title);
   const needed = (flag: 'reason' | 'cause' | 'expires' | 'clause' | 'article') => item.options.filter(decidable).find((option) => option.needs?.[flag])?.needs?.[flag];
-  const reason = needed('reason') as { default: string; maximum: number } | undefined;
-  const cause = needed('cause') as { default: string; maximum: number } | undefined;
+  const reason = needed('reason') as { default: string; minimum: number; maximum: number } | undefined;
+  const cause = needed('cause') as { default: string; minimum: number; maximum: number } | undefined;
   const expires = needed('expires') as { latest: string } | undefined;
   const clause = needed('clause') as { known?: string[] } | undefined;
   const article = needed('article') as { articles: Array<{ id: string; title: string; question: string }>; decisions: string[] } | undefined;
@@ -49,9 +49,10 @@ function fieldsHtml(item: DecisionItemPacket, entered: DecideDraft extends Reado
       return `<label class="dc-article"><span title="${escape(question)}">${escape(title)}</span><select data-article="${escape(id)}" aria-label="${escape(question)}"><option value="">Choose…</option>${article.decisions.map((decision) => `<option value="${escape(decision)}"${given?.decision === decision ? ' selected' : ''}>${escape(decision)}</option>`).join('')}</select>
         <input data-article-reason="${escape(id)}" aria-label="Why, for ${escape(title)}" placeholder="Why, if not satisfied" maxlength="500" value="${escape(given?.reason ?? '')}"></label>`;
     }).join('')}</div>` : '',
-    reason ? `<input data-field="reason" aria-label="Reason for ${name}" placeholder="${escape(reason.default || 'Your reason')}" maxlength="${reason.maximum}" value="${escape(entered?.reason ?? '')}">` : '',
-    cause ? `<input data-field="cause" aria-label="What stops the tests, ${name}" placeholder="${escape(cause.default || 'What stops the tests')}" maxlength="${cause.maximum}" value="${escape(entered?.cause ?? '')}">` : '',
-    expires ? `<label class="dc-date">Until <input type="date" data-field="expires" aria-label="Until when, ${name}" max="${escape(expires.latest)}" value="${escape(entered?.expires ?? '')}"></label>` : ''
+    // The rule beside the field, before it is refused: a limit met only as an error ended in typed filler on a real Story.
+    reason ? `<label class="dc-field"><small class="muted">Reason (${reason.minimum} to ${reason.maximum} characters)</small><input data-field="reason" aria-label="Reason for ${name}" placeholder="${escape(reason.default || 'Your reason')}" minlength="${reason.minimum}" maxlength="${reason.maximum}" value="${escape(entered?.reason ?? '')}"></label>` : '',
+    cause ? `<label class="dc-field"><small class="muted">What stops the tests (${cause.minimum} to ${cause.maximum} characters)</small><input data-field="cause" aria-label="What stops the tests, ${name}" placeholder="${escape(cause.default || 'What stops the tests')}" minlength="${cause.minimum}" maxlength="${cause.maximum}" value="${escape(entered?.cause ?? '')}"></label>` : '',
+    expires ? `<label class="dc-date">Until, at most ${escape(expires.latest)} <input type="date" data-field="expires" aria-label="Until when, ${name}" max="${escape(expires.latest)}" value="${escape(entered?.expires ?? '')}"></label>` : ''
   ].join('');
 }
 
@@ -154,7 +155,9 @@ export const DECIDE_STYLE = `
 .dc th, .dc td { text-align:left; vertical-align:top; padding:.5rem; border-bottom:var(--sf-border); }
 .dc td select { width:100%; min-width:12rem; }
 .dc-fields input { display:block; width:100%; min-width:12rem; box-sizing:border-box; margin-bottom:.35rem; }
-.dc-fields [hidden], .dc-date[hidden] { display:none; }
+.dc-fields [hidden], .dc-date[hidden], .dc-field[hidden] { display:none; }
+.dc-field { display:block; }
+.dc-field small { display:block; margin-bottom:.15rem; }
 .dc-date { display:block; }
 .dc-articles { display:grid; gap:.35rem; margin-bottom:.35rem; }
 .dc-articles[hidden] { display:none; }
@@ -182,7 +185,7 @@ const sync = (row) => {
   for (const name of ['reason', 'cause', 'expires', 'clause', 'article']) {
     const input = field(row, name);
     if (!input) continue;
-    (input.closest('.dc-date') ?? input).hidden = !needs.includes(name);
+    (input.closest('.dc-date, .dc-field') ?? input).hidden = !needs.includes(name);
   }
   for (const pick of row.querySelectorAll('[data-article]')) {
     const why = row.querySelector('[data-article-reason="' + pick.dataset.article + '"]');

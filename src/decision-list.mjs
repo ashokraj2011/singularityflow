@@ -433,7 +433,7 @@ function nodePinItem(workflow, context, pin) {
   const tryIt = `singularity-flow tests node --work-id ${workId} --phase ${pin.phase} --node ${pin.version}`;
   return {
     kind: 'node-pin',
-    title: `${name}'s tests need another Node: Pin Node ${pin.version}`,
+    title: `${name}'s tests need another Node`,
     why: `${pin.words} Node ${pin.node} is installed here. ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} Pinning it creates ${pin.file} and amends the plan; the code and its tests stay as they are.`,
     options: [option(workflow, context, {
       id: 'pin-node', label: `Pin Node ${pin.version}: create ${pin.file} and amend the plan`,

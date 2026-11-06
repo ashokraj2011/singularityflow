@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  acceptable, answersFromRows, confirmForm, decisionRows, decisionsTable, firstForm, KEEP, LEAVE, OVERRULE, RECORD, rowForms, runDecisions, settledRows
+  acceptable, choicesFromRows, confirmForm, decisionRows, decisionsTable, detailForm, firstForm, KEEP, LEAVE, OVERRULE, RECORD, rowForms, runDecisions, settledRows, valuesFromForm
 } from '../plugin/extensions/decisions/decisions.mjs';
 
 const item = (id, fields = {}) => ({ id, kind: 'unclaimed-changed-path', paths: [`src/${id}.js`], clauseIds: [], detail: null, plan: null, acceptAll: true, decision: null, ...fields });
@@ -46,8 +46,8 @@ test('Accept all counts only open changed files', () => {
 
 test('accept all, then the row it cannot reach gets its own answer and reason', async () => {
   const { yes } = firstForm(list());
-  const { seen, ui } = person([accept({ choice: yes, reason: 'Test support.' }),
-    accept({ decision0: 'Decide later', reason0: 'After the next build.' }), accept({ confirm: RECORD })]);
+  const { seen, ui } = person([accept({ choice: yes }), accept({ reason: 'Test support.' }),
+    accept({ decision0: 'Decide later' }), accept({ reason: 'After the next build.' }), accept({ confirm: RECORD })]);
   const result = await runDecisions(ui);
   assert.equal(result.status, 'recorded');
   assert.deepEqual(seen.recorded, [{ digest: 'sha256:abc', answers: [
@@ -61,7 +61,7 @@ test('accept all, then the row it cannot reach gets its own answer and reason', 
 test('nothing is written unless the person confirms the exact list', async () => {
   const { yes } = firstForm(list());
   for (const last of [accept({ confirm: 'Not now' }), { action: 'decline' }, { action: 'cancel' }]) {
-    const { seen, ui } = person([accept({ choice: yes, reason: 'Test support.' }), accept({ decision0: LEAVE }), last]);
+    const { seen, ui } = person([accept({ choice: yes }), accept({ reason: 'Test support.' }), accept({ decision0: LEAVE }), last]);
     assert.equal((await runDecisions(ui)).status, 'cancelled');
     assert.deepEqual(seen.recorded, []);
   }
@@ -72,25 +72,43 @@ test('nothing is written unless the person confirms the exact list', async () =>
   }
 });
 
-test('a form that is wrong is asked again and loses nothing already answered', async () => {
+test('a form that is wrong is asked again with the problem on top, keeps what was typed, and loses nothing already answered', async () => {
   const { yes } = firstForm(list());
-  const { seen, ui } = person([accept({ choice: yes, reason: '  ' }), accept({ choice: yes, reason: 'Test support.' }),
-    accept({ decision0: 'Accept as is' }), accept({ decision0: 'Accept as is', reason0: 'It is fine.' }), accept({ confirm: RECORD })]);
+  const { seen, ui } = person([accept({ choice: yes }), accept({ reason: '  ' }), accept({ reason: 'Test support.' }),
+    accept({ decision0: 'Accept as is' }), accept({ reason: '' }), accept({ reason: 'It is fine.' }), accept({ confirm: RECORD })]);
   assert.equal((await runDecisions(ui)).status, 'recorded');
-  assert.ok(seen.shown.some((text) => /Give one reason for accepting them all/u.test(text)));
-  assert.ok(seen.shown.some((text) => /Give a reason for PAY-1:REQ-001/u.test(text)));
+  assert.match(seen.asked[2].message, /^Give one reason for accepting them all/u);
+  assert.match(seen.asked[5].message, /^Give a reason for PAY-1:REQ-001/u);
+  assert.equal(seen.shown.filter((text) => /Give /u.test(text)).length, 0, 'never a notification beside the form');
   assert.equal(seen.recorded[0].answers.length, 3);
+});
+
+test('a real choice asks only what it needs, its rule in the title, and three refusals stop with nothing recorded', async () => {
+  const rows = [item('CF-1')];
+  const [{ form }] = rowForms(list(), rows);
+  assert.deepEqual(Object.keys(form.requestedSchema.properties), ['decision0'], 'the choice comes first');
+  assert.deepEqual(Object.keys(detailForm(list(), rows[0], 'accepted-deviation').requestedSchema.properties), ['reason']);
+  assert.deepEqual(Object.keys(detailForm(list(), rows[0], 'update-intent').requestedSchema.properties), ['reason', 'clauses'], 'clauses only for a spec change');
+  assert.equal(detailForm(list(), rows[0], 'rework'), null, 'rework needs no reason, as the CLI rule says');
+  const reason = detailForm(list(), rows[0], 'accepted-deviation').requestedSchema.properties.reason;
+  assert.equal(reason.title, 'Reason for src/CF-1.js (1 to 1000 characters)');
+  assert.equal(reason.minLength, 1);
+  const { seen, ui } = person([accept({ choice: 'Decide each one' }), accept({ decision0: 'Accept as is' }), accept({ reason: '' }), accept({ reason: ' ' }), accept({ reason: '' }), accept({ confirm: RECORD })]);
+  const result = await runDecisions(ui);
+  assert.equal(result.status, 'refused');
+  assert.match(result.message, /^Nothing was recorded\. After 3 tries the form still could not take this: Give a reason for src\/CF-1\.js\./u);
+  assert.deepEqual(seen.recorded, []);
 });
 
 test('each row needs what it would record', () => {
   const rows = [item('CF-1')];
-  const answer = (content) => answersFromRows(list(), rows, content);
-  assert.deepEqual(answer({ decision0: LEAVE }), { answers: [], problem: null });
-  assert.match(answer({ decision0: LEAVE, reason0: 'A reason.' }).problem, /Choose a decision for src\/CF-1\.js/u);
-  assert.match(answer({ decision0: 'The spec should change', reason0: 'Wrong.' }).problem, /Name the clauses/u);
-  assert.deepEqual(answer({ decision0: 'The spec should change', reason0: 'Wrong.', clauses0: 'PAY-1:REQ-1, PAY-1:REQ-2' }).answers[0].clauseIds, ['PAY-1:REQ-1', 'PAY-1:REQ-2']);
-  assert.equal(answer({ decision0: 'Send back to fix' }).problem, null, 'rework needs no reason, as the CLI rule says');
-  assert.match(answer({ decision0: 'Dismiss everything', reason0: 'x' }).problem, /not a decision/u);
+  const picks = (content) => choicesFromRows(list(), rows, content);
+  assert.deepEqual(picks({ decision0: LEAVE }), { picks: [], problem: null });
+  assert.match(picks({ decision0: 'Dismiss everything' }).problem, /not a decision/u);
+  assert.match(valuesFromForm(rows[0], 'update-intent', { reason: 'Wrong.' }).problem, /Name the clauses/u);
+  assert.deepEqual(valuesFromForm(rows[0], 'update-intent', { reason: 'Wrong.', clauses: 'PAY-1:REQ-1, PAY-1:REQ-2' }).clauseIds, ['PAY-1:REQ-1', 'PAY-1:REQ-2']);
+  assert.equal(valuesFromForm(rows[0], 'rework', {}).problem, null, 'rework needs no reason, as the CLI rule says');
+  assert.match(valuesFromForm(rows[0], 'accepted-deviation', {}).problem, /Give a reason/u);
 });
 
 test('long lists come in forms a person can get through', () => {
@@ -131,9 +149,10 @@ test('test setup files are one row in the table and one form field, whose answer
   const rows = decisionRows(grouped);
   const [page] = rowForms(grouped, rows);
   assert.match(page.form.requestedSchema.properties.decision0.title, /^Test setup: package-lock\.json, playwright\.config\.js: one change, one decision/u);
-  const { answers, problem } = answersFromRows(grouped, page.items, { decision0: grouped.dispositions.find((entry) => entry.id === 'accepted-deviation').label, reason0: 'The browser runner needs these.' });
-  assert.equal(problem, null);
-  assert.deepEqual(answers.map((answer) => [answer.itemId, answer.disposition]), [['CF-1', 'accepted-deviation'], ['CF-2', 'accepted-deviation']]);
+  const accepted = grouped.dispositions.find((entry) => entry.id === 'accepted-deviation').label;
+  const { seen, ui } = person([accept({ choice: 'Decide each one' }), accept({ decision0: accepted, decision1: LEAVE }), accept({ reason: 'The browser runner needs these.' }), accept({ confirm: RECORD })], grouped);
+  assert.equal((await runDecisions(ui)).status, 'recorded');
+  assert.deepEqual(seen.recorded[0].answers.map((answer) => [answer.itemId, answer.disposition]), [['CF-1', 'accepted-deviation'], ['CF-2', 'accepted-deviation']]);
 });
 
 const settledFile = { id: 'CF-9', paths: ['package.json'], clauseIds: [], settledBy: { kind: 'supporting', text: 'The test script.' }, decision: null };
@@ -144,12 +163,12 @@ test('a row the plan settled can be overruled, with the same answer as any row, 
   assert.equal((await runDecisions({ ...inChat.ui, askedInChat: true })).status, 'nothing-open', 'a chat that asked carries on');
   assert.deepEqual(inChat.seen.asked, []);
   const { seen, ui } = person([{ action: 'accept', content: { choice: OVERRULE } },
-    { action: 'accept', content: { decision0: 'Send back to fix', reason0: 'This test script should not have changed.' } }, { action: 'accept', content: { confirm: RECORD } }], none);
+    { action: 'accept', content: { decision0: 'Accept as is' } }, { action: 'accept', content: { reason: 'This test script should not have changed.' } }, { action: 'accept', content: { confirm: RECORD } }], none);
   const result = await runDecisions(ui);
   assert.deepEqual(seen.asked[0].requestedSchema.properties.choice.enum, [OVERRULE, 'Not now'], 'nothing open offers nothing to decide');
   assert.deepEqual(seen.asked[1].requestedSchema.properties.decision0.enum.slice(0, 2), [KEEP, 'Accept as is'], 'keeping the plan is the first answer, never a chosen one');
-  assert.deepEqual(seen.recorded[0].answers, [{ itemId: 'CF-9', disposition: 'rework', reason: 'This test script should not have changed.', clauseIds: [] }]);
-  assert.match(seen.asked[2].message, /package\.json: Send back to fix\. Reason: This test script/u);
+  assert.deepEqual(seen.recorded[0].answers, [{ itemId: 'CF-9', disposition: 'accepted-deviation', reason: 'This test script should not have changed.', clauseIds: [] }]);
+  assert.match(seen.asked[3].message, /package\.json: Accept as is\. Reason: This test script/u);
   assert.equal(result.status, 'recorded');
 });
 
@@ -159,9 +178,8 @@ test('overruling sits beside what is open: the rows left are still asked, and ke
   assert.equal(firstForm(list()).form.requestedSchema.properties.choice.enum.includes(OVERRULE), false, 'with nothing settled it is not offered');
   const pages = rowForms(open, [...settledRows(open), ...open.items]);
   assert.match(pages[0].form.requestedSchema.properties.decision0.title, /package\.json: Supporting file: The test script\./u);
-  const { answers, problem } = answersFromRows(open, pages[0].items, { decision0: KEEP, decision1: 'Accept as is', reason1: 'Fine as it stands.', decision2: LEAVE, decision3: LEAVE });
+  const { picks, problem } = choicesFromRows(open, pages[0].items, { decision0: KEEP, decision1: 'Accept as is', decision2: LEAVE, decision3: LEAVE });
   assert.equal(problem, null);
-  assert.deepEqual(answers.map((answer) => answer.itemId), ['CF-1']);
-  assert.match(answersFromRows(open, pages[0].items, { decision0: KEEP, reason0: 'Why would I say this?' }).problem, /Choose a decision for package\.json/u);
+  assert.deepEqual(picks.map(({ item, disposition }) => [item.id, disposition]), [['CF-1', 'accepted-deviation']]);
   assert.equal(confirmForm(open, [{ itemId: 'CF-9', disposition: 'rework', reason: '', clauseIds: [] }]).message.includes('package.json: Send back to fix'), true);
 });

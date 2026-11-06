@@ -9,25 +9,16 @@
 import { stdin as processInput, stdout as processOutput } from 'node:process';
 
 import { SingularityFlowError } from '../util.mjs';
-import { KEEP, LEAVE, OVERRULE, runDecisions } from '../../plugin/extensions/decisions/decisions.mjs';
+import { runDecisions } from '../../plugin/extensions/decisions/decisions.mjs';
 import { lineReader } from './decisions.mjs';
 
 export const adjudicationTableCommand = (workId) => `singularity-flow story adjudicate --work-id ${workId}`;
-
-/** A field the answers so far make pointless to ask: a reason for a row left undecided, clauses for what needs none. */
-function notAsked(name, content, clausesAnswer) {
-  if (name === 'reason') return ['Decide each one', 'Not now', OVERRULE].includes(content.choice);
-  const [, field, row] = /^(reason|clauses)(\d+)$/u.exec(name) ?? [];
-  if (!field) return false;
-  const decision = content[`decision${row}`];
-  return !decision || decision === LEAVE || decision === KEEP || (field === 'clauses' && decision !== clausesAnswer);
-}
 
 /**
  * One card form as questions. A choice is a number from its list and nothing is chosen for the person: a
  * bare Enter asks again. Input ending is a cancel, so nothing is recorded.
  */
-export function terminalForms({ next, write, clausesAnswer = () => null }) {
+export function terminalForms({ next, write }) {
   const say = (line) => write(`${line}\n`);
   const question = async (words) => { write(words); return next(); };
   return async function ask(form) {
@@ -35,11 +26,11 @@ export function terminalForms({ next, write, clausesAnswer = () => null }) {
     say(form.message);
     const content = {};
     for (const [name, field] of Object.entries(form.requestedSchema.properties)) {
-      if (notAsked(name, content, clausesAnswer())) continue;
       if (!field.enum) {
-        const line = await question(`${field.title}: `);
+        // What they typed last time stays with a bare Enter, so a re-ask never makes them type it again.
+        const line = await question(`${field.title}${field.default ? ` [Enter keeps: ${field.default}]` : ''}: `);
         if (line === null) return { action: 'cancel' };
-        if (line.trim()) content[name] = line.trim();
+        if (line.trim() || field.default) content[name] = line.trim() || field.default;
         continue;
       }
       say(field.title);
@@ -67,13 +58,11 @@ export async function runAdjudicationTable({ workId, json, read, record, input =
       { code: 'ADJUDICATION_TERMINAL_REQUIRED', details: { nextAction: { command, label: `Run in your own terminal: ${command}` } } });
   }
   const reader = lineReader(input);
-  let current = null;
   try {
     const result = await runDecisions({
-      read: async () => { current = await read(); return current; },
+      read,
       show: (text) => output.write(`${String(text).replaceAll('**', '')}\n`),
-      ask: terminalForms({ next: reader.next, write: (text) => output.write(text),
-        clausesAnswer: () => current?.dispositions?.find((entry) => entry.id === 'update-intent')?.label ?? null }),
+      ask: terminalForms({ next: reader.next, write: (text) => output.write(text) }),
       record
     });
     // `next` repeats what `message` says first; what it adds is the step after this table.

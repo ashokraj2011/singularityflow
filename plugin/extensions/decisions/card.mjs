@@ -4,6 +4,8 @@
  * write as the VS Code page, and what a person enters is the only input. Pure, so a test can read every
  * word without Copilot.
  */
+import { askUntilRight, DATE_PATTERN, refusedWords, textField } from './form-rounds.mjs';
+
 export const LEAVE = 'Leave undecided';
 export const EACH = 'Decide each one';
 export const NOT_NOW = 'Not now';
@@ -14,6 +16,13 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
 const cell = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').replaceAll('|', '\\|');
 const clip = (value) => String(value ?? '').slice(0, 200);
+// A row's title on a form holds what fits as whole sentences: a host cuts the rest off, and the table above it has every word.
+const clipSentences = (value) => {
+  const text = String(value ?? '');
+  if (text.length <= 200) return text;
+  const end = text.slice(0, 200).lastIndexOf('. ');
+  return end > 40 ? text.slice(0, end + 1) : text.slice(0, 200);
+};
 const choosable = (option) => option.recordable !== false && option.available !== false && option.decidedBy?.allowed === true;
 const reviews = (item) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed);
@@ -56,76 +65,99 @@ export function firstForm(packet) {
   const shared = sharedAnswers(packet).map((entry) => ({ ...entry, word: `${entry.label} for all ${entry.items.length}, with one reason` }));
   const open = decidable(packet).length;
   return { shared, form: { message: `${open} still need a decision from you.`, requestedSchema: { type: 'object', required: ['choice'], properties: {
-    choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), EACH, NOT_NOW] },
-    reason: { type: 'string', title: 'Reason, if it is one answer for all', maxLength: 500 } } } } };
+    choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), EACH, NOT_NOW] } } } } };
 }
 
-const answersChecklist = (item) => item.options.filter(choosable).some((option) => option.needs?.article);
+/** The one reason an answer for all needs, under the tightest rule of the rows it covers. */
+export function sharedReasonForm(entry) {
+  const limits = entry.items.map((item) => item.options.find((option) => option.id === entry.id)?.needs?.reason).filter(Boolean);
+  const minimum = Math.max(1, ...limits.map((need) => need.minimum));
+  const maximum = Math.min(...limits.map((need) => need.maximum), 1000);
+  return { message: `${entry.word}.`, requestedSchema: { type: 'object', required: ['reason'], properties: { reason: textField('One reason for all of them', { minimum, maximum }) } } };
+}
 
+/** Each row's choice, and nothing else: what a choice needs is asked once it is chosen, so a date is asked only of a risk. */
 export function rowForms(items) {
   const pages = [];
-  const plain = items.filter((item) => !answersChecklist(item));
-  for (let at = 0; at < plain.length; at += FORM_SIZE) pages.push(plain.slice(at, at + FORM_SIZE));
-  // A checklist fills a form of its own.
-  pages.push(...items.filter(answersChecklist).map((item) => [item]));
+  for (let at = 0; at < items.length; at += FORM_SIZE) pages.push(items.slice(at, at + FORM_SIZE));
   return pages.map((page, index) => ({ items: page, form: {
-    message: `Decide each one (${index + 1} of ${pages.length}).`,
-    requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.flatMap((item, row) => {
-      const options = item.options.filter(choosable);
-      const need = (flag) => options.find((option) => option.needs?.[flag])?.needs?.[flag];
-      const articles = need('article');
-      return [[`decision${row}`, { type: 'string', title: clip(`${itemName(item)}: ${item.why}`), enum: [LEAVE, ...options.map((option) => option.label)] }],
-        ...(need('clause') ? [[`clause${row}`, { type: 'string', title: clip(`Clauses that carry ${itemName(item)}, separated by commas, if you include it${need('clause').known?.length ? ` (${need('clause').known.slice(0, 4).join(', ')})` : ''}`) }]] : []),
-        ...(articles ? articles.articles.flatMap(({ id, question }) => [[`article${row}-${id}`, { type: 'string', title: clip(question), enum: articles.decisions }],
-          [`why${row}-${id}`, { type: 'string', title: clip(`Why, if not satisfied: ${id}`), maxLength: 500 }]]) : []),
-        ...(need('reason') ? [[`reason${row}`, { type: 'string', title: clip(`Reason for ${itemName(item)}`), maxLength: need('reason').maximum }]] : []),
-        ...(need('cause') ? [[`cause${row}`, { type: 'string', title: clip(`What stops the tests, ${itemName(item)}`), maxLength: need('cause').maximum }]] : []),
-        ...(need('expires') ? [[`until${row}`, { type: 'string', title: clip(`Until when, ${itemName(item)} (YYYY-MM-DD, at most ${need('expires').latest})`) }]] : [])];
-    })) } } }));
+    message: `Decide each one (${index + 1} of ${pages.length}). What a choice needs is asked next.`,
+    requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.map((item, row) =>
+      [`decision${row}`, { type: 'string', title: clipSentences(`${itemName(item)}: ${item.why}`), enum: [LEAVE, ...item.options.filter(choosable).map((option) => option.label)] }])) } } }));
 }
 
-function checked(item, option, values) {
+/** What one choice needs, and only that; empty when it needs nothing. */
+function neededFields(item, option) {
   const needs = option.needs ?? {};
   const name = itemName(item);
+  return {
+    ...(needs.clause ? { clause: { type: 'string', minLength: 1, title: clip(`Clauses that carry ${name}, separated by commas${needs.clause.known?.length ? ` (${needs.clause.known.slice(0, 4).join(', ')})` : ''}`) } } : {}),
+    ...(needs.article ? Object.fromEntries(needs.article.articles.flatMap(({ id, question }) => [[`article-${id}`, { type: 'string', title: clip(question), enum: needs.article.decisions }],
+      [`why-${id}`, { type: 'string', title: clip(`Why, if not satisfied: ${id}`), maxLength: 500 }]])) : {}),
+    ...(needs.reason ? { reason: textField('Reason', needs.reason) } : {}),
+    ...(needs.cause ? { cause: textField('What stops the tests', needs.cause) } : {}),
+    ...(needs.expires ? { until: { type: 'string', pattern: DATE_PATTERN, minLength: 10, maxLength: 10, title: `Until when (YYYY-MM-DD, no later than ${needs.expires.latest})` } } : {})
+  };
+}
+
+/** The second form of a choice: what it does, and what it needs. */
+export function detailForm(item, option) {
+  const properties = neededFields(item, option);
+  return { message: `${itemName(item)}: ${option.label}. ${option.words ?? ''}`.trim(), requestedSchema: { type: 'object',
+    required: Object.keys(properties).filter((name) => !name.startsWith('why-')), properties } };
+}
+
+/** The rows a person chose on one form, or what is wrong with them. Nothing here is chosen for the person. */
+export function choicesFromRows(items, content) {
+  const picks = [];
+  for (const [row, item] of items.entries()) {
+    const word = content?.[`decision${row}`];
+    if (!word || word === LEAVE) continue;
+    const option = item.options.filter(choosable).find((entry) => entry.label === word);
+    if (!option) return { picks: [], problem: `That is not a decision SFlow knows for ${itemName(item)}.` };
+    picks.push({ item, option });
+  }
+  return { picks, problem: null };
+}
+
+/** One choice's answers from its form, or what is wrong with them. */
+export function valuesFromForm(item, option, content) {
+  const needs = option.needs ?? {};
+  const text = (name) => String(content?.[name] ?? '').trim();
+  const values = { ...(needs.reason ? { reason: text('reason') } : {}), ...(needs.cause ? { cause: text('cause') } : {}), ...(needs.expires ? { expires: text('until') } : {}),
+    ...(needs.clause ? { clause: text('clause') } : {}),
+    ...(needs.article ? { article: needs.article.articles.map(({ id }) => {
+      const decision = content?.[`article-${id}`];
+      return { article: id, decision, ...(decision === 'satisfied' ? {} : { reason: text(`why-${id}`) }) };
+    }) } : {}) };
+  const problem = checked(item, option, values);
+  return problem ? { problem } : { values, problem: null };
+}
+
+const hasNeeds = (option) => Object.keys(option.needs ?? {}).length > 0;
+
+function checked(item, option, values, today = new Date().toISOString().slice(0, 10)) {
+  const needs = option.needs ?? {};
+  const name = itemName(item);
+  // Every problem at once: one round for a form that is wrong twice, not two.
+  const problems = [];
   for (const [flag, words] of [['reason', 'reason'], ['cause', 'cause']]) {
     if (!needs[flag]) continue;
     const size = String(values[flag] ?? '').length;
-    if (size < needs[flag].minimum || size > needs[flag].maximum) return `The ${words} for ${name} must be ${needs[flag].minimum} to ${needs[flag].maximum} characters.`;
+    if (size < needs[flag].minimum || size > needs[flag].maximum) problems.push(`The ${words} for ${name} must be ${needs[flag].minimum} to ${needs[flag].maximum} characters; that was ${size}.`);
   }
-  if (needs.expires && (!DATE.test(values.expires ?? '') || values.expires > needs.expires.latest)) return `The date for ${name} must be YYYY-MM-DD and no later than ${needs.expires.latest}.`;
-  if (needs.clause && !String(values.clause ?? '').trim()) return `Name the clauses that carry ${name}.`;
+  if (needs.expires) {
+    const day = DATE.test(values.expires ?? '') ? Date.parse(`${values.expires}T00:00:00.000Z`) : Number.NaN;
+    const real = Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === values.expires;
+    if (!real || values.expires > needs.expires.latest || values.expires <= today) problems.push(`The date for ${name} must be YYYY-MM-DD, after today and no later than ${needs.expires.latest}. You gave "${values.expires ?? ''}".`);
+  }
+  if (needs.clause && !String(values.clause ?? '').trim()) problems.push(`Name the clauses that carry ${name}.`);
   if (needs.article) {
     const answers = values.article ?? [];
-    if (needs.article.articles.some(({ id }) => !needs.article.decisions.includes(answers.find((entry) => entry.article === id)?.decision))) return `Answer every article of the checklist for ${name}.`;
-    if (answers.some((entry) => entry.decision !== 'satisfied' && !entry.reason)) return `An article that is not satisfied needs its own reason, for ${name}.`;
+    if (needs.article.articles.some(({ id }) => !needs.article.decisions.includes(answers.find((entry) => entry.article === id)?.decision))) problems.push(`Answer every article of the checklist for ${name}.`);
+    if (answers.some((entry) => entry.decision !== 'satisfied' && !entry.reason)) problems.push(`An article that is not satisfied needs its own reason, for ${name}.`);
   }
-  return null;
-}
-
-/** A form's answers, by what each row is, or what is wrong with them. Nothing here is chosen for the person. */
-export function answersFromRows(items, content) {
-  const answers = [];
-  for (const [row, item] of items.entries()) {
-    const word = content?.[`decision${row}`];
-    const reason = String(content?.[`reason${row}`] ?? '').trim();
-    if (!word || word === LEAVE) {
-      if (reason) return { answers: [], problem: `Choose a decision for ${itemName(item)}, or clear its reason.` };
-      continue;
-    }
-    const option = item.options.filter(choosable).find((entry) => entry.label === word);
-    if (!option) return { answers: [], problem: `That is not a decision SFlow knows for ${itemName(item)}.` };
-    const values = { ...(option.needs?.reason ? { reason } : {}), ...(option.needs?.cause ? { cause: String(content?.[`cause${row}`] ?? '').trim() } : {}),
-      ...(option.needs?.expires ? { expires: String(content?.[`until${row}`] ?? '').trim() } : {}),
-      ...(option.needs?.clause ? { clause: String(content?.[`clause${row}`] ?? '').trim() } : {}),
-      ...(option.needs?.article ? { article: option.needs.article.articles.map(({ id }) => {
-        const decision = content?.[`article${row}-${id}`];
-        return { article: id, decision, ...(decision === 'satisfied' ? {} : { reason: String(content?.[`why${row}-${id}`] ?? '').trim() }) };
-      }) } : {}) };
-    const problem = checked(item, option, values);
-    if (problem) return { answers: [], problem };
-    answers.push({ item: item.id, title: item.title, option: option.id, ...values });
-  }
-  return { answers, problem: null };
+  return problems.join(' ') || null;
 }
 
 const answersDocument = (packet, answers) => {
@@ -169,7 +201,7 @@ export function witnessForm(review) {
     choice: { type: 'string', title: 'Did you look at it?', enum: ['I looked at it', NOT_NOW] },
     ...(review.files.length === 1 ? {} : { file: { type: 'string', title: 'The file you looked at, from the repository root' } }),
     ...Object.fromEntries(WITNESS_QUESTIONS.map(([id, question]) => [id, { type: 'string', title: question, enum: ['Yes', 'No'] }])),
-    reason: { type: 'string', title: 'What did you inspect? In your own words.', minLength: 10, maxLength: 1000 } } } };
+    reason: textField('What did you inspect? In your own words', { minimum: 10, maximum: 1000 }) } } };
 }
 
 export function witnessAnswers(review, content) {
@@ -191,33 +223,41 @@ export function witnessConfirm(review, { file, reason, answers }) {
 const reviewOn = (packet, key) => cardRows(packet).flatMap(reviews).map((option) => option.action.humanReview)
   .find((review) => review.clauseId === key.clauseId && review.slot === key.slot) ?? null;
 
-async function askRows(packet, ask, show) {
+/** Every answer the person gives before they confirm: `{ answers }`, `{ cancelled: true }` or `{ refused: problem }`. */
+async function askRows(packet, ask) {
   const { shared, form } = firstForm(packet);
   let answers = [];
   if (shared.length) {
-    for (;;) {
-      const first = await ask(form);
-      if (first?.action !== 'accept' || first.content?.choice === NOT_NOW) return null;
-      if (first.content.choice === EACH) break;
-      const entry = shared.find((candidate) => candidate.word === first.content.choice);
-      const reason = String(first.content.reason ?? '').trim();
-      const problem = entry && entry.items.map((item) => checked(item, item.options.find((option) => option.id === entry.id), { reason })).find(Boolean);
-      if (entry && !problem) { answers = entry.items.map((item) => ({ item: item.id, title: item.title, option: entry.id, reason })); break; }
-      await show(problem ?? 'Choose one of these.');
+    const first = await askUntilRight(ask, form, (content) => (content.choice === EACH || content.choice === NOT_NOW || shared.some((entry) => entry.word === content.choice)
+      ? { choice: content.choice } : { problem: 'Choose one of these.' }));
+    if (first.cancelled || first.choice === NOT_NOW) return { cancelled: true };
+    if (first.refused) return first;
+    const entry = shared.find((candidate) => candidate.word === first.choice);
+    if (entry) {
+      const options = (item) => item.options.find((option) => option.id === entry.id);
+      const one = options(entry.items[0]).needs?.reason ? await askUntilRight(ask, sharedReasonForm(entry), (content) => {
+        const reason = String(content.reason ?? '').trim();
+        const problem = entry.items.map((item) => checked(item, options(item), { reason })).find(Boolean);
+        return problem ? { problem } : { reason };
+      }) : {};
+      if (one.cancelled) return { cancelled: true };
+      if (one.refused) return one;
+      answers = entry.items.map((item) => ({ item: item.id, title: item.title, option: entry.id, ...(one.reason ? { reason: one.reason } : {}) }));
     }
   }
-  const chosen = new Set(answers.map((entry) => entry.item));
-  for (const page of rowForms(decidable(packet).filter((item) => !chosen.has(item.id)))) {
-    for (;;) {
-      const reply = await ask(page.form);
-      if (reply?.action !== 'accept') return answers.length ? answers : null;
-      const { answers: entered, problem } = answersFromRows(page.items, reply.content);
-      if (problem) { await show(problem); continue; }
-      answers.push(...entered);
-      break;
+  const taken = new Set(answers.map((entry) => entry.item));
+  for (const page of rowForms(decidable(packet).filter((item) => !taken.has(item.id)))) {
+    const chosen = await askUntilRight(ask, page.form, (content) => choicesFromRows(page.items, content));
+    if (chosen.cancelled) return answers.length ? { answers } : { cancelled: true };
+    if (chosen.refused) return chosen;
+    for (const { item, option } of chosen.picks) {
+      const given = hasNeeds(option) ? await askUntilRight(ask, detailForm(item, option), (content) => valuesFromForm(item, option, content)) : { values: {} };
+      if (given.cancelled) return answers.length ? { answers } : { cancelled: true };
+      if (given.refused) return given;
+      answers.push({ item: item.id, title: item.title, option: option.id, ...given.values });
     }
   }
-  return answers;
+  return { answers };
 }
 
 /**
@@ -232,8 +272,10 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
   if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
   await show(decisionsTable(packet));
   const recorded = [];
-  let answers = decidable(packet).length ? await askRows(packet, ask, show) : [];
-  if (answers === null) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
+  const asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
+  if (asked.cancelled) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
+  if (asked.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(asked.refused) };
+  let { answers } = asked;
   while (answers.length) {
     const confirmed = await ask(confirmForm(packet, answers));
     if (confirmed?.action !== 'accept' || confirmed.content?.confirm !== RECORD) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
@@ -259,18 +301,14 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
     const current = reviewOn(packet, key);
     if (!current) continue;
     if (current.files.length === 1) await inspect?.(packet, current.files[0]);
-    for (;;) {
-      const reply = await ask(witnessForm(current));
-      if (reply?.action !== 'accept' || reply.content?.choice === NOT_NOW) break;
-      const answer = witnessAnswers(current, reply.content);
-      if (answer.problem) { await show(answer.problem); continue; }
-      const sign = await ask(witnessConfirm(current, answer));
-      if (sign?.action === 'accept' && sign.content?.confirm === SIGN) {
-        const result = await witness(packet, current, answer);
-        if (result?.record?.id) recorded.push(result.record.id);
-        packet = await read();
-      }
-      break;
+    const answer = await askUntilRight(ask, witnessForm(current), (content) => (content.choice === NOT_NOW ? { notNow: true } : witnessAnswers(current, content)));
+    if (answer.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(answer.refused) };
+    if (answer.cancelled || answer.notNow) continue;
+    const sign = await ask(witnessConfirm(current, answer));
+    if (sign?.action === 'accept' && sign.content?.confirm === SIGN) {
+      const result = await witness(packet, current, answer);
+      if (result?.record?.id) recorded.push(result.record.id);
+      packet = await read();
     }
   }
   const remaining = openRows(packet).map((item) => itemName(item));

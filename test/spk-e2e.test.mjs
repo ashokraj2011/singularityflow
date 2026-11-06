@@ -404,9 +404,14 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     await decideEach(moved);
     await moved.waitFor(/Choose 1-\d+: $/u);
     moved.type(moved.number('Accept as is'));
+    // The choices of a form first, then what the chosen one needs, then the next form.
+    for (const _ of open.slice(1, 5)) {
+      await moved.waitFor(/Choose 1-\d+: $/u);
+      moved.type(moved.number('Leave undecided'));
+    }
     await moved.waitFor(/Reason for [^\n]*: $/u);
     moved.type('The person at the terminal accepts this one.');
-    for (const _ of open.slice(1)) {
+    for (const _ of open.slice(5)) {
       await moved.waitFor(/Choose 1-\d+: $/u);
       moved.type(moved.number('Leave undecided'));
     }
@@ -420,11 +425,16 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     // Each row its own reason, confirmed as the exact list, and one write of all of them.
     const answering = table();
     await decideEach(answering);
-    for (const [index] of open.entries()) {
-      await answering.waitFor(/Choose 1-\d+: $/u);
-      answering.type(answering.number('Accept as is'));
-      await answering.waitFor(/Reason for [^\n]*: $/u);
-      answering.type(`This row's own reason, number ${index + 1}.`);
+    for (let at = 0; at < open.length; at += 5) {
+      const page = open.slice(at, at + 5);
+      for (const _ of page) {
+        await answering.waitFor(/Choose 1-\d+: $/u);
+        answering.type(answering.number('Accept as is'));
+      }
+      for (const [offset] of page.entries()) {
+        await answering.waitFor(/Reason for [^\n]*: $/u);
+        answering.type(`This row's own reason, number ${at + offset + 1}.`);
+      }
     }
     await answering.waitFor(/Record \d+ decisions? on [\s\S]*I reviewed this exact change\n[\s\S]*Choose 1-2: $/u);
     answering.type(answering.number('Record these decisions'));

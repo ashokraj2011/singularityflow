@@ -22,6 +22,12 @@ export function pendingListOf(snapshot: Pick<RepositorySnapshot, 'workflow' | 's
   return pending;
 }
 
+/** Whether the step sheet's one next step is on the decision list (src/step-sheet.mjs), from an untrusted CLI result. */
+export function sheetNextIsTheList(sheet: unknown): boolean {
+  const next = sheet && typeof sheet === 'object' ? (sheet as { next?: { effect?: unknown; where?: { vscode?: unknown } } | null }).next : null;
+  return next?.effect !== 'approves' && next?.where?.vscode === 'singularityFlow.decisions';
+}
+
 /** "3 open on the decision list; first: Decide intent amendment AMD-001." */
 export function pendingListSentence(pending: PendingListView): string {
   if (!pending.open) return 'Nothing is open on the decision list.';

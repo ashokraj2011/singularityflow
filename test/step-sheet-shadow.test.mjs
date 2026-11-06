@@ -348,6 +348,12 @@ test('VS Code reads the sheet: who clears a hold for the person looking, a way o
   const html = approvalHoldsHtml(views);
   assert.match(html, /<strong>Say where src\/a\.mjs belongs<\/strong>/u);
   assert.equal(sheetHolds({ schema: 'something-else', holds: [] }), null, 'an older CLI\'s result reads as before');
+  // The Journey and the cards ask one question of it: is the next step on the decision list?
+  const { sheetNextIsTheList } = await import('../apps/vscode/src/decisions.ts');
+  assert.equal(sheetNextIsTheList(sheet), true);
+  const clear = decisionPacket(workflow, { phaseId: 'implementation', pending: {}, approvalCheck: { ready: true, holds: [] } }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  assert.equal(sheetNextIsTheList(stepSheet(workflow, clear, { approvalCheck: { ready: true, holds: [] }, authorities: AUTHORITIES, actor: ME })), false, 'the approval is next');
+  assert.equal(sheetNextIsTheList(undefined), false, 'an older CLI: as before');
 });
 
 test('where a step names a turn, that turn\'s guard admits the command, filled in as the person would', async (t) => {

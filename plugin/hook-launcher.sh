@@ -40,9 +40,12 @@ hook_input_goes_to_node() {
   # A file that may hold secrets goes to Node too: outside a turn the runtime refuses one in a repository
   # that uses SFlow (plainChatGuard). A dotfile, a settings or key extension (not `process.env.X`, `res.json(`
   # or `.keys()`), or the word. These names come from src/local-config-policy.mjs; a false match costs one Node start.
+  # So does a search for a credential word (CREDENTIAL_WORD in src/copilot-environment-files-guard.mjs): the line it prints may hold the value.
   local names='(^|[^]a-z0-9_)])\.env|\.(env|ya?ml|properties|toml|ini|cfg|conf|json|pem|key|p12|pfx|jks|keystore)($|[^a-z0-9_.([])|secret|credential' status
+  local searches='grep|(^|[^a-z0-9_])(rg|ag|ack)($|[^a-z0-9_])' words='pass|pwd|token|key|auth'
   shopt -s nocasematch
   [[ $text =~ $names ]]; status=$?
+  if (( status != 0 )) && [[ $text =~ $searches ]] && [[ $text =~ $words ]]; then status=0; fi
   shopt -u nocasematch
   return "$status"
 }
@@ -86,7 +89,7 @@ if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
   fi
   # A broken managed selection must not silently fall through to a different engine/version.
   if [[ "$action" == boundary-guard ]]; then
-    printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}'
+    printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story.","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}}'
   else printf '%s\n' '{}'; fi
   exit 0
 fi
@@ -121,7 +124,7 @@ if [[ -n "$node_path" ]]; then
     /opt/homebrew/bin/singularity-flow /usr/local/bin/singularity-flow /opt/local/bin/singularity-flow
 fi
 if [[ "$action" == boundary-guard ]]; then
-  printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook."}'
+  printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook.","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook."}}'
 else
   printf '%s\n' '{}'
 fi

@@ -1662,8 +1662,9 @@ async function longFileRead(toolCalls, cwd, { force = false } = {}) {
     // Offset/head/tail semantics differ by native reader. Do not reinterpret their coordinates
     // or reject an already bounded request as another whole-file read.
     if (!range && Object.keys(call.args).some(key => /offset|limit|range|start|end|head|tail/iu.test(key))) continue;
+    // Copilot CLI's view refuses an end past the last line. VS Code's read_file stops at the last line, so it is no error there.
     const invalid = range && (!Number.isSafeInteger(range[0]) || !Number.isSafeInteger(range[1])
-      || range[0] < 1 || range[0] > lines.length || range[1] > lines.length
+      || range[0] < 1 || range[0] > lines.length || (Array.isArray(call.args.view_range) && range[1] > lines.length)
       || (range[1] !== -1 && range[1] < range[0]));
     const first = Number.isSafeInteger(range?.[0]) && range[0] > 0 && range[0] <= lines.length ? range[0] : 1;
     const last = Number.isSafeInteger(range?.[1]) && range[1] >= first ? Math.min(range[1], lines.length) : lines.length;

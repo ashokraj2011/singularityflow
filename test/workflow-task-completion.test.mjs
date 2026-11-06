@@ -141,6 +141,9 @@ test('size and exact-path recovery applies to native read aliases, never real ac
   assert.equal(badRange.code, 'FILE_READ_RANGE_INVALID');
   assert.deepEqual(badRange.readRequests, [{ tool: 'Read', args: { path: small, view_range: [2, 3] } }]);
   assert.deepEqual(await repositoryToolGuard({ ...f.payload, toolName: 'Read', toolArgs: badRange.readRequests[0].args }), {});
+  // VS Code's read_file stops at the last line, so an end past it is no error there. A start past it still reads nothing.
+  assert.deepEqual(await repositoryToolGuard({ ...f.payload, toolName: 'read_file', toolArgs: { filePath: small, startLine: 1, endLine: 500 } }), {});
+  assert.equal((await repositoryToolGuard({ ...f.payload, toolName: 'read_file', toolArgs: { filePath: small, startLine: 40, endLine: 50 } })).code, 'FILE_READ_RANGE_INVALID');
   const pdf = path.join(f.root, 'reference.pdf');
   await writeFile(pdf, `%PDF-1.7\n${'a readable PDF stream\n'.repeat(600)}`);
   assert.deepEqual(await repositoryToolGuard({ ...f.payload, toolName: 'get_file', toolArgs: { path: pdf } }), {},

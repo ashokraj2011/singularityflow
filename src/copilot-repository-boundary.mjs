@@ -447,6 +447,23 @@ async function unreadablePayload(event, identity) {
   return {};
 }
 
+// The hook event each action answers, as VS Code names it.
+const VSCODE_HOOK_EVENTS = Object.freeze({ 'boundary-guard': 'PreToolUse', 'boundary-after': 'PostToolUse', 'agent-start': 'SubagentStart', 'boundary-stop': 'Stop', 'boundary-failure': 'PostToolUseFailure' });
+const VSCODE_HOOK_FIELDS = Object.freeze(['permissionDecision', 'permissionDecisionReason', 'additionalContext', 'decision', 'reason']);
+
+/**
+ * A hook's answer in a shape every host reads. Copilot CLI reads the top level. VS Code's own chat reads a
+ * tool decision and added context only under `hookSpecificOutput` and ignores the rest without a word, so a
+ * refusal left at the top level ran the tool anyway. Copilot CLI ignores the extra field.
+ */
+export function hookAnswerForEveryHost(action, answer) {
+  const hookEventName = VSCODE_HOOK_EVENTS[action];
+  if (!hookEventName || !answer || typeof answer !== 'object') return answer;
+  const fields = VSCODE_HOOK_FIELDS.filter((field) => answer[field] !== undefined);
+  if (!fields.length) return answer;
+  return { ...answer, hookSpecificOutput: { hookEventName, ...Object.fromEntries(fields.map((field) => [field, answer[field]])) } };
+}
+
 /** Host hooks always answer JSON, even with malformed input; they must work outside Git. */
 export async function runRepositoryBoundaryHook(event, input = process.stdin) {
   try {
@@ -465,13 +482,13 @@ export async function runRepositoryBoundaryHook(event, input = process.stdin) {
       try { payload = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/u, '') || '{}'); } catch { payload = null; }
     }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return console.log(codePageSafeJson(JSON.stringify(await unreadablePayload(event, payloadIdentity(raw.subarray(0, IDENTITY_HEAD))))));
+      return console.log(codePageSafeJson(JSON.stringify(hookAnswerForEveryHost(event, await unreadablePayload(event, payloadIdentity(raw.subarray(0, IDENTITY_HEAD)))))));
     }
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
       'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
       'boundary-after': repositoryPostToolGuard, 'boundary-stop': repositoryAgentStop,
       'boundary-failure': repositoryToolFailure }[event];
     // A Windows hook launcher passes this through PowerShell, which decodes it in the console's code page.
-    return console.log(codePageSafeJson(JSON.stringify(await handler(payload))));
+    return console.log(codePageSafeJson(JSON.stringify(hookAnswerForEveryHost(event, await handler(payload)))));
   } catch { return console.log('{}'); }
 }

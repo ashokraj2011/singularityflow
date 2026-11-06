@@ -34,7 +34,9 @@ function Test-HookInputGoesToNode {
   }
   if ([regex]::IsMatch($text, 'sflow|singularity-flow|\u00C5\u00BF|\\u00[2-7][0-9a-f]|\\u017f',
     [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) { return $true }
-  # A file that may hold secrets goes to Node too (plainChatGuard). Mirrors the names in hook-launcher.sh.
+  # A file that may hold secrets goes to Node too (plainChatGuard), and a search for a credential word. Mirrors hook-launcher.sh.
+  if ([regex]::IsMatch($text, 'grep|(^|[^a-z0-9_])(rg|ag|ack)($|[^a-z0-9_])', [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant') -and
+    [regex]::IsMatch($text, 'pass|pwd|token|key|auth', [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) { return $true }
   return [regex]::IsMatch($text, '(^|[^a-z0-9_)\]])\.env|\.(env|ya?ml|properties|toml|ini|cfg|conf|json|pem|key|p12|pfx|jks|keystore)($|[^a-z0-9_.(\[])|secret|credential',
     [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')
 }
@@ -100,7 +102,7 @@ if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
       Invoke-HookNode $managedNode (@((Join-Path $PSScriptRoot 'hook-launcher.mjs'), $Action) + $managedArgs)
     }
   }
-  if ($Action -eq 'boundary-guard') { Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}' }
+  if ($Action -eq 'boundary-guard') { Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story.","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}}' }
   else { Write-Output '{}' }
   exit 0
 }
@@ -151,5 +153,5 @@ if ($nodePath) {
   Invoke-HookNode $nodePath (@((Join-Path $PSScriptRoot 'hook-launcher.mjs'), $Action) + $candidates)
 }
 if ($Action -eq 'boundary-guard') {
-  Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook."}'
+  Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook.","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: Node.js is unavailable to Copilot. Repair the SFlow installation from a human terminal, run singularity-flow plugin install, and reload VS Code. Preserve the Story; changing its ID will not repair the hook."}}'
 } else { Write-Output '{}' }

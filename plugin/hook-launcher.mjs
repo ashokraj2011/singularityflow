@@ -28,9 +28,11 @@ function markRuntimeUnavailable() {
 }
 const unavailable = () => {
   markRuntimeUnavailable();
+  const reason = 'SFLOW_HOOK_RUNTIME_UNAVAILABLE: Copilot cannot load the installed SFlow runtime. From a human terminal repair the installation, run singularity-flow plugin install, then reload VS Code. Preserve the Story; do not disable hooks or change its ID.';
   console.log(JSON.stringify(action === 'boundary-guard' ? {
-    permissionDecision: 'deny', permissionDecisionReason:
-      'SFLOW_HOOK_RUNTIME_UNAVAILABLE: Copilot cannot load the installed SFlow runtime. From a human terminal repair the installation, run singularity-flow plugin install, then reload VS Code. Preserve the Story; do not disable hooks or change its ID.'
+    permissionDecision: 'deny', permissionDecisionReason: reason,
+    // VS Code's own chat reads a decision only here (hookAnswerForEveryHost in src/copilot-mode.mjs).
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason }
   } : {}));
 };
 

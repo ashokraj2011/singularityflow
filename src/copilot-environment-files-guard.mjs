@@ -24,6 +24,9 @@ import { alwaysLocalName, classifiedShared, configShapedPath } from './local-con
 const DECLARATION = path.join('singularity', 'environments.yml');
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin', 'write_bash']);
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent', 'grep_search']);
+// A search for one of these words may print the line that holds a credential (copilot-search-exposure.mjs). The launchers test the same words.
+const CREDENTIAL_WORD = /pass|pwd|secret|credential|token|key|auth/iu;
+const SHELL_SEARCH = /(?:^|[\s/;&|('"])(?:e?f?grep|rg|ag|ack)(?:[\s'"]|$)/u;
 const MAXIMUM_RECORD_BYTES = 262_144;
 const MAXIMUM_SCANNED_BYTES = 262_144;
 // `env files` subcommands Copilot may run: they print paths and statuses, or create from a template.
@@ -205,7 +208,8 @@ function absoluteOf(target, cwd) {
 // A glob that would take in one of these names: `.env*`, `.env.*`.
 function globTakesLocalName(target) {
   const name = String(target).replaceAll('\\', '/').split('/').at(-1);
-  if (!/[*?[]/u.test(name)) return false;
+  // Only a glob that starts with a dot takes a dotfile: `**` or `src/*` in a search does not name one.
+  if (!/[*?[]/u.test(name) || !name.startsWith('.')) return false;
   try {
     const glob = new RegExp(`^${name.replace(/[.+^${}()|\\]/gu, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')}$`, 'u');
     return ['.env', '.env.local'].some((candidate) => glob.test(candidate));
@@ -242,6 +246,14 @@ const SEARCHES = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack']);
 const SEARCH_PATH_OPTIONS = new Set(['-g', '--glob', '--iglob', '--include', '--exclude', '-f', '--file']);
 const quoteless = (word) => word.replace(/^['"]|['"]$/gu, '');
 
+// What a search leaves out it does not open: `--exclude=x`, `--exclude x`, `-g '!x'`, `':!x'`.
+function excludedBySearch(words, index) {
+  const word = quoteless(words[index]);
+  const before = quoteless(words[index - 1] ?? '');
+  return /^--exclude(?:-dir)?=/u.test(word) || /^--exclude(?:-dir)?$/u.test(word) || /^--exclude(?:-dir)?$/u.test(before)
+    || /^(?:--i?glob=)?!/u.test(word) || word.startsWith(':!') || word.startsWith(':(exclude)');
+}
+
 /** The words one simple shell command could open, split so `HEAD:.env`, `if=.env` and `open('.env')` show their paths. */
 function openedTokens(simple) {
   const words = simple.match(/"[^"]*"|'[^']*'|\S+/gu) ?? [];
@@ -260,7 +272,7 @@ function openedTokens(simple) {
       if (SEARCH_PATH_OPTIONS.has(words[index])) { index += 1; continue; }
       if (!words[index].startsWith('-')) { pattern = index; break; }
     }
-    operands = words.filter((_, index) => index !== pattern);
+    operands = words.filter((word, index) => index !== pattern && !excludedBySearch(words, index));
   }
   return [...operands.flatMap((word) => word.split(/[\s'"`=:(),;&|<>]+/u)), ...redirected].filter(Boolean);
 }
@@ -300,8 +312,8 @@ async function heldValue(target, cwd) {
   // A compose file's `postgres://postgres:postgres@db` names a service on its own network: the commit gate judges it, this does not hide the file.
   const onItsOwnNetwork = (entry) => entry.rule === 'url-credentials'
     && !/:\/\/[^\s/:@]*:[^\s/@]+@[^\s/:?#]*\./u.test(lines[entry.line - 1] ?? '');
-  const finding = scanText(content, { path: target }).find((entry) => !entry.waived && !onItsOwnNetwork(entry));
-  return finding ? { target, finding } : null;
+  const findings = scanText(content, { path: target }).filter((entry) => !entry.waived && !onItsOwnNetwork(entry));
+  return findings.length ? { target, finding: findings[0], findings, lines } : null;
 }
 
 function alwaysLocalDenial(target) {
@@ -320,6 +332,27 @@ function valueDenial({ target, finding }) {
       + 'Ask the person to move it out: replace it with ${NAME} and keep the value in an always-local file such as application-local.yml or .env. '
       + 'If it is only an example, the person puts the waiver marker sflow-allow-secret, a colon and why on that line or the line above it. Keep working without its contents.'
   };
+}
+
+function searchDenial({ file, finding }, cwd) {
+  const shown = path.relative(cwd || process.cwd(), file) || file;
+  const name = path.basename(file);
+  const without = `Search without it: grep --exclude=${name}, rg -g '!${name}', or a narrower folder or include pattern. Keep working without its contents.`;
+  return { permissionDecision: 'deny', next: [], permissionDecisionReason: finding
+    ? `CONFIG_VALUE_PRIVATE: this search would show a real value in ${shown} (${finding.label}, line ${finding.line}), so it did not run. ${without}`
+    : `ENVIRONMENT_FILE_PRIVATE: this search would show lines of ${shown}, which stays on this laptop, so it did not run. ${without}` };
+}
+
+/** The refusal for a search that would show a secret from a file it does not name. See copilot-search-exposure.mjs. */
+async function searchRefusal(searches, cwd, scope, protection) {
+  const judge = { covers: scope.covers, allows: scope.allows, heldValue, privateByName: alwaysLocalTarget,
+    declared: protection ? (file) => Boolean(protectedTarget(protection, file, cwd)) : null };
+  const { secretShownBySearch } = await import('./copilot-search-exposure.mjs');
+  for (const search of searches) {
+    const shown = await secretShownBySearch(search, cwd, judge);
+    if (shown) return searchDenial(shown, cwd);
+  }
+  return null;
 }
 
 function denial(target) {
@@ -361,6 +394,12 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
       }
       const refused = await shellLineRefusal(command, cwd, scope);
       if (refused) return refused;
+      if (CREDENTIAL_WORD.test(command) && SHELL_SEARCH.test(command)) {
+        const { searchesInCommand } = await import('./copilot-search-exposure.mjs');
+        const searches = searchesInCommand(command, cwd).filter((search) => search.anything || CREDENTIAL_WORD.test(search.pattern ?? ''));
+        const shown = searches.length ? await searchRefusal(searches, cwd, scope, protection) : null;
+        if (shown) return shown;
+      }
       continue;
     }
     const targets = SEARCH_TOOLS.has(call.name)
@@ -374,6 +413,12 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
       }
       const refusal = await namedFileRefusal(target, cwd, scope);
       if (refusal) return refusal;
+    }
+    if (SEARCH_TOOLS.has(call.name) && CREDENTIAL_WORD.test(String(call.args.pattern ?? call.args.query ?? call.args.regex ?? ''))) {
+      const { searchOfTool } = await import('./copilot-search-exposure.mjs');
+      const search = searchOfTool(call.name, call.args);
+      const shown = search ? await searchRefusal([search], cwd, scope, protection) : null;
+      if (shown) return shown;
     }
   }
   return null;

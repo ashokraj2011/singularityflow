@@ -26,7 +26,8 @@ async function runAgentStart(input) {
     }
     const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return console.log('{}');
-    return console.log(codePageSafeJson(JSON.stringify(await copilotAgentStartPayload(payload))));
+    const { hookAnswerForEveryHost } = await import('./copilot-repository-boundary.mjs');
+    return console.log(codePageSafeJson(JSON.stringify(hookAnswerForEveryHost('agent-start', await copilotAgentStartPayload(payload)))));
   } catch { return console.log('{}'); }
 }
 

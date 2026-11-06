@@ -178,17 +178,50 @@ These still reach Git unread, and the spec does not claim otherwise:
   skips them.
 - A viewable file in a reviewed agent folder, and the evidence screenshot an Outcome sign-off commits.
 
+### Searches
+
+A search can print the line that holds a value without naming the file: a real run of `grep -rn password .` put an
+`application.yml` value in the session log. So a search is refused when its pattern would match a line holding a real
+value, in a file it would read, and for a search that reads hidden files (`grep -r`, `rg --hidden`, VS Code's search
+tool), any line of an always-local file. The refusal names the file and line, never the value, and says how to search
+without it. Everything else runs:
+
+- A search for words with no credential in them. Only a pattern with `pass`, `pwd`, `secret`, `credential`, `token`,
+  `key` or `auth` is checked, in `/sf-` turns and plain chats alike, so a pattern as broad as `.` is not seen.
+- A search with no matching line, or one that leaves the file out: `--exclude`, `--exclude-dir`, `-g '!x'`, `':!x'`, a
+  narrower folder, an include pattern.
+- A search that shows only names or counts: `-l`, `-L`, `-c`, `-q`, `output_mode: files_with_matches`.
+
+The check walks at most 20,000 entries and skips `.git`, `node_modules`, `dist`, `build`, `target`, `out`, `vendor`,
+`.venv`, `venv`, `__pycache__`, `.gradle`, `.idea`, `coverage`, `.next`, `.sflow` and `.singularity-flow`. A plain chat
+and the launchers treat it like any other secrets check: a repository that does not use SFlow is left alone, a capability
+can allow it, and a failure lets the search run.
+
+### Hosts
+
+Each host reads hooks from its own place and reads the answer in its own shape, so a guard can run and still do nothing.
+
+| Host | Where hooks come from | What it obeys | Result |
+|---|---|---|---|
+| Copilot CLI | The installed plugin | `permissionDecision` at the top level | Checked in real chats |
+| VS Code's default chat (Local) | The installed plugin in `~/.copilot` | `hookSpecificOutput.permissionDecision` only, ignoring the top level without a word | Checked in real chats since this was added. Before it, every SFlow refusal ran the tool anyway |
+| IntelliJ (Copilot plugin 1.10.1) | Only `<workspace>/.github/hooks/*.json`, not the plugin | `permissionDecision` at the top level | SFlow writes no such file, so no guard runs. Its calls carry no session ID, so a hook could give the plain-chat checks and no `/sf-` turn rules |
+
+`hookAnswerForEveryHost` writes both shapes. A real `/sf-phase` in VS Code recorded its clarification, wrote the specification and
+published with no refusal.
+
 ### What the Copilot check cannot see
 
 It reads what a call says. These still get through, and the spec does not claim otherwise:
 
-- A recursive search over a folder, such as `grep -r password src` or `git grep`. Search tools skip hidden and
-  excluded files by default, which covers `.env` once it is excluded, but not a value in a shared config file.
-- A path in a variable or a script, or a shared config file reached through `cd` first.
+- A path in a variable or a script, or a shared config file reached through `cd` first. A search from another folder after `cd` is judged from the first.
+- Other ways of printing many files, such as `cat **/*.yml` or `find . -exec cat`, and a search whose pattern has no credential word.
 - A running program that reads the file for itself. `source .env` and `--env-file .env` are refused because
   they name it; a test command that loads it is not.
-- A file attached to the chat itself, such as `#file:.env`. The host adds it to the prompt without a tool call, so
-  no tool guard sees it.
+- A file attached to the chat itself. In VS Code, Add Context on `.env` put its value in front of the model with no tool
+  call, in a real run, so no tool guard sees it. Typing `#file:.env` without picking the file attaches nothing.
+- A local attachment the model opens. A PDF kept on this laptop stays out of Git, but SFlow offers it to the step, and VS Code
+  can open it in its browser tool after asking the person.
 
 ## Nothing dead-ends
 

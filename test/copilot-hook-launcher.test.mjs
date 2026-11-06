@@ -41,6 +41,7 @@ function assertRootUnavailable(result, action) {
   const output = JSON.parse(result.stdout);
   if (action === 'boundary-guard') {
     assert.equal(output.permissionDecision, 'deny');
+    assert.equal(output.hookSpecificOutput.permissionDecision, 'deny', 'VS Code reads a refusal only there');
     assert.match(output.permissionDecisionReason, /SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE/);
     assert.match(output.permissionDecisionReason, /plugin install/);
   } else assert.deepEqual(output, {});
@@ -78,6 +79,7 @@ test('runtime resolution failure is an actionable JSON refusal, never hook exit 
   assert.equal(result.status, 0, result.stderr);
   const decision = JSON.parse(result.stdout);
   assert.equal(decision.permissionDecision, 'deny');
+  assert.equal(decision.hookSpecificOutput.permissionDecision, 'deny', 'VS Code reads a refusal only there');
   assert.match(decision.permissionDecisionReason, /SFLOW_HOOK_RUNTIME_UNAVAILABLE/);
   assert.match(decision.permissionDecisionReason, /plugin install/);
   assert.match(decision.permissionDecisionReason, /Preserve the Story/);
@@ -436,6 +438,26 @@ async function noTurnHost(item, { capture = null } = {}) {
   return { starts, launch };
 }
 
+test('with no SFlow turn recorded, the bash guard sends a search for a credential word to the runtime, and no other search', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const host = await noTurnHost(item);
+  const call = (toolName, toolArgs) => JSON.stringify({ sessionId: 'native', toolName, toolArgs });
+  for (const managed of [false, true]) {
+    for (const quiet of [call('bash', { command: 'grep -rn timeout src' }), call('bash', { command: 'git status' }), call('grep_search', { query: 'timeout' }), call('rg', { pattern: 'render' })]) {
+      const before = host.starts();
+      assert.deepEqual(host.launch('boundary-guard', quiet, { managed }).output, {});
+      assert.equal(host.starts(), before, `${managed ? 'managed' : 'PATH'}: ${quiet} starts no Node`);
+    }
+    for (const search of [call('bash', { command: 'grep -rn password .' }), call('bash', { command: 'rg api_key' }), call('grep_search', { query: 'token' }), call('grep', { pattern: 'password', output_mode: 'content' })]) {
+      const before = host.starts();
+      host.launch('boundary-guard', search, { managed });
+      assert.equal(host.starts(), before + 1, `${managed ? 'managed' : 'PATH'}: ${search} goes to the runtime`);
+    }
+  }
+});
+
 test('with no SFlow turn recorded, the bash guard sends a call naming SFlow to the runtime, which refuses a person\'s own step', {
   skip: process.platform === 'win32'
 }, async t => {
@@ -453,6 +475,10 @@ test('with no SFlow turn recorded, the bash guard sends a call naming SFlow to t
     const approve = host.launch('boundary-guard', shell('singularity-flow approve specification --work-id S-1 --yes'), { managed }).output;
     assert.equal(approve.permissionDecision, 'deny', JSON.stringify(approve));
     assert.match(approve.permissionDecisionReason, /approving a step is the decision of a person/);
+    // VS Code's own chat reads a decision only here, and ran the tool when it was missing.
+    assert.equal(approve.hookSpecificOutput.hookEventName, 'PreToolUse');
+    assert.equal(approve.hookSpecificOutput.permissionDecision, 'deny');
+    assert.equal(approve.hookSpecificOutput.permissionDecisionReason, approve.permissionDecisionReason);
     // One call of a batch, a JSON escape that spells the name, and a call past the first MiB all reach the runtime.
     const batch = { ...binding, toolCalls: [{ id: 'a', name: 'bash', args: { command: 'ls' } },
       { id: 'b', name: 'bash', args: { command: 'cd sub && npx singularity-flow reject specification --work-id S-1 --to specification --reason x' } }] };

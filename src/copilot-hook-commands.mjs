@@ -6,7 +6,8 @@ const UNAVAILABLE = 'SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE: The packaged SFlow hook
 export function copilotHookCommand(action, shell) {
   if (!ACTIONS.has(action)) throw new TypeError(`Unsupported Copilot hook action: ${action}`);
   const result = JSON.stringify(action === 'boundary-guard'
-    ? { permissionDecision: 'deny', permissionDecisionReason: UNAVAILABLE } : {});
+    ? { permissionDecision: 'deny', permissionDecisionReason: UNAVAILABLE,
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: UNAVAILABLE } } : {});
   if (shell === 'bash') return 'sflow_hook_root="${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-}}"; '
     + 'if [ -n "$sflow_hook_root" ] && [ "${sflow_hook_root#/}" != "$sflow_hook_root" ] && [ -f "$sflow_hook_root/hook-launcher.sh" ]; then '
     + `/bin/bash "$sflow_hook_root/hook-launcher.sh" ${action}; `

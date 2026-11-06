@@ -6296,11 +6296,11 @@ async function hookCommand(positionals) {
         'boundary-guard': boundary.repositoryToolGuard, 'boundary-end': boundary.endRepositoryBoundaryTurn,
         'boundary-after': boundary.repositoryPostToolGuard, 'boundary-stop': boundary.repositoryAgentStop,
         'boundary-failure': boundary.repositoryToolFailure }[event];
-      return console.log(JSON.stringify(await handler(payload)));
+      return console.log(JSON.stringify(boundary.hookAnswerForEveryHost(event, await handler(payload))));
     }
     if ((await import('./copilot-mode.mjs')).readCopilotMode().paused) return console.log('{}');
-    if (event === 'agent-start') return console.log(JSON.stringify(
-      await (await import('./copilot-agent-start.mjs')).copilotAgentStartPayload(payload)));
+    if (event === 'agent-start') return console.log(JSON.stringify((await import('./copilot-repository-boundary.mjs')).hookAnswerForEveryHost(event,
+      await (await import('./copilot-agent-start.mjs')).copilotAgentStartPayload(payload))));
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
     const root = repoRoot(candidate);
     if (!root) return console.log('{}');

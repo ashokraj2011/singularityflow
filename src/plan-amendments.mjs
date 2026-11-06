@@ -51,7 +51,7 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
       const clauseId = String(change.clauseId ?? '').toUpperCase();
       const claim = plan[clauseId];
       if (!claim) {
-        throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId } });
+        throw new SingularityFlowError(`The plan has no row for ${clauseId}; a plan amendment adds to an existing row. Its rows: ${Object.keys(plan).slice(0, 12).join(', ') || 'none'}.`, { code: 'PLAN_AMENDMENT_INVALID', details: { clauseId, rows: Object.keys(plan) } });
       }
       const candidate = exactPath(change.path, `The location for ${clauseId}`);
       if (claim.fulfillment === 'test-only' && !isTestAutomationPath(candidate)) {

@@ -698,7 +698,8 @@ function holdRoute(error, owner, workflow, phase) {
     .find((entry) => typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command }));
   if (named) return { label: String(named.label ?? named.detail ??
     (owner === 'someone-decides' && error.code === 'SPEC_COVERAGE_INCOMPLETE' && details.coverage?.unclaimedChangedPaths?.length
-      ? 'An approver of the plan accounts for the exact changed path; preserve the submitted code and test evidence.' : '')).slice(0, 400),
+      ? `An approver of the plan accounts for the exact changed path; preserve the submitted code and test evidence.${details.planRows?.length
+        ? ` The plan's rows: ${details.planRows.map((row) => row.clauseId).join(', ')}.` : ''}` : '')).slice(0, 400),
   command: safeCommandGuidance({ command: named.command }).command };
   const workId = workflow.workItem.id;
   if (owner === 'author-repairs') return { label: `An approver returns ${phase.id} for changes; its author revises it and submits it again.`,
@@ -717,6 +718,7 @@ function approvalHold(error, workflow, phase) {
     who: /^singularity-flow decision plan /u.test(route?.command ?? '') ? 'An approver of the plan decides' : OWNER_WORDS[owner],
     summary: String(error.message ?? '').split('\n')[0].slice(0, 400),
     ...(route ? { action: route } : {}),
+    ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
     ...(APPROVAL_HOLD_OWNERS[error.code] || OWNER_PREFIXES.some(([prefix]) => String(error.code ?? '').startsWith(prefix)) ? {} : { unclassified: true })
   };
 }

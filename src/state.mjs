@@ -2012,9 +2012,12 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
         evidenceCommit, coverage,
         // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
+        // Which row is the approver's choice, so the rows go with it: nobody should have to open the plan to find them.
         ...(coverage.unclaimedChangedPaths.length ? {
           recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
-            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
+            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`),
+          planRows: Object.entries(planned).slice(0, 12).map(([clauseId, claim]) => ({ clauseId,
+            ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}) }))
         } : {})
       }
     }

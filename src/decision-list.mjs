@@ -565,11 +565,12 @@ function holdItem(workflow, context, kind, hold) {
   const command = hold.action?.command ?? `singularity-flow phase show ${workflow.currentPhase} --work-id ${workflow.workItem.id} --json`;
   // A plan decision names its real approvers, which can be this person.
   const decided = /^singularity-flow decision plan /u.test(command)
-    ? stepDecidedBy(workflow, context, planAuthorities(workflow), 'Fill in the clause and your reason, then run it.') : null;
+    ? stepDecidedBy(workflow, context, planAuthorities(workflow), 'Choose the row it belongs to and give your reason, then run it.') : null;
+  const rows = (hold.planRows ?? []).map((row) => (row.result ? `${row.clauseId} (${row.result})` : row.clauseId)).join('; ');
   return {
-    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].slice(0, 200), why: decided ? `${hold.summary} ${decided.words}` : `${hold.who}: ${hold.summary}`,
+    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].slice(0, 200), why: decided ? `${hold.summary} ${decided.words}${rows ? ` The plan's rows: ${rows}.` : ''}` : `${hold.who}: ${hold.summary}`,
     options: [{ ...personalStep({ id: 'route', label: hold.action?.label || hold.who, command, words: decided?.words ?? hold.who }), ...(decided ? { decidedBy: decided } : {}) }],
-    details: { code: hold.code, owner: hold.owner, commands: [command] }
+    details: { code: hold.code, owner: hold.owner, commands: [command], ...(hold.planRows ? { planRows: hold.planRows } : {}) }
   };
 }
 

@@ -25,7 +25,7 @@ const amend = (workflow, changes, overrides = {}) => recordPlanAmendment(workflo
 
 test('a plan amendment adds a location to an existing row or a supporting change of the right class', () => {
   const workflow = story();
-  assert.throws(() => amend(workflow, [{ kind: 'add-location', clauseId: `${W}:AC-009`, path: 'src/helper.mjs' }]), /has no row/);
+  assert.throws(() => amend(workflow, [{ kind: 'add-location', clauseId: `${W}:AC-009`, path: 'src/helper.mjs' }]), /has no row for .*Its rows: /u);
   assert.throws(() => amend(workflow, [{ kind: 'add-location', clauseId: `${W}:AC-002`, path: 'src/helper.mjs' }]), /test-only/);
   assert.throws(() => amend(workflow, [{ kind: 'add-location', clauseId: `${W}:AC-001`, path: 'src/*.mjs' }]), /one exact repository-relative file path/);
   assert.throws(() => amend(workflow, [{ kind: 'add-supporting', path: 'src/helper.mjs', class: 'build-configuration', reason: 'Splits the module.' }]),

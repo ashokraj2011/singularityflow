@@ -273,15 +273,17 @@ test('a changed path the plan misses is its approvers\' to account for, named as
     return decisionPacket(planned, {
       ...base, phaseId: 'implementation', scopePhase: 'planning',
       approvalCheck: { holds: [{ code: 'SPEC_COVERAGE_INCOMPLETE', owner: 'someone-decides', who: 'An approver of the plan decides', summary: 'Phase implementation cannot be approved because specification coverage is incomplete.',
-        action: { label: 'An approver of the plan accounts for the exact changed path.', command: route } }] },
+        action: { label: 'An approver of the plan accounts for the exact changed path.', command: route },
+        planRows: [{ clauseId: 'WORK:REQ-001', result: 'The button converts the shown value.' }, { clauseId: 'WORK:AC-001' }] }] },
       pending: { ...base.pending, intentAmendments: [], forwardAmendments: [], appeals: [], owed: [], transport: [], publication: null, routing: null }
     }, { authorities: planned.resolution.approvalAuthorities, actor: { name: 'Person', email }, at: AT });
   };
   const mine = listFor('sole@example.test').items.find((item) => item.kind === 'approval-hold');
   assert.equal(mine.options[0].decidedBy.allowed, true);
   assert.deepEqual(mine.options[0].decidedBy.groups, ['architecture']);
-  assert.match(mine.why, /You may do this \(Architecture reviewers\)\. Fill in the clause and your reason, then run it\./u);
+  assert.match(mine.why, /You may do this \(Architecture reviewers\)\. Choose the row it belongs to and give your reason, then run it\./u);
   assert.doesNotMatch(JSON.stringify(mine), /Someone else/u);
+  assert.match(mine.why, /The plan's rows: WORK:REQ-001 \(The button converts the shown value\.\); WORK:AC-001\./u, 'the command leaves the row blank, so the choices come with it');
   const theirs = listFor('other@example.test').items.find((item) => item.kind === 'approval-hold');
   assert.equal(theirs.options[0].decidedBy.allowed, false);
   assert.match(theirs.why, /The Architecture reviewers \(Sole Reviewer\) decide this; ask them\./u);

@@ -20,19 +20,35 @@ export type StatusChrome = {
 };
 
 const STATUS_READ_TIMEOUT_MS = 30_000;
+// A stopped worker gets this long to release what it holds. A signal listener in the shared kernel can hold SIGTERM back.
+const STOP_GRACE_MS = 2_000;
+// Asking again at once only adds another process to the load that wedged the last read.
+const WEDGED_BACKOFF_MS = 60_000;
+export type StatusWorkerTiming = { readonly readTimeoutMs: number; readonly stopGraceMs: number; readonly wedgedBackoffMs: number };
 type Pending = { resolve(value: StatusChrome | null): void; timer: ReturnType<typeof setTimeout> };
 
+/** One window keeps at most one worker: a new one starts only once the last has really gone. */
 export class GatewayStatusWorker {
   private worker: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  private readonly stopping = new Set<ChildProcess>();
+  private notBefore = 0;
   private disposed = false;
+  private readonly extensionPath: string;
+  private readonly timing: StatusWorkerTiming;
 
-  constructor(private readonly extensionPath: string) {}
+  constructor(extensionPath: string, timing: StatusWorkerTiming = {
+    readTimeoutMs: STATUS_READ_TIMEOUT_MS, stopGraceMs: STOP_GRACE_MS, wedgedBackoffMs: WEDGED_BACKOFF_MS
+  }) {
+    this.extensionPath = extensionPath;
+    this.timing = timing;
+  }
 
   read(route: GatewayRepositoryContext, workId: string | null, lens: string): Promise<StatusChrome | null> {
-    if (this.disposed) return Promise.resolve(null);
-    const worker = this.ensureWorker();
+    if (this.disposed || this.stopping.size || Date.now() < this.notBefore) return Promise.resolve(null);
+    let worker: ChildProcess;
+    try { worker = this.ensureWorker(); } catch { return Promise.resolve(null); }
     const id = this.nextId++;
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -40,11 +56,10 @@ export class GatewayStatusWorker {
         resolve(null);
         // A wedged read cannot safely share its process with the next repository/status request.
         if (this.worker === worker) {
-          this.worker = null;
-          this.finishPending();
-          worker.kill();
+          this.notBefore = Date.now() + this.timing.wedgedBackoffMs;
+          this.retire(worker);
         }
-      }, STATUS_READ_TIMEOUT_MS);
+      }, this.timing.readTimeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, timer });
       try {
@@ -62,7 +77,9 @@ export class GatewayStatusWorker {
     const worker = this.worker;
     this.worker = null;
     this.finishPending();
-    if (worker) worker.kill();
+    // The window is closing and no timer can be relied on to follow up.
+    if (worker) worker.kill('SIGKILL');
+    for (const stopping of this.stopping) stopping.kill('SIGKILL');
   }
 
   private ensureWorker(): ChildProcess {
@@ -86,16 +103,29 @@ export class GatewayStatusWorker {
       this.pending.delete(message.id!);
       pending.resolve(message.value ?? null);
     });
+    // An error does not mean it has gone: a failed send leaves a live process nobody would stop.
     worker.on('error', () => {
-      recordHostBackgroundProcessCompleted(worker.pid);
-      this.workerFailed(worker);
+      if (this.worker === worker) this.retire(worker);
     });
     worker.on('exit', () => {
       recordHostBackgroundProcessCompleted(worker.pid);
+      this.stopping.delete(worker);
       this.workerFailed(worker);
     });
     this.worker = worker;
     return worker;
+  }
+
+  private retire(worker: ChildProcess): void {
+    this.worker = null;
+    this.finishPending();
+    // A worker that never started has no process to wait for, and never exits.
+    if (!worker.pid) return;
+    this.stopping.add(worker);
+    worker.kill();
+    const timer = setTimeout(() => worker.kill('SIGKILL'), this.timing.stopGraceMs);
+    timer.unref?.();
+    worker.once('exit', () => clearTimeout(timer));
   }
 
   private workerFailed(worker: ChildProcess): void {

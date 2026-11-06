@@ -839,7 +839,7 @@ function ownTerminalStepCall(call, value) {
 // What each person's own step is, for the ones no earlier refusal names; any later entry still gets
 // the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
 const OWN_STEP_DENIALS = Object.freeze({
-  'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
+  'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate or sflow_adjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',

@@ -371,6 +371,13 @@
       },
       "digest": "f4c36c38be4eee5086f0123de2e66378ce346a804614592652f88a10d4cc5192"
     },
+    "plugin/extensions/decisions/extension.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "5f112faa174f70b22159711bf162a4298e59159e5ba1708475f44a7dfaa5e6fa"
+    },
     "plugin/extensions/documents/extension.mjs": {
       "counts": {
         "process-import": 1,

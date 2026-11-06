@@ -1054,7 +1054,7 @@ test('a person\'s decision is refused in every turn but the one they start for i
   assert.match((await shell(decisions['convergence-adjudication'][0])).next[0].copilotCommand, /^\/sf-converge\b/u);
   assert.match((await shell(decisions['agent-trust'][0])).permissionDecisionReason, /no verified equivalent/u);
   // The decisions page is a tool that takes a Story ID; the person answers on it, so no turn is refused it.
-  for (const toolName of ['singularityFlow_adjudicate', 'sflowAdjudicate']) {
+  for (const toolName of ['singularityFlow_adjudicate', 'sflowAdjudicate', 'sflow_adjudicate']) {
     const opening = await repositoryToolGuard({ ...await f.enter('/sf-converge', 'page-opener'), toolName, toolArgs: { workId: 'PMC-1' } });
     assert.notEqual(opening.permissionDecision, 'deny', toolName);
   }

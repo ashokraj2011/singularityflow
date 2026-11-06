@@ -325,10 +325,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,486,450 (measured 9,486,361 with the Auto Candidate's run standing): auto-candidate.mjs +1443, state.mjs +377,
     // verification/attempts.mjs +173. What runs it (local-test-runs.mjs) stays lazy; no new eager file.
     // 9,486,550 (measured 9,486,530): clarifications.mjs +163, so an agent carries on once `ask_user` returns.
-    // 9,492,000 (measured 9,491,939 with the honest approval list's hold words, approval-check.mjs): every suite of a gate's run is recorded and reported (state.mjs +1984), a test file that
+    // 9,492,300 (measured 9,492,217 with the honest approval list's hold words, approval-check.mjs, and the decisions page's refusal in the guard): every suite of a gate's run is recorded and reported (state.mjs +1984), a test file that
     // failed outside its tests and a run with no tests are named (test-execution-diagnostics.mjs +1330), and SwiftPM's empty report and a
     // reactor's modules are read (code-delivery-tests.mjs +1102). The reading and reporting stay lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_492_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_492_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -492,8 +492,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,108,200 (measured 4,108,176): the same clarifications.mjs +163 as start.
   // 4,108,950 (measured 4,108,915): auto-candidate.mjs +529 and git.mjs +210 [TCE:REQ-085]; the copying itself is in a lazy module.
   // 4,109,041 measured 2026-11-06: an approval hold carries the plan's rows, in state.mjs and approval-check.mjs.
-  // 4,112,800 (measured 4,112,762 with those hold words): the same test-execution-diagnostics.mjs +1330 and code-delivery-tests.mjs +1102 as start.
-  assert.ok(current.bytes <= 4_112_800, `session current loads ${current.bytes} source bytes`);
+  // 4,113,100 (measured 4,113,040 with those hold words and that refusal): the same test-execution-diagnostics.mjs +1330 and code-delivery-tests.mjs +1102 as start.
+  assert.ok(current.bytes <= 4_113_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

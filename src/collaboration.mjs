@@ -382,6 +382,10 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
       if (setAside) actions.push(setAside);
     }
   }
+  // A checkout only a person can clear: recovery leads with the person's way through, not the description of the hold.
+  const holdAt = actions.findIndex(entry => entry.id === 'working-tree');
+  const asideAt = actions.findIndex(entry => entry.id === 'set-aside-worktree');
+  if (holdAt >= 0 && asideAt > holdAt) actions.splice(holdAt, 0, ...actions.splice(asideAt, 1));
   if (!actions.length) actions.push({
     id: 'none', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: null,
     detail: 'No recoverable publication, branch, synchronization, artifact, projection, or generation problem was found.'

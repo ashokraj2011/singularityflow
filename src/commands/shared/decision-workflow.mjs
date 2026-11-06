@@ -6,7 +6,7 @@ import { loadStoryDecisionExecution } from '../../story-decision-context.mjs';
 import { prefetchStoryPublicationObservation, assertNoPendingPublication, previewTestingRepair, storyPublicationPending } from '../../state-stores.mjs';
 import { assertPhaseSequence } from '../../sequence.mjs';
 import { assertApprovalSubmitted } from '../../approval-submitted.mjs';
-import { assertLifecycleWorktreeClean } from '../../lifecycle-worktree.mjs';
+import { assertLifecycleWorktreeClean, withSetAsideRoute } from '../../lifecycle-worktree.mjs';
 import { resolveSelectionReceipt } from '../../choices.mjs';
 import { phaseUsesDeterministicGeneration } from '../../manual-authorship.mjs';
 import { actionActor, activatePhaseAgent } from '../kernel.mjs';
@@ -31,7 +31,7 @@ export async function decisionWorkflow(positionals, options, action) {
     if (action === 'approve' && error.code === 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED') {
       await assertApprovalSubmitted(root, config, workflow, { phaseId: requestedPhase ?? workflow.currentPhase });
     }
-    throw error;
+    throw await withSetAsideRoute(error, root, config, workflow);
   }
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;

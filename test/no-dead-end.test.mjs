@@ -25,7 +25,7 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dead-ends.json'), 'utf8'));
 // Lowered as entries go. Raising one is a decision a reviewer sees, not a line in a long list.
-const CEILING = Object.freeze({ walks: 10, readOnlyFirstRoutes: 174 });
+const CEILING = Object.freeze({ walks: 8, readOnlyFirstRoutes: 173 });
 
 const MAJOR = process.versions.node.split('.')[0];
 // A Node this machine does not run, as a small script that runs the real one (project-node-version.test.mjs), and a
@@ -135,9 +135,14 @@ test('every walk reaches its outcome or a person, or its dead end is on the list
     workType.phases = workType.phases.slice(0, workType.phases.indexOf('convergence') + 1);
     for (const dropped of ['verification', 'release']) delete workType.phaseOverrides?.[dropped];
   };
-  const templates = { code: await codeStepTemplate(t), convergence: await openConvergenceTemplate(t), ending: await openConvergenceTemplate(t, { configure: endAtConvergence }),
-    release: await releaseDraftTemplate(t), releasePartial: await releaseDraftTemplate(t, { verdict: 'partial' }) };
-  for (const scenario of SCENARIOS) {
+  const needed = new Set(SCENARIOS.filter((entry) => !process.env.WALK_ONLY || process.env.WALK_ONLY.split(',').includes(entry.id)).map((entry) => entry.template ?? 'code'));
+  const build = (name, make) => (needed.has(name) ? make() : null);
+  const templates = { code: await build('code', () => codeStepTemplate(t)), convergence: await build('convergence', () => openConvergenceTemplate(t)),
+    ending: await build('ending', () => openConvergenceTemplate(t, { configure: endAtConvergence })),
+    release: await build('release', () => releaseDraftTemplate(t)), releasePartial: await build('releasePartial', () => releaseDraftTemplate(t, { verdict: 'partial' })) };
+  // A person fixing one route walks only that one: WALK_ONLY=a,b. The full list is what the suite holds.
+  const only = process.env.WALK_ONLY?.split(',');
+  for (const scenario of SCENARIOS.filter((entry) => !only || only.includes(entry.id))) {
     await t.test(scenario.id, async (sub) => {
       const story = await storyCopy(sub, templates[scenario.template ?? 'code']);
       await scenario.setup?.(story);
@@ -157,7 +162,8 @@ test('the first route of each known refusal is classified, and the read-only one
   const details = { workId: 'W-1', phase: 'build', phaseId: 'build', currentPhase: 'build', documentId: 'DOC-001', decidableStep: 'plan',
     issue: 'UPI-001', workType: 'feature', upstreamPhases: ['plan'], producerPhase: 'plan', restorable: true, paths: ['a.txt'],
     recoveryCommand: 'singularity-flow recover W-1 --json', errors: ['x'], authorities: ['product'], capabilityId: 'web-app',
-    checkoutPath: '/tmp/checkout', storyId: 'W-1', expectedWorkId: 'W-1' };
+    checkoutPath: '/tmp/checkout', storyId: 'W-1', expectedWorkId: 'W-1',
+    setAside: { command: 'singularity-flow recover W-1 --set-aside --confirm sha256:abc', paths: ['a.txt'] } };
   const isRead = await registryReader();
   const readOnly = new Set();
   for (const code of KNOWN_REFUSAL_CODES) {

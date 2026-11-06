@@ -45,6 +45,20 @@ export function inspectLifecycleWorktree(root, config = null, workflow = null) {
   };
 }
 
+/**
+ * The exact set-aside command for a held checkout, on the refusal itself: all 3 real sessions that met this
+ * stopped there, with a read as their route. Recovery holds the plan hash a person confirms. Any doubt adds nothing.
+ */
+export async function withSetAsideRoute(error, root, config, workflow) {
+  if (error?.code !== 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED' || !workflow) return error;
+  try {
+    const plan = await (await import('./collaboration.mjs')).recoveryPlan(root, config, workflow, { inspectActivePhase: true });
+    const action = plan.actions.find((entry) => entry.id === 'set-aside-worktree');
+    if (action?.command) error.details = { ...error.details, setAside: { command: action.command, paths: action.paths } };
+  } catch { /* The refusal stands on its own words. */ }
+  return error;
+}
+
 export function assertLifecycleWorktreeClean(root, config = null, workflow = null, { workId = null } = {}) {
   assertNoHiddenWorktreeChanges(root, 'Lifecycle decision');
   const inspection = inspectLifecycleWorktree(root, config, workflow);

@@ -1065,6 +1065,10 @@ const KNOWN = Object.freeze({
   ],
   // Unrelated changes must be preserved before the lifecycle decision can run.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: (argv, error) => [
+    // The person's way through, from this exact state: nothing else clears a held checkout.
+    ...(error?.details?.setAside?.command ? [step('set-aside-held-changes',
+      `A person looks at ${(error.details.setAside.paths ?? []).slice(0, 5).join(', ')}, then runs this in their own terminal. It keeps a private recovery copy of every changed file, then returns exactly those paths to their committed bytes. An agent cannot run it.`,
+      error.details.setAside.command, 'remediation')] : []),
     step('review-held-changes',
       'The checkout has changes that are not part of this decision (details.paths). A person looks at them and sets them aside with the set-aside-worktree command recovery returns (it keeps a private recovery copy), or moves them out of the checkout. Committing them by hand is not a way through: approval then refuses until the step is returned and resubmitted. Then run the decision again; nothing needs rejecting.',
       error?.details?.recoveryCommand ?? null, 'remediation', '/sf-recover')
@@ -2246,6 +2250,7 @@ export function refusalDetails(details) {
         commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
         summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
   }
+  if (details.setAside?.command) projected.setAside = { command: details.setAside.command, paths: (details.setAside.paths ?? []).slice(0, 20) };
   if (details.otherNode?.version) projected.otherNode = { version: details.otherNode.version, node: details.otherNode.node };
   if (details.nodePin?.version) projected.nodePin = { file: details.nodePin.file, version: details.nodePin.version, node: details.nodePin.node, running: details.nodePin.running ?? null };
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {

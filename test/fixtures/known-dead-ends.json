@@ -15,12 +15,6 @@
     "chain-in-the-decision-turn": {
       "no-route:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "The reason says in words to run the commands one at a time. Nothing returned names a command, so only a model can act on it.",
       "exhausted:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "With no route returned, the walk ends where it started."
-    },
-    "dirty-checkout-at-approval": {
-      "read-only-route:LIFECYCLE_WORKTREE_REVIEW_REQUIRED": "The refusal names only /sf-recover, and 3 of 3 real sessions ended there. recover does name the person's set-aside, one step later than it should."
-    },
-    "ending-with-items-open": {
-      "person-route-refused:STORY_TERMINAL_READINESS_REFUSED": "The preview says no unresolved blockers and to confirm this digest, and the confirmation is then refused by the final check. The person learns of the open obligations only after confirming."
     }
   },
   "readOnlyFirstRoutes": [
@@ -101,7 +95,6 @@
         "INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED",
         "LEDGER_CHAIN_INVALID",
         "LEGACY_PERSONA_MIGRATION_UNSAFE",
-        "LIFECYCLE_WORKTREE_REVIEW_REQUIRED",
         "LOCAL_EPIC_RESERVATION_AMBIGUOUS",
         "MCP_AGENT_TOOLS_MISMATCH",
         "OBJECT_SERVICE_UNAVAILABLE",

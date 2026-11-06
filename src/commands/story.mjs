@@ -2773,8 +2773,19 @@ export async function storyAdvanceCommand(positionals, options) {
       throw error;
     }
     const reviewed = await assertConvergencePublicationReady(root, config, workflow, subject.phase);
+    // When this step ends the Story the final check comes with it: a digest to confirm must never be one
+    // the check then refuses, so a preview says what is open first, in the check's own words and routes.
+    const { endsStory } = await import('../upstream-entry-summary.mjs');
+    if (endsStory(workflow, subject.phase)) await (await import('../evidence/terminal.mjs')).assertTerminalReadiness(root, config, workflow);
     const confirmation = optionString(options, 'confirm');
     if (!confirmation) {
+      if (optionBoolean(options, 'json')) {
+        const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`;
+        console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: workflow.workItem.id, phase: subject.phase.id,
+          iteration: projection.iteration, findings: projection.findings.length, reconciliation: projection.bindings.reconciliation.sha256,
+          confirmationDigest: reviewed.snapshotSha256, effects: { committed: false, pushed: false }, next: [{ command, skill: '/sf-submit', label: 'After reviewing this exact result, run it.' }] }, null, 2));
+        return;
+      }
       console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
       console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
       console.log(`Confirmation digest: ${reviewed.snapshotSha256}`);
@@ -2798,7 +2809,7 @@ export async function storyAdvanceCommand(positionals, options) {
         }
       );
     }
-    console.log(`Convergence iteration ${projection.iteration} (${reviewed.snapshotSha256}) confirmed by an authorized human; submitting the phase for approval.`);
+    if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${projection.iteration} (${reviewed.snapshotSha256}) confirmed by an authorized human; submitting the phase for approval.`);
     return (await router()).submitConfirmedConvergenceCommand(
       ['submit', subject.phase.id],
       { ...options, 'work-id': workflow.workItem.id },

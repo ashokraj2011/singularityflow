@@ -374,9 +374,9 @@
     "plugin/extensions/decisions/extension.mjs": {
       "counts": {
         "process-import": 1,
-        "process-launch": 1
+        "process-launch": 2
       },
-      "digest": "5f112faa174f70b22159711bf162a4298e59159e5ba1708475f44a7dfaa5e6fa"
+      "digest": "a4be2264eb0bae6fd426d65d9993a8e0a92df1059710f9b9d4d1bb28435db8ff"
     },
     "plugin/extensions/documents/extension.mjs": {
       "counts": {

@@ -40,7 +40,13 @@ async function record(client: SingularityFlowClient, list: AdjudicationList, ans
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-export async function reviewAdjudications(client: SingularityFlowClient, target: { workId?: unknown }, refresh?: () => Promise<unknown>): Promise<AdjudicationResult> {
+function nothingOpen(list: AdjudicationList): AdjudicationResult {
+  const settled = (list.settled ?? []).flatMap((item) => item.paths);
+  return { status: 'nothing-open', recorded: [], unchanged: [], remaining: [],
+    message: `Nothing here needs a decision.${settled.length ? ` Settled by the plan, not asked: ${settled.join(', ')}.` : ''}` };
+}
+
+export async function reviewAdjudications(client: SingularityFlowClient, target: { workId?: unknown }, refresh?: () => Promise<unknown>, { askedInChat = false } = {}): Promise<AdjudicationResult> {
   if (!target || Object.keys(target).some((key) => key !== 'workId') || typeof target.workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(target.workId)) {
     throw new Error('This page takes only a Story ID. Answers and reasons come from the person on the page.');
   }
@@ -48,6 +54,8 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
   if (open) { open.reveal(); return { status: 'busy', message: 'The decisions page is already open. Finish it there.' }; }
   let list = await readList(client, workId);
   if (list.status !== 'open') return { status: list.status, message: list.message ?? 'There is nothing to decide here.' };
+  // A chat that asked with nothing open carries on: a page with no question must not stop its turn.
+  if (askedInChat && !list.open) return nothingOpen(list);
   const panel = vscode.window.createWebviewPanel('singularityFlow.adjudicate', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
   open = panel;
@@ -65,7 +73,7 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
       'adjudicate.cancel': () => finish({ status: 'cancelled', message: 'No decision was recorded.' }),
       'adjudicate.open': async (message) => {
         const file = stringField(message, 'path');
-        if (!file || !list.items.some((item) => item.paths.includes(file))) return;
+        if (!file || ![...list.items, ...(list.settled ?? [])].some((item) => item.paths.includes(file))) return;
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(list.repositoryPath, file)), { viewColumn: vscode.ViewColumn.Beside, preview: true })
           .then(undefined, () => vscode.window.showInformationMessage(`${file} is not in this checkout now; it may have been removed.`));
       },

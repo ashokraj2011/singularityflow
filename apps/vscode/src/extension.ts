@@ -9509,7 +9509,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The convergence decisions in one page: a Story ID in, and what the person recorded back.
     'singularityFlow.adjudicate': async (target?: { workId?: unknown }) => {
       const selected = target ?? { workId: store.current.snapshot?.workflow?.workItem.id ?? '' };
-      const result = await lazyPanels().reviewAdjudications(client, selected, refreshAfterKnownMutation);
+      const result = await lazyPanels().reviewAdjudications(client, selected, refreshAfterKnownMutation, { askedInChat: target !== undefined });
       if (result.message) void showCompactInformationMessage(result.message);
       return result;
     },

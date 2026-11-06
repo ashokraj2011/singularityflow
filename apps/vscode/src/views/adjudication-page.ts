@@ -7,11 +7,15 @@ import type { InboundMessage } from './messages.ts';
 
 export interface AdjudicationItem {
   id: string; kind: string; paths: string[]; clauseIds: string[]; detail: string | null; acceptAll: boolean;
-  plan: { kind: string; id?: string; clause?: string | null; class?: string | null; text?: string | null } | null;
-  decision: { disposition: string; reason: string | null; clauseIds: string[]; actor: string | null; at: string | null } | null;
+  plan: PlanEntry | null;
+  decision: AdjudicationDecision | null;
 }
+export interface PlanEntry { kind: string; id?: string; clause?: string | null; class?: string | null; text?: string | null; askedBecause?: string }
+export interface AdjudicationDecision { disposition: string; reason: string | null; clauseIds: string[]; actor: string | null; at: string | null }
+/** A changed file the approved plan already accounts for: no question, and still on the page. */
+export interface SettledItem { id: string; paths: string[]; clauseIds: string[]; settledBy: PlanEntry; decision: AdjudicationDecision | null }
 export interface AdjudicationList {
-  status: string; workId: string; phase: string | null; repositoryPath: string; items: AdjudicationItem[]; open: number; message?: string;
+  status: string; workId: string; phase: string | null; repositoryPath: string; items: AdjudicationItem[]; settled?: SettledItem[]; open: number; message?: string;
   decidedBy?: { groups: string[]; labels: string[]; allowed: boolean; words: string };
   dispositions?: Array<{ id: string; label: string }>; digest?: string;
 }
@@ -27,7 +31,7 @@ export function adjudicationListFrom(value: unknown): AdjudicationList | null {
 function planWords(plan: AdjudicationItem['plan']): string {
   if (!plan) return 'Not in the plan';
   const source = plan.kind === 'amendment' ? `${plan.id ?? 'Amendment'}${plan.clause ? ` under ${plan.clause}` : ''}` : 'Supporting file';
-  return `${source}${plan.text ? `: ${plan.text}` : ''}`;
+  return `${source}${plan.text ? `: ${plan.text}` : ''}${plan.askedBecause ? ` · Still asked: ${plan.askedBecause}.` : ''}`;
 }
 
 const itemName = (item: AdjudicationItem) => item.paths.join(', ') || item.clauseIds.join(', ') || item.detail || item.id;
@@ -48,22 +52,38 @@ function rowHtml(item: AdjudicationItem, list: AdjudicationList, draft?: Adjudic
   </tr>`;
 }
 
+function settledHtml(list: AdjudicationList): string {
+  const settled = list.settled ?? [];
+  if (!settled.length) return '';
+  const labels = new Map((list.dispositions ?? []).map((entry) => [entry.id, entry.label]));
+  return `<section class="adj-settled"><h2>Settled by the plan</h2>
+    <p class="muted">The approved plan already accounts for ${settled.length === 1 ? 'this changed file' : `these ${settled.length} changed files`}, so nobody is asked again. To disagree with one, run story adjudicate with its ID.</p>
+    <div class="adj-table"><table>
+      <thead><tr><th>What changed</th><th>What settled it</th><th>Decision</th></tr></thead>
+      <tbody>${settled.map((item) => `<tr data-settled="${escape(item.id)}">
+        <td>${item.paths.map((file) => `<button type="button" class="adj-link" data-open="${escape(file)}">${escape(file)}</button>`).join(' ')}<div class="muted adj-id">${escape(item.id)}</div></td>
+        <td>${escape(planWords(item.settledBy))}</td>
+        <td>${escape(item.decision ? labels.get(item.decision.disposition) ?? item.decision.disposition : 'No question')}</td></tr>`).join('')}</tbody>
+    </table></div></section>`;
+}
+
 export function adjudicationHtml(list: AdjudicationList, { error = null as string | null, busy = false, draft = undefined as AdjudicationDraft | undefined } = {}): string {
   if (list.status !== 'open') return `<main class="adj"><h1>Decide · ${escape(list.workId)}</h1><p>${escape(list.message ?? 'There is nothing to decide here.')}</p></main>`;
   const allowed = list.decidedBy?.allowed === true;
   const acceptable = list.items.filter((item) => item.acceptAll).length;
   return `<main class="adj">
     <header><h1>Decide · ${escape(list.workId)} · ${escape(list.phase ?? 'Convergence')}</h1>
-      <p class="muted">${escape(list.decidedBy?.words ?? '')} ${list.open} of ${list.items.length} still need a decision.</p></header>
+      <p class="muted">${list.items.length ? `${escape(list.decidedBy?.words ?? '')} ${list.open} of ${list.items.length} still need a decision.` : 'Nothing here needs a decision.'}</p></header>
     ${error ? `<p class="adj-error" role="alert">${escape(error)}</p>` : ''}
     ${allowed && acceptable ? `<section class="adj-all"><label for="adj-all-reason">Accept all ${acceptable} changed file${acceptable === 1 ? '' : 's'} with one reason</label>
       <input id="adj-all-reason" maxlength="1000"><button type="button" data-accept-all>Accept all</button></section>` : ''}
-    <div class="adj-table"><table>
+    ${list.items.length ? `<div class="adj-table"><table>
       <thead><tr><th>What changed</th><th>What the plan already says</th><th>Your decision</th><th>Reason</th></tr></thead>
       <tbody>${list.items.map((item) => rowHtml(item, list, draft)).join('')}</tbody>
-    </table></div>
-    <footer><button type="button" class="secondary" data-cancel>Not now</button>
-      <button type="button" data-review${allowed && !busy ? '' : ' disabled'}>Review and record</button></footer>
+    </table></div>` : ''}
+    ${settledHtml(list)}
+    <footer>${list.items.length ? `<button type="button" class="secondary" data-cancel>Not now</button>
+      <button type="button" data-review${allowed && !busy ? '' : ' disabled'}>Review and record</button>` : '<button type="button" class="secondary" data-cancel>Close</button>'}</footer>
   </main>`;
 }
 
@@ -110,6 +130,7 @@ export function adjudicationSummary(list: AdjudicationList, answers: readonly Ad
 export const ADJUDICATION_STYLE = `
 .adj { display:grid; gap:1rem; padding:1rem 0; max-width:72rem; }
 .adj h1 { margin:0 0 .25rem; }
+.adj h2 { margin:0 0 .25rem; font-size:1.1em; }
 .adj-all { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
 .adj input { padding:.35rem .5rem; box-sizing:border-box; }
 .adj-all input { flex:1 1 18rem; min-width:0; }

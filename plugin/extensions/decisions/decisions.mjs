@@ -13,15 +13,17 @@ export const itemName = (item) => item.paths?.join(', ') || item.clauseIds?.join
 export function planWords(plan) {
   if (!plan) return 'Not in the plan';
   const source = plan.kind === 'amendment' ? `${plan.id ?? 'Amendment'}${plan.clause ? ` under ${plan.clause}` : ''}` : 'Supporting file';
-  return `${source}${plan.text ? `: ${plan.text}` : ''}`;
+  return `${source}${plan.text ? `: ${plan.text}` : ''}${plan.askedBecause ? ` · Still asked: ${plan.askedBecause}.` : ''}`;
 }
 
 const label = (list, id) => list.dispositions.find((entry) => entry.id === id)?.label ?? id;
 
 export function decisionsTable(list) {
   const rows = list.items.map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.plan))} | ${cell(item.decision ? label(list, item.decision.disposition) : 'Undecided')} |`);
-  return [`**Decide ${list.workId} · ${list.phase}.** ${list.decidedBy?.words ?? ''} ${list.open} of ${list.items.length} still need a decision.`, '',
-    '| What changed | What the plan already says | Decision |', '|---|---|---|', ...rows].join('\n');
+  // Settled rows are never a question, and a reader still sees each one and the entry that answered it.
+  const settled = (list.settled ?? []).map((item) => `| ${cell(itemName(item))} | ${cell(planWords(item.settledBy))} | ${cell(item.decision ? label(list, item.decision.disposition) : 'Settled by the plan')} |`);
+  return [`**Decide ${list.workId} · ${list.phase}.** ${list.decidedBy?.words ?? ''} ${list.open} of ${list.items.length} still need a decision.${settled.length ? ` ${settled.length} settled by the plan, not asked.` : ''}`, '',
+    '| What changed | What the plan already says | Decision |', '|---|---|---|', ...rows, ...settled].join('\n');
 }
 
 /** One reason may cover only changed files no requirement claims, and only ones still open. */
@@ -91,6 +93,7 @@ export async function runDecisions({ ask, show, read, record }) {
   const list = await read();
   if (list.status !== 'open') return { status: list.status, message: list.message ?? 'There is nothing to decide here.' };
   await show(decisionsTable(list));
+  if (!list.open) return { status: 'nothing-open', recorded: [], unchanged: [], remaining: [], message: 'Nothing here needs a decision.' };
   if (!list.decidedBy?.allowed) return { status: 'not-allowed', message: list.decidedBy?.words ?? 'You are not an approver of this step.' };
   const notNow = { status: 'cancelled', message: 'No decision was recorded.' };
   let answers = [];

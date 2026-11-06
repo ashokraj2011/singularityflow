@@ -10,6 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { recordSha256 } from '../src/records.mjs';
+import { pinDiffWords } from '../src/story-test-commands.mjs';
 import {
   commandDefinition, DEFINITION_VERSION, gateTestCommandPins, packageScriptChain, pinCandidate, pinnedArgv, pinReplayProblem, pinSource, portableArgv,
   pendingTestCommandReviews, referencePin, removalRequest, repinRequest
@@ -527,4 +528,73 @@ test('a suite the Story added and then removed is back to the base commit\'s sui
   // The same deletion under a current-rules pin is refused: the base had the suite.
   const current = { ...running, testCommandPins: [{ ...added.testCommandPins[0], id: 'TCP-001' }, { ...added.testCommandPins[1], id: 'TCP-002' }] };
   await assert.rejects(gateTestCommandPins(root, {}, current, phase, await commands(), evidence), (error) => error.details?.testCommandPin?.removed === true);
+});
+
+test('a changed pin shows before and after, and whether any tests were dropped', async (t) => {
+  const root = await repository(t, {
+    'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }, null, 1),
+    'vite.config.js': 'export default {\n  test: { environment: "node" },\n};\n',
+    'src/a.test.js': '', 'src/deep/b.test.js': '', 'lib/c.test.js': '' });
+  const base = commitBaseline(root);
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test', '--', '--reporter=json'], workingDirectory: '.', affectedRoots: ['.'], provenance: 'inferred',
+    result: { adapter: 'vitest-json', path: 'r.json' } };
+  const phase = { id: 'implement', status: 'in_progress', generationIntent: { baseline: { commit: base } } };
+  const workflow = { workItem: { id: 'W-1', baseCommit: base }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  const first = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await first.record(workflow, ['unit'], { at: '2026-11-06T00:00:00.000Z' });
+
+  // bin-opr's change, with one test outside the path: the person sees it, and what it leaves out.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run src' } }, null, 1));
+  await assert.rejects(gateTestCommandPins(root, {}, workflow, phase, [command]), (error) => {
+    assert.equal(error.code, 'TEST_COMMAND_PIN_CHANGED');
+    const { diff, dropped, pathNarrowing } = error.details.testCommandPin;
+    assert.deepEqual(diff.map((entry) => [entry.path, entry.selector, entry.known, entry.before, entry.after]), [['package.json', 'scripts.test', true, 'vitest run', 'vitest run src']]);
+    assert.match(error.message, /Before and after: package\.json scripts\.test: before "vitest run", after "vitest run src"\./u);
+    assert.deepEqual([pathNarrowing[0].droppedCount, pathNarrowing[0].dropped, pathNarrowing[0].tests], [1, ['lib/c.test.js'], 3]);
+    assert.match(dropped, /leaves out 1 of the 3 test files it ran at the base commit: lib\/c\.test\.js/u);
+    return true;
+  });
+  const request = await repinRequest(root, {}, workflow, phase, command);
+  assert.deepEqual(request.diff.map((entry) => [entry.before, entry.after]), [['vitest run', 'vitest run src']]);
+  assert.match(request.dropped, /lib\/c\.test\.js/u);
+
+  // Every test under the path: shown, and said to drop nothing.
+  await unlink(path.join(root, 'lib/c.test.js'));
+  execFileSync('git', ['rm', '-q', '--cached', 'lib/c.test.js'], { cwd: root });
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }, null, 1));
+  const clean = commitBaseline(root);
+  phase.generationIntent.baseline.commit = clean;
+  workflow.workItem.baseCommit = clean;
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run src' } }, null, 1));
+  const none = await repinRequest(root, {}, workflow, phase, command);
+  assert.equal(none.pathNarrowing[0].droppedCount, 0);
+  assert.match(none.dropped, /Every test file it ran at the base commit \(2\) is still selected, so none are dropped/u);
+
+  // A configuration file reads as its changed lines, and SFlow says it cannot tell what that drops.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }, null, 1));
+  await writeFile(path.join(root, 'vite.config.js'), 'export default {\n  test: { environment: "node", include: ["src/**"] },\n};\n');
+  const configured = await repinRequest(root, {}, workflow, phase, command);
+  assert.deepEqual(configured.diff.map((entry) => [entry.path, entry.lines, entry.before, entry.after]),
+    [['vite.config.js', true, '  test: { environment: "node" },', '  test: { environment: "node", include: ["src/**"] },']]);
+  assert.match(configured.dropped, /cannot tell from a configuration file whether tests are dropped/u);
+});
+
+test('a pinned text no longer in the history says so, and a secret in a changed script is not shown', async (t) => {
+  const root = await repository(t, { 'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }) });
+  const base = commitBaseline(root);
+  const command = { id: 'unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'], provenance: 'inferred', result: { adapter: 'vitest-json', path: 'r.json' } };
+  const phase = { id: 'implement', status: 'in_progress', generationIntent: { baseline: { commit: base } } };
+  const workflow = { workItem: { id: 'W-1', baseCommit: base }, phases: { implement: phase }, phaseOrder: ['implement'] };
+  // The first gate saw a text that was never committed: a pin may bind bytes no commit holds.
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run --bail' } }));
+  const first = await gateTestCommandPins(root, {}, workflow, phase, [command]);
+  await first.record(workflow, ['unit'], { at: '2026-11-06T00:00:00.000Z' });
+  const secret = 'https://user:hunter2hunter2@example.invalid/repo';
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `API_URL=${secret} vitest run` } }));
+  const request = await repinRequest(root, {}, workflow, phase, command);
+  const [entry] = request.diff;
+  assert.equal(entry.known, false);
+  assert.equal(entry.before, null);
+  assert.equal(JSON.stringify(request.diff).includes('hunter2hunter2'), false, JSON.stringify(request.diff));
+  assert.match(pinDiffWords(entry), /the text it was pinned with is not in this Story's history/u);
 });

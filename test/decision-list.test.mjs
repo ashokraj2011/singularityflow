@@ -494,6 +494,21 @@ test('an evidence item is the person\'s own step: the list shows its commands an
   assert.notEqual(packetOf(workflow, { gaps: [], issues: [], evidence: [] }).packetSha256, packet.packetSha256);
 });
 
+test('a re-pin in the list shows before and after and whether tests were dropped', () => {
+  const workflow = story();
+  const command = { id: '.-node-tests', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'vitest-json', path: '.sflow/results/node-tests.json' } };
+  const repin = { changes: ['package.json scripts.test changed'], dropped: 'package.json scripts.test now names src. Every test file it ran at the base commit (31) is still selected, so none are dropped.',
+    diff: [{ field: 'definition', path: 'package.json', selector: 'scripts.test', change: 'changed', known: true, before: 'vitest run', after: 'vitest run src' }] };
+  const packet = packetOf(workflow, { gaps: [], issues: [], testCommands: [{ id: 'TCD-001', phase: 'implementation', requestedBy: 'developer', reason: 'Keeps the browser test in its own runner.', command, repin }] });
+  const item = packet.items.find((entry) => entry.kind === 'test-command');
+  assert.match(item.why, /Before and after: package\.json scripts\.test: before "vitest run", after "vitest run src"\./u);
+  assert.match(item.why, /Every test file it ran at the base commit \(31\) is still selected, so none are dropped\./u);
+  assert.deepEqual(item.details.repin.diff, repin.diff);
+  // A request recorded before these fields reads as it did.
+  const older = packetOf(workflow, { gaps: [], issues: [], testCommands: [{ id: 'TCD-001', phase: 'implementation', requestedBy: 'developer', reason: 'Keeps the browser test in its own runner.', command, repin: { changes: repin.changes } }] });
+  assert.doesNotMatch(older.items.find((entry) => entry.kind === 'test-command').why, /Before and after/u);
+});
+
 test('an accepted test command is the person\'s own record: no route sends it back to /sf-decide', () => {
   const workflow = story();
   // A re-pin (2026-10-27): /sf-decide previewed it, which only the person records, then named

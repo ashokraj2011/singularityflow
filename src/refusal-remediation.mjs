@@ -2111,8 +2111,15 @@ export function refusalDetails(details) {
   for (const key of ['testCommandPin', 'testNarrowing']) {
     const entry = details[key];
     const words = (value) => (list(value, text).length ? list(value, text).slice(0, 20) : null);
+    const some = (values) => (values.length ? values.slice(0, 20) : null);
     if (text(entry?.phase) && text(entry.commandId)) projected[key] = compact({ phase: text(entry.phase), commandId: text(entry.commandId),
-      pin: text(entry.pin), changes: words(entry.changes), restorePaths: words(entry.restorePaths), reasons: words(entry.reasons), decision: text(entry.decision), command: text(entry.command) });
+      pin: text(entry.pin), changes: words(entry.changes), restorePaths: words(entry.restorePaths), reasons: words(entry.reasons), decision: text(entry.decision), command: text(entry.command),
+      // A changed pin's before and after, and what it drops: already bounded and redacted where they were read.
+      diff: some(list(entry.diff, (change) => (change && typeof change === 'object' ? compact({ field: text(change.field), path: text(change.path), selector: text(change.selector), change: text(change.change),
+        known: typeof change.known === 'boolean' ? change.known : null, before: text(change.before), after: text(change.after) }) : null))),
+      dropped: text(entry.dropped),
+      pathNarrowing: some(list(entry.pathNarrowing, (path) => (path && typeof path === 'object' ? compact({ source: text(path.source), runner: text(path.runner), operands: words(path.operands),
+        tests: count(path.tests), droppedCount: count(path.droppedCount), dropped: words(path.dropped) }) : null))) });
   }
   // Located workflow.yml problems, so every surface can point at the exact line and its fix.
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);

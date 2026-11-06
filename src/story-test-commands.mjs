@@ -32,6 +32,17 @@ function reasonText(value, minimum, option) {
 const personDecision = (entry) => Boolean(entry?.accepts || entry?.revokes);
 const decisions = (workflow) => countedRecords(workflow, workflow?.testCommandDecisions, personDecision);
 
+/** One change before and after in words: `package.json scripts.test: before "vitest run", after "vitest run src"`. */
+export function pinDiffWords(entry) {
+  const name = entry.field === 'definition' ? `${entry.path}${entry.selector ? ` ${entry.selector}` : ''}` : entry.field;
+  const quoted = (value) => `"${String(value).replaceAll('\n', ' / ')}"`;
+  if (entry.field === 'definition' && !entry.known) return `${name} ${entry.change}; the text it was pinned with is not in this Story's history, so compare it with the base commit`;
+  if (entry.before == null && entry.after == null) return `${name} ${entry.change}`;
+  if (entry.before == null) return `${name}: added ${quoted(entry.after)}`;
+  if (entry.after == null) return `${name}: removed ${quoted(entry.before)}`;
+  return `${name}: before ${quoted(entry.before)}, after ${quoted(entry.after)}`;
+}
+
 /** A request by its ID, and whether a person accepted or revoked it. */
 export function storyTestCommandState(workflow, id) {
   const request = decisions(workflow).find((entry) => entry.id === id) ?? null;

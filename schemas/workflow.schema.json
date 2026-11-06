@@ -750,6 +750,9 @@
               "pinned": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
               "pin": { "type": "object" },
               "changes": { "type": "array", "items": { "type": "string" } },
+              "diff": { "description": "Each change before and after, as a person reads it: a script's text, or a configuration file's changed lines. `known: false` means the pinned text is no longer in the Story's history.", "type": "array", "items": { "type": "object" } },
+              "dropped": { "description": "Whether the change drops tests, in words.", "type": "string" },
+              "pathNarrowing": { "description": "Each path the change names that the base commit did not, and the base commit's test files it leaves out.", "type": "array", "items": { "type": "object" } },
               "removed": { "description": "The request is that a pinned suite the step no longer runs stay removed; `sha256` and `pinned` name that pin.", "const": true }
             },
             "additionalProperties": false

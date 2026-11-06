@@ -25,7 +25,7 @@ import { action, commandResult, effects, noop, succeeded } from '../narration/co
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { recordStoryTestCommandDecision, recordStoryTestCommandRequest, storyTestCommandState } from '../story-test-commands.mjs';
+import { pinDiffWords, recordStoryTestCommandDecision, recordStoryTestCommandRequest, storyTestCommandState } from '../story-test-commands.mjs';
 import { testRunRiskAuthorities } from '../test-run-risk.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
@@ -100,6 +100,11 @@ export async function recordStoryTestCommand(root, config, workflow, { phaseId =
   return { record, publication };
 }
 
+/** A re-pin's before and after, for the person reading the request in a terminal. */
+function repinWords(repin) {
+  return repin.diff?.length ? `\n${repin.diff.map((entry) => `  ${pinDiffWords(entry)}`).join('\n')}\n  ${repin.dropped}` : '';
+}
+
 export async function decisionTestCommandCommand(positionals, options) {
   const root = repoRoot();
   // `--accept` is a global flag, so `--accept TCD-001` leaves the request ID among the positionals.
@@ -165,7 +170,7 @@ export async function decisionTestCommandCommand(positionals, options) {
     console.log(record.repin?.removed
       ? `Requested ${record.id}: ${record.phase} no longer runs ${record.command.id} once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
       : record.repin
-      ? `Requested ${record.id}: ${record.phase} re-pins ${record.command.id} (${record.repin.changes.join('; ')}) once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
+      ? `Requested ${record.id}: ${record.phase} re-pins ${record.command.id} (${record.repin.changes.join('; ')}) once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).${repinWords(record.repin)}`
       : record.id
         ? `Requested ${record.id}: ${record.phase} runs ${JSON.stringify(record.command.argv)} (${record.command.result.adapter} ${record.command.result.path}) for this Story once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
         : repinned?.removed ? `Accepted ${accept}: ${repinned.commandId} no longer runs for this Story, and its removal is no longer refused. Publish the step again.`

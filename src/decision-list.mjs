@@ -21,7 +21,7 @@ import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
-import { testCommandReviewHold } from './story-test-commands.mjs';
+import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
@@ -430,6 +430,9 @@ function testCommandItem(workflow, context, request) {
   // A re-pin: the command changed since it was pinned for this Story [TCE:REQ-012].
   const changed = request.repin ? listWords(request.repin.changes ?? []) : null;
   const removed = request.repin?.removed === true;
+  // What a person actually decides: the before and after, and whether tests were dropped.
+  const beforeAfter = request.repin?.diff?.length ? ` Before and after: ${request.repin.diff.map(pinDiffWords).join('; ')}.` : '';
+  const dropped = request.repin?.dropped ? ` ${request.repin.dropped}` : '';
   return {
     kind: 'test-command',
     title: removed ? `Stop running ${command.id}, a test suite removed from ${name}`
@@ -438,7 +441,7 @@ function testCommandItem(workflow, context, request) {
       ? `${command.id} was pinned for this Story and its module no longer declares it, so the gate refuses the removal. ${request.requestedBy} asked that it no longer run: `
         + `${request.reason} Once accepted, ${name} no longer runs it; every other test must still pass.`
       : request.repin
-      ? `${command.id} changed since it was pinned for this Story (${changed}), so the gate refuses it. ${request.requestedBy} asked that it now run `
+      ? `${command.id} changed since it was pinned for this Story (${changed}), so the gate refuses it.${beforeAfter}${dropped} ${request.requestedBy} asked that it now run `
         + `${JSON.stringify(command.argv)} from ${command.workingDirectory}: ${request.reason} Once accepted, the next gate run records this as its pin; its tests must still pass.`
       : `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
         + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
@@ -452,7 +455,9 @@ function testCommandItem(workflow, context, request) {
         effects: [{ kind: 'test-command', phase: request.phase, request: request.id }],
         needs: { reason: textNeed(`${command.id} runs ${name}'s tests for this Story.`, { minimum: 0, maximum: REASON.maximum }) }
       })],
-    details: { phase: request.phase, request: request.id, command, commands: [`singularity-flow decision test-command ${workflow.workItem.id} --accept ${request.id}`] }
+    details: { phase: request.phase, request: request.id, command,
+      ...(request.repin?.diff ? { repin: { diff: request.repin.diff, dropped: request.repin.dropped ?? null, ...(request.repin.pathNarrowing ? { pathNarrowing: request.repin.pathNarrowing } : {}) } } : {}),
+      commands: [`singularity-flow decision test-command ${workflow.workItem.id} --accept ${request.id}`] }
   };
 }
 

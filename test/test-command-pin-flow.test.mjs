@@ -133,6 +133,9 @@ test('a guessed test command is pinned at first use, and a narrowed script waits
   const words = changed.error.details.testCommandPin.changes;
   assert.ok(words.includes('package.json scripts.test changed'), JSON.stringify(words));
   assert.ok(words.includes('adapter node-tap → jest-json'), JSON.stringify(words));
+  // What a person decides: the script before and after, and the test it no longer runs.
+  assert.match(changed.error.message, /package\.json scripts\.test: before "node --test", after "jest src\/one"/u);
+  assert.deepEqual(changed.error.details.testCommandPin.pathNarrowing?.[0]?.dropped, ['test/value.test.mjs'], JSON.stringify(changed.error.details.testCommandPin));
   const repinCommand = 'singularity-flow decision test-command QF-1 --phase implement --repin .-node-tests --reason "<why the test command changed>"';
   assert.equal(changed.error.details.testCommandPin.command, repinCommand);
   assert.ok(planCommands(changed).includes(repinCommand), JSON.stringify(planCommands(changed)));
@@ -147,6 +150,8 @@ test('a guessed test command is pinned at first use, and a narrowed script waits
   assert.equal(refusal('phase', 'publish', 'implement').error.code, 'TEST_COMMAND_PIN_CHANGED');
   const listed = asReviewer('decisions', 'QF-1', '--phase', 'implement').data.items.find((item) => item.kind === 'test-command');
   assert.match(listed.title, /^Re-pin \.-node-tests/u);
+  assert.match(listed.why, /before "node --test", after "jest src\/one"/u);
+  assert.match(listed.why, /leaves out 1 of the 1 test files it ran at the base commit: test\/value\.test\.mjs/u);
 
   // A person who approves the step accepts it: the next publication records the new pin.
   asReviewer('decision', 'test-command', 'QF-1', '--accept', 'TCD-001');

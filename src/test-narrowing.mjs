@@ -22,7 +22,7 @@
  */
 import path from 'node:path';
 
-import { committedFilesAtRevisions } from './git.mjs';
+import { committedFilesAtRevisions, committedTreePaths } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
@@ -231,6 +231,147 @@ export async function narrowingFacts(root, command, { scripts = [], testPaths = 
     baseline: Number.isInteger(baseline?.discovered) ? baseline.discovered : null,
     baselineSkipped: Number.isInteger(baseline?.skipped) ? baseline.skipped : null
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// A path a script names: `vitest run src`, `jest src/one`, `pytest tests/unit`, `go test ./pkg/...`.
+// Options select by name and these by place, and `jest src/one` looked to the check exactly like
+// `vitest run src`: no option, no filter, and in bin-opr no decision saw it.
+
+// What a runner reads as a word of its own before its operands.
+const RUNNER_VERBS = Object.freeze({ vitest: ['run', 'watch', 'dev', 'related'], playwright: ['test'], go: ['test'], jest: [], mocha: [], pytest: [], node: [] });
+// Options that take a separate value, which is then no operand; the ones that are themselves a place stay one.
+const PLACE_OPTIONS = new Set(['--dir', '--roots', '--rootDir']);
+const VALUE_OPTIONS = new Set([...PLACE_OPTIONS, '-c', '--config', '--reporter', '-r', '--root', '--outputFile', '--environment', '--pool', '--maxWorkers', '--minWorkers',
+  '--testTimeout', '--hookTimeout', '--mode', '--reporter-option', '--reporter-options', '-O', '--require', '--import', '--timeout', '-t', '--workers', '-j', '--retries', '--output',
+  '-p', '-o', '--junitxml', '--rootdir', '--confcutdir', '--ignore', '--cov', '--test-reporter', '--test-reporter-destination', '--test-concurrency', '--test-timeout',
+  '-coverprofile', '-covermode', '-count', '-timeout', '-tags', '-parallel', '-exec', '--env-file']);
+const JAVASCRIPT_TEST_FILE = /(?:^|\/)__tests__\/.+\.[cm]?[jt]sx?$|\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const TEST_FILES = Object.freeze({ vitest: JAVASCRIPT_TEST_FILE, jest: JAVASCRIPT_TEST_FILE, mocha: JAVASCRIPT_TEST_FILE, playwright: /\.(?:test|spec)\.[cm]?[jt]sx?$/u,
+  node: /(?:^|\/)test\/.+\.[cm]?[jt]s$|\.test\.[cm]?[jt]s$/u, pytest: /(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$/u, go: /_test\.go$/u });
+// What a runner matches an operand against: part of the path, or the path itself.
+const MATCHES_ANYWHERE = new Set(['vitest', 'jest', 'playwright']);
+const SKIPPED_FOLDER = /(?:^|\/)(?:node_modules|dist|build|coverage)\//u;
+const MAX_LISTED_DROPS = 20;
+const MAX_DROP_CANDIDATES_READ = 200;
+
+const cleanOperand = (value) => String(value).replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '').replace(/::.*$/u, '');
+
+/** The runner a command's tokens start and the operands that select its tests by place, or null where a runner has none. */
+export function pathOperands(tokens) {
+  const { runner, args } = runnerOf(commandTokens(tokens));
+  const verbs = RUNNER_VERBS[runner];
+  if (!verbs) return null;
+  if (runner === 'node' && !args.includes('--test')) return null;
+  const operands = [];
+  let first = true;
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '--') continue;
+    if (token.startsWith('-')) {
+      first = false;
+      const [name, value] = token.split(/=(.*)/su);
+      if (value !== undefined) { if (PLACE_OPTIONS.has(name)) operands.push(cleanOperand(value)); continue; }
+      if (VALUE_OPTIONS.has(token)) { const next = args[index += 1]; if (PLACE_OPTIONS.has(token) && next) operands.push(cleanOperand(next)); }
+      continue;
+    }
+    if (first && verbs.includes(token)) { first = false; continue; }
+    first = false;
+    // `go test ./...` names every package; `.` alone names the folder a runner would start from anyway.
+    if (runner === 'go' ? token === './...' : token === '.' || token === './') continue;
+    operands.push(cleanOperand(token));
+  }
+  return { runner, operands };
+}
+
+/** Whether a test file, relative to its command's folder, is one a runner's operand selects. */
+function operandSelects(runner, operand, file) {
+  if (runner === 'go') {
+    const whole = operand.endsWith('/...');
+    const folder = (whole ? operand.slice(0, -4) : operand);
+    const parent = path.posix.dirname(file);
+    return whole ? parent === folder || parent.startsWith(`${folder}/`) : parent === folder;
+  }
+  if (MATCHES_ANYWHERE.has(runner)) {
+    if (runner === 'jest') { try { return new RegExp(operand, 'u').test(file); } catch { /* read as the text it is */ } }
+    return file.includes(operand);
+  }
+  if (/[*?[{]/u.test(operand)) {
+    const pattern = operand.replace(/[.+^$()|\\]/gu, '\\$&').replace(/\*\*\/?/gu, '\u0000').replace(/\*/gu, '[^/]*').replace(/\?/gu, '[^/]')
+      .replace(/\{([^}]*)\}/gu, (_, list) => `(?:${list.replaceAll(',', '|')})`).replaceAll('\u0000', '(?:.*/)?');
+    try { return new RegExp(`^${pattern}$`, 'u').test(file); } catch { return false; }
+  }
+  return file === operand || file.startsWith(`${operand}/`);
+}
+
+/** Which of the base commit's test files one runner reaches with these operands; every file with none. */
+const selectedBy = (runner, operands, files) => (operands.length ? files.filter((file) => operands.some((operand) => operandSelects(runner, operand, file))) : files);
+
+/** The test files of the command's folder at the base commit that this runner would take, relative to that folder, or null when Git cannot say. */
+function baseTestFiles(root, baseCommit, directory, runner) {
+  let listed;
+  try { listed = committedTreePaths(root, baseCommit, [directory === '.' || !directory ? '.' : directory]); } catch { return null; }
+  const inside = directory === '.' || !directory ? (file) => file : (file) => file.slice(directory.length + 1);
+  const candidates = listed.filter((file) => TEST_FILES[runner].test(file) && !SKIPPED_FOLDER.test(file));
+  if (!['vitest', 'jest', 'mocha'].includes(runner)) return candidates.map(inside);
+  // A browser runner's spec was never this runner's to run.
+  const texts = baseTexts(root, baseCommit, candidates.filter((file) => /\.(?:spec|e2e)\.|(?:^|\/)(?:e2e|playwright)\//u.test(file)).slice(0, MAX_DROP_CANDIDATES_READ));
+  return candidates.filter((file) => !/['"]@playwright\/test['"]/u.test(texts.get(file) ?? '') && !/\.cy\.[cm]?[jt]sx?$/u.test(file)).map(inside);
+}
+
+/**
+ * The paths a Story's scripts or guessed command now name that the same place did not name on the base
+ * commit, each with what they leave out of the tests the base commit had. Nothing is dropped when every
+ * test file there is still selected: `vitest run src` with all tests under src is recorded, and passes.
+ * Where the base commit cannot be read this says nothing, as a filter it cannot see would.
+ */
+export function addedPathNarrowing(root, command, { scripts = [], baseCommit = null, inferred = false } = {}) {
+  if (!baseCommit || command.testScope) return [];
+  const directory = command.workingDirectory ?? '.';
+  const manifest = path.posix.join(directory, 'package.json');
+  const scriptFiles = scripts.map((script) => String(script.source ?? '').split('#scripts.')[0]).filter(Boolean);
+  const texts = baseTexts(root, baseCommit, [...new Set([...scriptFiles, manifest])]);
+  const baseFor = (source) => {
+    const [file, name] = String(source).split('#scripts.');
+    return name ? packageScripts(texts.get(file) ?? null).get(name) ?? null : null;
+  };
+  const runnersAtBase = [...packageScripts(texts.get(manifest) ?? null).values()].flatMap((text) => shellSegments(text).map(pathOperands).filter(Boolean));
+  const found = [];
+  const look = (now, source, before) => {
+    if (!now?.operands.length) return;
+    // Where this script had no such place, or the runner had none: what it now leaves out of the base's tests.
+    const earlier = before ?? runnersAtBase.filter((entry) => entry.runner === now.runner);
+    if (!earlier.length) return; // The Story added this suite, so it took nothing away.
+    const added = now.operands.filter((operand) => !earlier.some((entry) => entry.operands.includes(operand)));
+    if (!added.length) return;
+    const files = baseTestFiles(root, baseCommit, directory, now.runner);
+    if (!files) return;
+    const reached = new Set(earlier.flatMap((entry) => selectedBy(entry.runner in TEST_FILES ? entry.runner : now.runner, entry.operands, files)));
+    const had = files.filter((file) => reached.has(file));
+    const left = had.filter((file) => !selectedBy(now.runner, now.operands, [file]).length);
+    found.push({ source, runner: now.runner, operands: now.operands, added, before: [...new Set(earlier.flatMap((entry) => entry.operands))],
+      tests: had.length, droppedCount: left.length, dropped: left.slice(0, MAX_LISTED_DROPS) });
+  };
+  for (const script of scripts) {
+    const before = baseFor(script.source);
+    const segments = shellSegments(script.text).map(pathOperands).filter(Boolean);
+    for (const now of segments) look(now, script.source, before == null ? null : shellSegments(before).map((tokens) => pathOperands(tokens) ?? { runner: now.runner, operands: [] }));
+  }
+  // A guessed command that runs a script's runner alone carries that script's operands in its argv; a configured one is a person's.
+  if (inferred) look(pathOperands((command.argv ?? []).map(String)), 'argv', null);
+  const seen = new Set();
+  return found.filter((entry) => { const key = `${entry.runner}|${entry.operands.join(' ')}`; if (seen.has(key)) return false; seen.add(key); return true; });
+}
+
+/** A path narrowing in words: "src is every test file's folder at the base commit, so none are dropped", or what is left out. */
+export function pathNarrowingWords(entry) {
+  const names = entry.operands.join(', ');
+  if (!entry.droppedCount) {
+    return entry.tests ? `${entry.source === 'argv' ? 'The command' : entry.source.replace('#scripts.', ' scripts.')} now names ${names}. Every test file it ran at the base commit (${entry.tests}) is still selected, so none are dropped.`
+      : `${entry.source === 'argv' ? 'The command' : entry.source.replace('#scripts.', ' scripts.')} now names ${names}. The base commit has no test files for it, so none are dropped.`;
+  }
+  const shown = entry.dropped.slice(0, 5).join(', ') + (entry.droppedCount > 5 ? ` and ${entry.droppedCount - 5} more` : '');
+  return `${entry.source === 'argv' ? 'The command' : entry.source.replace('#scripts.', ' scripts.')} now names ${names}, which leaves out ${entry.droppedCount} of the ${entry.tests} test files it ran at the base commit: ${shown}.`;
 }
 
 /** The narrowing an attempt records: the facts known before the run and what its report counted [TCE:REQ-021]. */

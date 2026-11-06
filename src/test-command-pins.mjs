@@ -34,11 +34,12 @@ import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { committedFilesAtRevisions } from './git.mjs';
+import { committedFilesAtRevisions, pathRevisions } from './git.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
-import { storyTestCommandState } from './story-test-commands.mjs';
+import { pinDiffWords, storyTestCommandState } from './story-test-commands.mjs';
 import {
   SCRIPT_RUNNERS, commandTokens, launcherName, nodeTestRun, packageScriptChain, packageScriptName, repositoryRelative, resolveTestCommand,
   shellSegments, unwrapRunner
@@ -438,10 +439,8 @@ function restorationBase(workflow, phase, fallback = null) {
     ?? workflow?.workItem?.baseCommit ?? fallback;
 }
 
-/** The same semantic value a definition entry pins, read from its immutable baseline file. */
-function baselineEntryHash(entry, text) {
-  if (text == null) return MISSING;
-  const selector = entry.selector;
+/** What a definition entry pins, read from its file's text: null where it is not there, undefined for a selector this cannot read. */
+function definitionEntryValue(selector, text) {
   let value;
   if (selector == null) value = text;
   else if (selector.startsWith('scripts.') || PACKAGE_RUNNER_KEYS.includes(selector)) {
@@ -455,6 +454,14 @@ function baselineEntryHash(entry, text) {
   else if (selector === 'tool:pytest') value = iniSection(text, '[tool:pytest]');
   else if (selector === 'pytest') value = iniSection(text, '[pytest]');
   else return undefined;
+  return value ?? null;
+}
+
+/** The same semantic value a definition entry pins, read from its immutable baseline file. */
+function baselineEntryHash(entry, text) {
+  if (text == null) return MISSING;
+  const value = definitionEntryValue(entry.selector, text);
+  if (value === undefined) return undefined;
   return value == null ? MISSING : textSha256(value);
 }
 
@@ -500,24 +507,100 @@ export function pinChangeWords(change) {
   return `${change.field} ${show(change.pinned)} → ${show(change.now)}`;
 }
 
+const MAX_DIFF_LINES = 12;
+const MAX_DIFF_LINE = 200;
+const MAX_HISTORY_COMMITS = 40;
+
+const shownValue = (text) => redactDiagnosticText(String(text).split(/\r?\n/u).map((line) => (line.length > MAX_DIFF_LINE ? `${line.slice(0, MAX_DIFF_LINE)}…` : line)).join('\n'), { multiline: true });
+
+/** The lines two texts differ by, bounded: what a person reads of a changed configuration file. */
+function changedLines(before, after) {
+  const [left, right] = [String(before ?? '').split(/\r?\n/u), String(after ?? '').split(/\r?\n/u)];
+  let start = 0;
+  while (start < left.length && start < right.length && left[start] === right[start]) start += 1;
+  let end = 0;
+  while (end < left.length - start && end < right.length - start && left[left.length - 1 - end] === right[right.length - 1 - end]) end += 1;
+  const part = (lines) => {
+    const middle = lines.slice(start, lines.length - end);
+    return middle.slice(0, MAX_DIFF_LINES).join('\n') + (middle.length > MAX_DIFF_LINES ? `\n… and ${middle.length - MAX_DIFF_LINES} more lines` : '');
+  };
+  return { before: part(left), after: part(right) };
+}
+
+/** A definition entry's text as the pin bound it: the commit in the Story's history whose value has its digest, or null. */
+function pinnedValue(root, entry, recorded, commits) {
+  if (!recorded || recorded.sha256 === MISSING) return null;
+  const history = pathRevisions(root, 'HEAD', entry.path, { limit: MAX_HISTORY_COMMITS }) ?? [];
+  for (const commit of [...new Set([...commits.filter(Boolean), ...history])]) {
+    const text = baseText(root, commit, entry.path);
+    if (text == null) continue;
+    let value;
+    try { value = definitionEntryValue(entry.selector, text); } catch { continue; }
+    if (value != null && textSha256(value) === recorded.sha256) return value;
+  }
+  return null;
+}
+
+/**
+ * What a person needs to decide a changed pin: each change before and after (a script's whole text, a
+ * configuration file's changed lines, bounded and redacted), and whether the change drops tests. Earlier
+ * bytes are only ever shown when their digest is the pin's, so `known: false` says the Story's history
+ * no longer holds them instead of guessing.
+ */
+export async function pinChangeDetails(root, workflow, phase, reference, candidate, { command, scripts = [], attempts = [], baseCommit = null, read = (relative) => readText(root, relative) } = {}) {
+  const pinned = comparablePin(reference);
+  const commits = [...attempts.filter((attempt) => attempt.pin?.sha256 === reference.sha256).map((attempt) => attempt.candidate?.commit),
+    restorationBase(workflow, phase, baseCommit), baseCommit, workflow?.workItem?.baseCommit];
+  const key = (entry) => `${entry.path}#${entry.selector ?? ''}`;
+  const earlier = new Map((pinned.definition ?? []).map((entry) => [key(entry), entry]));
+  const diff = [];
+  for (const change of pinChanges(reference, candidate)) {
+    if (change.field !== 'definition') {
+      const shown = (value) => (Array.isArray(value) ? value.join(' ') : String(value ?? ''));
+      diff.push({ field: change.field, known: true, before: shownValue(shown(change.pinned)), after: shownValue(shown(change.now)) });
+      continue;
+    }
+    const text = await read(change.path);
+    let after = null;
+    try { after = text == null ? null : definitionEntryValue(change.selector, text) ?? null; } catch { after = null; }
+    const before = pinnedValue(root, change, earlier.get(key(change)), commits);
+    const created = change.change === 'added' || change.change === 'created' || change.change === 'named but missing';
+    const known = before != null || created;
+    // A whole file reads as the lines that changed; a script or a selected block is short enough to read whole.
+    const texts = change.selector == null && before != null && after != null ? changedLines(before, after) : { before, after };
+    diff.push({ field: 'definition', path: change.path, selector: change.selector, change: change.change, known,
+      ...(change.selector == null ? { lines: true } : {}),
+      before: texts.before == null ? null : shownValue(texts.before), after: texts.after == null ? null : shownValue(texts.after) });
+  }
+  const { addedPathNarrowing, pathNarrowingWords } = await import('./test-narrowing.mjs');
+  const paths = command ? addedPathNarrowing(root, command, { scripts, baseCommit, inferred: candidate.source?.kind === 'inferred' }) : [];
+  const onlyConfiguration = diff.some((entry) => entry.lines) && !paths.length;
+  const dropped = paths.length ? paths.map(pathNarrowingWords).join(' ')
+    : onlyConfiguration ? 'SFlow cannot tell from a configuration file whether tests are dropped. The first passing run\'s count still guards it: a later run with fewer tests is refused.'
+      : 'No path or filter was added, so no test files are left out.';
+  return { diff, ...(paths.length ? { pathNarrowing: paths } : {}), dropped };
+}
+
 /** The request a refusal names: anyone may make it; a person who approves the step accepts it. */
 export function repinRequestCommand(workflow, phaseId, commandId) {
   return `singularity-flow decision test-command ${workflow?.workItem?.id ?? '<WORK-ID>'} --phase ${phaseId} --repin ${commandId} --reason "<why the test command changed>"`;
 }
 
-function pinChangedError(workflow, phase, pinned, candidate) {
+function pinChangedError(workflow, phase, pinned, candidate, details = null) {
   const changes = pinChanges(pinned, candidate).map(pinChangeWords);
+  const beforeAfter = details?.diff?.length ? ` Before and after: ${details.diff.map(pinDiffWords).join('; ')}. ${details.dropped}` : '';
   const workId = workflow?.workItem?.id ?? null;
   const command = repinRequestCommand(workflow, phase.id, candidate.commandId);
   const restore = [...new Set(pinChanges(pinned, candidate).filter((change) => change.field === 'definition').map((change) => change.path))];
   const restoreWords = restore.length ? `Or restore ${restore.join(', ')} as pinned.` : 'Or restore the module as pinned.';
   return new SingularityFlowError(
     `Test command '${candidate.commandId}' changed since it was pinned for this Story${pinned.id ? ` (${pinned.id})` : ''}: `
-      + `${changes.join('; ')}. A changed test command is decided by a person who approves ${phase.id}: request it with ${command}, `
+      + `${changes.join('; ')}.${beforeAfter} A changed test command is decided by a person who approves ${phase.id}: request it with ${command}, `
       + `and they accept it (/sf-decide ${workId ?? '<WORK-ID>'}); an agent never accepts it. ${restoreWords}`,
     { code: 'TEST_COMMAND_PIN_CHANGED', details: {
       workId, phase: phase.id,
-      testCommandPin: { phase: phase.id, commandId: candidate.commandId, pin: pinned.id ?? null, changes, restorePaths: restore, command },
+      testCommandPin: { phase: phase.id, commandId: candidate.commandId, pin: pinned.id ?? null, changes, restorePaths: restore, command,
+        ...(details ? { diff: details.diff, dropped: details.dropped, ...(details.pathNarrowing ? { pathNarrowing: details.pathNarrowing } : {}) } : {}) },
       // The refusal's own route, which every surface renders: anyone requests, a person who approves accepts.
       nextAction: { command, label: `Request the new pin, saying why the test command changed; a person who approves ${phase.id} accepts it `
         + `from the decision list (/sf-decide ${workId ?? '<WORK-ID>'}), and an agent never accepts it. ${restoreWords}` }
@@ -647,7 +730,10 @@ export async function gateTestCommandPins(root, config, workflow, phase, command
     const restoration = !acceptedBy ? baselineRestoration(root, reference, candidate,
       restorationBase(workflow, phase, baseCommit)) : null;
     const restoredToBase = Boolean(restoration);
-    if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) throw pinChangedError(workflow, phase, reference, candidate);
+    if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) {
+      const details = await pinChangeDetails(root, workflow, phase, recordedReference, candidate, { command, scripts, attempts, baseCommit, read: reads.read }).catch(() => null);
+      throw pinChangedError(workflow, phase, reference, candidate, details);
+    }
     const recorded = storyPin(workflow, candidate);
     const baseline = (recorded?.sha256 === candidate.sha256 ? recorded.baseline : null) ?? firstPassingRun(attempts, candidate.sha256);
     // What narrows the run before it runs: filters, focused tests, and the pin's baseline [TCE:REQ-021].
@@ -705,7 +791,8 @@ export async function repinRequest(root, config, workflow, phase, command) {
   const reads = definitionReads(root);
   const { entries } = await commandDefinition(root, command, reads);
   const candidate = pinCandidate(phase, command, entries);
-  const recorded = referencePin(workflow, candidate, await recordedRuns(root, config, workflow, phase));
+  const attempts = await recordedRuns(root, config, workflow, phase);
+  const recorded = referencePin(workflow, candidate, attempts);
   const reference = recorded && comparablePin(recorded);
   // An older pin is compared under its own rules, so the request names what changed in what it pinned;
   // the pin a person accepts is the current rules' one.
@@ -723,7 +810,12 @@ export async function repinRequest(root, config, workflow, phase, command) {
     });
   }
   const { sha256: digest, ...pin } = pinIdentity(candidate);
-  return { commandId: command.id, sha256: digest, pinned: recorded.sha256, pin, changes: pinChanges(reference, compared).map(pinChangeWords) };
+  const baseCommit = phase.deliveryEvidence?.changeSet?.base?.commit ?? phase.generationIntent?.baseline?.commit
+    ?? workflow.workIntervals?.current?.sourceBaseCommit ?? workflow.workItem?.baseCommit ?? null;
+  const { scripts } = await commandDefinition(root, command, reads);
+  const details = await pinChangeDetails(root, workflow, phase, recorded, compared, { command, scripts, attempts, baseCommit, read: reads.read }).catch(() => null);
+  return { commandId: command.id, sha256: digest, pinned: recorded.sha256, pin, changes: pinChanges(reference, compared).map(pinChangeWords),
+    ...(details ? { diff: details.diff, dropped: details.dropped, ...(details.pathNarrowing ? { pathNarrowing: details.pathNarrowing } : {}) } : {}) };
 }
 
 /**

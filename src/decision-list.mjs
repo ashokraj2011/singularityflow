@@ -568,7 +568,7 @@ function holdItem(workflow, context, kind, hold) {
     ? stepDecidedBy(workflow, context, planAuthorities(workflow), 'Choose the row it belongs to and give your reason, then run it.') : null;
   const rows = (hold.planRows ?? []).map((row) => (row.result ? `${row.clauseId} (${row.result})` : row.clauseId)).join('; ');
   return {
-    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].slice(0, 200), why: decided ? `${hold.summary} ${decided.words}${rows ? ` The plan's rows: ${rows}.` : ''}` : `${hold.who}: ${hold.summary}`,
+    kind, title: hold.summary.split(/(?<=[.!?])\s/u)[0].split(/;\s/u)[0].slice(0, 200), why: decided ? `${hold.message ?? hold.summary} ${decided.words}${rows ? ` The plan's rows: ${rows}.` : ''}` : `${hold.who}: ${hold.message ?? hold.summary}`,
     options: [{ ...personalStep({ id: 'route', label: hold.action?.label || hold.who, command, words: decided?.words ?? hold.who }), ...(decided ? { decidedBy: decided } : {}) }],
     details: { code: hold.code, owner: hold.owner, commands: [command], ...(hold.planRows ? { planRows: hold.planRows } : {}) }
   };
@@ -701,7 +701,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     .map((hold) => holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
   const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (awaiting && heldKinds.has(item.kind)
-    && (!item.details?.amendment || holds.some((hold) => String(hold.summary).includes(item.details.amendment))));
+    && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const items = built.map((item, index) => {
     // Recommended first, then in the order built.

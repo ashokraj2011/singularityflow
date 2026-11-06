@@ -667,6 +667,7 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs'
 });
 const OWNER_PREFIXES = Object.freeze([['IMPLEMENTATION_BINDING_', 'you-decide'], ['CONVERGENCE_', 'machine']]);
+const MAX_HOLD_MESSAGE = 4000;
 const OWNER_WORDS = Object.freeze({ 'you-decide': 'You decide', 'someone-decides': 'Someone else decides',
   'author-repairs': 'The author revises it', machine: 'Singularity Flow finishes it' });
 
@@ -692,31 +693,44 @@ export function approvalHoldOwner(error) {
  */
 function holdRoute(error, owner, workflow, phase) {
   const details = error.details ?? {};
+  const workId = workflow.workItem.id;
   const named = [details.nextAction, details.recoveryCommand, details.command, details.testRunRisk?.command,
     ...(Array.isArray(details.recoveryCommands) ? details.recoveryCommands : []), ...(Array.isArray(details.actions) ? details.actions : [])]
     .map((entry) => (typeof entry === 'string' ? { command: entry } : entry))
+    .map((entry) => (typeof entry?.command === 'string' ? { ...entry, command: entry.command.replaceAll('<WORK-ID>', workId) } : entry))
     .find((entry) => typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command }));
   if (named) return { label: String(named.label ?? named.detail ??
     (owner === 'someone-decides' && error.code === 'SPEC_COVERAGE_INCOMPLETE' && details.coverage?.unclaimedChangedPaths?.length
       ? `An approver of the plan accounts for the exact changed path; preserve the submitted code and test evidence.${details.planRows?.length
-        ? ` The plan's rows: ${details.planRows.map((row) => row.clauseId).join(', ')}.` : ''}` : '')).slice(0, 400),
+        ? ` The plan's rows: ${details.planRows.map((row) => row.clauseId).join(', ')}.` : ''}` : '')).replaceAll('<WORK-ID>', workId).slice(0, 400),
   command: safeCommandGuidance({ command: named.command }).command };
-  const workId = workflow.workItem.id;
   if (owner === 'author-repairs') return { label: `An approver returns ${phase.id} for changes; its author revises it and submits it again.`,
     command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` };
-  if (owner === 'machine') return { label: 'See what Singularity Flow finishes first.', command: `singularity-flow recover ${workId} --phase ${phase.id} --json` };
+  const recover = `singularity-flow recover ${workId} --phase ${phase.id} --json`;
+  if (owner === 'machine') return { label: 'See what Singularity Flow finishes first.', command: recover };
   return null;
 }
 
-/** One hold as every surface shows it: who clears it, its first sentence, and its route. */
-function approvalHold(error, workflow, phase) {
+/** A refusal's first line; when that only leads into a list ("...is incomplete:"), with the list, so no surface ends on a colon. */
+function holdSummary(message) {
+  const [first, ...rest] = String(message ?? '').split('\n');
+  if (!first.trimEnd().endsWith(':')) return first.slice(0, 400);
+  const listed = rest.filter((line) => line.startsWith('- ')).map((line) => line.slice(2));
+  return (listed.length ? `${first.trimEnd()} ${listed.join('; ')}` : first.trimEnd().slice(0, -1)).slice(0, 400);
+}
+
+/** One hold as every surface shows it: who clears it, what it says (a line, and the whole message when that is more) and its route. */
+export function approvalHold(error, workflow, phase) {
   const owner = approvalHoldOwner(error);
   const route = holdRoute(error, owner, workflow, phase);
+  const message = String(error.message ?? '').replaceAll('<WORK-ID>', workflow.workItem.id);
+  const summary = holdSummary(message);
   return {
     // The plan's approvers account for a changed path, and this person may be one: "someone else" told a sole approver to wait for nobody.
     code: String(error.code ?? 'SINGULARITY_FLOW_ERROR'), owner,
     who: /^singularity-flow decision plan /u.test(route?.command ?? '') ? 'An approver of the plan decides' : OWNER_WORDS[owner],
-    summary: String(error.message ?? '').split('\n')[0].slice(0, 400),
+    summary,
+    ...(message.slice(0, MAX_HOLD_MESSAGE) !== summary ? { message: message.slice(0, MAX_HOLD_MESSAGE) } : {}),
     ...(route ? { action: route } : {}),
     ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
     ...(APPROVAL_HOLD_OWNERS[error.code] || OWNER_PREFIXES.some(([prefix]) => String(error.code ?? '').startsWith(prefix)) ? {} : { unclassified: true })

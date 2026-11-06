@@ -69,6 +69,9 @@ test('act reads each result by its own fields and never invents a next action', 
     'authoring is the skill\'s own step, never a next action to relay');
   assert.equal(agentAct({ resultType: 'sflow-phase-entry', status: 'clarification-required' }).state, 'ask-person');
   assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'clarification-required' }).read, ['clarification', 'context']);
+  // The questions are one stage of the step: the task's own record says the work goes on after them.
+  assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'clarification-required', authoringProgress: { stage: 'complete-draft' }, taskCompletion: { complete: false } }).read,
+    ['clarification', 'context', 'authoringProgress', 'taskCompletion']);
   const prepublish = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } });
   assert.equal(prepublish.state, 'publish');
   assert.equal(prepublish.do.shell, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
@@ -364,7 +367,7 @@ test('a long text file is named as ranges the file tool shows whole, to request 
     if (index) assert.equal(start, text.read[index - 1][1] + 1, 'consecutive ranges');
   }
   assert.equal(text.need, true, 'act names context, so its file is marked to read');
-  assert.match(view.agentOutput.instruction, /every textFiles entry marked need/u);
+  assert.match(view.agentOutput.instruction, /every textFiles entry marked need, by its own read ranges exactly as listed/u);
 });
 
 // Copilot 1.0.100 in VS Code (2026-10-27) showed at most 8,193 bytes of a read before "Output truncated"

@@ -299,7 +299,9 @@ export function agentAct(result) {
     if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', ...(result.taskCompletion ? ['taskCompletion'] : []), ...(result.taskResume ? ['taskResume'] : []), 'authoringProgress', 'scopeReview', 'context', ...(result.applicationReviewRepair ? ['applicationReviewRepair'] : []),
       ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? ['recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : [])],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
-    if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],
+    // The questions are one stage of this step: without what the task still owes, the turn ended at them.
+    if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
+      read: ['clarification', 'context', ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : [])],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
@@ -944,7 +946,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }
   }
-  const instruction = catalog ? catalogInstruction : 'Bounded result: view every agentOutput.read line range (1-based, inclusive) and every textFiles entry marked need, in one response; the other omittedFields are optional. Nothing was truncated.';
+  const instruction = catalog ? catalogInstruction : 'Bounded result: view every agentOutput.read line range (1-based, inclusive) and every textFiles entry marked need, by its own read ranges exactly as listed, in one response; the other omittedFields are optional. Nothing was truncated.';
   const actAlone = 'Bounded result: act is all this step needs; omittedFields lists the rest, to view by its lines only if something asks for it. Nothing was truncated.';
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));

@@ -1673,7 +1673,9 @@ async function longFileRead(toolCalls, cwd, { force = false } = {}) {
     const partBytes = Buffer.byteLength(part.join('\n'));
     const chunkBytes = force ? Math.min(READ_CHUNK_BYTES / 2, Math.max(1, Math.floor(partBytes / 2))) : READ_CHUNK_BYTES;
     if ((!force && !invalid && partBytes <= LONG_READ_BYTES) || part.some(line => Buffer.byteLength(line) >= chunkBytes)) continue;
-    const ranges = lineRanges(part.join('\n'), chunkBytes).map(([start, end]) => [start + first - 1, end + first - 1]);
+    // A result SFlow issued is read to its end: a refusal naming only the asked-for lines lost the rest of its read plan, and a real chat then stopped with the context half read.
+    const planned = /[/\\]\.sflow[/\\]out[/\\]/u.test(file) ? lines.slice(first - 1) : part;
+    const ranges = lineRanges(planned.join('\n'), chunkBytes).map(([start, end]) => [start + first - 1, end + first - 1]);
     const shown = ranges.slice(0, LONG_READ_RANGES_SHOWN);
     const more = ranges.length > shown.length ? ` Then continue from line ${shown.at(-1)[1] + 1} the same way, or search the file for what you need.` : '';
     const shape = Array.isArray(call.args.view_range) || call.name === 'view' ? 'view_range' : pair;

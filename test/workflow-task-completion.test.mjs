@@ -141,6 +141,14 @@ test('size and exact-path recovery applies to native read aliases, never real ac
   assert.equal(badRange.code, 'FILE_READ_RANGE_INVALID');
   assert.deepEqual(badRange.readRequests, [{ tool: 'Read', args: { path: small, view_range: [2, 3] } }]);
   assert.deepEqual(await repositoryToolGuard({ ...f.payload, toolName: 'Read', toolArgs: badRange.readRequests[0].args }), {});
+  // A result SFlow issued is read to its end: naming only the asked-for lines lost the rest of a real chat's read plan.
+  const issued = path.join(f.root, '.sflow', 'out', 'context-text-1.txt');
+  await mkdir(path.dirname(issued), { recursive: true });
+  await writeFile(issued, Array.from({ length: 400 }, (_, line) => `line ${line + 1} ${'x'.repeat(90)}`).join('\n'));
+  const partial = await repositoryToolGuard({ ...f.payload, toolName: 'view', toolArgs: { path: issued, view_range: [1, 200] } });
+  assert.equal(partial.code, 'FILE_READ_TOO_LONG');
+  assert.equal(partial.readRanges[0].ranges.at(-1)[1], 400, 'the plan runs to the end of the file');
+  for (const request of partial.readRequests) assert.deepEqual(await repositoryToolGuard({ ...f.payload, toolName: request.tool, toolArgs: request.args }), {});
   // VS Code's read_file stops at the last line, so an end past it is no error there. A start past it still reads nothing.
   assert.deepEqual(await repositoryToolGuard({ ...f.payload, toolName: 'read_file', toolArgs: { filePath: small, startLine: 1, endLine: 500 } }), {});
   assert.equal((await repositoryToolGuard({ ...f.payload, toolName: 'read_file', toolArgs: { filePath: small, startLine: 40, endLine: 50 } })).code, 'FILE_READ_RANGE_INVALID');

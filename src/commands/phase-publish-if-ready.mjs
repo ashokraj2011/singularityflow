@@ -53,6 +53,18 @@ export function afterPublication(published, shown) {
   } };
 }
 
+/**
+ * The prepublish fields once the publication is done: nothing in them offers it again. A model read
+ * `commands.publish` here and ran it, making a pointless extra generation (bin-opr2).
+ */
+export function withoutPublishOffer(prepublish) {
+  const handoff = prepublish.testExecution?.handoff;
+  return { ...prepublish,
+    ...(prepublish.commands ? { commands: { ...prepublish.commands, publish: null } } : {}),
+    ...(prepublish.commandGuidance ? { commandGuidance: { ...prepublish.commandGuidance, publish: null } } : {}),
+    ...(handoff?.command ? { testExecution: { ...prepublish.testExecution, handoff: { ...handoff, command: null } } } : {}) };
+}
+
 export async function run({ positionals, options }) {
   if (options['for-agent'] !== true || options.json !== true) {
     throw new SingularityFlowError('--publish-if-ready requires --for-agent --json.', { code: 'PHASE_PUBLISH_IF_READY_OPTIONS' });
@@ -79,9 +91,9 @@ export async function run({ positionals, options }) {
   if (!shown.ok) stop(shown, 'phase show');
   // First, with what follows: the prepublish fields after it describe the draft before publication.
   console.log(JSON.stringify({ publishIfReady: {
-    published: true, ...afterPublication(published.value, shown.value), command: prepublish.commands.publish,
+    published: true, ...afterPublication(published.value, shown.value),
     ...(published.value?.applicationReview ? { applicationReview: published.value.applicationReview } : {}),
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value
-  }, ...prepublish }));
+  }, ...withoutPublishOffer(prepublish) }));
 }

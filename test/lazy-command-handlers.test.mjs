@@ -337,7 +337,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,500,250 (measured 9,500,246, commands/phase-lifecycle.mjs): a plan amendment holds the hash it accounted for (plan-amendments.mjs, plan-accounts.mjs). The reading stays lazy; no new eager file.
     // 9,524,400 (measured 9,524,302, commands/phase-lifecycle.mjs): the runner table's eager data, accepted for now (test-runners.mjs), with the decisions and fixes above.
     // 9,526,350 (measured 9,526,318, commands/phase-lifecycle.mjs): the Node-version failure offers one choice: its item (decision-list.mjs +1641), the refusal's first step (refusal-remediation.mjs +921, state.mjs +760), recovery's lead (recovery-plan.mjs +665). What reads and records it stays lazy (node-pin.mjs).
-    assert.ok(closure.bytes <= 9_526_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,527,700 (measured 9,527,624, commands/phase-lifecycle.mjs): a publish after a publish says so (phase-lifecycle.mjs +1120, phase-publish-if-ready's route stays lazy; the check itself is lazy, phase-publication-unchanged.mjs).
+    assert.ok(closure.bytes <= 9_527_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

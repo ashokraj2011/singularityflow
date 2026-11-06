@@ -271,6 +271,24 @@ export async function phaseCommand(positionals, options) {
     return;
   }
   const sourcePath = optionString(options, 'from');
+  // A publish after a publish: planning went 1, 2, 3, 4 on one real run, each pair seconds apart. A
+  // document unchanged since its publication already is that publication, so nothing is recorded.
+  if (!sourcePath && await (await import('../phase-publication-unchanged.mjs')).documentUnchangedSincePublication(root, config, workflow, requestedPhase)) {
+    if (optionBoolean(options, 'json')) {
+      console.log(JSON.stringify({
+        schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'retained',
+        workId: workflow.workItem.id, phase: requestedPhase.id, generation: requestedPhase.generation,
+        commit: publishedGenerationCommit(root, workflow, requestedPhase),
+        pushed: false, effects: { committed: false, pushed: false },
+        remoteSynchronization: 'not-checked', artifact: requestedPhase.requiredArtifact.path,
+        message: `Already published as generation ${requestedPhase.generation}; nothing changed since, so nothing was recorded.`
+      }));
+      return;
+    }
+    console.log(`Already published as generation ${requestedPhase.generation}; nothing changed since, so nothing was recorded.`);
+    printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
+    return;
+  }
   const explicitAuthored = optionString(options, 'authored');
   const implicitProducer = effectivePhasePublicationProducer(requestedPhase, {
     modelEnabled: operationContext()?.modelMode.enabled !== false

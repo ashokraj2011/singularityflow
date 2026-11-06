@@ -125,8 +125,9 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   const published = completeAgentResult(sflow(...combined));
   assert.equal(published.status, 'ready');
   assert.equal(published.publishIfReady.published, true);
-  assert.equal(published.publishIfReady.command, published.commands.publish);
-  assert.equal(published.commands.publish, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host --no-model');
+  // Done: nothing in the result offers it again, or a model runs it and makes a pointless generation (bin-opr2).
+  assert.equal(published.commands.publish, null);
+  assert.equal(published.publishIfReady.command, undefined);
   assert.equal(published.publishIfReady.review.phase, 'intake');
   // What follows comes first, with its routes: an agent reading from the top ended at "published"
   // without offering the next step. The prepublish fields after it describe the draft before publication.

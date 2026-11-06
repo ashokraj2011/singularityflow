@@ -22,7 +22,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { matchApprovalAuthority, normalizeApprovalAuthorities, requireApprovalAuthority } from '../approval-authority.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
@@ -36,7 +36,7 @@ import {
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import {
   adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
-  convergenceProjection, decodeConvergenceRecord, findingAdjudication,
+  convergenceProjection, DISPOSITIONS, decodeConvergenceRecord, findingAdjudication,
   renderConvergenceArtifact, serializeConvergence
 } from '../convergence.mjs';
 import {
@@ -911,6 +911,7 @@ export async function storyCommand(positionals, options) {
   // Dispatch accepted-Story operations before touching today's mutable agent/root configuration.
   if (subcommand === 'converge') return storyConvergeCommand(positionals, options);
   if (subcommand === 'adjudicate') return storyAdjudicateCommand(positionals, options);
+  if (subcommand === 'adjudications') return storyAdjudicationsCommand(positionals, options);
   if (subcommand === 'intent-amendment') return storyIntentAmendmentCommand(positionals, options);
   if (subcommand === 'rework') return storyReworkCommand(positionals, options);
   if (subcommand === 'advance') return storyAdvanceCommand(positionals, options);
@@ -1651,10 +1652,94 @@ export async function storyConvergeCommand(positionals, options) {
  * convergence from disposing of what it found, and the cleanest way to hold that line is for the
  * disposition to be a different invocation by a different identity.
  */
+const DISPOSITION_WORDS = Object.freeze({ 'accepted-deviation': 'Accept as is', rework: 'Send back to fix',
+  'update-intent': 'The spec should change', dismissed: 'Not a real finding', deferred: 'Decide later' });
+
+/**
+ * Everything a person decides at convergence, on one page: what changed, what the plan already says
+ * about it, and what is decided. Read-only. Every host's card reads this and records through
+ * `story adjudicate --answers`, so a person sees and is asked the same thing wherever they work.
+ */
+async function adjudicationList(root, config, workflow) {
+  const phase = convergencePhaseOf(workflow);
+  const base = { schemaVersion: 1, resultType: 'sflow-adjudications', workId: workflow.workItem.id, phase: phase?.id ?? null, repositoryPath: root };
+  if (!phase || workflow.currentPhase !== phase.id || phase.status !== 'in_progress') {
+    return { ...base, status: 'not-open', items: [], open: 0, message: 'There is nothing to adjudicate: this Story is not at an open convergence step.' };
+  }
+  const subject = await convergenceSubject(root, config, workflow);
+  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+  if (!projection) return { ...base, status: 'not-prepared', items: [], open: 0, message: `Convergence has not been prepared. Run singularity-flow prepare ${phase.id}.` };
+  const supporting = new Map((subject.records?.planned ?? []).flatMap((map) => map?.supportingFileDetails ?? []).map((entry) => [entry.path, entry]));
+  const { countedRecords } = await import('../presence/counted.mjs');
+  const amendments = countedRecords(workflow, workflow.planAmendments).flatMap((amendment) =>
+    (amendment.changes ?? []).map((change) => ({ ...change, id: amendment.id, why: change.reason ?? amendment.reason ?? null })));
+  const planSays = (file) => {
+    const listed = supporting.get(file);
+    if (listed) return { kind: 'supporting', class: listed.class ?? null, text: listed.reason ?? null };
+    const amended = amendments.find((change) => change.path === file);
+    return amended ? { kind: 'amendment', id: amended.id, clause: amended.clauseId ?? null, class: amended.class ?? null, text: amended.why } : null;
+  };
+  const decided = new Map((projection.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
+  const items = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])].map((item) => {
+    const decision = decided.get(item.id);
+    return { id: item.id, kind: item.kind ?? 'item', paths: item.paths ?? [], clauseIds: item.clauseIds ?? [], detail: item.detail ?? item.summary ?? null,
+      plan: (item.paths ?? []).map(planSays).find(Boolean) ?? null,
+      // One reason may cover only changed files no requirement claims: a failing test or a missing bound test gets its own answer.
+      acceptAll: item.kind === 'unclaimed-changed-path',
+      decision: decision ? { disposition: decision.disposition, reason: decision.reason ?? null, clauseIds: decision.clauseIds ?? [], actor: decision.actor ?? null, at: decision.at ?? null } : null };
+  });
+  const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
+  const groups = phase.approvalPolicy?.authorities ?? [];
+  let registry = {};
+  try { registry = normalizeApprovalAuthorities(authorities); } catch { registry = {}; }
+  const labels = groups.map((id) => registry?.[id]?.label ?? id);
+  let allowed = false;
+  try { allowed = matchApprovalAuthority(authorities, phase.approvalPolicy, actionActor(root)).authorized === true; } catch { allowed = false; }
+  return { ...base, status: 'open', iteration: subject.iteration, items, open: items.filter((item) => !item.decision).length,
+    decidedBy: { groups, labels, allowed, words: `${allowed ? 'You may decide these' : `The ${labels.join(' or ')} decide these`}${allowed && labels.length ? ` (${labels.join(' or ')})` : ''}.` },
+    dispositions: DISPOSITIONS.map((id) => ({ id, label: DISPOSITION_WORDS[id] ?? id })),
+    digest: `sha256:${recordSha256({ iteration: subject.iteration, items: items.map(({ id, paths, decision }) =>
+      ({ id, paths, decision: decision && { disposition: decision.disposition, reason: decision.reason, clauseIds: decision.clauseIds } })) })}` };
+}
+
+/** `story adjudications`: the list a card shows, or plain lines for a person in a terminal. */
+export async function storyAdjudicationsCommand(positionals, options) {
+  const root = repoRoot();
+  const workId = optionString(options, 'work-id') ?? positionals[2] ?? null;
+  const { config } = await loadAcceptedStoryExecution(root, workId ?? undefined);
+  const list = await adjudicationList(root, config, await loadStoryAggregate(root, config, workId));
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(list, null, 2));
+  if (list.status !== 'open') return console.log(list.message);
+  console.log(`${list.decidedBy.words} ${list.open} of ${list.items.length} still need a decision.`);
+  for (const item of list.items) {
+    const says = item.plan ? ` Plan: ${item.plan.kind === 'amendment' ? item.plan.id : 'supporting file'}${item.plan.text ? `, ${item.plan.text}` : ''}` : '';
+    console.log(`${item.id}  ${item.paths.join(', ') || item.kind}  ${item.decision ? item.decision.disposition : 'undecided'}${says}`);
+  }
+}
+
+/** A card's answers: each item's own disposition and reason, read once and refused whole when malformed. */
+async function adjudicationAnswers(file) {
+  let parsed;
+  try { parsed = JSON.parse(await readFile(file, 'utf8')); }
+  catch { throw new SingularityFlowError(`--answers must name a readable JSON file; could not read ${file}.`, { code: 'ADJUDICATION_ANSWERS_INVALID' }); }
+  const answers = parsed?.answers;
+  if (!Array.isArray(answers) || !answers.length || answers.length > 500
+      || answers.some((entry) => typeof entry?.itemId !== 'string' || typeof entry.disposition !== 'string')
+      || new Set(answers.map((entry) => entry.itemId)).size !== answers.length) {
+    throw new SingularityFlowError('--answers holds { "answers": [{ "itemId", "disposition", "reason", "clauseIds" }] }, each item once.', { code: 'ADJUDICATION_ANSWERS_INVALID' });
+  }
+  return answers;
+}
+
 export async function storyAdjudicateCommand(positionals, options) {
   const root = repoRoot();
   const { config } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  const itemIds = [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
+  const answersFile = optionString(options, 'answers');
+  if (answersFile && (positionals[2] || optionStrings(options, 'item').length || optionString(options, 'disposition') || !optionString(options, 'expect'))) {
+    throw new SingularityFlowError('--answers takes every item from its file, and --expect with the digest of the list the person saw.', { code: 'ADJUDICATION_ANSWERS_INVALID' });
+  }
+  const answers = answersFile ? await adjudicationAnswers(answersFile) : null;
+  const itemIds = answers ? answers.map((entry) => entry.itemId) : [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
   const result = await withConvergenceDraft(
     root,
     config,
@@ -1678,21 +1763,21 @@ export async function storyAdjudicateCommand(positionals, options) {
         currentFacts: facts
       });
       await assertConvergenceSources(root, existing, { itemRelative: subject.itemRelative });
+      // What the person answered is what they saw: a list that moved since records nothing.
+      if (answers && (await adjudicationList(root, config, workflow)).digest !== optionString(options, 'expect')) {
+        throw new SingularityFlowError('The list of items changed while it was open. Nothing was recorded; read it again.', { code: 'ADJUDICATION_LIST_CHANGED' });
+      }
 
       const at = nowIso();
       const actor = authority.actor;
-      const decisions = itemIds.map((id) => ({
-        itemId: id,
-        disposition: optionString(options, 'disposition'),
-        classification: optionString(options, 'classification') ?? null,
-        reason: optionString(options, 'reason'),
-        clauseIds: optionStrings(options, 'clause'),
-        actor: actorKey(actor),
-        at
-      }));
+      const decisions = (answers ?? itemIds.map((itemId) => ({ itemId, disposition: optionString(options, 'disposition'),
+        classification: optionString(options, 'classification') ?? null, reason: optionString(options, 'reason'), clauseIds: optionStrings(options, 'clause') })))
+        .map((entry) => ({ itemId: entry.itemId, disposition: entry.disposition, classification: entry.classification ?? null,
+          reason: entry.reason, clauseIds: entry.clauseIds ?? [], actor: actorKey(actor), at }));
       const earlier = new Map((existing.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
       // The same answer again records nothing: a second run used to replace the first and say "Recorded".
-      const unchanged = decisions.filter((decision) => sameAdjudication(earlier.get(decision.itemId), decision));
+      const known = new Map([...(existing.facts ?? []), ...(existing.candidateSnapshot ?? [])].map((item) => [item.id, item]));
+      const unchanged = decisions.filter((decision) => sameAdjudication(earlier.get(decision.itemId), decision, known.get(decision.itemId)));
       const changing = decisions.filter((decision) => !unchanged.includes(decision));
       const phaseId = subject.phase.id;
       if (!changing.length) return { decisions: [], unchanged, earlier, projection: existing, authority, phaseId };
@@ -1736,6 +1821,14 @@ export async function storyAdjudicateCommand(positionals, options) {
   );
   const { decisions, unchanged, earlier, projection, authority, phaseId } = result;
 
+  if (answers) {
+    const undecided = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])]
+      .filter((item) => !(projection.findings ?? []).some((finding) => finding.itemId === item.id));
+    return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-adjudications-recorded', status: 'recorded', phase: phaseId,
+      recorded: decisions.map((decision) => decision.itemId), unchanged: unchanged.map((decision) => decision.itemId),
+      remaining: undecided.map((item) => item.id), blocking: projection.unresolvedBlockers, allowedNext: projection.allowedNext,
+      next: undecided.length ? 'Some items still need a decision.' : `All decided. Run singularity-flow prepare ${phaseId} to regenerate the report.` }, null, 2));
+  }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
   for (const decision of unchanged) console.log(`Already recorded: ${decision.disposition} on ${decision.itemId} at ${earlier.get(decision.itemId).at}. Nothing changed.`);
   for (const decision of decisions) {
@@ -1756,11 +1849,14 @@ export async function storyAdjudicateCommand(positionals, options) {
   else if (nextActions.length) console.log(`Allowed next: ${nextActions.join(', ')}`);
 }
 
-/** One person's same answer on one item: same disposition, classification, reason and clauses. */
-function sameAdjudication(recorded, decision) {
-  const clauses = (entry) => [...(entry.clauseIds ?? [])].sort().join('\n');
+/**
+ * One person's same answer on one item: same disposition, classification, reason and clauses. A finding
+ * keeps the item's own clauses and classification too, so those count as already said.
+ */
+function sameAdjudication(recorded, decision, item) {
+  const clauses = (entry) => [...new Set([...(entry.clauseIds ?? []), ...(item?.clauseIds ?? [])])].sort().join('\n');
   return Boolean(recorded) && recorded.disposition === decision.disposition
-    && (recorded.classification ?? null) === (decision.classification ?? null)
+    && (recorded.classification ?? null) === (decision.classification ?? item?.classification ?? null)
     && String(recorded.reason ?? '').trim() === String(decision.reason ?? '').trim()
     && clauses(recorded) === clauses(decision);
 }

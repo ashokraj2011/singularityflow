@@ -379,6 +379,35 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const absent = iteration.facts.find((fact) => fact.kind === 'absent-observed-claim' && fact.clauseIds.includes('E2E:REQ-002'))
     ?? iteration.facts.find((fact) => fact.kind === 'absent-observed-claim');
   assert.ok(absent, 'no absent-claim fact to adjudicate');
+  // The table every card shows: one read, then one write with each item's own answer and reason.
+  const table = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout);
+  assert.equal(table.resultType, 'sflow-adjudications');
+  assert.equal(table.status, 'open');
+  assert.equal(table.open, table.items.length);
+  assert.deepEqual(table.items.map((item) => item.id).sort(), iteration.facts.map((fact) => fact.id).sort());
+  assert.ok(table.items.every((item) => item.acceptAll === (item.kind === 'unclaimed-changed-path')), 'Accept all reached more than changed files');
+  assert.deepEqual(table.dispositions.map((entry) => entry.id).includes('accepted-deviation'), true);
+  assert.equal(table.decidedBy.allowed, true);
+  const answersFile = path.join(root, '..', `${path.basename(root)}-answers.json`);
+  t.after(() => rm(answersFile, { force: true }));
+  const writeAnswers = (answers) => writeFile(answersFile, JSON.stringify({ answers }));
+  await writeAnswers([{ itemId: absent.id, disposition: 'deferred', reason: 'One answer, its own reason.' }]);
+  const staleDigest = sflow(root, ['story', 'adjudicate', '--answers', answersFile, '--expect', 'sha256:stale'], { allowFailure: true });
+  assert.notEqual(staleDigest.status, 0);
+  assert.match(staleDigest.stdout + staleDigest.stderr, /changed while it was open/);
+  const mixed = sflow(root, ['story', 'adjudicate', absent.id, '--answers', answersFile, '--expect', table.digest], { allowFailure: true });
+  assert.notEqual(mixed.status, 0, 'an answers file and a named item were both accepted');
+  const recordedTable = JSON.parse(sflow(root, ['story', 'adjudicate', '--answers', answersFile, '--expect', table.digest]).stdout);
+  assert.equal(recordedTable.status, 'recorded');
+  assert.deepEqual(recordedTable.recorded, [absent.id]);
+  assert.ok(!recordedTable.remaining.includes(absent.id));
+  const afterTable = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout);
+  assert.equal(afterTable.open, table.open - 1);
+  assert.equal(afterTable.items.find((item) => item.id === absent.id).decision.reason, 'One answer, its own reason.');
+  assert.notEqual(afterTable.digest, table.digest);
+  const sameAgain = JSON.parse(sflow(root, ['story', 'adjudicate', '--answers', answersFile, '--expect', afterTable.digest]).stdout);
+  assert.deepEqual(sameAgain.recorded, [], 'the same answer recorded a second time');
+  assert.deepEqual(sameAgain.unchanged, [absent.id]);
   const adjudicateAbsent = () => sflow(root, ['story', 'adjudicate', absent.id, '--disposition', 'rework', '--clause', 'E2E:REQ-002']).stdout;
   const firstAnswer = adjudicateAbsent();
   const others = iteration.facts.filter((entry) => entry.id !== absent.id);

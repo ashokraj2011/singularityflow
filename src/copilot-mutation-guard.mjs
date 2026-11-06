@@ -727,6 +727,8 @@ export function argvAllowed(argv, mode, value) {
   // Witnessing evidence and accepting a dated obligation risk are a person's word on what they looked
   // at, in no turn: run under the person's Git identity, an agent would sign off its own work.
   if (signOff(positionals)) return false;
+  // The decisions page records what a person answered on it; a turn that wrote that file would answer for them.
+  if (positionals[0] === 'story' && positionals[1] === 'adjudicate' && options.answers !== undefined) return false;
   if (planRowCorrectionStep(positionals, options)) return false;
   if (liveTerminalReviewStep(positionals, options)) return false;
   // An approver's clarification answer from their own clone carries their Git identity as its signer.
@@ -837,6 +839,7 @@ function ownTerminalStepCall(call, value) {
 // What each person's own step is, for the ones no earlier refusal names; any later entry still gets
 // the person's exact terminal line instead of a turn-mode or tool-form refusal (E5/D2, 2026-10-31).
 const OWN_STEP_DENIALS = Object.freeze({
+  'adjudication-answers': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this records what a person answered on the decisions page, and no turn writes those answers. Call sflowAdjudicate with the Story ID, which opens that page, or run /sf-converge, which asks them.',
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',

@@ -60,6 +60,7 @@ export { SpecStudioPanel } from './views/spec-studio.ts';
 export { VisualAssurancePanel } from './views/visual-assurance.ts';
 export { DecisionListPanel } from './views/decision-list.ts';
 export { reviewWitness } from './views/decision-list.ts';
+export { reviewAdjudications } from './views/adjudication.ts';
 export { SfGuardPanel, SfGuardSignPanel, SfGuardStandings } from './views/sf-guard.ts';
 export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';
 export { TestSummaryPanel } from './views/test-summary.ts';

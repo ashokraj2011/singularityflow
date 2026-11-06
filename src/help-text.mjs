@@ -1096,6 +1096,8 @@ Usage:
   singularity-flow story adjudicate <ITEM-ID> [--item ITEM-ID]...
     --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
+  singularity-flow story adjudicate --answers FILE --expect DIGEST [--work-id ID]  (several items at once, each with its own answer)
+  singularity-flow story adjudications [--work-id ID] [--json]  (what changed, what the plan says, what is decided)
   singularity-flow story intent-amendment status [--work-id ID] [--json]
   singularity-flow story intent-amendment draft [--clause ID]... [--adopt CLAUSE-ID]... [--out FILE] [--work-id ID] [--json]
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]

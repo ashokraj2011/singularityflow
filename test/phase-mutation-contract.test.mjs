@@ -846,6 +846,7 @@ test('every step only a person takes in their own terminal is refused in every t
     'configuration-approve': ['singularity-flow configuration approve sflow/config-change/workflow/studio-x --yes',
       'singularity-flow configuration approve --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
+    'adjudication-answers': ['singularity-flow story adjudicate --answers /tmp/a.json --expect sha256:abc --work-id PMC-1'],
     'clarification-answer': ['singularity-flow clarification answer custom-step --question "Is 2 right?" --answer "Yes."'],
     'plan-correction': ['singularity-flow decision plan PMC-1 --set-fulfillment PMC-1:REQ-001=test-only --reason "The tests are the whole delivery."',
       'singularity-flow decision plan PMC-1 --replace-location PMC-1:AC-001=src/a.mjs:src/b.mjs --reason "The plan named the wrong module."'],
@@ -1052,6 +1053,11 @@ test('a person\'s decision is refused in every turn but the one they start for i
   assert.doesNotMatch(accounted.permissionDecisionReason, /no verified equivalent/u);
   assert.match((await shell(decisions['convergence-adjudication'][0])).next[0].copilotCommand, /^\/sf-converge\b/u);
   assert.match((await shell(decisions['agent-trust'][0])).permissionDecisionReason, /no verified equivalent/u);
+  // The decisions page is a tool that takes a Story ID; the person answers on it, so no turn is refused it.
+  for (const toolName of ['singularityFlow_adjudicate', 'sflowAdjudicate']) {
+    const opening = await repositoryToolGuard({ ...await f.enter('/sf-converge', 'page-opener'), toolName, toolArgs: { workId: 'PMC-1' } });
+    assert.notEqual(opening.permissionDecision, 'deny', toolName);
+  }
   // A chain in the turn that owns the decision keeps the person's answers: run them one at a time.
   const chain = 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "Not a defect." && singularity-flow story adjudicate CF-2 --disposition dismissed --reason "Nor this."';
   const converging = await f.enter('/sf-converge', 'converger');

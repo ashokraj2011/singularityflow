@@ -411,6 +411,7 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     'skill-version': 'sf-story-skill-version',
     'target-origin': 'sf-mcp',
     adjudicate: 'sf-converge',
+    adjudications: 'sf-converge',
     converge: 'sf-converge',
     submit: 'sf-submit',
     advance: 'sf-submit',
@@ -504,6 +505,8 @@ export function liveTerminalReviewStep([command, sub, verb], options) {
  */
 export const OWN_TERMINAL_STEPS = Object.freeze([
   ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],
+  // A card records a person's answers from outside chat; no chat writes the file for them.
+  ['adjudication-answers', ([command, sub], options) => command === 'story' && sub === 'adjudicate' && options.answers !== undefined],
   ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
   ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
   ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(sub)],

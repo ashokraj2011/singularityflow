@@ -116,6 +116,27 @@
         }
       },
       {
+        "name": "singularityFlow_adjudicate",
+        "displayName": "SFlow convergence decisions",
+        "toolReferenceName": "sflowAdjudicate",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Open every convergence decision for a Story as one table: accept all with one reason, or decide each.",
+        "modelDescription": "Open the native page where the person decides every convergence item for a Story. Pass only the exact workId. The person answers and confirms on the page, and the extension records it; no answer, reason or selection comes from you. It returns what was recorded and what remains. When it returns, carry on with this step.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workId"
+          ],
+          "properties": {
+            "workId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            }
+          }
+        }
+      },
+      {
         "name": "singularityFlow_witnessReview",
         "displayName": "SFlow human evidence review",
         "toolReferenceName": "sflowWitnessReview",
@@ -879,6 +900,11 @@
         "command": "singularityFlow.decideStory",
         "title": "Singularity Flow: Choose What Happens Next",
         "icon": "$(git-compare)"
+      },
+      {
+        "command": "singularityFlow.adjudicate",
+        "title": "Decide Convergence Items",
+        "category": "Singularity Flow"
       },
       {
         "command": "singularityFlow.reviewWitness",

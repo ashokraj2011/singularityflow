@@ -1807,6 +1807,14 @@ test('the five SFlow language-model tools answer through the gateway, and a paus
   assert.equal(forged.status, 'blocked');
   assert.equal(forged.recorded, null);
   assert.match(forged.message, /accepts only a Story ID, criterion and slot/u);
+  const adjudicateTool = tools.get('singularityFlow_adjudicate');
+  assert.ok(adjudicateTool, 'Copilot can open the convergence decisions page');
+  for (const input of [{ workId: 'HEX-1', answers: [{ itemId: 'CF-1', disposition: 'dismissed' }] }, { workId: '../outside' }, {}]) {
+    const refused = JSON.parse((await adjudicateTool.invoke({ input })).content[0].value);
+    assert.equal(refused.status, 'blocked');
+    assert.equal(refused.recorded, null, 'a model-supplied answer reached the record');
+    assert.match(refused.message, /takes only a Story ID/u);
+  }
   const validationTool = tools.get('singularityFlow_deliveryValidation');
   assert.ok(validationTool, 'Copilot can ask the person how to validate a delivery');
   for (const input of [{ workId: 'HEX-1', action: 'start' }, { workId: '../outside' }, {}]) {
@@ -1818,7 +1826,7 @@ test('the five SFlow language-model tools answer through the gateway, and a paus
   // A command that answers nothing must not crash VS Code's chat: a text part with no value ends the whole turn.
   const execute = api.commands.executeCommand;
   api.commands.executeCommand = async () => undefined;
-  for (const [tool, input] of [[validationTool, { workId: 'HEX-1' }], [witnessTool, { workId: 'HEX-1' }]]) {
+  for (const [tool, input] of [[validationTool, { workId: 'HEX-1' }], [witnessTool, { workId: 'HEX-1' }], [adjudicateTool, { workId: 'HEX-1' }]]) {
     const { value } = (await tool.invoke({ input })).content[0];
     assert.equal(typeof value, 'string');
     assert.equal(JSON.parse(value).status, 'blocked');

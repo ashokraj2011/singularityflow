@@ -84,6 +84,29 @@ export function testsSummaryArgv(target: TestSummaryTarget, runId: string | null
   return ['tests', 'summary', ...scope, ...(runId ? [`--run=${required(runId, 'Run ID', RUN_ID)}`] : []), '--json'];
 }
 
+/** `tests base` for a Story step: each command once on the commit the Story started from. */
+export function testsBaseArgv(target: Extract<TestSummaryTarget, { kind: 'story' }>): string[] {
+  return ['tests', 'base', '--work-id', required(target.workId, 'Work ID', WORK_ID), ...(target.phase ? ['--phase', required(target.phase, 'Phase', PHASE)] : []), '--json'];
+}
+
+export interface TestBaseAnswer {
+  baseCommit: string | null;
+  results: Array<{ commandId: string; words: string; verdict: string | null; reused: boolean }>;
+}
+
+/** The answer of `tests base --json`, or null when it is not one. The engine's words are shown as they are. */
+export function testBaseFrom(raw: unknown): TestBaseAnswer | null {
+  let value = record(raw);
+  if (value && value.resultType !== 'sflow-test-base' && record(value.data)) value = record(value.data);
+  if (!value || value.resultType !== 'sflow-test-base' || !Array.isArray(value.results)) return null;
+  const results = value.results.flatMap((item) => {
+    const entry = record(item);
+    const words = text(entry?.words);
+    return entry && words ? [{ commandId: text(entry.commandId) ?? 'tests', words, verdict: text(entry.verdict), reused: entry.reused === true }] : [];
+  });
+  return { baseCommit: text(value.baseCommit), results };
+}
+
 export function totalsFrom(value: unknown): TestSummaryTotals {
   const totals = record(value) ?? {};
   return {
@@ -215,6 +238,8 @@ export interface TestSummaryView {
   runs: RunOption[];
   truncated: boolean;
   untagged: number;
+  /** Whether a failure here also fails without the Story's change: only a Story step's failed run asks. */
+  base: { offered: boolean; busy: boolean; answer: TestBaseAnswer | null; error: string | null };
 }
 
 const PILLS: Record<string, CaseRow['outcomePill']> = { passed: 'ok', failed: 'bad', flaky: 'wait' };
@@ -232,8 +257,11 @@ export const targetTitle = (target: TestSummaryTarget): string => target.kind ==
 
 export function buildTestSummaryView(summary: TestSummary | null, options: {
   target: TestSummaryTarget; filters?: TestSummaryFilters; busy?: boolean; error?: string | null; notice?: string | null;
+  base?: { busy?: boolean; answer?: TestBaseAnswer | null; error?: string | null };
 }): TestSummaryView {
   const filters = options.filters ?? { failedOnly: false, untagged: false };
+  const failedHere = options.target.kind === 'story' && Boolean(summary?.commands.some((command) => command.status === 'failed'));
+  const baseState = { offered: failedHere || Boolean(options.base?.answer), busy: options.base?.busy === true, answer: options.base?.answer ?? null, error: options.base?.error ?? null };
   const base = {
     busy: options.busy === true, error: options.error ?? null, notice: options.notice ?? null,
     title: targetTitle(options.target), filters,
@@ -242,7 +270,7 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
       : `Story ${options.target.workId}${options.target.phase ? `, step ${options.target.phase}` : ''}`
   };
   if (!summary) {
-    return { ...base, available: false, run: null, totals: null, totalsLine: null, shown: 0, total: 0, commands: [], runs: [], truncated: false, untagged: 0 };
+    return { ...base, available: false, run: null, totals: null, totalsLine: null, shown: 0, total: 0, commands: [], runs: [], truncated: false, untagged: 0, base: baseState };
   }
   const shownCases = filterCases(summary.cases, filters);
   const listed = new Set(summary.commands.map((command) => command.id));
@@ -280,6 +308,7 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
       selected: entry.runId === run?.id
     })),
     truncated: summary.truncated,
-    untagged: summary.untagged
+    untagged: summary.untagged,
+    base: baseState
   };
 }

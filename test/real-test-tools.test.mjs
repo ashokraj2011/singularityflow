@@ -212,6 +212,25 @@ test('real vitest: the test files SFlow says a path leaves out are the ones it r
   assert.deepEqual(names(ran), [['kept', 'passed']], ran.output);
 });
 
+test('real vitest: a test file its include never collected at the base commit is not called dropped, and it truly never ran', LANE, async (t) => {
+  const modules = installedModules('vitest');
+  if (!modules) return absent(t, 'vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');
+  const passing = (name) => `import { test } from 'vitest'\ntest('${name}', () => {})\n`;
+  const manifest = (script) => JSON.stringify({ private: true, type: 'module', scripts: { test: script }, devDependencies: { vitest: '4' } });
+  const root = await repository(t, { 'package.json': manifest('vitest run'), 'vite.config.js': "export default { cacheDir: '.vitecache', test: { include: ['src/**/*.test.js'] } }\n",
+    'src/a.test.js': passing('collected'), 'tools/b.test.js': passing('never collected') }, { modules });
+  const git = (...args) => spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', ...args], { cwd: root, encoding: 'utf8' });
+  await writeFile(path.join(root, '.gitignore'), 'node_modules\n');
+  git('add', '.'); git('commit', '-qm', 'base');
+  const baseCommit = git('rev-parse', 'HEAD').stdout.trim();
+  const [before] = await commandFor(root, 'src/a.test.js');
+  assert.deepEqual(names(await gateRun(root, before)), [['collected', 'passed']], 'at the base commit its include already kept tools/ out');
+  await writeFile(path.join(root, 'package.json'), manifest('vitest run src'));
+  const [command] = await commandFor(root, 'src/a.test.js');
+  const [entry] = addedPathNarrowing(root, command, { scripts: [{ source: 'package.json#scripts.test', text: 'vitest run src' }], baseCommit, inferred: true });
+  assert.deepEqual([entry.droppedCount, entry.tests], [0, 1]);
+});
+
 test('real vitest with jsdom: the early check about Node\'s own localStorage says what this Node really does', LANE, async (t) => {
   const modules = installedModules('vitest');
   if (!modules) return absent(t, 'vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');

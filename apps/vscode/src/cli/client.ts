@@ -1112,6 +1112,8 @@ export class SingularityFlowClient {
         ? CLI_TIMEOUT_MS : FACTORY_RESET_TRANSACTION_TIMEOUT_MS;
     }
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
+    // A base comparison is a whole test run on another commit, which the page shows only when it ends.
+    if (args[0] === 'tests' && args[1] === 'base') return VALIDATION_TIMEOUT_MS;
     // Baseline execution already has bounded per-command timeouts; do not kill it at the read UI budget.
     if (args[0] === 'precheck' && enabledBooleanOption(args, 'run') && hasOption(args, 'confirm-plan')) return 30 * 60_000;
     // Alignment reinstalls product surfaces from retained bytes; npm resolves the CLI's dependencies.

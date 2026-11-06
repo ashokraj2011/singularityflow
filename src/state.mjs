@@ -4266,7 +4266,7 @@ function requiredTestExecutionDiagnostic(root, command, check) {
   };
 }
 
-async function attachRequiredTestExecution(error, root, command, check) {
+async function attachRequiredTestExecution(error, root, command, check, { workId = null } = {}) {
   if (!(error instanceof SingularityFlowError) && !(error instanceof SyntaxError)) return error;
   const refusal = error instanceof SingularityFlowError
     ? error
@@ -4315,7 +4315,7 @@ async function attachRequiredTestExecution(error, root, command, check) {
       : check?.status === 'passed' ? 'did not produce passing test evidence' : 'failed';
     const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
-      + 'See error.requiredTestExecution in --json for the command and bounded output. To see whether it also fails without this change: singularity-flow tests base --work-id <WORK-ID> --command ' + command.id + '.'
+      + `See error.requiredTestExecution in --json for the command and bounded output. To see whether it also fails without this change: singularity-flow tests base --work-id ${workId ?? '<WORK-ID>'} --command ${command.id}.`
       + ((refusal.details?.testRunRisk ?? refusal.details?.testRunCause)?.guidance ? ` ${(refusal.details.testRunRisk ?? refusal.details.testRunCause).guidance}` : '');
   }
   return refusal;
@@ -5204,7 +5204,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         if (narrowed) attempts.find((entry) => entry.commandId === command.id).testNarrowing = narrowed;
         passing.push(command);
       } catch (error) {
-        refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
+        refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id }), check);
       }
     }
     if (refusal) throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
@@ -5731,7 +5731,7 @@ async function submitPhaseTransition(root, config, workflow, {
             }
           }
         } catch (error) {
-          refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
+          refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id }), check);
           continue;
         }
         if (runRisk) {

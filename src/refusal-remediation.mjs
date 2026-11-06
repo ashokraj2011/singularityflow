@@ -262,8 +262,21 @@ function requiredTestFailureSteps(argv, error) {
     step('repair-required-test',
       failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
       null, 'remediation'),
+    baseComparisonStep(argv, error, context),
     testRunRiskStep(error)
   ].filter(Boolean);
+}
+
+/**
+ * A failed run may have nothing to do with this change. The gate never starts a base run itself: it names
+ * the read a person or agent can ask for, which runs the command once on the Story's base commit.
+ */
+function baseComparisonStep(argv, error, context) {
+  if (error?.code !== 'CODE_TEST_FAILED' || !context?.workId) return null;
+  const commandId = safeWorkId(requiredTestExecutionForRefusal(error)?.commandId);
+  return step('compare-with-base',
+    'If nothing here names a file this change touched, ask whether it also fails without the change. It runs the same command once on the Story\'s base commit, keeps the answer, records no evidence and refuses nothing. In VS Code it is a button on the Test summary page.',
+    `singularity-flow tests base --work-id ${context.workId} --phase ${context.phaseId}${commandId ? ` --command ${commandId}` : ''}`, 'diagnostic');
 }
 
 /**

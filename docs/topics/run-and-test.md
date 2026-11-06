@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 8
+version: 9
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -103,8 +103,13 @@ start:
 - `paths`: which suite covers each file changed so far, else each file the plan names, and which have no suite.
 - `notUsed`: what SFlow saw and does not run, such as a Playwright suite a configured `npm test` hides, or a runner it has no reader for.
 - `earlyChecks`: what would otherwise surface at the end of the step. Each is `{ id, words, action }`. None of them refuses; only the gates refuse.
+- `pin`, on each suite of a Story: whether it changed since it was pinned for this Story, in words (`not-pinned`, `unchanged`, `changed`, `accepted`, `restored`). A `changed` one shows before and after and the request to make, before a gate refuses it.
 
 The early checks start no test and download nothing. `dependencies-not-installed` and `runner-not-installed` name the install command the lockfile implies. `planned-runner-missing` says when the plan names a browser test and the package has no browser runner yet, and what adding one costs. `runner-collects-other-tests` says when Vitest or Jest would collect a Playwright spec, which fails that run even when each of its own tests passes. `node-version` compares `.nvmrc`, `.node-version` and `engines.node` with the Node here, and names the known case where Node 25 or later breaks Vitest's DOM environment for code that uses `localStorage`. `browser-not-installed` and `tool-not-found` name what is missing from this machine. A check that cannot read what it needs says nothing, so a line is always something seen here; no line does not prove a run will pass.
+
+A failed run may not be the Story's: `singularity-flow tests base --work-id ID` compares it with the Story's base commit (see test-recovery). A gate never starts it. A refused publication names it, and VS Code's Test summary page offers it as a button on a failed run.
+
+A path a script now names is compared with the test files of the base commit. A file the base's own runner configuration never collected (`test.include`, `testMatch`, `roots`, `testDir`, `spec`, `testpaths`, read as plain values and never run) was never there to drop. A configuration SFlow cannot read that way stays a person's decision, and the refusal says it may be why.
 
 With nothing changed yet and nothing to run at the repository root, a Story's plan shows what the plan's own files will resolve to, as `prospective: true`. A refusal that resolving the commands would give is `stopped`, in words, rather than an error.
 

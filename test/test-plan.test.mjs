@@ -5,15 +5,21 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 import { prepublishTestExecutionLines } from '../src/phase-prepublish.mjs';
 import { testExecutionHandoff } from '../src/test-execution-handoff.mjs';
 import { moduleTestCommands } from '../src/test-module-markers.mjs';
 import { assertNoUnreadRunner, describeTestCommand, earlyTestChecks, nodeRangeAccepts, pathCoverage, suitesNotUsed, testPlanText } from '../src/test-plan.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
+
+const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 async function repository(t, files) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-plan-'));
@@ -247,4 +253,61 @@ test('TypeScript tests under a runner SFlow cannot read hear its name, not a gen
   });
   const plain = await repository(t, { 'package.json': manifest({ scripts: { lint: 'eslint .' } }), 'test/a.test.ts': '' });
   await assertNoUnreadRunner(plain, ['test/a.test.ts']);
+});
+
+test('a code step\'s entry reaches the agent with its early checks, and a plan whose browser test has no runner does not read as available', slowLane({ timeout: 600_000 }), async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-plan-entry-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'repo');
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Plan Tester',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
+    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Plan Tester', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'plan.tester@example.invalid' };
+  delete env.NODE_TEST_CONTEXT;
+  delete env.SINGULARITY_FLOW_AGENT_OUTPUT;
+  const must = (command, args, cwd = root) => {
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(240_000) });
+    assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const sflow = (...args) => must(process.execPath, [cli, '--no-model', ...args]);
+  must('git', ['init', '-q', '-b', 'main', root], base);
+  await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'test'));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
+  await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/\n');
+  await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
+  await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\ntest('value', () => {});\n");
+  sflow('init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  await writeFile(configPath, YAML.stringify(config));
+  must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'A repository with no browser runner']);
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);
+  must('git', ['remote', 'add', 'origin', path.join(base, 'remote.git')]); must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), ['# QF-1 — Quick fix scope and plan', '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [QF-1:AC-001] | The exported value equals 2. |', '', '## Planned implementation evidence', '',
+    '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|', '| `QF-1:AC-001` | `src/value.mjs` | `test/value.test.mjs`, `e2e/value.spec.js` | modified | The test reads 2. |', '',
+    '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
+  sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  sflow('submit', 'intake');
+  sflow('approve', 'intake', '--yes');
+  sflow('resume', 'QF-1');
+  sflow('phase', 'begin', 'implement', '--json');
+
+  // What /sf-code runs first. A bounded result names what to read, and the early checks are inside it: no skill text is needed.
+  const entry = JSON.parse(sflow('phase', 'enter', '--compose', '--for-agent', '--json'));
+  assert.ok(entry.act.read.includes('recovery.testExecution'), JSON.stringify(entry.act.read));
+  const issued = (await readFile(entry.agentOutput.path, 'utf8')).split('\n');
+  const told = entry.agentOutput.read.flatMap(({ lines: [from, to] }) => issued.slice(from - 1, to)).join('\n');
+  assert.match(told, /planned-runner-missing/u);
+  assert.match(told, /Before starting, read testExecution\.earlyChecks/u);
+  const recovery = JSON.parse(sflow('recover', 'QF-1', '--phase', 'implement', '--json'));
+  const { planned } = recovery.testExecution ?? recovery.recovery.testExecution;
+  assert.equal(planned.runner, 'missing');
+  assert.deepEqual(planned.needsRunner, ['e2e/value.spec.js']);
 });

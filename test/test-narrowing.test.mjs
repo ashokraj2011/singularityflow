@@ -13,6 +13,7 @@ import {
   addedPathNarrowing, commandFilters, focusedDeclarations, gateNarrowing, narrowingCovers, narrowingFacts, narrowingWords, observedNarrowing, pathNarrowingWords, pathOperands, recordTestNarrowing,
   recordTestNarrowingRevocation, testNarrowingBinding, testNarrowingReplayProblem
 } from '../src/test-narrowing.mjs';
+import { collectionLimit } from '../src/test-collection-limits.mjs';
 import { run } from '../src/util.mjs';
 
 const at = '2026-10-25T10:00:00.000Z';
@@ -222,6 +223,58 @@ test('what is not a dropped test: a path already on the base, a suite the Story 
   // With no base commit to read there is nothing to compare, and nothing is refused.
   const { root, scripts } = await pathRepository(t, { 'package.json': manifest({ test: 'vitest run' }), 'src/a.test.js': '' }, { test: 'vitest run src' });
   assert.deepEqual(addedPathNarrowing(root, unitCommand, { scripts, baseCommit: null, inferred: true }), []);
+});
+
+test('a test file the base commit\'s configuration never collected is not dropped; one it may have kept out says so and stays a person\'s decision', async (t) => {
+  const facts = async (files, script) => {
+    const { root, baseCommit, scripts } = await pathRepository(t, files, script);
+    return addedPathNarrowing(root, unitCommand, { scripts, baseCommit, inferred: true })[0];
+  };
+  const manifest = (test) => JSON.stringify({ scripts: { test } });
+  // Vitest's include limited it at the base, so e2e/x.test.js never ran.
+  const vitest = await facts({ 'package.json': manifest('vitest run'), 'vite.config.js': "import { defineConfig } from 'vitest/config'\nexport default defineConfig({ plugins: [], test: { include: ['src/**/*.test.{js,jsx}'] } })\n",
+    'src/a.test.js': '', 'e2e/x.test.js': '' }, { test: 'vitest run src' });
+  assert.deepEqual([vitest.droppedCount, vitest.tests], [0, 1]);
+  // The same limit does not hide a test it did collect.
+  const kept = await facts({ 'package.json': manifest('vitest run'), 'vite.config.js': "export default { test: { include: ['**/*.test.js'], exclude: ['e2e/**'] } }\n",
+    'src/a.test.js': '', 'lib/b.test.js': '', 'e2e/x.test.js': '' }, { test: 'vitest run src' });
+  assert.deepEqual([kept.droppedCount, kept.dropped], [1, ['lib/b.test.js']]);
+  // vitest.config wins over vite.config, and an include outside `test` is no limit on tests.
+  const elsewhere = await facts({ 'package.json': manifest('vitest run'), 'vitest.config.mjs': 'export default { test: { globals: true } }\n', 'vite.config.js': "export default { test: { include: ['src/**'] } }\n",
+    'src/a.test.js': '', 'lib/b.test.js': '' }, { test: 'vitest run src' });
+  assert.deepEqual(elsewhere.dropped, ['lib/b.test.js']);
+  assert.deepEqual((await facts({ 'package.json': manifest('vitest run'), 'vite.config.js': "export default { build: { rollupOptions: { include: ['src/**'] } } }\n",
+    'src/a.test.js': '', 'lib/b.test.js': '' }, { test: 'vitest run src' })).dropped, ['lib/b.test.js']);
+  // Jest: testMatch, roots and testPathIgnorePatterns, in its file or package.json.
+  const jest = await facts({ 'package.json': manifest('jest'), 'jest.config.js': "module.exports = { testMatch: ['<rootDir>/src/**/*.test.js'] };\n", 'src/a.test.js': '', 'src/one/b.test.js': '', 'lib/c.test.js': '' }, { test: 'jest src/one' });
+  assert.deepEqual([jest.droppedCount, jest.dropped, jest.tests], [1, ['src/a.test.js'], 2]);
+  const inPackage = await facts({ 'package.json': JSON.stringify({ scripts: { test: 'jest' }, jest: { roots: ['<rootDir>/src'], testPathIgnorePatterns: ['/old/'] } }), 'src/a.test.js': '', 'src/old/b.test.js': '', 'lib/c.test.js': '' }, { test: 'jest src/a' });
+  assert.deepEqual([inPackage.droppedCount, inPackage.tests], [0, 1]);
+  // What cannot be read plainly stays a person's decision, and the words say this may be why.
+  const dynamic = await facts({ 'package.json': manifest('vitest run'), 'vite.config.js': "const places = ['src/**'];\nexport default { test: { include: places } }\n", 'src/a.test.js': '', 'e2e/x.test.js': '' }, { test: 'vitest run src' });
+  assert.deepEqual([dynamic.droppedCount, dynamic.unreadConfig], [1, ['vite.config.js']]);
+  assert.match(pathNarrowingWords(dynamic), /vite\.config\.js at the base commit also limits what it collects in a way SFlow cannot read, so these may never have run there\. If so, that is why they read as dropped, and a person can accept this with a reason\./u);
+  const refused = observedNarrowing({ filters: [{ option: 'path', value: 'src', source: 'package.json#scripts.test', droppedCount: 1, dropped: ['e2e/x.test.js'], tests: 2, unreadConfig: ['vite.config.js'] }] }, { discovered: 1, skipped: 0 });
+  assert.deepEqual(refused.reasons, ['filter']);
+  assert.match(narrowingWords(refused), /vite\.config\.js at the base commit limits what it collects in a way SFlow cannot read, so these may never have run there, which may be why they read as dropped/u);
+  assert.deepEqual((await facts({ 'package.json': manifest('vitest run'), 'vite.config.js': "import shared from './shared.js';\nexport default { test: { ...shared } }\n", 'src/a.test.js': '', 'e2e/x.test.js': '' }, { test: 'vitest run src' })).unreadConfig, ['vite.config.js']);
+  // With nothing to read, nothing changes and the words add nothing.
+  const plain = await facts({ 'package.json': manifest('vitest run'), 'src/a.test.js': '', 'lib/b.test.js': '' }, { test: 'vitest run src' });
+  assert.deepEqual([plain.droppedCount, plain.unreadConfig], [1, undefined]);
+});
+
+test('Playwright\'s testDir, Mocha\'s spec and pytest\'s testpaths say where each looked', () => {
+  const limit = (runner, files) => collectionLimit(runner, Object.keys(files), (name) => files[name] ?? null);
+  const browser = limit('playwright', { 'playwright.config.ts': "export default defineConfig({ testDir: './e2e', testIgnore: '**/slow/**' })\n" });
+  assert.deepEqual(['e2e/a.spec.ts', 'e2e/slow/b.spec.ts', 'src/c.spec.ts'].map(browser.accepts), [true, false, false]);
+  const mocha = limit('mocha', { '.mocharc.json': JSON.stringify({ spec: ['spec/**/*.test.js'] }) });
+  assert.deepEqual([mocha.ownPlace, mocha.accepts('spec/a.test.js'), mocha.accepts('test/b.test.js')], [true, true, false]);
+  assert.deepEqual(limit('mocha', { '.mocharc.yml': 'spec: spec\n' }).unread, ['.mocharc.yml']);
+  const ini = limit('pytest', { 'pytest.ini': '[pytest]\ntestpaths = tests integration\naddopts = -q\n' });
+  assert.deepEqual([ini.accepts('tests/test_a.py'), ini.accepts('integration/x/test_b.py'), ini.accepts('other/test_c.py'), ini.operandsWin], [true, true, false, true]);
+  const toml = limit('pytest', { 'pyproject.toml': '[tool.black]\nline = 1\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n[tool.other]\ntestpaths = ["no"]\n' });
+  assert.deepEqual([toml.accepts('tests/test_a.py'), toml.accepts('no/test_b.py')], [true, false]);
+  assert.equal(limit('go', { 'go.mod': 'module x\n' }), null);
 });
 
 test('a guessed command carrying the path in its argv reads the same; SFlow\'s own node --test file list is no narrowing', async (t) => {

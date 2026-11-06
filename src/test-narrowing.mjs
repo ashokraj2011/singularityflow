@@ -23,7 +23,8 @@
  * A path a script names is a narrowing the same way (owner decision, 2026-11-06), but only when it drops
  * something: the base commit's test files that the same script reached and it no longer does. With none
  * left out it is recorded on the attempt (`paths`) and shown, and refuses nothing, so bin-opr's
- * `vitest run src` with every test under src passes while `jest src/one` is a person's decision.
+ * `vitest run src` with every test under src passes while `jest src/one` is a person's decision. A file the
+ * base commit's own runner configuration never collected was never reached (src/test-collection-limits.mjs).
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -32,6 +33,7 @@ import { committedFilesAtRevisions, committedTreePaths } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
+import { collectionConfigNames, collectionLimit } from './test-collection-limits.mjs';
 import { commandTokens, launcherName, packageScriptName, shellSegments } from './test-command-pins.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { tokenizeJavaScript } from './verification/javascript-declarations.mjs';
@@ -230,7 +232,7 @@ export async function narrowingFacts(root, command, { scripts = [], testPaths = 
   // A re-pin a person accepted showed them exactly what these paths leave out, so it is not asked of them twice.
   const seen = (entry) => acceptedPaths.some((accepted) => accepted.runner === entry.runner && accepted.operands?.join(' ') === entry.operands.join(' '));
   const dropping = paths.filter((entry) => entry.droppedCount > 0 && !seen(entry)).map((entry) => ({ option: 'path', value: entry.operands.join(' '), source: entry.source,
-    droppedCount: entry.droppedCount, dropped: entry.dropped, tests: entry.tests }));
+    droppedCount: entry.droppedCount, dropped: entry.dropped, tests: entry.tests, ...(entry.unreadConfig ? { unreadConfig: entry.unreadConfig } : {}) }));
   return {
     filters: [...filters.filter((filter) => !standingFilters.has(filterAt(filter))), ...dropping],
     ...(paths.length ? { paths } : {}),
@@ -330,10 +332,22 @@ function operandSelects(runner, operand, file) {
 // Where a runner looks with no operand. Mocha reads ./test alone, so a test file elsewhere was never its to drop.
 const DEFAULT_PLACE = Object.freeze({ mocha: ['test'] });
 
-/** Which of the base commit's test files one runner reaches with these operands; with none, wherever it looks by default. */
-function selectedBy(runner, operands, files) {
-  const places = operands.length ? operands : DEFAULT_PLACE[runner] ?? [];
-  return places.length ? files.filter((file) => places.some((operand) => operandSelects(runner, operand, file))) : files;
+/** Which of the base commit's test files one runner reaches with these operands; with none, wherever it looks by default or its configuration says. */
+function selectedBy(runner, operands, files, limit = null) {
+  const places = operands.length ? operands : limit?.ownPlace ? [] : DEFAULT_PLACE[runner] ?? [];
+  // pytest's `testpaths` applies only when a run names no place of its own; the others' configuration always does.
+  const inConfiguration = limit?.accepts && !(limit.operandsWin && operands.length) ? files.filter(limit.accepts) : files;
+  return places.length ? inConfiguration.filter((file) => places.some((operand) => operandSelects(runner, operand, file))) : inConfiguration;
+}
+
+/** What the runner's own configuration limited it to at the base commit, read only once something would read as dropped. */
+function baseCollectionLimit(root, baseCommit, folder, runner) {
+  let listed;
+  try { listed = committedTreePaths(root, baseCommit, [folder === '.' || !folder ? '.' : folder]); } catch { return null; }
+  const prefix = folder === '.' || !folder ? '' : `${folder}/`;
+  const names = listed.filter((file) => file.startsWith(prefix) && !file.slice(prefix.length).includes('/')).map((file) => file.slice(prefix.length));
+  const texts = baseTexts(root, baseCommit, collectionConfigNames(runner, names).map((name) => `${prefix}${name}`));
+  return collectionLimit(runner, names, (name) => texts.get(`${prefix}${name}`) ?? null);
 }
 
 /** The test files of the command's folder at the base commit that this runner would take, relative to that folder, or null when Git cannot say. */
@@ -383,12 +397,20 @@ export function addedPathNarrowing(root, command, { scripts = [], baseCommit = n
     const operands = [...now.operands, ...now.unsure.filter((word) => files.some((file) => file === word || file.startsWith(`${word}/`)))];
     const added = operands.filter((operand) => !earlier.some((entry) => entry.operands.includes(operand)));
     if (!added.length) return;
-    const reached = new Set(earlier.flatMap((entry) => selectedBy(entry.runner in TEST_FILES ? entry.runner : now.runner, entry.operands, files)));
-    const had = files.filter((file) => reached.has(file));
-    // A test file the Story removed is its own change, which this run did not leave out.
-    const left = had.filter((file) => !selectedBy(now.runner, operands, [file]).length && existsSync(path.join(root, folder, file)));
+    const measured = (limit) => {
+      const reached = new Set(earlier.flatMap((entry) => selectedBy(entry.runner in TEST_FILES ? entry.runner : now.runner, entry.operands, files, limit)));
+      const had = files.filter((file) => reached.has(file));
+      // A test file the Story removed is its own change, which this run did not leave out.
+      return { had, left: had.filter((file) => !selectedBy(now.runner, operands, [file]).length && existsSync(path.join(root, folder, file))) };
+    };
+    let { had, left } = measured(null);
+    // A test file the base commit's configuration never collected never ran, so it cannot be dropped. Where the
+    // configuration cannot be read this way the person's route stays, and its words say this may be why.
+    const limit = left.length ? baseCollectionLimit(root, baseCommit, folder, now.runner) : null;
+    if (limit?.accepts || limit?.ownPlace) ({ had, left } = measured(limit));
+    const unreadConfig = left.length && limit?.unread?.length ? limit.unread.map((name) => (folder === '.' ? name : `${folder}/${name}`)) : null;
     found.push({ source, runner: now.runner, operands, added, before: [...new Set(earlier.flatMap((entry) => entry.operands))],
-      tests: had.length, droppedCount: left.length, dropped: left.slice(0, MAX_LISTED_DROPS) });
+      tests: had.length, droppedCount: left.length, dropped: left.slice(0, MAX_LISTED_DROPS), ...(unreadConfig ? { unreadConfig } : {}) });
   };
   for (const script of scripts) {
     const before = baseFor(script.source);
@@ -410,7 +432,12 @@ export function pathNarrowingWords(entry) {
       : `${entry.source === 'argv' ? 'The command' : entry.source.replace('#scripts.', ' scripts.')} now names ${names}. The base commit has no test files for it, so none are dropped.`;
   }
   const shown = entry.dropped.slice(0, 5).join(', ') + (entry.droppedCount > 5 ? ` and ${entry.droppedCount - 5} more` : '');
-  return `${entry.source === 'argv' ? 'The command' : entry.source.replace('#scripts.', ' scripts.')} now names ${names}, which leaves out ${entry.droppedCount} of the ${entry.tests} test files it ran at the base commit: ${shown}.`;
+  return `${entry.source === 'argv' ? 'The command' : entry.source.replace('#scripts.', ' scripts.')} now names ${names}, which leaves out ${entry.droppedCount} of the ${entry.tests} test files it ran at the base commit: ${shown}.${unreadConfigWords(entry)}`;
+}
+
+/** Where a configuration may have kept a test file from ever running and this cannot read it: the refusal says so, and a person decides. */
+function unreadConfigWords(entry) {
+  return entry.unreadConfig?.length ? ` ${entry.unreadConfig.join(', ')} at the base commit also limits what it collects in a way SFlow cannot read, so these may never have run there. If so, that is why they read as dropped, and a person can accept this with a reason.` : '';
 }
 
 /** The narrowing an attempt records: the facts known before the run and what its report counted [TCE:REQ-021]. */
@@ -477,7 +504,7 @@ export function narrowingWords(narrowing, { skippedAccepted = false } = {}) {
   const parts = [];
   if (reasons.includes('filter')) {
     parts.push(...narrowing.filters.map((entry) => (entry.option === 'path'
-      ? `path ${entry.value} (${entry.source}) leaves out ${entry.droppedCount} of the ${entry.tests} test files of the base commit: ${(entry.dropped ?? []).slice(0, 5).join(', ')}${entry.droppedCount > 5 ? ` and ${entry.droppedCount - 5} more` : ''}`
+      ? `path ${entry.value} (${entry.source}) leaves out ${entry.droppedCount} of the ${entry.tests} test files of the base commit: ${(entry.dropped ?? []).slice(0, 5).join(', ')}${entry.droppedCount > 5 ? ` and ${entry.droppedCount - 5} more` : ''}${entry.unreadConfig?.length ? ` (${entry.unreadConfig.join(', ')} at the base commit limits what it collects in a way SFlow cannot read, so these may never have run there, which may be why they read as dropped)` : ''}`
       : `filter ${entry.option}${entry.value != null ? ` ${entry.value}` : ''} (${entry.source})`)));
   }
   if (reasons.includes('focused')) {

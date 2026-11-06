@@ -693,6 +693,65 @@ async function recordedRuns(root, config, workflow, phase) {
   return stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
 }
 
+// What the Story changed is measured against its base: narrowing already there is the team's own [TCE:REQ-021].
+const gateBaseCommit = (workflow, phase, deliveryEvidence) => deliveryEvidence?.changeSet?.base?.commit ?? phase.generationIntent?.baseline?.commit
+  ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
+
+/** One command against its pin, exactly as a gate compares them; it refuses nothing and writes nothing. */
+async function comparedPin(root, workflow, phase, command, { attempts, reads, baseCommit }) {
+  const current = await commandDefinition(root, command, reads);
+  const latest = pinCandidate(phase, command, current.entries);
+  const recordedReference = referencePin(workflow, latest, attempts);
+  const reference = recordedReference && comparablePin(recordedReference);
+  // A pin keeps the rules it was recorded under: a Story running when they grew is compared as before.
+  const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
+  const resolved = version === DEFINITION_VERSION ? current : await commandDefinition(root, command, { ...reads, version });
+  let candidate = version === DEFINITION_VERSION ? latest : pinCandidate(phase, command, resolved.entries, { version });
+  let { scripts } = resolved;
+  let acceptedBy = reference && reference.sha256 !== candidate.sha256 ? acceptedRepin(workflow, candidate) : null;
+  // A person's re-pin of an older pin admits the command under the current rules.
+  if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && version !== DEFINITION_VERSION && acceptedRepin(workflow, latest)) {
+    acceptedBy = acceptedRepin(workflow, latest);
+    candidate = latest;
+    ({ scripts } = current);
+  }
+  // Restore changed entries without requiring newly added, unchanged test scripts at the base.
+  const restoration = !acceptedBy ? baselineRestoration(root, reference, candidate, restorationBase(workflow, phase, baseCommit)) : null;
+  const restoredToBase = Boolean(restoration);
+  return { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase,
+    changed: Boolean(reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) };
+}
+
+/**
+ * Where each command stands against its pin, for `tests plan`: what the next gate would find, before it
+ * finds it. It compares as the gate does and never refuses; only the gate refuses.
+ */
+export async function testCommandPinStandings(root, config, workflow, phase, commands, deliveryEvidence = null) {
+  const baseCommit = gateBaseCommit(workflow, phase, deliveryEvidence) ?? workflow.workItem?.baseCommit ?? null;
+  const attempts = await recordedRuns(root, config, workflow, phase);
+  const reads = definitionReads(root);
+  const standings = new Map();
+  for (const command of commands) {
+    try {
+      const { candidate, reference, recordedReference, scripts, acceptedBy, restoredToBase, changed } = await comparedPin(root, workflow, phase, command, { attempts, reads, baseCommit });
+      if (!reference) standings.set(command.id, { status: 'not-pinned', words: 'Not pinned yet: its first gate run pins it for this Story.' });
+      else if (acceptedBy) standings.set(command.id, { status: 'accepted', decision: acceptedBy, words: `Changed since it was pinned, and a person accepted this definition (${acceptedBy}).` });
+      else if (restoredToBase) standings.set(command.id, { status: 'restored', words: 'What changed is back as it was at the start of this generation, so no re-pin is needed.' });
+      else if (!changed) standings.set(command.id, { status: 'unchanged', words: 'Unchanged since it was pinned for this Story.' });
+      else {
+        const details = await pinChangeDetails(root, workflow, phase, recordedReference, candidate, { command, scripts, attempts, baseCommit, read: reads.read }).catch(() => null);
+        const beforeAfter = details?.diff?.length ? ` Before and after: ${details.diff.map(pinDiffWords).join('; ')}. ${details.dropped}` : '';
+        standings.set(command.id, { status: 'changed', pin: reference.id ?? null, changes: pinChanges(reference, candidate).map(pinChangeWords),
+          ...(details ? { diff: details.diff, dropped: details.dropped } : {}), command: repinRequestCommand(workflow, phase.id, command.id),
+          words: `Changed since it was pinned: ${pinChanges(reference, candidate).map(pinChangeWords).join('; ')}.${beforeAfter} The next gate refuses this until a person who approves ${phase.id} accepts the new pin, or it is restored.` });
+      }
+    } catch (error) {
+      standings.set(command.id, { status: 'unknown', words: `SFlow could not compare it with its pin: ${redactDiagnosticText(String(error?.message ?? error)).slice(0, 300)}` });
+    }
+  }
+  return standings;
+}
+
 /**
  * Check every test command a gate is about to run against its pin, before anything runs (the
  * candidate's `deliveryEvidence` names the changed test files it reads for focused tests); refuses
@@ -702,35 +761,14 @@ async function recordedRuns(root, config, workflow, phase) {
  */
 export async function gateTestCommandPins(root, config, workflow, phase, commands, deliveryEvidence = null) {
   const testPaths = deliveryEvidence?.testPaths ?? [];
-  // What the Story changed is measured against its base: narrowing already there is the team's own [TCE:REQ-021].
-  const baseCommit = deliveryEvidence?.changeSet?.base?.commit ?? phase.generationIntent?.baseline?.commit
-    ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
+  const baseCommit = gateBaseCommit(workflow, phase, deliveryEvidence);
   const attempts = await recordedRuns(root, config, workflow, phase);
   const { gateNarrowing, narrowingFacts, skippedByAgreement } = await import('./test-narrowing.mjs');
   const prepared = new Map();
   const reads = definitionReads(root);
   for (const command of commands) {
-    const current = await commandDefinition(root, command, reads);
-    const latest = pinCandidate(phase, command, current.entries);
-    const recordedReference = referencePin(workflow, latest, attempts);
-    const reference = recordedReference && comparablePin(recordedReference);
-    // A pin keeps the rules it was recorded under: a Story running when they grew is compared as before.
-    const version = reference ? pinVersion(reference) : DEFINITION_VERSION;
-    const resolved = version === DEFINITION_VERSION ? current : await commandDefinition(root, command, { ...reads, version });
-    let candidate = version === DEFINITION_VERSION ? latest : pinCandidate(phase, command, resolved.entries, { version });
-    let { scripts } = resolved;
-    let acceptedBy = reference && reference.sha256 !== candidate.sha256 ? acceptedRepin(workflow, candidate) : null;
-    // A person's re-pin of an older pin admits the command under the current rules.
-    if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && version !== DEFINITION_VERSION && acceptedRepin(workflow, latest)) {
-      acceptedBy = acceptedRepin(workflow, latest);
-      candidate = latest;
-      ({ scripts } = current);
-    }
-    // Restore changed entries without requiring newly added, unchanged test scripts at the base.
-    const restoration = !acceptedBy ? baselineRestoration(root, reference, candidate,
-      restorationBase(workflow, phase, baseCommit)) : null;
-    const restoredToBase = Boolean(restoration);
-    if (reference && reference.sha256 !== candidate.sha256 && !acceptedBy && !restoredToBase) {
+    const { candidate, reference, recordedReference, scripts, acceptedBy, restoration, restoredToBase, changed } = await comparedPin(root, workflow, phase, command, { attempts, reads, baseCommit });
+    if (changed) {
       const details = await pinChangeDetails(root, workflow, phase, recordedReference, candidate, { command, scripts, attempts, baseCommit, read: reads.read }).catch(() => null);
       throw pinChangedError(workflow, phase, reference, candidate, details);
     }

@@ -29,6 +29,21 @@ function commandHtml(command: CommandTable): string {
     ${command.total !== command.rows.length ? `<p class="muted">${command.rows.length} of ${command.total} shown.</p>` : ''}</section>`;
 }
 
+/** A failed run's question: is this the change? A fact for a person, which runs only when they ask. */
+function baseHtml(view: TestSummaryView): string {
+  if (!view.base.offered) return '';
+  const { busy, answer, error } = view.base;
+  const lines = (answer?.results ?? []).map((entry) => `<li data-ts-base-result="${escape(entry.commandId)}"><code>${escape(entry.commandId)}</code>${entry.reused ? ' <small class="muted">already run on this base</small>' : ''}<br>${escape(entry.words)}</li>`).join('');
+  return `<section class="plain ts-base" data-ts-base>
+      <div class="ts-base-head"><strong>Does this also fail without this change?</strong>
+        <button type="button" class="secondary compact-action" data-ts-base-run${busy ? ' disabled' : ''}>${icon('start')}${busy ? 'Running on the base commit…' : answer ? 'Ask again' : 'Compare with the base commit'}</button></div>
+      <p class="muted">Runs the same commands once on the commit this Story started from, in a throwaway checkout, and keeps the answer. It records no evidence and refuses nothing.</p>
+      ${busy ? '<p class="muted" role="status">Running. A full test run on the base commit can take as long as one here.</p>' : ''}
+      ${error ? `<p class="notice error" role="alert">${escape(error)}</p>` : ''}
+      ${lines ? `<ul class="ts-base-results" role="status">${lines}</ul>` : ''}
+    </section>`;
+}
+
 export function testSummaryHtml(view: TestSummaryView): string {
   const header = `<header class="inbox-header ts-header"><div>${brandLockup()}<p class="eyebrow">Test summary</p>
       <h1>${icon('phase', { size: 24 })}${escape(view.title)}</h1><p class="meta">${escape(view.scope)}</p></div>
@@ -65,7 +80,7 @@ export function testSummaryHtml(view: TestSummaryView): string {
       <label><input type="checkbox" data-ts-filter="failedOnly"${view.filters.failedOnly ? ' checked' : ''}> Failed only</label>
       <label><input type="checkbox" data-ts-filter="untagged"${view.filters.untagged ? ' checked' : ''}> Untagged only</label>
       <span class="muted">${view.shown} of ${view.total} test cases shown.</span></div>`;
-  return `${header}${messages}${runHtml}${totals}
+  return `${header}${messages}${runHtml}${totals}${baseHtml(view)}
     ${view.truncated ? `<p class="notice ts-truncated">The list stops at 5,000 test cases; the totals above count every one. Open a command's own report for the rest.</p>` : ''}
     ${filters}
     <div class="ts-commands">${view.commands.map(commandHtml).join('') || '<p class="muted">No commands ran.</p>'}</div>`;
@@ -82,6 +97,10 @@ export const TEST_SUMMARY_STYLE = `
 .ts-cases td { vertical-align:top; overflow-wrap:anywhere; }
 .ts-duration { white-space:nowrap; }
 .ts-tag { margin-right:.25rem; }
+.ts-base { margin:1rem 0; }
+.ts-base-head { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+.ts-base-results { margin:.5rem 0 0; padding-left:1.1rem; }
+.ts-base-results li { margin:.35rem 0; }
 `;
 
 export const TEST_SUMMARY_SCRIPT = `
@@ -95,6 +114,7 @@ export const TEST_SUMMARY_SCRIPT = `
   document.addEventListener('click', (event) => {
     const open = event.target.closest('[data-ts-open]');
     if (open) { api.postMessage({ type: 'summary.open', file: open.dataset.tsOpen, line: Number(open.dataset.tsLine || 0) }); return; }
+    if (event.target.closest('[data-ts-base-run]')) { api.postMessage({ type: 'summary.base' }); return; }
     if (event.target.closest('[data-ts-refresh]')) api.postMessage({ type: 'summary.refresh' });
   });
   document.addEventListener('change', (event) => {

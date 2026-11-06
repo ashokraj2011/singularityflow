@@ -490,6 +490,7 @@ export function testPlanText(plan) {
     const environments = (command.environments ?? []).map((entry) => `${entry.name}${entry.default ? ' (default)' : ''}: ${entry.status}`).join(', ');
     lines.push('', `  ${command.title ?? command.id}`, `    ${commandLine(command)}, in ${where(command.workingDirectory)}${environments ? ` · ${environments}` : ''}`);
     lines.push(`    ${[command.why, command.resultsWords, command.coversWords].filter(Boolean).join(' ')}`);
+    if (command.pin) lines.push(`    ${command.pin.words}`);
     lines.push(`    ID ${command.id}`);
   }
   if (plan.paths?.from) {

@@ -12,8 +12,8 @@ import { navigateTo } from './navigate.ts';
 import { booleanField, integerField, registerMessageRouter, stringField } from './messages.ts';
 import { containedWorkingPath } from './change-explorer-source.ts';
 import {
-  buildTestSummaryView, caseFiles, targetTitle, testsSummaryArgv, testSummaryFrom,
-  type TestSummary, type TestSummaryFilters, type TestSummaryTarget
+  buildTestSummaryView, caseFiles, targetTitle, testBaseFrom, testsBaseArgv, testsSummaryArgv, testSummaryFrom,
+  type TestBaseAnswer, type TestSummary, type TestSummaryFilters, type TestSummaryTarget
 } from './test-summary-model.ts';
 import { testSummaryHtml, TEST_SUMMARY_SCRIPT, TEST_SUMMARY_STYLE } from './test-summary-page.ts';
 
@@ -29,6 +29,9 @@ export class TestSummaryPanel implements vscode.Disposable {
   private busy = false;
   private generation = 0;
   private disposed = false;
+  private baseAnswer: TestBaseAnswer | null = null;
+  private baseBusy = false;
+  private baseError: string | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -47,7 +50,7 @@ export class TestSummaryPanel implements vscode.Disposable {
   static show(client: SingularityFlowClient, target: TestSummaryTarget, options: { runId?: string | null; beside?: boolean } = {}): TestSummaryPanel {
     const existing = TestSummaryPanel.current;
     if (existing && existing.client === client) {
-      if (!sameTarget(existing.target, target)) { existing.summary = null; existing.filters = { failedOnly: false, untagged: false }; }
+      if (!sameTarget(existing.target, target)) { existing.summary = null; existing.filters = { failedOnly: false, untagged: false }; existing.baseAnswer = null; existing.baseError = null; }
       existing.target = target;
       existing.runId = options.runId ?? null;
       existing.panel.reveal(options.beside ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active, options.beside);
@@ -83,8 +86,31 @@ export class TestSummaryPanel implements vscode.Disposable {
       this.filters = { failedOnly: booleanField(message, 'failedOnly'), untagged: booleanField(message, 'untagged') };
       this.render();
     },
-    'summary.open': (message) => this.open(stringField(message, 'file'), integerField(message, 'line') ?? 0)
+    'summary.open': (message) => this.open(stringField(message, 'file'), integerField(message, 'line') ?? 0),
+    'summary.base': () => this.compareWithBase()
   });
+
+  /** A person's question: it runs repository tests on the base commit, so it asks first and only ever runs from here. */
+  private async compareWithBase(): Promise<void> {
+    const target = this.target;
+    if (target.kind !== 'story' || this.baseBusy) return;
+    const go = 'Run on the base commit';
+    const chosen = await vscode.window.showInformationMessage(`Run ${target.workId}'s tests on its base commit?`,
+      { modal: true, detail: 'Each test command runs once on the commit this Story started from, in a throwaway checkout with this checkout\'s dependencies. The answer is kept per base commit, command and Node. It is a fact for you: it records no evidence and refuses nothing.' }, go);
+    if (chosen !== go) return;
+    this.baseBusy = true; this.baseError = null; this.render();
+    try {
+      const answer = testBaseFrom(await this.client.run(testsBaseArgv(target)));
+      if (!sameTarget(this.target, target)) return;
+      this.baseAnswer = answer;
+      if (!answer) this.baseError = 'The engine did not return a comparison with the base commit.';
+    } catch (failure) {
+      if (sameTarget(this.target, target)) this.baseError = (failure as Error).message;
+    } finally {
+      this.baseBusy = false;
+      this.render();
+    }
+  }
 
   /** Read the summary now; only the latest of overlapping reads is shown. */
   private async load(): Promise<void> {
@@ -116,7 +142,8 @@ export class TestSummaryPanel implements vscode.Disposable {
   private render(): void {
     if (this.disposed) return;
     const token = nonce();
-    const view = buildTestSummaryView(this.summary, { target: this.target, filters: this.filters, busy: this.busy, error: this.error });
+    const view = buildTestSummaryView(this.summary, { target: this.target, filters: this.filters, busy: this.busy, error: this.error,
+      base: { busy: this.baseBusy, answer: this.baseAnswer, error: this.baseError } });
     this.panel.title = view.title;
     this.panel.webview.html = page(view.title, testSummaryHtml(view), contentSecurityPolicy(this.panel.webview, token), token,
       TEST_SUMMARY_SCRIPT, { styles: TEST_SUMMARY_STYLE });

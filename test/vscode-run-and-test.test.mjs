@@ -342,6 +342,19 @@ test('each run is labelled by its evidence class and environment; a run that doe
     history: [{ runId: 'TA-2', at: '2026-10-18T11:00:00Z', evidenceClass: 'governed', environment: null, totals: { discovered: 3, passed: 3 } }]
   }));
   const html = testSummaryHtml(summaryModel.buildTestSummaryView(story, { target: { kind: 'story', workId: 'PAY-12', phase: 'implementation' } }));
+  // A Story step's failed run offers the question; a capability has no base, and a passing run has nothing to ask.
+  assert.match(html, /data-ts-base-run/u);
+  assert.deepEqual(summaryModel.testsBaseArgv({ kind: 'story', workId: 'PAY-12', phase: 'implementation' }), ['tests', 'base', '--work-id', 'PAY-12', '--phase', 'implementation', '--json']);
+  assert.doesNotMatch(testSummaryHtml(summaryModel.buildTestSummaryView(story, { target: { kind: 'capability', capability: 'payments-web' } })), /data-ts-base-run/u);
+  const passing = { ...story, commands: story.commands.map((command) => ({ ...command, status: 'passed' })) };
+  assert.doesNotMatch(testSummaryHtml(summaryModel.buildTestSummaryView(passing, { target: { kind: 'story', workId: 'PAY-12', phase: 'implementation' } })), /data-ts-base-run/u);
+  const answer = summaryModel.testBaseFrom({ resultType: 'sflow-test-base', baseCommit: 'a'.repeat(40), results: [{ commandId: 'module-tests', verdict: 'fails-on-base', reused: true, words: 'Every failure here also fails without this change.' }] });
+  const answered = testSummaryHtml(summaryModel.buildTestSummaryView(story, { target: { kind: 'story', workId: 'PAY-12', phase: 'implementation' }, base: { answer } }));
+  assert.match(answered, /data-ts-base-result="module-tests"[\s\S]*already run on this base[\s\S]*Every failure here also fails without this change\./u);
+  assert.match(testSummaryHtml(summaryModel.buildTestSummaryView(story, { target: { kind: 'story', workId: 'PAY-12', phase: 'implementation' }, base: { busy: true } })), /data-ts-base-run disabled[\s\S]*Running on the base commit/u);
+  assert.equal(summaryModel.testBaseFrom({ resultType: 'other' }), null);
+  assert.equal(commandClass(['tests', 'base', '--work-id', 'PAY-12', '--json']), 'mutation', 'it runs repository code, so it is never a read');
+  assert.match(TEST_SUMMARY_SCRIPT, /summary\.base/u);
   assert.match(html, /Test summary · PAY-12 · implementation/);
   assert.match(html, /<span class="pill ok">Local integration run<\/span>\s*<span class="pill">environment dev<\/span>/);
   assert.match(html, /data-counts-for-step="false">Local integration run by ranner@example\.com, environment `dev`[^<]*does not count for this step: it requires `qa`/);

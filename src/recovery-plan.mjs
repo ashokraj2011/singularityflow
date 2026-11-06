@@ -471,13 +471,15 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           const uncovered = prospective.length && workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false
             ? uncoveredTestDeliveryPaths(planned, phase.sourceBoundary, prospective.map((command) =>
               ({ ...command, provenance: testCommandProvenance(phase, command) }))) : [];
-          testExecution.planned = { runner: prospective.length && !uncovered.length ? 'available' : 'missing',
-            commands: prospective.map((command) => command.id), ...(uncovered.length ? { uncovered } : {}) };
-          if (TEST_CONFIGURATION_DEPENDENCIES.has(refusal?.code) || uncovered.length) testExecution.reason = refusal?.code ?? 'TEST_MODULE_UNCOVERED';
-          else if (!prospective.length) testExecution.reason = 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
           // What would otherwise surface at the end of the step, said before it starts. It informs; only a gate refuses.
           const earlyChecks = await (await import('./test-plan.mjs')).earlyTestChecks(root, prospective, { planned: planned.testPaths }).catch(() => []);
           if (earlyChecks.length) testExecution.earlyChecks = earlyChecks;
+          // A unit command would take a planned browser spec by its folder, so "available" read true for a suite nothing can run yet (bin-opr).
+          const needsRunner = earlyChecks.filter((entry) => entry.id === 'planned-runner-missing').flatMap((entry) => entry.paths ?? []);
+          testExecution.planned = { runner: prospective.length && !uncovered.length && !needsRunner.length ? 'available' : 'missing',
+            commands: prospective.map((command) => command.id), ...(uncovered.length ? { uncovered } : {}), ...(needsRunner.length ? { needsRunner } : {}) };
+          if (TEST_CONFIGURATION_DEPENDENCIES.has(refusal?.code) || uncovered.length) testExecution.reason = refusal?.code ?? 'TEST_MODULE_UNCOVERED';
+          else if (!prospective.length) testExecution.reason = 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
         }
       } else {
         testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {

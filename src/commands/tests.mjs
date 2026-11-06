@@ -561,6 +561,12 @@ async function planStory(root, options) {
   const shown = [];
   for (const entry of entries) shown.push(await plannedCommand(root, entry.command, entry, context.declaration));
   const evidence = resolved?.deliveryEvidence ?? null;
+  // What the next gate would find against each command's pin, before it finds it. Only the gate refuses.
+  if (phase && shown.length) {
+    const { testCommandPinStandings } = await import('../test-command-pins.mjs');
+    const standings = await testCommandPinStandings(root, context.config, context.workflow, phase, entries.map((entry) => entry.command), evidence).catch(() => new Map());
+    for (const command of shown) if (standings.has(command.id)) command.pin = standings.get(command.id);
+  }
   return {
     resultType: 'sflow-test-plan',
     scope: { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id },

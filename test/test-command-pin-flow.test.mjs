@@ -138,6 +138,11 @@ test('a guessed test command is pinned at first use, and a narrowed script waits
   assert.deepEqual(changed.error.details.testCommandPin.pathNarrowing?.[0]?.dropped, ['test/value.test.mjs'], JSON.stringify(changed.error.details.testCommandPin));
   const repinCommand = 'singularity-flow decision test-command QF-1 --phase implement --repin .-node-tests --reason "<why the test command changed>"';
   assert.equal(changed.error.details.testCommandPin.command, repinCommand);
+  // `tests plan` says the same before a gate does, and runs nothing.
+  const planned = json('tests', 'plan', '--work-id', 'QF-1', '--phase', 'implement').commands.find((command) => command.id === '.-node-tests');
+  assert.equal(planned.pin.status, 'changed', JSON.stringify(planned.pin));
+  assert.match(planned.pin.words, /Changed since it was pinned: .*package\.json scripts\.test changed.*before "node --test", after "jest src\/one".*The next gate refuses this until a person who approves implement accepts the new pin/u);
+  assert.equal(planned.pin.command, repinCommand);
   assert.ok(planCommands(changed).includes(repinCommand), JSON.stringify(planCommands(changed)));
   assert.equal(await readFile(path.join(root, '.sflow/results/node-tests.json'), 'utf8').catch(() => null), null, 'the narrowed command never ran');
 
@@ -155,7 +160,11 @@ test('a guessed test command is pinned at first use, and a narrowed script waits
 
   // A person who approves the step accepts it: the next publication records the new pin.
   asReviewer('decision', 'test-command', 'QF-1', '--accept', 'TCD-001');
+  assert.equal(json('tests', 'plan', '--work-id', 'QF-1', '--phase', 'implement').commands.find((command) => command.id === '.-node-tests').pin.status, 'accepted');
+  // The re-pin showed them what `jest src/one` leaves out, so CODE_TEST_NARROWED does not ask the same person again (owner decision, 2026-11-06).
   sflow('phase', 'publish', 'implement');
+  const preflight = (await stored()).phases.implement.deliveryEvidence.preflightAttempts.find((entry) => entry.commandId === '.-node-tests');
+  assert.equal(preflight.testNarrowing, undefined, 'no narrowing decision was needed');
   const pins = (await stored()).testCommandPins;
   assert.equal(pins.length, 2);
   assert.equal(pins[1].replaces, 'TCP-001');

@@ -9,8 +9,7 @@ import {
   normalizeApprovalPolicy,
   normalizeApprovalSecurity,
   remainingRequiredAuthorities,
-  requireApprovalAuthority
-} from '../src/approval-authority.mjs';
+  requireApprovalAuthority, sameApprover } from '../src/approval-authority.mjs';
 
 const authorities = {
   'architecture-reviewers': {
@@ -282,4 +281,25 @@ test('reviewer matching is iterative and independent of authority declaration or
   assert.deepEqual(approvalPolicyCapacity(registry, { ...policy,
     authorities: [...ids].reverse(), requiredAuthorities: [...ids].reverse() }),
   approvalPolicyCapacity(registry, policy));
+});
+
+test('two records are one person when any identifier matches, whichever fields each one holds', () => {
+  const policy = { minimum: 2, authorities: ['g'], requiredAuthorities: [] };
+  const approved = (actor) => ({ decision: 'approved', authorityGroup: 'g', actor });
+  const both = { login: 'alex', email: 'alex@example.test', name: 'Alex' };
+  for (const second of [{ email: 'ALEX@example.test' }, { login: 'Alex' }, both, { login: 'alex', email: 'other@example.test' }]) {
+    assert.equal(approvalRequirementsMet(policy, [approved(both), approved(second)]), false, JSON.stringify(second));
+  }
+  // A chain: neither end names the other's identifier, and the middle record names both.
+  assert.equal(approvalRequirementsMet({ ...policy, minimum: 2 },
+    [approved({ login: 'alex' }), approved({ email: 'alex@example.test' }), approved(both)]), false);
+  // GitHub's noreply address names a login.
+  assert.equal(approvalRequirementsMet(policy, [approved({ login: 'alex' }), approved({ email: '12345+alex@users.noreply.github.com' })]), false);
+  assert.equal(approvalRequirementsMet(policy, [approved(both), approved({ login: 'sam', email: 'sam@example.test' })]), true, 'two people still count as two');
+  // A shared display name is not one person when each record holds a real identifier.
+  assert.equal(approvalRequirementsMet(policy, [approved({ email: 'a@example.test', name: 'Sam' }), approved({ email: 'b@example.test', name: 'Sam' })]), true);
+  assert.equal(sameApprover({ email: 'a@example.test' }, { email: 'b@example.test' }), false);
+  assert.equal(sameApprover({}, { email: 'b@example.test' }), false, 'no identity is nobody, not a match');
+  assert.equal(sameApprover('alex', both), true, 'a recorded key compares like the rest');
+  assert.equal(sameApprover({ name: 'Alex' }, { name: 'alex' }), true, 'a name decides only when a record holds nothing else');
 });

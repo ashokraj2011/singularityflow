@@ -96,6 +96,7 @@ SF Guard's own actions joined the first as `sf-guard-person-step` (M1).
 | Witness, risk, test-run risk, narrowing, evidence reuse, visual profile, witness exception | `decision witness\|risk\|test-risk\|test-narrowing\|evidence-reuse\|visual-profile\|witness-exception` | Story decision records and quality risks | the gates and the final check that read them |
 | Test command accept, revoke, re-pin or removal | `decision test-command --accept\|--revoke` | `testCommandDecisions` | the pin gate and the decision list |
 | Decision list, scope, plan, adjudication, constitution exception, repair, telemetry | `decisions record`, `decision scope\|applicability\|completeness\|choose\|plan`, `reopen`, `story adjudicate`, `review-source decide`, `constitution except`, `repair authorize`, `telemetry enable` | their own records | their readers |
+| Intent amendment, skill version, amendment revalidation (§10.12) | `story intent-amendment decide`, `story skill-version decide`, `upstream-issue revalidate` | the decision on `intentAmendments[]` and `skillVersionAmendments[]`, `amendmentRevalidations` | every check that reads Story person records; a revalidation also by the revalidation reads |
 | Appeals, test policy, approver refresh | `appeal …`, `story test-policy … --apply`, `story approvers refresh --confirm` | `src/phase-appeals.mjs`, `src/story-test-*.mjs`, `src/story-approver-refresh.mjs` | their gates and replay |
 | Spec Studio | `spec author accept\|reject\|decide\|settle\|publish\|discard`, `spec split --publish`, `spec attach --drop` | draft events, revisions, split | publish gate, coverage, Story start |
 | Configuration approval | `configuration approve` | `approveProposal` (`src/configuration-drafts.mjs:1083`) | every pinned configuration read, including SF Guard's policy |
@@ -559,6 +560,15 @@ What stays:
 - **A seal that does not verify** still fails the remote state check, because it claims a signature it does not have. Having no seal fails nothing.
 
 The consequence is deliberate: someone with repository access can change the workflow rules that later Stories start with, unsigned. A Story already running keeps the configuration it pinned, and the change is visible in `sflow/config`'s history. A team that wants a review on that branch sets it up on its Git host.
+
+### 10.12 Decisions the families had missed (6 November 2026)
+
+A study of the approval system found three kinds of person decision with no signature on a Story SF Guard requires, so written with plain Git they counted. Each is now a family in `PERSON_STEP_FAMILIES`:
+
+- **An amendment revalidation** is an ordinary list, signed when `saveWorkflow` writes it. Both readers go through `countedRecords`, so an unsigned one leaves the revalidation owed.
+- **An intent amendment's decision and a skill version's approval or rejection** sit inside their summaries, so the family reads them through `records`. The command signs each one before writing it, with the card and one touch, and a partial approval is signed too.
+
+These decisions take effect when they are recorded: approving an intent amendment reopens steps in the same commit. So an unsigned one is not filtered out where it is read. It is found by the checks that read every person record, which are `guard verify`, the final check and the remote check. A Story that started with SF Guard off reads such records as pre-signing, like every other person record.
 
 ### 10.11 M5 as built (2 November 2026)
 

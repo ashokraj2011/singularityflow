@@ -386,3 +386,27 @@ test('SF Guard required: every other family is signed where the Story is written
   await saveWorkflow(root, definition, view);
   assert.equal(next.shown.length, 0, 'records already on disk are never signed');
 });
+
+test('intent amendment, skill version and revalidation decisions are person records every check reads', async () => {
+  const decision = { decision: 'approved', actor: { email: 'a@example.test' }, at: '2026-11-06T00:00:00.000Z' };
+  const rejection = { actor: { email: 'b@example.test' }, at: '2026-11-06T00:00:00.000Z' };
+  const approval = { actor: { email: 'c@example.test' }, at: '2026-11-06T00:00:00.000Z' };
+  const revalidation = { amendment: 'FAM-001', phase: 'plan', outcome: 'unchanged', actor: 'd@example.test', at: '2026-11-06T00:00:00.000Z' };
+  const workflow = {
+    phaseOrder: [], phases: {},
+    intentAmendments: [{ id: 'AMD-001', status: 'approved', decision }, { id: 'AMD-002', status: 'proposed' }],
+    skillVersionAmendments: [{ id: 'SKA-001', status: 'proposed', approvals: [approval] }, { id: 'SKA-002', status: 'rejected', approvals: [], rejection }],
+    amendmentRevalidations: [revalidation]
+  };
+  const { storyPersonRecords } = await import('../src/presence/story-verify.mjs');
+  const recorded = storyPersonRecords(workflow).map((entry) => [entry.list, entry.record]);
+  assert.deepEqual(recorded, [['amendmentRevalidations', revalidation], ['intentAmendments', decision],
+    ['skillVersionAmendments', approval], ['skillVersionAmendments', rejection]]);
+  // A proposal is anyone's and is never read as a decision; a new decision the command added is found to sign.
+  const added = newPersonRecords(workflow, { intentAmendments: [{ id: 'AMD-001', status: 'proposed' }], skillVersionAmendments: [] });
+  assert.deepEqual(added.map(({ family, record }) => [family.id, record]).sort((a, b) => a[0].localeCompare(b[0])),
+    [['amendment-revalidation', revalidation], ['intent-amendment', decision], ['skill-version', approval], ['skill-version', rejection]]);
+  assert.deepEqual(newPersonRecords(workflow, workflow), [], 'what is already on disk is not new');
+  assert.deepEqual(newPersonRecords({ intentAmendments: [{ id: 'AMD-009', status: 'proposed' }] }, null), []);
+});
+

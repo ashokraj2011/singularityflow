@@ -47,6 +47,13 @@ export const PERSON_STEP_FAMILIES = Object.freeze([
   { id: 'upstream-issue', list: 'upstreamIssueDecisions', action: 'decision.upstream-issue', label: 'Upstream issue decision', isPerson: always },
   { id: 'forward-amendment', list: 'forwardAmendmentDecisions', action: 'decision.forward-amendment', label: 'Forward amendment decision', isPerson: always },
   { id: 'plan-amendment', list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always },
+  { id: 'amendment-revalidation', list: 'amendmentRevalidations', action: 'decision.revalidate', label: 'Amendment revalidation', isPerson: always },
+  // SPEC-PSS-v1 §10.12: an intent amendment's or a skill version's decision sits inside its summary. The
+  // command signs it before it is written; here it is read so every check counts it like the rest.
+  { id: 'intent-amendment', list: 'intentAmendments', action: 'decision.intent-amendment', label: 'Intent amendment decision', isPerson: always,
+    records: (container) => (container?.intentAmendments ?? []).map((entry) => entry?.decision).filter(Boolean) },
+  { id: 'skill-version', list: 'skillVersionAmendments', action: 'decision.skill-version', label: 'Skill version decision', isPerson: always,
+    records: (container) => (container?.skillVersionAmendments ?? []).flatMap((entry) => [...(entry?.approvals ?? []), ...(entry?.rejection ? [entry.rejection] : [])]) },
   // SPEC-PSS-v1 §10.6: a constitution exception waives an article for the Story; a person's choice at a
   // workflow decision routes it (a rule's routing is never a person's and is never signed).
   { id: 'constitution-exception', list: 'constitutionExceptions', action: 'decision.constitution-exception', label: 'Constitution exception', isPerson: always },
@@ -72,6 +79,7 @@ export const PERSON_STEP_FAMILIES = Object.freeze([
 
 /** A family's records in `container` (a Story's aggregate, or the state file before the command ran). */
 export function familyRecords(container, family) {
+  if (family.records) return family.records(container);
   let value = container;
   for (const key of family.path ?? [family.list]) value = value?.[key];
   return Array.isArray(value) ? value : [];

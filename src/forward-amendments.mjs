@@ -35,7 +35,7 @@ export function pendingForwardAmendments(workflow) {
  * in its next generation, so nothing is owed for it any more.
  */
 export function pendingAmendmentRevalidations(workflow) {
-  const decided = new Set((workflow?.amendmentRevalidations ?? []).map((entry) => `${entry.amendment}\u0000${entry.phase}`));
+  const decided = new Set(countedRecords(workflow, workflow?.amendmentRevalidations).map((entry) => `${entry.amendment}\u0000${entry.phase}`));
   return countedRecords(workflow, workflow?.forwardAmendmentDecisions)
     .filter((entry) => entry?.decision === 'approved')
     .flatMap((entry) => (entry.revalidate ?? [])
@@ -56,7 +56,7 @@ export function revalidateCommand(workId, entry) {
  */
 export function acceptedRevalidationBindings(workflow, phase, inputRecordSha256) {
   const bindings = new Map();
-  for (const entry of workflow?.amendmentRevalidations ?? []) {
+  for (const entry of countedRecords(workflow, workflow?.amendmentRevalidations)) {
     if (entry?.phase !== phase?.id || entry.outcome !== 'unchanged'
         || Number(entry.generation) !== Number(phase.generation)
         || entry.binding?.inputRecordSha256 !== inputRecordSha256) continue;

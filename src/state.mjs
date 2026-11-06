@@ -98,7 +98,8 @@ import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
-  eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority
+  eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority,
+  sameApprover
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -6832,7 +6833,7 @@ export async function evaluateApproval(root, config, workflow, {
       );
     });
     await stage('distinct-identity', async () => {
-      if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`, { code: 'APPROVAL_IDENTITY_ALREADY_RECORDED', details: { phase: phase.id, workId: workflow.workItem.id,
+      if (active.some((item) => sameApprover(item.actor, actor))) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`, { code: 'APPROVAL_IDENTITY_ALREADY_RECORDED', details: { phase: phase.id, workId: workflow.workItem.id,
         ...eligibleApprovers(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, { exclude: active.map((item) => actorKey(item.actor)) }) } });
     }, { needs: ['identity'] });
     await stage('checklist', async () => {
@@ -6951,7 +6952,7 @@ export async function evaluateApproval(root, config, workflow, {
         } : {}),
         ...(actionContext ? { actionContext } : {}),
         ...(upstream ? { upstream } : {}),
-        selfApproval: actorKey(phase.generatedBy ?? {}) === key
+        selfApproval: sameApprover(phase.generatedBy ?? {}, actor)
       };
     }, { needs: ['identity', 'checklist', 'witness-review'] });
     await stage('self-approval', async () => {
@@ -8204,10 +8205,10 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       ? remainingRequiredAuthorities(specification.approvalPolicy, decisions) : [] }
   );
   const key = actorKey(actor);
-  if (decision === 'approve' && decisions.some((entry) => actorKey(entry.actor).toLowerCase() === key.toLowerCase())) {
+  if (decision === 'approve' && decisions.some((entry) => sameApprover(entry.actor, actor))) {
     throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
   }
-  const selfApproval = actorKey(proposal.proposedBy ?? {}) === key;
+  const selfApproval = sameApprover(proposal.proposedBy ?? {}, actor);
   if (decision === 'approve' && selfApproval && specification.approvalPolicy.allowSelfApproval === false) {
     throw new SingularityFlowError(
       `Specification policy prohibits the proposer from approving intent amendment '${proposal.id}'. Ask another authorized Git identity.`
@@ -8229,6 +8230,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     selfApproval,
     ...(actionContext ? { actionContext } : {})
   };
+  // SF Guard: on a Story it requires, this decision is the approver's signed step (SPEC-PSS-v1 §10.12).
+  await (await import('./presence/person-steps.mjs')).signPersonRecords(root, workflow,
+    [{ label: 'Intent amendment decision', action: 'decision.intent-amendment', record: recorded }]);
   const recordedDecisionSha256 = createHash('sha256').update(canonicalJson(recorded)).digest('hex');
   decisions.push(recorded);
   proposal.decisions = decisions;
@@ -8705,7 +8709,7 @@ export async function decideForwardAmendment(root, config, workflow, {
   if (!approvalRequirementsMet(phase.approvalPolicy, [record])) {
     forwardAmendmentRefusal(`${proposal.phase} needs more than one approval; return the Story to it instead.`, 'FORWARD_AMENDMENT_AUTHORITY');
   }
-  if (phase.approvalPolicy?.allowSelfApproval === false && proposal.proposedBy.toLowerCase() === key.toLowerCase()) {
+  if (phase.approvalPolicy?.allowSelfApproval === false && sameApprover(proposal.proposedBy, actor)) {
     forwardAmendmentRefusal(`${proposal.phase} policy prohibits approving your own amendment; ask another approver.`, 'FORWARD_AMENDMENT_AUTHORITY');
   }
   const proposed = await secureRepositoryPath(root, proposal.proposedPath, { label: 'Forward amendment proposal', mustExist: true, type: 'file' });
@@ -8748,7 +8752,7 @@ export async function decideForwardAmendment(root, config, workflow, {
   const approval = {
     decision: 'approved', phase: phase.id, generation: phase.generation, forwardAmendmentId: amendmentId,
     at, actor: structuredClone(actor), agent, authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, channel, reason: text, selfApproval: proposal.proposedBy.toLowerCase() === key.toLowerCase(),
+    identityAssurance: authority.identityAssurance ?? null, channel, reason: text, selfApproval: sameApprover(proposal.proposedBy, actor),
     artifactSha256: [{ path: relative, sha256: proposal.proposedSha256 }], architectureIntent: null, architectureDecision: null
   };
   const reference = await registerReference(root, {
@@ -10180,6 +10184,9 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
           actor: structuredClone(live.actor), authorityGroup: live.authorityGroup,
           identityAssurance: live.identityAssurance, at, reviewPath, reviewSha256
         };
+        // SF Guard: on a Story it requires, this decision is the approver's signed step (SPEC-PSS-v1 §10.12).
+        await (await import('./presence/person-steps.mjs')).signPersonRecords(root, workflow,
+          [{ label: 'Skill version decision', action: 'decision.skill-version', record: approval }]);
         if (selection.decision === 'reject') {
           summary.schemaVersion = currentSchemaVersion('skill-version-adoption-summary');
           summary.status = 'rejected';

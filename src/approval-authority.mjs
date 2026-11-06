@@ -177,16 +177,42 @@ export function remainingRequiredAuthorities(policy, approvals = [], { counts = 
   return (policy?.requiredAuthorities ?? []).filter((authorityId) => !decided.has(authorityId));
 }
 
-/** The distinct people among active approvals, by the identity the engine compares. */
+/**
+ * What identifies a person on a record: each login and email it holds, or its name when it holds
+ * neither. GitHub's noreply address names a login. A record holds a login only when `gh` was known,
+ * so comparing one field made the same person two people.
+ */
+function personIdentifiers(actor) {
+  const record = typeof actor === 'string' ? { login: actor, email: actor } : actor;
+  const login = normalizedLogin(record?.login ?? record?.githubLogin);
+  const email = normalizedEmail(record?.email);
+  const noreply = /^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$/u.exec(email)?.[1];
+  const held = [login && `login:${login}`, email && `email:${email}`, noreply && `login:${noreply}`].filter(Boolean);
+  const name = String(record?.name ?? '').trim().toLowerCase();
+  return new Set(held.length ? held : name ? [`name:${name}`] : []);
+}
+
+/** Whether two actors are one person: any identifier in common. An actor may be a recorded key. */
+export function sameApprover(left, right) {
+  const ids = personIdentifiers(left);
+  return [...personIdentifiers(right)].some((id) => ids.has(id));
+}
+
+/** The distinct people among active approvals: records sharing any identifier are one person. */
 function approverIdentities(active) {
-  return new Set(active.map((item) => normalizedLogin(item.actor?.login)
-    || normalizedEmail(item.actor?.email)
-    || String(item.actor?.name ?? '').trim().toLowerCase()).filter(Boolean));
+  let people = [];
+  for (const item of active) {
+    const ids = personIdentifiers(item.actor);
+    if (!ids.size) continue;
+    const same = people.filter((person) => [...ids].some((id) => person.has(id)));
+    people = [...people.filter((person) => !same.includes(person)), new Set([...ids, ...same.flatMap((person) => [...person])])];
+  }
+  return people;
 }
 
 export function approvalRequirementsMet(policy, approvals = [], { counts = null } = {}) {
   const active = (approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved' && (!counts || counts(item)));
-  return approverIdentities(active).size >= (policy?.minimum ?? 1)
+  return approverIdentities(active).length >= (policy?.minimum ?? 1)
     && remainingRequiredAuthorities(policy, active).length === 0;
 }
 
@@ -207,7 +233,7 @@ export function storyApprovalView(workflow, { counts = null } = {}) {
     phase: phaseId,
     correctionTargets: phaseCorrectionTargets(phase),
     minimum: policy.minimum ?? 1,
-    distinct: approverIdentities(active).size,
+    distinct: approverIdentities(active).length,
     remainingAuthorities: remainingRequiredAuthorities(policy, active),
     met: approvalRequirementsMet(policy, active)
   };

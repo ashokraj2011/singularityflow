@@ -1210,7 +1210,8 @@
           "outcome": { "enum": ["unchanged", "return"] },
           "binding": { "anyOf": [{ "type": "null" }, { "type": "object", "required": ["producer", "producerGeneration", "producerSha256", "inputRecordSha256"] }] },
           "link": { "type": ["string", "null"] },
-          "at": { "type": "string", "format": "date-time" }
+          "at": { "type": "string", "format": "date-time" },
+          "presence": { "$ref": "#/$defs/personPresence" }
         }
       }
     },

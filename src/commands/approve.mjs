@@ -5,7 +5,7 @@ import { decisionWorkflow } from './shared/decision-workflow.mjs';
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 // Human document rendering is not part of the compact agent approval path.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
-import { requireApprovalAuthority, remainingRequiredAuthorities } from '../approval-authority.mjs';
+import { requireApprovalAuthority, remainingRequiredAuthorities, sameApprover } from '../approval-authority.mjs';
 import { confirm, activeActionContext } from './kernel.mjs';
 import { checklistDecisions } from './shared/checklist-decisions.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
@@ -98,7 +98,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
   }
   const { root, config, workflow, phase, session, receipt, receiptToken, requestedPhase } = await decisionWorkflow(positionals, options, 'approve');
-  const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
+  const selfApproval = sameApprover(phase.generatedBy ?? {}, session.actor);
   const asking = !receipt && !optionBoolean(options, 'yes');
   // `approve <PHASE>` typed after this terminal showed the review is the one confirmation [SPEC-OAP M4].
   const reviewed = terminalReviewBinding(workflow, phase);

@@ -57,6 +57,8 @@ session = await joinSession({
   }],
   tools: [{
     name: 'sflow_adjudicate',
+    // Always listed: the skill calls it when it is available, and a tool loaded on demand does not look available.
+    defer: 'never',
     description: 'Show the person every convergence item for a Story as one table and let them decide all of them. Pass only the exact workId. The person answers and confirms; no answer, reason or selection comes from you. It returns what was recorded and what remains.',
     parameters: { type: 'object', additionalProperties: false, required: ['workId'], properties: { workId: { type: 'string', pattern: WORK_ID.source } } },
     handler: async (input) => {

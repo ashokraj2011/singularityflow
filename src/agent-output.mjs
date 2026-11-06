@@ -905,6 +905,9 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   try { result = JSON.parse(text); } catch { literal = 'not-json'; }
   if (!literal && (!result || typeof result !== 'object' || Array.isArray(result))) literal = Array.isArray(result) ? 'json-array' : 'not-json';
   if (literal) return bytes(text) <= budget ? text : literalEnvelope(text, { cwd, budget, now, literal });
+  // No agent reads the step sheet yet, so it costs no agent a token (study 6.6, S3).
+  delete result.sheet;
+  if (result.data && typeof result.data === 'object') delete result.data.sheet;
   const { agentJson } = await import('./agent-packet-presentation.mjs');
   // The repository is resolved only when it is needed (a counted result or one to write), so the
   // small reads every skill turn makes cost no extra Git process.

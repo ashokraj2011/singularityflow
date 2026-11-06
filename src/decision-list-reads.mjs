@@ -319,7 +319,16 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
   const [{ decisionPacket }, { actionActor }, { identity }] = await Promise.all([import('./decision-list.mjs'), import('./commands/kernel.mjs'), import('./git.mjs')]);
   const facts = await decisionListFacts(root, config, workflow, { phaseId: phaseId ?? workflow.currentPhase, at, ...known });
   const actor = offline && !process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? identity(root, { offline: true }) : actionActor(root);
-  return decisionPacket(workflow, facts, {
-    authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, actor, at, requestedPhase, card
-  });
+  const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
+  const packet = decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card });
+  return { ...packet, sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor }) };
+}
+
+/** The step sheet beside the list; the list stands whatever happens here. */
+async function sheetOf(root, workflow, packet, context) {
+  try {
+    const [{ stepSheet }, { presenceCountsFor }] = await Promise.all([import('./step-sheet.mjs'),
+      workflow.resolution?.presence ? import('./presence/person-records.mjs') : { presenceCountsFor: async () => null }]);
+    return stepSheet(workflow, packet, { ...context, counts: await presenceCountsFor(root, workflow) });
+  } catch { return null; }
 }

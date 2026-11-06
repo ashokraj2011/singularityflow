@@ -25,7 +25,9 @@ export async function run({ positionals, options }) {
 export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runStep = step, stopStep = stop } = {}) {
   const checked = await runStep(['status', workId, '--submission-readiness', '--json'], cwd);
   if (!checked.ok) stopStep(checked, 'status --submission-readiness');
-  const readiness = checked.value;
+  // No agent reads the step sheet yet, so it costs no agent a token (study 6.6, S3).
+  const { sheet: _unread, ...read } = checked.value ?? {};
+  const readiness = checked.value?.sheet ? read : checked.value;
   // Decisions approval would refuse for open the decision list first; no receipt is begun.
   if (['terminal-obligations-required', 'decisions-required'].includes(readiness?.classification)) {
     return { resultType: 'sflow-approval-packet', begun: false,

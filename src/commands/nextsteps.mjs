@@ -254,10 +254,13 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   // The one list's count and first item, read the way readiness reads them [SPEC-OAP M3].
   const listPublication = publicationPending ?? Boolean(await readPendingPublication(root, { kind: 'story', id: selected.id, migrate: false,
     roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) } }).catch(() => null));
+  let sheet = null;
   const pending = active && active.id === workflow.currentPhase ? await measureCommandSpan('nextsteps.pending-list', async () => {
     const [{ readPendingList }, { pendingSummary }] = await Promise.all([import('../decision-list-reads.mjs'), import('../decision-list.mjs')]);
-    return pendingSummary(await readPendingList(root, definition, workflow, { phaseId: active.id, reuse: false, offline: true, publication: listPublication,
-      ...(active.status === 'awaiting_approval' ? { approvalCheck: checked } : {}) }));
+    const list = await readPendingList(root, definition, workflow, { phaseId: active.id, reuse: false, offline: true, publication: listPublication,
+      ...(active.status === 'awaiting_approval' ? { approvalCheck: checked } : {}) });
+    sheet = list.sheet ?? null;
+    return pendingSummary(list);
   }).catch(() => null) : null;
   const snapshot = {
     ...nextStepsSnapshot({
@@ -279,7 +282,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       pending
     }),
     evidence: evidenceSummary(workflow),
-    repositoryChecks: repositoryCheckStatus(root)
+    repositoryChecks: repositoryCheckStatus(root),
+    ...(sheet ? { sheet } : {})
   };
   if (active) snapshot.taskResume = await (await import('../workflow-task-store.mjs')).readWorkflowTaskResume(root, workflow, active, {
     published: !phaseNeedsGeneration(workflow, active), pendingPublication: listPublication,
@@ -324,7 +328,9 @@ export function agentNextStepsView(snapshot) {
   // step (an interrupted operation to inspect first) stays, and the tool answer's byte limit holds.
   const { nextAction: _listed, ...resume } = snapshot.taskResume ?? {};
   const listed = JSON.stringify(snapshot.taskResume?.nextAction) === JSON.stringify(snapshot.actions.find(action => action.timing === 'now'));
-  return { ...snapshot, actions: snapshot.actions.filter(action => action.timing !== 'then'),
+  // No agent reads the step sheet yet, so it costs no agent a token (study 6.6, S3).
+  const { sheet: _unread, ...read } = snapshot;
+  return { ...read, actions: snapshot.actions.filter(action => action.timing !== 'then'),
     ...(snapshot.taskResume && listed ? { taskResume: resume } : {}),
     projection: { kind: 'agent', omitted: ['actions[timing=then]'],
       fullCommand: ['singularity-flow nextsteps', snapshot.workId, '--json'].filter(Boolean).join(' ') } };
@@ -356,8 +362,7 @@ export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() 
   }
   const { contextBoundary: entryBoundary, ...bindingPacket } = packet;
   const view = agentNextStepsView(snapshot);
-  return agentPacketPresentation({ ...bindingPacket, ...snapshot, resultType: 'sflow-nextsteps', inputs,
-    actions: view.actions, projection: view.projection, ...(view.taskResume ? { taskResume: view.taskResume } : {}) });
+  return agentPacketPresentation({ ...bindingPacket, ...view, resultType: 'sflow-nextsteps', inputs });
 }
 
 export async function run(_argv, { positionals, options }) {

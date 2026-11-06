@@ -197,5 +197,7 @@ export function phaseReviewAgentPresentation(review, platform = process.platform
       .replace(MANAGED_INPUTS, (text) => marker('inputs', text));
     return managedBlocks.length ? { ...document, content, contentForm: 'authored-with-managed-references', managedBlocks } : document;
   });
-  return agentPacketPresentation({ ...review, documents }, platform);
+  // No agent reads the step sheet yet, so it costs no agent a token (study 6.6, S3).
+  const { sheet: _unread, ...read } = review;
+  return agentPacketPresentation({ ...read, documents }, platform);
 }

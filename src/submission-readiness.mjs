@@ -125,7 +125,7 @@ export async function submissionReadiness(root, config, workflow, options = {}) 
       ...(phase.status === 'awaiting_approval' ? { approvalCheck: advisories?.approvalCheck ?? null } : {}),
       ...(readiness.owedDecisions !== undefined ? { owed: readiness.owedDecisions } : {}),
       publication: options.pendingSynchronization === true });
-    return { ...result, pending: pendingSummary(packet) };
+    return { ...result, pending: pendingSummary(packet), ...(packet.sheet ? { sheet: packet.sheet } : {}) };
   } catch { return result; }
 }
 

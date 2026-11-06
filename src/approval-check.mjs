@@ -932,7 +932,11 @@ async function endingRefusals(root, workflow, phase, checked, readEnding) {
     const ending = await (readEnding ?? terminalReadinessOnce)(root, checked.config, workflow);
     return ending.blockers.length ? [new SingularityFlowError(terminalRefusalMessage(workflow.workItem.id, ending), { code: 'STORY_COMPLETION_REFUSED',
       details: { blockers: ending.blockers.slice(0, 20), recoveryCommands: ending.recovery, ...(ending.decisions?.nextAction ? { nextAction: ending.decisions.nextAction } : {}) } })] : [];
-  } catch (error) { return error instanceof SingularityFlowError ? [error] : []; }
+  } catch (error) {
+    // Not that the ending would refuse, only that this could not tell: it informs, and approve reads it again.
+    checked.warnings.push(`The Story's ending could not be read here (${error?.code ?? 'unavailable'}); approving reads it again.`);
+    return [];
+  }
 }
 
 /**

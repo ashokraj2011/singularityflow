@@ -16,6 +16,7 @@
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
+import { ISSUE_ONLY_OPTIONS } from './person-step-catalog.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -32,8 +33,7 @@ import { SingularityFlowError } from './util.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
-/** Options that write only upstream-issue records (a raise needs no authority; a decision needs its step's approvers). */
-export const ISSUE_ONLY_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
+export { ISSUE_ONLY_OPTIONS } from './person-step-catalog.mjs';
 export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;

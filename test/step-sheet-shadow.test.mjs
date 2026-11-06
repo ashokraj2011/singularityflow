@@ -16,6 +16,7 @@ import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs'
 import { APPROVAL_HOLD_OWNERS, approvalHold } from '../src/approval-check.mjs';
 import { approvalRequirementsMet } from '../src/approval-authority.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
+import { nextAfterStep } from '../src/cli-steps.mjs';
 import { commandWithFills, stepSheet } from '../src/step-sheet.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -239,6 +240,31 @@ test('next: a hold you can clear, else who to ask and what to share, else the ap
   assert.ok(SHEET_ON_PURPOSE.includes('copilot-names-this-steps-route'));
 });
 
+test('a sign-off goes through the card /sf-decide opens, and a host with no card is told its own terminal, as the list says', () => {
+  const workflow = story();
+  const review = { kind: 'witness', clauseId: 'W-1:AC-001', slot: 'visual-1', method: 'visual', files: ['shots/home.png'], owners: ['implementation'] };
+  const facts = { phaseId: 'implementation', approvalCheck: { ready: false, holds: [] }, pending: { owed: [{ kind: 'witness', ...review, clauseText: 'It works', available: true, groups: ['engineering'], command: 'singularity-flow decision witness W-1 --criterion W-1:AC-001 --slot visual-1' }] } };
+  const read = (card) => {
+    const packet = decisionPacket(workflow, facts, { authorities: AUTHORITIES, actor: ME, at: AT, card });
+    return { packet, sheet: stepSheet(workflow, packet, { approvalCheck: facts.approvalCheck, authorities: AUTHORITIES, actor: ME, card }) };
+  };
+  const onCard = read(true);
+  const [owed] = onCard.sheet.owedLater;
+  assert.equal(owed.steps[0].where.copilot, '/sf-decide W-1', 'a person\'s own command, answered on the card');
+  assert.equal(onCard.packet.record.copilotCommand, '/sf-decide W-1');
+  const noCard = read(false);
+  assert.equal(noCard.sheet.owedLater[0].steps[0].where.copilot, null, 'nothing a chat could do: their own terminal');
+  assert.equal(noCard.packet.record.copilotCommand, null);
+  // Held by it, with the approval waiting: next is the list on a card, and the person's own command with none.
+  const held = { ...facts, approvalCheck: { ready: false, holds: [{ code: 'STORY_COMPLETION_REFUSED', owner: 'someone-decides', who: 'The decision list names who decides each', summary: 'It cannot finish yet.', clearedBy: { kind: 'listed' }, action: { label: '', command: 'singularity-flow evidence matrix W-1 --json' } }] } };
+  const readHeld = (card) => {
+    const packet = decisionPacket(workflow, held, { authorities: AUTHORITIES, actor: ME, at: AT, card });
+    return stepSheet(workflow, packet, { approvalCheck: held.approvalCheck, authorities: AUTHORITIES, actor: ME, card }).next;
+  };
+  assert.deepEqual([readHeld(true).id, readHeld(true).command, readHeld(true).where.copilot], ['choose', 'singularity-flow decisions W-1', '/sf-decide W-1']);
+  assert.deepEqual([readHeld(false).command, readHeld(false).where.copilot], ['singularity-flow decision witness W-1 --criterion W-1:AC-001 --slot visual-1', null]);
+});
+
 test('a blank is declared, with its limits and choices, and a value the system knows is filled', () => {
   assert.deepEqual(commandWithFills('singularity-flow decision plan W-1 --add-location <clause>=src/a.mjs --reason "<why>"',
     { needs: { reason: { minimum: 20, maximum: 1000 } }, choices: { clause: [{ id: 'W-1:REQ-001' }] } }), {
@@ -271,10 +297,8 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
     assert.deepEqual([seen.readiness.sheet?.digest, seen.review.sheet?.digest, seen.next.sheet?.digest], [sheet.digest, sheet.digest, sheet.digest], label);
     const { workflow } = await loadAcceptedStoryExecution(root, WORK);
     assert.deepEqual(disagreements(workflow, seen.list, seen.readiness.approvalCheck, sheet), [], label);
-    // nextsteps' first action is the sheet's approval, or a way through one of its holds.
-    const now = withoutBlanks(seen.next.actions.find((action) => action.timing === 'now')?.command ?? '');
-    const ways = [...sheet.holds.flatMap((hold) => hold.steps.map((step) => withoutBlanks(step.command))), ...(sheet.next ? [withoutBlanks(sheet.next.command)] : [])];
-    assert.ok(!sheet.next || ways.includes(now) || (sheet.holds.length && /^singularity-flow (?:decisions|phase show)/u.test(now)), `${label}: nextsteps ${now}; the sheet ${JSON.stringify(ways)}`);
+    // nextsteps' first action is the sheet's next: one rule, read by both [study 6.1 rule 3].
+    assert.equal(withoutBlanks(seen.next.actions.find((action) => action.timing === 'now')?.command ?? ''), withoutBlanks(sheet.next.command), label);
     // The older fields say the same in their own words.
     assert.equal(seen.readiness.pending.open, seen.list.open, label);
     assert.deepEqual(seen.readiness.approvalCheck.holds.map((hold) => hold.code), seen.review.approvalCheck.holds.map((hold) => hold.code), label);
@@ -298,6 +322,26 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.deepEqual([dirty.sheet.holds[0].code, dirty.sheet.holds[0].source, dirty.sheet.holds[0].clearedBy.kind, dirty.sheet.approval.mayApproveNow],
     ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'door', 'checkout', false]);
   assert.equal(attemptApprove().code, 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED', 'the door refuses with what the sheet said');
+  // /sf-approve's packet stops on the sheet, with its next as the route; no receipt, no document read.
+  const stopped = json('choices', 'begin', 'approve', WORK, '--for-agent', '--json', '--review-packet');
+  assert.deepEqual([stopped.begun, stopped.reason, stopped.approvalPacket.review], [false, 'approval-holds', null]);
+  // An agent's view of a route carries --for-agent; the route is the sheet's.
+  assert.equal(stopped.nextAction.command.replace(' --for-agent', ''), dirty.sheet.next.command);
+  assert.equal(stopped.act.do.shell.replace(' --for-agent', ''), dirty.sheet.next.command);
+  assert.deepEqual(stopped.approvalPacket.sheet.holds.map((hold) => hold.code), ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED']);
+  assert.equal(stopped.approvalPacket.readiness.approvalCheck, undefined, 'the sheet says it, once');
+  // Readiness gives the same route, and an agent's view of it says the holds once, in the same short form.
+  assert.equal(dirty.readiness.nextCommand, dirty.sheet.next.command);
+  const held = json('status', WORK, '--submission-readiness', '--for-agent', '--json');
+  assert.deepEqual([held.act.state, held.act.do.shell.replace(' --for-agent', ''), held.act.read], ['blocked', dirty.sheet.next.command, ['sheet', 'owedDecisions']]);
+  assert.deepEqual(held.sheet.holds.map((hold) => hold.code), ['LIFECYCLE_WORKTREE_REVIEW_REQUIRED']);
+  assert.deepEqual([held.approvalCheck, held.pending], [undefined, undefined]);
+  // So does what a review, and the step just submitted, say comes next.
+  const reviewed = json('phase', 'show', 'planning', '--for-agent', '--json').continuation;
+  assert.equal(reviewed.nextCommand.replace(' --for-agent', ''), dirty.sheet.next.command);
+  assert.match(reviewed.nextAction.reason, /can't be approved yet: 1 decision needed\. The checkout has changes/u);
+  assert.equal(nextAfterStep({ continuation: reviewed }, 'Submitted.').commandGuidance.command, reviewed.nextCommand);
+  assert.deepEqual(stopped.act.read, ['approvalPacket.sheet', 'approvalPacket.readiness.owedDecisions']);
   await rm(stray);
 
   // Application source committed during review: the gate's own refusals, and recording refuses with the first.
@@ -305,12 +349,12 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
   git('add', 'src/value.mjs');
   git('commit', '-qm', 'Implement the value during the planning review');
-  const held = await compare('held');
-  assert.ok(held.sheet.holds.length >= 1);
-  assert.equal(held.sheet.approval.mayApproveNow, false);
-  assert.ok(held.readiness.approvalContinuation, 'the older route');
-  const first = held.readiness.approvalCheck.holds[0].code;
-  assert.ok(held.sheet.holds.some((hold) => hold.codes.includes(first)), first);
+  const heldStory = await compare('held');
+  assert.ok(heldStory.sheet.holds.length >= 1);
+  assert.equal(heldStory.sheet.approval.mayApproveNow, false);
+  assert.ok(heldStory.readiness.approvalContinuation, 'the route');
+  const first = heldStory.readiness.approvalCheck.holds[0].code;
+  assert.ok(heldStory.sheet.holds.some((hold) => hold.codes.includes(first)), first);
   assert.equal(attemptApprove().code, first, 'recording refuses with the first hold');
 
   // Back to the clean submission: approve records, as the sheet said it would, and the next step's sheet stands.
@@ -348,11 +392,17 @@ test('VS Code reads the sheet: who clears a hold for the person looking, a way o
   const html = approvalHoldsHtml(views);
   assert.match(html, /<strong>Say where src\/a\.mjs belongs<\/strong>/u);
   assert.equal(sheetHolds({ schema: 'something-else', holds: [] }), null, 'an older CLI\'s result reads as before');
+  // The Journey and the cards ask one question of it: is the next step on the decision list?
+  const { sheetNextIsTheList } = await import('../apps/vscode/src/decisions.ts');
+  assert.equal(sheetNextIsTheList(sheet), true);
+  const clear = decisionPacket(workflow, { phaseId: 'implementation', pending: {}, approvalCheck: { ready: true, holds: [] } }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  assert.equal(sheetNextIsTheList(stepSheet(workflow, clear, { approvalCheck: { ready: true, holds: [] }, authorities: AUTHORITIES, actor: ME })), false, 'the approval is next');
+  assert.equal(sheetNextIsTheList(undefined), false, 'an older CLI: as before');
 });
 
 test('where a step names a turn, that turn\'s guard admits the command, filled in as the person would', async (t) => {
   const { recordRepositoryBoundaryTurn, repositoryToolGuard } = await import('../src/copilot-repository-boundary.mjs');
-  const { captureMutationTurn } = await import('../src/copilot-mutation-guard.mjs');
+  const { captureMutationTurn, mutationPostToolGuard } = await import('../src/copilot-mutation-guard.mjs');
   const { mkdtemp, realpath } = await import('node:fs/promises');
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-sheet-guard-')));
   const root = path.join(directory, 'repository');
@@ -376,6 +426,8 @@ test('where a step names a turn, that turn\'s guard admits the command, filled i
     if (!sessions.has(prompt)) {
       const payload = { cwd: root, sessionId: `sheet-${prompt}`, prompt };
       await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record, { resolveRoot: async () => root, load: async () => accepted }) });
+      // The person has answered, as a chat decision must carry [copilot-answer-binding.mjs].
+      await mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' }, toolResult: { textResultForLlm: 'User responded: A reason the person gave here.' } });
       sessions.set(prompt, payload);
     }
     return sessions.get(prompt);

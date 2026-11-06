@@ -13,6 +13,7 @@ import { step, stop } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { approvalHoldContinuation } from '../copilot-guidance.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { blockingHolds, sheetForAgent, sheetRoute } from '../step-sheet-route.mjs';
 
 export async function run({ positionals, options }) {
   if (options.json !== true) {
@@ -25,13 +26,18 @@ export async function run({ positionals, options }) {
 export async function loadApprovalPacket({ workId, cwd, fetch = false }, { runStep = step, stopStep = stop } = {}) {
   const checked = await runStep(['status', workId, '--submission-readiness', '--json'], cwd);
   if (!checked.ok) stopStep(checked, 'status --submission-readiness');
-  // No agent reads the step sheet yet, so it costs no agent a token (study 6.6, S3).
-  const { sheet: _unread, ...read } = checked.value ?? {};
-  const readiness = checked.value?.sheet ? read : checked.value;
+  // The sheet stops the approval, in the agent's short form; the readiness keeps the rest of what it said.
+  const { sheet = null, ...read } = checked.value ?? {};
+  const readiness = sheet ? read : checked.value;
   // Decisions approval would refuse for open the decision list first; no receipt is begun.
   if (['terminal-obligations-required', 'decisions-required'].includes(readiness?.classification)) {
     return { resultType: 'sflow-approval-packet', begun: false,
       reason: readiness.classification, approvalPacket: { readiness, review: null } };
+  }
+  if (sheet && blockingHolds(sheet).length) {
+    const { approvalCheck: _sheetSaysThis, ...rest } = readiness;
+    return { resultType: 'sflow-approval-packet', begun: false, reason: 'approval-holds', nextAction: sheetRoute(sheet),
+      approvalPacket: { sheet: sheetForAgent(sheet), readiness: rest, review: null } };
   }
   // SF Guard takes this signature in the person's own terminal, so no chat can record it: it says so
   // here, with their exact command, not after the review they would read again there.

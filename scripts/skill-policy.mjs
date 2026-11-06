@@ -349,7 +349,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Review outside chat against the exact binding/i,
       // Show advisory history; actual gate holds route to their owners before confirmation.
       /`approvalCheck`\/`blockingCommits`\. Only holds block; follow routes/,
-      /`reason: approval-holds`: relay owners and all three `act\.do` routes; no document reads or confirmation/,
+      /`reason: approval-holds`: relay `sheet\.holds`, all three `act\.do` routes; no document reads or confirmation/,
       // A checklist phase is approved from Copilot too: the person's answers travel with the approval.
       /`approvalChecklist` lists articles, ask for one answer per article[^.]*--article <ID>=<DECISION>/,
       /exactly matching non-null `displayBinding`/,

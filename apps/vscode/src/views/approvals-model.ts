@@ -11,6 +11,7 @@
  * arrives with the engine's own reason. It must never *hide* an approval the engine would accept,
  * so every uncertain case is treated as actionable.
  */
+import { sheetNextIsTheList } from '../decisions.ts';
 import {
   initiativeOutputRepositoryPath,
   type ApprovalPolicy, type RepositorySnapshot, type InitiativeSnapshot, type StoryWorkflow
@@ -272,12 +273,6 @@ export function sheetHolds(value: unknown): ApprovalHoldView[] | null {
   });
 }
 
-/** Whether the sheet's one next step is on the decision list. */
-function decideNext(value: unknown): boolean {
-  const next = value && typeof value === 'object' ? (value as { next?: { effect?: unknown; where?: { vscode?: unknown } } | null }).next : null;
-  return next?.effect !== 'approves' && next?.where?.vscode === 'singularityFlow.decisions';
-}
-
 /** One person per decision, keyed as the engine keys them: GitHub login, then email, then name. */
 function identityOf(value: unknown): string {
   if (typeof value === 'string') return lower(value);
@@ -394,7 +389,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       // An older CLI carries no sheet: its check, read as before.
       approvalHolds: snapshot.submissionReadiness?.phaseId === phase.id
         ? sheetHolds(snapshot.submissionReadiness.sheet) ?? approvalHolds(snapshot.submissionReadiness.approvalCheck) : [],
-      decideNext: snapshot.submissionReadiness?.phaseId === phase.id && decideNext(snapshot.submissionReadiness.sheet)
+      decideNext: snapshot.submissionReadiness?.phaseId === phase.id && sheetNextIsTheList(snapshot.submissionReadiness.sheet)
     }],
     obstacles: [],
     empty: null

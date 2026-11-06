@@ -117,6 +117,16 @@ test('a Story signed with SF Guard hands over one command with nothing to fill i
   assert.equal(seen.recorded.length, 0);
 });
 
+test('what comes back says what was decided, one to a decision, so no agent can report something else (bin-opr2)', async () => {
+  const { ui } = person([accept({ choice: EACH }), accept({ decision0: 'Add to REQ-002', reason0: 'Its own reason, long enough.' }), accept({ confirm: RECORD })]);
+  const words = 'Accept it as a risk until a date: accept it as a risk until 2027-02-04 (decision on UPI-001)';
+  ui.record = async () => ({ recorded: [{ item: 'd1', record: 'UPI-001' }, { item: 'd1', record: 'UPI-001 accept-risk' }], decided: [{ item: 'd1', words }] });
+  const result = await runCard(ui);
+  assert.deepEqual(result.recorded, ['UPI-001', 'UPI-001 accept-risk'], 'two records');
+  assert.deepEqual(result.decided, [words], 'one decision');
+  assert.ok(result.message.startsWith(`1 decision recorded. ${words}.`), result.message);
+});
+
 test('a sign-off is one form, the same three questions, recorded only on its own confirmation', async () => {
   const signed = packet({ items: [{ id: 'd1', kind: 'evidence-obligation', title: 'Check the screenshot', why: 'A person looks.', decidedBy: allowed, options: [{ id: 'witness-1', label: 'I checked', recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: 'singularity-flow decision witness', humanReview: review } }] }] });
   const form = witnessForm(review);
@@ -128,7 +138,7 @@ test('a sign-off is one form, the same three questions, recorded only on its own
   assert.deepEqual(seen.looked, ['shot.png'], 'the file is put in front of the person first');
   assert.deepEqual(seen.witnessed[0].answer.answers, [['states-the-outcome', true], ['matches-the-criterion', false], ['current-for-this-change', true]]);
   assert.deepEqual(result.recorded, ['WIT-001']);
-  assert.equal(result.message, '1 recorded. All decided.');
+  assert.equal(result.message, '1 decision recorded. Signed off PAY-1:AC-001 · visual. All decided.');
   const declined = person([accept({ ...yes, choice: NOT_NOW })], [signed]);
   assert.equal((await runCard(declined.ui)).status, 'cancelled');
   assert.equal(declined.seen.witnessed.length, 0);

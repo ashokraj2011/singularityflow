@@ -14,11 +14,11 @@ import { registerMessageRouter, stringField } from './messages.ts';
 import { navigateTo } from './navigate.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
-  ADJUDICATION_SCRIPT, ADJUDICATION_STYLE, adjudicationAnswersFrom, adjudicationDraftFrom, adjudicationHtml, adjudicationListFrom, adjudicationSummary,
+  ADJUDICATION_SCRIPT, ADJUDICATION_STYLE, adjudicationAnswersFrom, adjudicationDecided, adjudicationDraftFrom, adjudicationHtml, adjudicationListFrom, adjudicationSummary,
   type AdjudicationAnswer, type AdjudicationDraft, type AdjudicationList
 } from './adjudication-page.ts';
 
-export interface AdjudicationResult { status: string; message: string; recorded?: string[]; unchanged?: string[]; remaining?: string[]; next?: string }
+export interface AdjudicationResult { status: string; message: string; recorded?: string[]; decided?: string[]; unchanged?: string[]; remaining?: string[]; next?: string }
 
 let open: vscode.WebviewPanel | null = null;
 
@@ -90,8 +90,9 @@ export async function reviewAdjudications(client: SingularityFlowClient, target:
           const result = await record(client, list, answers);
           await refresh?.();
           const remaining = result.remaining ?? [];
-          finish({ status: 'recorded', recorded: result.recorded ?? [], unchanged: result.unchanged ?? [], remaining, next: result.next,
-            message: `${(result.recorded ?? []).length} recorded.${remaining.length ? ` ${remaining.length} still need a decision.` : ' All decided.'}` });
+          const made = adjudicationDecided(list, answers, result.recorded ?? []);
+          finish({ status: 'recorded', recorded: result.recorded ?? [], decided: made, unchanged: result.unchanged ?? [], remaining, next: result.next,
+            message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still need a decision.` : ' All decided.'}` });
         } catch (error) {
           busy = false;
           list = await readList(client, workId).catch(() => list);

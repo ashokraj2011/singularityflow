@@ -147,6 +147,8 @@ export async function runDecisions({ ask, show, read, record, askedInChat = fals
   if (confirmed?.action !== 'accept' || confirmed.content?.confirm !== RECORD) return notNow;
   const result = await record(list, answers);
   const remaining = result.remaining ?? [];
-  return { status: 'recorded', recorded: result.recorded ?? [], unchanged: result.unchanged ?? [], remaining, next: result.next,
-    message: `${(result.recorded ?? []).length} recorded.${remaining.length ? ` ${remaining.length} still need a decision.` : ' All decided.'}` };
+  const named = new Map([...list.items, ...settledRows(list)].map((item) => [item.id, itemName(item)]));
+  const made = answers.filter((answer) => (result.recorded ?? []).includes(answer.itemId)).map((answer) => `${named.get(answer.itemId)}: ${label(list, answer.disposition)}`);
+  return { status: 'recorded', recorded: result.recorded ?? [], decided: made, unchanged: result.unchanged ?? [], remaining, next: result.next,
+    message: `${(result.recorded ?? []).length} recorded.${made.length ? ` ${made.join('. ')}.` : ''}${remaining.length ? ` ${remaining.length} still need a decision.` : ' All decided.'}` };
 }

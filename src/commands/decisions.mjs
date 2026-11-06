@@ -457,9 +457,11 @@ async function record(root, options, workId, io) {
             cause: error.details ?? null, nextAction: { command: list, skill: '/sf-decide', label: 'List what remains to decide.' } } });
     }
     const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
+    // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
+    const decided = plan.steps.map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}` }));
     if (!optionBoolean(options, 'json')) {
       for (const entry of plan.refused) console.log(`Not recorded: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
-      for (const step of plan.steps) console.log(`Recorded ${step.item}, ${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}.`);
+      for (const entry of decided) console.log(`Recorded ${entry.item}, ${entry.words}.`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
     }
     const next = after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
@@ -471,7 +473,7 @@ async function record(root, options, workId, io) {
         refused: String(plan.refused.length) }),
       effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
       next: next.map((entry) => action(entry)),
-      data: { recorded, refused: plan.refused, remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null,
+      data: { recorded, decided, refused: plan.refused, remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null,
         packetSha256: after?.packetSha256 ?? null }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {

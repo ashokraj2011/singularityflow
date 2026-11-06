@@ -19,7 +19,7 @@ import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, 
 import { reviewWitness } from './decision-list.ts';
 import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
-export interface DecideResult { status: string; message: string; recorded?: string[]; remaining?: string[]; next?: unknown }
+export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; remaining?: string[]; next?: unknown }
 
 let open: vscode.WebviewPanel | null = null;
 
@@ -127,8 +127,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           const outcome = decisionRecordOutcome(await record(client, packet, answers)).outcome;
           await refresh?.();
           const all = [...recorded, ...outcome.recorded];
-          finish({ status: 'recorded', recorded: all, remaining: outcome.remaining,
-            message: `${all.length} recorded.${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}` });
+          const decided = outcome.decided ?? [];
+          finish({ status: 'recorded', recorded: all, decided, remaining: outcome.remaining,
+            message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : `${all.length} recorded.`}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}` });
         } catch (error) {
           const failure = error as Error & { result?: unknown };
           const { outcome, packet: fresh } = decisionRecordOutcome(null, { message: failure.message, result: failure.result });

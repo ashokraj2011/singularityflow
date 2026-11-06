@@ -230,8 +230,9 @@ test('the review page shows the engine\'s summary, what is not yours, and the ex
 test('a record shows what was written; a changed list shows the fresh list; a partial record shows what remains', () => {
   const done = model.decisionRecordOutcome({ resultType: 'command-result', data: { recorded: [{ item: 'd1', kind: 'upstream-issue-decision', record: 'UPI-002 accept-risk' }],
     refused: [], remaining: [{ id: 'd1', title: 'AC-002: a problem reported in Testing' }], packetSha256: FRESH } });
-  assert.deepEqual(done.outcome, { kind: 'recorded', message: 'Recorded 1 record from your choices.', recorded: ['d1: UPI-002 accept-risk'], remaining: ['d1: AC-002: a problem reported in Testing'] });
+  assert.deepEqual(done.outcome, { kind: 'recorded', message: 'Recorded 1 record from your choices.', recorded: ['d1: UPI-002 accept-risk'], remaining: ['d1: AC-002: a problem reported in Testing'], decided: [] });
   assert.equal(done.packet, null);
+  assert.deepEqual(model.decisionRecordOutcome({ data: { recorded: [], decided: [{ item: 'd1', words: 'Accept it as a risk until 2027-02-04' }, { item: 'd2' }] } }).outcome.decided, ['Accept it as a risk until 2027-02-04']);
 
   const stale = model.decisionRecordOutcome(null, { message: 'The decision list changed since it was reviewed', result: { status: 'failed',
     error: { code: 'DECISIONS_PACKET_CHANGED', message: 'The decision list changed since it was reviewed', details: { packet: packet(FRESH), packetSha256: FRESH } } } });

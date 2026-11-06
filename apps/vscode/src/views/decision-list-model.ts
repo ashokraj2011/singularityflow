@@ -108,6 +108,8 @@ export interface DecisionListOutcome {
   message: string;
   recorded: string[];
   remaining: string[];
+  /** What was decided, one entry a decision, in its own words: a record's ID does not say it. */
+  decided?: string[];
 }
 
 export interface DecisionListView {
@@ -393,7 +395,7 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
       .map((entry) => `${entry!.id}: ${entry!.title ?? ''}`.trim());
     return {
       outcome: { kind: 'recorded', message: `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}`,
-        recorded, remaining },
+        recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string') },
       packet: null
     };
   }

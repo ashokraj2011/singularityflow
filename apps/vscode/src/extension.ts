@@ -8938,13 +8938,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const selected = await vscode.window.showQuickPick(witnesses.map(w => ({ label: `${w.clauseId} · ${w.slot}`, description: w.files[0], witness: w })),
               { title: 'Human witness — inspect published evidence, not its classification', ignoreFocusOut: true });
             if (!selected || !stillCurrent()) return;
-            const terminal = createTerminalIn({ name: 'Singularity Flow · Human Witness Review' }, checkedRepository);
-            terminal.show(true);
-            // No checklist answers are preselected. The real command enforces authority/binding.
-            terminal.sendText(terminalCommand(checkedRepository, ['decision', 'witness', '--work-id', workId,
-              '--criterion', selected.witness.clauseId, '--slot', selected.witness.slot, '--file', selected.witness.files[0]!,
-              '--reason', '<what-you-inspected>', '--json'], process.platform, client.location), false);
-            void showCompactInformationMessage('Inspect the published file, replace the reason, and answer each item with --confirm or --deny: states-the-outcome, matches-the-criterion, current-for-this-change. No witness is recorded yet.');
+            // The native review asks each question and the reason itself, and the file is known: nothing is left to fill in.
+            const reviewed = await lazyPanels().reviewWitness(client, { workId, criterion: selected.witness.clauseId, slot: selected.witness.slot }, refreshAfterKnownMutation);
+            if (reviewed.message) void showCompactInformationMessage(reviewed.message);
+            if (stillCurrent()) return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
             return;
           }
           if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });

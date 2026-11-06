@@ -44,3 +44,20 @@ test('session current with an option it does not take reads without it, and a wo
   assert.equal(steps(['session', 'current', '--for-agent', '--json', '--fetch'])[0].command, 'singularity-flow session current --for-agent --json');
   assert.equal(steps(['session', 'current', '--workspace', 'cfa', '--fetch'])[0].command, 'singularity-flow session workspace cfa');
 });
+
+test('help answers a command and a served topic, in words and as JSON', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-help-route-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const help = (...args) => spawnSync(process.execPath, [cli, '--no-model', 'help', ...args], { cwd: base, encoding: 'utf8', timeout: childTimeout(60_000), env: { ...process.env, NODE_ENV: 'test' } });
+  // A refusal's route: `help decision`, refused as an unknown topic under --for-agent --json.
+  const command = help('decision', '--for-agent', '--json');
+  assert.equal(command.status, 0, command.stdout + command.stderr);
+  assert.match(JSON.parse(command.stdout).content, /singularity-flow decision witness/u);
+  assert.match(help('decision').stdout, /singularity-flow decision witness/u);
+  // A topic explain serves: `help phase-appeals` was refused while explain had the page.
+  const topic = help('phase-appeals', '--json');
+  assert.equal(topic.status, 0, topic.stdout + topic.stderr);
+  assert.match(JSON.parse(topic.stdout).content, /singularity-flow explain phase-appeals/u);
+  assert.match(help('phase-appeals').stdout, /singularity-flow explain phase-appeals/u);
+  assert.notEqual(help('no-such-page').status, 0, 'an unknown topic is still refused');
+});

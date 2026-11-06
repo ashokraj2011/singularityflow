@@ -132,7 +132,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       status: continuation.status, next: continuation.next, continuationAllowed: continuation.continuationAllowed,
       consumed: continuation.consumed, attemptsRemaining: continuation.attemptsRemaining } };
     // No appeal is open, and a person's choice is what clears this step: say so, not /sf-code again (bin-opr2).
-    if (!data.appeals?.active?.length) {
+    if (data.appeals?.status !== 'needs-human') {
       const pin = await (await import('../node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: true }).catch(() => null);
       if (pin) data = { ...data, nextStep: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide', copilotCommand: `/sf-decide ${workflow.workItem.id}`,
         reason: `No appeal is open. What stops this step is a person's choice: ${pin.words} Pin Node ${pin.version} creates ${pin.file} and amends the plan in one step.` } };

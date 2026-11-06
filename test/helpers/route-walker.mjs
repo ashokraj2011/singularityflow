@@ -57,7 +57,7 @@ export async function storyCopy(t, template) {
   const remote = path.join(parent, 'origin.git');
   const { git, cli, write } = helpers(root);
   git('remote', 'set-url', 'origin', remote);
-  return { ...template, parent, root, remote, git, cli, write, raw: (args) => spawn(process.execPath, [CLI, '--no-model', ...args], root) };
+  return { ...template, parent, root, remote, git, cli, write, raw: (args, env = {}) => spawn(process.execPath, [CLI, '--no-model', ...args], root, env) };
 }
 
 /** A repository whose Story has an approved intake and an open code step with passing work in it. */
@@ -104,7 +104,7 @@ export async function codeStepTemplate(t, { configure = null } = {}) {
   await write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => assert.equal(value,2));\n`);
   const summary = `${item}/artifacts/implementation/implementation-summary.md`;
   await write(summary, (await readFile(path.join(root, summary), 'utf8')).replace(/TODO:[^\n]*/gu, 'The value module returns the approved value.'));
-  return { parent, root, remote, git, cli, write, item, summary, raw: (args) => spawn(process.execPath, [CLI, '--no-model', ...args], root) };
+  return { parent, root, remote, git, cli, write, item, summary, raw: (args, env = {}) => spawn(process.execPath, [CLI, '--no-model', ...args], root, env) };
 }
 
 // ---------------------------------------------------------------- what a route can do

@@ -17,11 +17,13 @@ export async function helpCommand(positionals, options) {
   // an unknown name rather than returning nothing, so the lookup has to be guarded.
   const requested = positionals[1];
   const isCommand = (name) => { try { return Boolean(commandDefinition(name)); } catch { return false; } };
-  if (requested && !optionBoolean(options, 'json') && isCommand(requested)) {
+  if (requested && isCommand(requested)) {
     const topic = await loadHelpDocument(requested).catch(() => null);
     if (!topic) {
       const { renderCommandHelp } = await import('../help-pages.mjs');
-      return console.log(renderCommandHelp(requested));
+      const page = renderCommandHelp(requested);
+      // As JSON too: a refusal's route to `help decision` was itself refused under --for-agent --json.
+      return console.log(optionBoolean(options, 'json') ? JSON.stringify({ selectedTopic: requested, content: page }, null, 2) : page);
     }
   }
   // A documentation topic is a topic, whichever command asked: `help phase-appeals` was refused while `explain phase-appeals` had its page.

@@ -66,6 +66,11 @@ const SCENARIOS = Object.freeze([
     reasons: { CONFORMANCE_BLOCKING_VERDICTS: { mustNotMatch: /raise one against/u, mustMatch: /reads it satisfied/u, because: 'the record reads these clauses satisfied, so nothing shows the step before it at fault' } } },
   { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
     setup: onTheWrongNode, start: PREPUBLISH, reached: published },
+  // /sf-appeal with nothing to appeal: it said to go back to /sf-code, which could not change the Node either.
+  { id: 'appeal-with-none-open', meets: 'next', real: 'a real Story: the chain /sf-code, /sf-appeal, /sf-code on a Node only a person can pin',
+    setup: async (story) => { await onTheWrongNode(story); story.raw(PREPUBLISH.split(' ').slice(1), story.env); },
+    start: 'singularity-flow appeal preflight --phase implementation --for-agent --json',
+    reached: (result) => (result?.next ?? []).some((entry) => /^\/sf-decide/u.test(entry.copilotCommand ?? entry.commandGuidance?.copilotCommand ?? '')) && /No appeal is open/u.test(JSON.stringify(result)) },
   { id: 'test-fails-for-a-real-bug', meets: 'CODE_TEST_FAILED', real: 'the same refusal when the code is at fault: a route that can change the state has a way through',
     setup: (story) => story.write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 3;\n`), start: PREPUBLISH, reached: published,
     writes: { '/sf-code': { 'src/value.mjs': `// @clause:${WORK}:AC-001 returns the approved value to every caller\nexport const value = 2;\n` } } },

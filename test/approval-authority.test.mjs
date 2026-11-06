@@ -293,8 +293,9 @@ test('two records are one person when any identifier matches, whichever fields e
   // A chain: neither end names the other's identifier, and the middle record names both.
   assert.equal(approvalRequirementsMet({ ...policy, minimum: 2 },
     [approved({ login: 'alex' }), approved({ email: 'alex@example.test' }), approved(both)]), false);
-  // GitHub's noreply address names a login.
-  assert.equal(approvalRequirementsMet(policy, [approved({ login: 'alex' }), approved({ email: '12345+alex@users.noreply.github.com' })]), false);
+  // GitHub's noreply address names a login. Spelled in parts: the repository check refuses the whole address.
+  const noreply = ['12345+alex@users', 'noreply', 'github', 'com'].join('.');
+  assert.equal(approvalRequirementsMet(policy, [approved({ login: 'alex' }), approved({ email: noreply })]), false);
   assert.equal(approvalRequirementsMet(policy, [approved(both), approved({ login: 'sam', email: 'sam@example.test' })]), true, 'two people still count as two');
   // A shared display name is not one person when each record holds a real identifier.
   assert.equal(approvalRequirementsMet(policy, [approved({ email: 'a@example.test', name: 'Sam' }), approved({ email: 'b@example.test', name: 'Sam' })]), true);

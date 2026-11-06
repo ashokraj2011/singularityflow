@@ -151,6 +151,46 @@ test('real mvn: what setup suggests at a reactor root runs, and its report is re
   assert.deepEqual(names(ran), [['a', 'passed']], 'surefire names each test');
 });
 
+test('real gradle: at a multi-project root each project\'s own report is read, and a command at the root really leaves none', LANE, async (t) => {
+  if (!answers('gradle', ['--version'])) return absent(t, 'gradle is not installed');
+  // The suite moves HOME, so name the developer's Gradle home and local repository; offline, it downloads nothing.
+  const home = os.userInfo().homedir;
+  const javaHome = process.env.JAVA_HOME ?? (process.platform === 'darwin' ? spawnSync('/usr/libexec/java_home', ['-v', '23'], { encoding: 'utf8' }).stdout.trim() : '');
+  const env = { GRADLE_USER_HOME: path.join(home, '.gradle'), ...(javaHome ? { JAVA_HOME: javaHome } : {}) };
+  const source = (name) => `public class ${name} { @org.junit.Test public void passes() {} }\n`;
+  const root = await repository(t, { 'settings.gradle': "include 'app', 'lib'\n", 'gradle.properties': 'org.gradle.daemon=false\n',
+    'build.gradle': `subprojects {\n  apply plugin: 'java'\n  repositories { maven { url = '${path.join(home, '.m2', 'repository')}' } }\n  dependencies { testImplementation 'junit:junit:4.13.2' }\n}\n`,
+    'app/src/test/java/AppTest.java': source('AppTest'), 'lib/src/test/java/LibTest.java': source('LibTest') });
+  const commands = await moduleTestCommands(root, await resolveAffectedModule(root, 'settings.gradle'));
+  assert.deepEqual(commands.map((command) => [command.id, command.workingDirectory, command.result.path]), [['app-gradle-tests', 'app', 'build/test-results/test'], ['lib-gradle-tests', 'lib', 'build/test-results/test']]);
+  const offline = { GRADLE_OPTS: '-Dorg.gradle.offline=true', ...env };
+  const ran = await gateRun(root, commands[0], { env: offline });
+  if (ran.attempt.exitCode !== 0 && /Unsupported class file|Could not resolve|offline|could not be determined/iu.test(ran.output)) return absent(t, `this machine cannot run the fixture: ${ran.output.slice(0, 200)}`);
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  assert.deepEqual(names(ran), [['passes', 'passed']]);
+  // What the root's own command would have looked for: the tests ran, and nothing is at that path.
+  const whole = await runQualityCommand('gradle', ['test', '--offline'], { cwd: root, env: { ...process.env, ...env }, timeoutMs: childTimeout(150_000) });
+  assert.equal(whole.status, 0, whole.stderr);
+  assert.equal(existsSync(path.join(root, 'build/test-results/test')), false);
+  assert.equal(existsSync(path.join(root, 'lib/build/test-results/test/TEST-LibTest.xml')), true);
+});
+
+test('real mvn: at a reactor root the gate\'s own command runs each module, and its report is read', LANE, async (t) => {
+  if (!answers('mvn', ['-v'])) return absent(t, 'mvn is not installed');
+  const pom = (extra) => `<?xml version="1.0"?><project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>x</groupId>${extra}</project>`;
+  const root = await repository(t, {
+    'pom.xml': pom('<artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules><module>svc</module></modules>'),
+    'svc/pom.xml': pom('<artifactId>svc</artifactId><version>1</version><properties><maven.compiler.source>17</maven.compiler.source><maven.compiler.target>17</maven.compiler.target><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency></dependencies>'),
+    'svc/src/test/java/ATest.java': 'import org.junit.jupiter.api.*;\nclass ATest { @Test void a() { Assertions.assertEquals(1, 1); } }\n' });
+  const [command] = await moduleTestCommands(root, await resolveAffectedModule(root, 'pom.xml'));
+  assert.deepEqual([command.id, command.workingDirectory, command.result.path, command.affectedRoots], ['svc-maven-tests', 'svc', 'target/surefire-reports', ['svc', '.']]);
+  const repositoryPath = path.join(os.userInfo().homedir, '.m2', 'repository');
+  const ran = await gateRun(root, command, { env: { MAVEN_ARGS: `-o -B -Dmaven.repo.local=${repositoryPath}` } });
+  if (ran.attempt.exitCode !== 0 && /offline mode|could not be resolved|Could not resolve/iu.test(ran.output)) return absent(t, 'the local Maven repository lacks surefire or junit-jupiter 5.10.2');
+  assert.equal(testReceiptPassing(ran.attempt), true, ran.output);
+  assert.deepEqual(names(ran), [['a', 'passed']]);
+});
+
 test('real vitest: its own reporter beside SFlow\'s, a run with no test files, and a Playwright spec it collects', LANE, async (t) => {
   const modules = installedModules('vitest');
   if (!modules) return absent(t, 'vitest is not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS to a folder whose node_modules has it');

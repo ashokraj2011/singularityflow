@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { inferModuleTestCommand, resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
-import { mavenReactorModuleCommands, moduleTestCommands, unreadRunnerOfPackage } from './test-module-markers.mjs';
+import { moduleTestCommands, unreadRunnerOfPackage } from './test-module-markers.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'vendor', 'target', 'build', 'dist', 'out', 'coverage', 'venv', '__pycache__', 'bin', 'obj']);
@@ -46,8 +46,10 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
     if (directory !== '.') await secureRepositoryPath(root, directory, { mustExist: true, type: 'directory', label: 'Test module' });
     try {
       const module = directory === '.' ? null : await resolveAffectedModule(root, `${directory}/__sflow_test_setup__`);
-      let commands = await mavenReactorModuleCommands(root,
-        module ? await moduleTestCommands(root, module, { platform }) : await inferRepositoryTestCommands(root, { platform, diagnostics }), { platform });
+      // A command a person configures owns what is below its roots, so one for a module of a reactor or
+      // multi-project build names that module alone; only the gate's own also answers for the root's files.
+      let commands = (module ? await moduleTestCommands(root, module, { platform }) : await inferRepositoryTestCommands(root, { platform, diagnostics }))
+        .map((command) => (/-(?:maven|gradle)-tests$/u.test(command.id) ? { ...command, affectedRoots: [command.affectedRoots[0]] } : command));
       if (module && module.root !== directory && commands.length) {
         // A directory with no build file of its own borrows a command inferred for another module, and
         // publication counts it only for that command's own ecosystem [TCE:REQ-052]. Never suggest it for

@@ -33,6 +33,10 @@ const LEGACY_ROOT_IDS = Object.freeze({
 async function inferOtherRepositoryTestCommands(root, { unitOnly, platform, diagnostics }) {
   const regular = (relative) => repositoryManifestExists(root, relative);
   const inferred = async (system, manifest, options = {}) => {
+    // A reactor or multi-project root runs each module, as the gate does: one root command's report path reads nothing.
+    const aggregated = ['maven', 'gradle'].includes(system)
+      ? await (await import('./test-module-markers.mjs')).aggregatedTestCommands(root, { root: '.', system, manifest }, { platform, unitOnly }) : null;
+    if (aggregated) return aggregated;
     const command = await inferModuleTestCommand(root, { root: '.', system, manifest }, {
       unitOnly,
       platform,
@@ -47,7 +51,7 @@ async function inferOtherRepositoryTestCommands(root, { unitOnly, platform, diag
   // Each root build system: whether its build file is there, and its commands.
   const systems = [
     ['maven', async () => (await regular('mvnw') || await regular('pom.xml')) && (() => inferred('maven', 'pom.xml'))],
-    ['gradle', async () => (await regular('gradlew') || await regular('build.gradle') || await regular('build.gradle.kts'))
+    ['gradle', async () => (await regular('gradlew') || await regular('build.gradle') || await regular('build.gradle.kts') || await regular('settings.gradle') || await regular('settings.gradle.kts'))
       && (async () => inferred('gradle', await regular('build.gradle.kts') ? 'build.gradle.kts' : 'build.gradle'))],
     ['go', async () => await regular('go.mod') && (() => inferred('go', 'go.mod'))],
     ['rust', async () => await regular('Cargo.toml') && (() => inferred('rust', 'Cargo.toml'))],

@@ -1839,11 +1839,16 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
   }
   const commandKey = command => JSON.stringify([commandText(command), command?.workingDirectory ?? '.']);
   const seen = new Set(configured.map(commandKey));
+  // A module reached by its own path and from the reactor above it is one run, the one that also answers for the reactor's files.
+  const widest = new Map();
+  for (const command of inferred) {
+    if (command && !((widest.get(commandKey(command))?.affectedRoots?.length ?? 0) >= (command.affectedRoots?.length ?? 1))) widest.set(commandKey(command), command);
+  }
   return [...configured, ...inferred.filter((command) => {
     if (!command || seen.has(commandKey(command))) return false;
     seen.add(commandKey(command));
     return true;
-  })];
+  }).map((command) => widest.get(commandKey(command)) ?? command)];
 }
 
 function receiptDigest(record) {

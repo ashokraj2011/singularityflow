@@ -30,6 +30,7 @@ import { classifyCommand, scanGuidanceText } from './guidance-scan.mjs';
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
 import { classifyVariable, looksSecretName, looksSecretValue } from './secret-looking.mjs';
 import { blockedPath, EXCLUDED_DIRECTORIES, recognizeFormat } from './team-import/formats.mjs';
+import { declaredGradleProjects } from './test-module-markers.mjs';
 
 const LIMITS = Object.freeze({ files: 200, fileBytes: 256 * 1024, candidates: 200, skillDepth: 3, nxDirectories: 2_000 });
 const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su;
@@ -509,6 +510,12 @@ async function completeGradle(root, argv, at, directory, notes) {
   if (testing.length > 1) return { reason: `It tests several projects (${testing.map((entry) => entry || '.').join(', ')}); propose one command per project.`, notes };
   const module = inside(inside(directory, projectDirectory) ?? '.', testing[0].replace(/^:/u, '').replaceAll(':', '/') || '.');
   const base = module === '.' ? '' : module;
+  const manifestText = (name) => readRepositoryManifest(root, path.posix.join(base, name)).then(({ bytes }) => bytes.toString('utf8'), () => '');
+  const settings = module ? await manifestText('settings.gradle') || await manifestText('settings.gradle.kts') : '';
+  // `:test` runs the root's own tests and nothing below it, so its own report path reads it.
+  if (module && !testing[0].startsWith(':') && !tasks.some((task) => task.startsWith(':')) && (declaredGradleProjects(settings) ?? []).length) {
+    return { reason: `${module === '.' ? 'This' : module} is a multi-project build: each project writes its own reports, and one report path cannot read them all. Propose one command per project folder (-p <project> test).`, notes };
+  }
   if (!module || !(await repositoryManifestExists(root, path.posix.join(base, 'build.gradle')) || await repositoryManifestExists(root, path.posix.join(base, 'build.gradle.kts')))) {
     return { reason: `No build.gradle is at ${module ?? testing[0]}; a custom project layout is not guessed.`, notes };
   }

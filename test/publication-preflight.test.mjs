@@ -2398,6 +2398,11 @@ test('test-induced source mutation retains bounded output and never publishes', 
     return true;
   });
   assert.equal(context.phase.generation, 0);
+  // It ran, so it is one attempt like any other, kept before the refusal. It reads as failed though its
+  // exit says it passed, so it can never stand as a pass on that code.
+  const [attempt] = await stepAttempts(context.root, 'singularity/work-items/DELIVERY-1', 'DELIVERY-1', 'implementation');
+  assert.equal(attempt?.status, 'failed', JSON.stringify(attempt));
+  assert.deepEqual([attempt.exitCode, attempt.cause.category, attempt.cause.class], [0, 'code', 'source-mutation']);
   assert.match(await readFile(path.join(context.root, 'src', 'app.java'), 'utf8'),
     /changed by test command/);
 });
@@ -2507,6 +2512,26 @@ test('every suite of a refused run keeps its attempt, and the refusal reports ev
   });
   assert.deepEqual(await attemptsOf(context), [['fixture-tests', 'preflight', 'failed', 1], ['second-tests', 'preflight', 'failed', 7]]);
   assert.equal(context.phase.generation, 0);
+});
+
+test('a suite that changes the code keeps its attempt and the attempts before it, and restoring the code runs it again', async (t) => {
+  const context = await twoSuites(t, 'two-suites-mutation', {});
+  const untouched = await readFile(path.join(context.root, 'src', 'app.java'), 'utf8');
+  await writeFile(path.join(context.root, 'second-runner.mjs'), [
+    "import { appendFileSync, existsSync, writeFileSync } from 'node:fs';",
+    "if (existsSync('mutate-now')) appendFileSync('src/app.java', '// changed by the second suite\\n');",
+    "writeFileSync('.sflow/results/second.json', JSON.stringify({ tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));", ''].join('\n'));
+  await writeFile(path.join(context.root, 'mutate-now'), '');
+  await writeFile(path.join(context.root, '.git/info/exclude'), 'mutate-now\n', { flag: 'a' });
+  await assert.rejects(() => publishTwoSuites(context), (error) => error.code === 'QUALITY_COMMAND_SOURCE_MUTATION');
+  assert.deepEqual(await attemptsOf(context), [['fixture-tests', 'preflight', 'passed', 0], ['second-tests', 'preflight', 'failed', 0]]);
+  assert.equal(context.phase.generation, 0);
+  await writeFile(path.join(context.root, 'src', 'app.java'), untouched);
+  await rm(path.join(context.root, 'mutate-now'));
+  await publishTwoSuites(context);
+  const latest = (await stepAttempts(context.root, 'singularity/work-items/DELIVERY-1', 'DELIVERY-1', 'implementation')).filter((attempt) => attempt.commandId === 'second-tests');
+  assert.equal(latest.length, 2, 'the suite that changed the code ran again: its first run never stands');
+  assert.equal(latest.at(-1).status, 'passed');
 });
 
 test('a suite that passes beside one that failed is recorded and not reported, and a later failure alone still refuses', async (t) => {

@@ -141,7 +141,9 @@ export async function assertNodeTestFiles(root, tests) {
  * declares; an Nx project its unit target and the Playwright target beside it; a .NET product project the
  * test projects that reference it; any other module its one command.
  */
-export async function moduleTestCommands(root, module, { platform = process.platform } = {}) {
+export async function moduleTestCommands(root, module, { platform = process.platform, unitOnly = false } = {}) {
+  const aggregated = await aggregatedTestCommands(root, module, { platform, unitOnly });
+  if (aggregated) return aggregated;
   if (module.system === 'node') {
     const cwd = module.root === '.' ? '' : module.root;
     const manifestPath = path.posix.join(cwd, 'package.json');
@@ -149,7 +151,7 @@ export async function moduleTestCommands(root, module, { platform = process.plat
     const commands = await nodeTestCommands(root, module, { manager: await nodePackageManager(root, module.root, manifest) });
     if (commands.length || !await exists(path.join(root, cwd, 'project.json'))) return commands;
   }
-  const commands = [await inferModuleTestCommand(root, module, { platform })].filter(Boolean);
+  const commands = [await inferModuleTestCommand(root, module, { platform, unitOnly })].filter(Boolean);
   if (module.system === 'dotnet') return (await dotnetTestCommands(root, module)) ?? commands;
   // An Android module runs its unit tests and, with src/androidTest, its device tests too.
   if (module.system === 'gradle' && commands[0]?.id === `${module.root}-gradle-tests` && commands[0].argv.at(-1).endsWith('UnitTest')) {
@@ -709,31 +711,59 @@ const bindsIntegrationTest = (block) => [...block.matchAll(/<execution>([\s\S]*?
 
 const MAX_REACTOR_MODULES = 64;
 
-/**
- * A command list with each Maven reactor's command replaced by what the gate runs for its modules that
- * hold tests. An aggregator builds nothing itself and each module writes its own reports, so a command
- * run at the reactor leaves none where its report path looks. Only test setup asks; it runs nothing.
- */
-export async function mavenReactorModuleCommands(root, commands, { platform = process.platform } = {}) {
+/** The projects a Gradle settings file includes, as folders; null when it moves one somewhere this reading cannot follow. */
+export function declaredGradleProjects(settings) {
+  const source = String(settings ?? '').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gmu, '');
+  if (/\bprojectDir\b/u.test(source)) return null;
+  const projects = [];
+  for (const [, list] of source.matchAll(/^[ \t]*include\b\s*\(?\s*((?:["'][^"'\n]+["']\s*,?\s*)+)/gmu)) {
+    for (const [, name] of list.matchAll(/["']([^"']+)["']/gu)) projects.push(name.replace(/^:/u, '').replaceAll(':', '/'));
+  }
+  return [...new Set(projects)];
+}
+
+/** The folders below a build root whose own tests its command does not read; null when it builds alone. */
+async function modulesBelow(root, module) {
+  const at = (name) => path.posix.join(module.root === '.' ? '' : module.root, name);
+  if (module.system === 'gradle') {
+    const settings = await packageText(root, at('settings.gradle')) || await packageText(root, at('settings.gradle.kts'));
+    const projects = declaredGradleProjects(settings);
+    return projects?.length ? projects.map((project) => (module.root === '.' ? project : path.posix.join(module.root, project))) : null;
+  }
   let budget = MAX_REACTOR_MODULES;
-  const modulesOf = async (directory) => {
+  const leaves = async (directory) => {
     if (--budget < 0) return [];
     const declared = declaredMavenModules(await packageText(root, path.posix.join(directory === '.' ? '' : directory, 'pom.xml')));
     if (!declared.length) return [directory];
     const below = [];
-    for (const parts of declared) below.push(...await modulesOf(path.posix.join(directory === '.' ? '' : directory, ...parts)));
+    for (const parts of declared) below.push(...await leaves(path.posix.join(directory === '.' ? '' : directory, ...parts)));
     return below;
   };
-  const expanded = [];
-  for (const command of commands) {
-    const reactor = /(?:^|-)maven-tests$/u.test(command.id) ? command.affectedRoots[0] : null;
-    const modules = reactor ? await modulesOf(reactor) : [];
-    if (!modules.length || modules[0] === reactor) { expanded.push(command); continue; }
-    for (const moduleRoot of modules) {
-      if (await exists(path.join(root, moduleRoot, 'src', 'test'))) expanded.push(...await moduleTestCommands(root, { root: moduleRoot, system: 'maven', manifest: 'pom.xml' }, { platform }));
-    }
+  const modules = await leaves(module.root);
+  return modules.length && modules[0] !== module.root ? modules : null;
+}
+
+/**
+ * What the gate runs at a Maven reactor or a Gradle multi-project root: each module's own command, for the
+ * modules that hold tests. Each module writes its own reports, so one command at the root leaves none where its
+ * report path looks: the tests pass and the report cannot be read. Each also answers for the root's own files,
+ * such as its build file. A Gradle root with tests of its own runs only those, by `:test`. Null for a root that builds alone.
+ */
+export async function aggregatedTestCommands(root, module, { platform = process.platform, unitOnly = false } = {}) {
+  if (!['maven', 'gradle'].includes(module.system)) return null;
+  const modules = await modulesBelow(root, module);
+  if (!modules) return null;
+  const commands = [];
+  for (const moduleRoot of modules) {
+    if (!await exists(path.join(root, moduleRoot, 'src', 'test'))) continue;
+    const below = await moduleTestCommands(root, { root: moduleRoot, system: module.system, manifest: module.system === 'maven' ? 'pom.xml' : null }, { platform, unitOnly });
+    commands.push(...below.map((command) => ({ ...command, affectedRoots: [...new Set([...command.affectedRoots, module.root])] })));
   }
-  return expanded;
+  if (module.system === 'gradle' && await exists(path.join(root, module.root, 'src', 'test'))) {
+    const own = await inferModuleTestCommand(root, module, { platform, unitOnly });
+    if (own?.argv?.at(-1) === 'test') commands.unshift({ ...own, argv: [...own.argv.slice(0, -1), ':test'] });
+  }
+  return commands;
 }
 
 /**

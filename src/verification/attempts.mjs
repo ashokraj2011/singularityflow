@@ -243,6 +243,14 @@ export async function recordTestAttempt(root, itemRelative, {
   };
 }
 
+/** The runs a refused run leaves behind, each one attempt in private storage until a later gate admits it [E2G-016]. */
+export async function recordRunsBeforeRefusal(root, itemRelative, commands, ran, { pins = null, ...fields }) {
+  for (const check of ran) {
+    const command = commands.find((entry) => entry?.id === check.id && entry.kind === 'test');
+    if (command && check.status !== 'skipped-warning') await recordTestAttempt(root, itemRelative, { command, check, ...fields, ...pins?.attempt(command.id) });
+  }
+}
+
 async function admitFile(root, relative, bytes, label) {
   const secured = await secureRepositoryPath(root, relative, { label });
   if (secured.exists) {

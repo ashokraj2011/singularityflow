@@ -47,6 +47,7 @@ export const TEST_RUN_CAUSES = Object.freeze({
   'foreign-test-file': [CODE, 'this runner collected a test file written for another runner'],
   'suite-failure': [CODE, 'a test file failed outside its tests, usually while loading'],
   'assertion-failure': [CODE, 'tests ran and failed'],
+  'source-mutation': [CODE, 'the run changed application source or test inputs'],
   timeout: [UNKNOWN, 'the run timed out'],
   'no-tests': [UNKNOWN, 'the run found no tests'],
   unrecognised: [UNKNOWN, 'the output names no cause recognised here']
@@ -219,6 +220,7 @@ function count(value) {
 export function classifyTestRunCause({ check = null, tests = null, failedMessages = null, failedSuites = null, changedPaths = [] } = {}) {
   const changed = [...new Set((changedPaths ?? []).filter((entry) => typeof entry === 'string' && entry))];
   const output = `${String(check?.stderr ?? '')}\n${String(check?.stdout ?? '')}`.slice(0, 32_000);
+  if (check?.sourceMutation === true) return cause('source-mutation', 'source changed during the run', 'process');
   const failed = count(tests?.failed);
   const executed = count(tests?.passed) + failed;
   if (check?.infrastructureUnavailable === true) return cause('launcher-unavailable', 'spawn ENOENT', 'process');

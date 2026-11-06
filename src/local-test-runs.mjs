@@ -19,7 +19,7 @@ import { localTestRunKernel as kernel, sourceTreeHash, testInputTreeHash } from 
 import { workDirRelative } from './story-paths.mjs';
 import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
-import { recordTestAttempt } from './verification/attempts.mjs';
+import { recordRunsBeforeRefusal, recordTestAttempt } from './verification/attempts.mjs';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
 
@@ -140,7 +140,9 @@ export async function stageStoryLocalTests(root, config, workflow, {
   if (!commands.length) throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id });
   const checks = await kernel.qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
-    localRun: { ranBy, requestedEnvironment }
+    localRun: { ranBy, requestedEnvironment },
+    onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), commands, ran, {
+      purpose: 'local', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase), localRunId, uncommittedChanges })
   });
   const attempts = [];
   try {

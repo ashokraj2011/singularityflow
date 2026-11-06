@@ -263,7 +263,7 @@ import {
   configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
   resolveAffectedModule, runEnvironmentSha256, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
 } from './code-delivery-tests.mjs';
-import { admitTestAttempts, recordTestAttempt, unchangedTestRun } from './verification/attempts.mjs';
+import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt, unchangedTestRun } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
 import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from './verification/test-policy.mjs';
@@ -4746,7 +4746,7 @@ export const localTestRunKernel = Object.freeze({
 });
 
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
-  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null, candidateIsOtherCode = false
+  commandProvenance = new Map(), localRun = null, reuseUnchanged = false, pinOf = null, candidateRoot = null, candidateIsOtherCode = false, onMutation = null
 } = {}) {
   const checks = [];
   // Null unless the pinned capability policy allows local integration evidence [RUN M3].
@@ -5004,6 +5004,12 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
           testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
         } }
       );
+      // It still ran, as did every suite before it: each is one attempt, recorded while its report is here [E2G-016].
+      // Read as failed, so a run that changed the code can never stand as a pass on that code.
+      if (onMutation) {
+        await gateRun?.attach(check);
+        await onMutation([...checks, { ...check, status: 'failed', sourceMutation: true }]).catch(() => null);
+      }
       throw policy.kind === 'test'
         ? await attachRequiredTestExecution(error, root, {
           ...policy, provenance: commandProvenance.get(value) ?? 'configured'
@@ -5108,7 +5114,9 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   commands = await storyScopedTestCommands(root, workflow, phase, commands, deliveryEvidence);
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
     commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
-    reuseUnchanged: mayReuseUnchangedRuns(workflow), pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null
+    reuseUnchanged: mayReuseUnchangedRuns(workflow), pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null,
+    onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), commands, ran, { pins,
+      purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id, generation: nextPhaseGeneration(phase), delivery: deliveryEvidence })
   });
   const passing = [];
   const attempts = [];
@@ -5618,7 +5626,10 @@ async function submitPhaseTransition(root, config, workflow, {
       trpSelection && command?.kind === 'test' ? command.provenance
         : testCommandProvenance(phase, command)])),
     reuseUnchanged: mayReuseUnchangedRuns(workflow) && !testCommandEpochRun,
-    ...(pins ? { pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null } : {})
+    ...(pins ? { pinOf: (id) => pins.attempt(id).pin?.sha256 ?? null } : {}),
+    onMutation: (ran) => recordRunsBeforeRefusal(root, workDirRelative(config, workflow.workItem.id), codeDeliveryRequired ? requiredTestCommands : repositoryTests?.commands ?? [], ran, { pins,
+      purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null,
+      delivery: codeDeliveryRequired ? phase.deliveryEvidence : null })
   }) : [];
   if (retainedRisk) {
     const observation = retainedRisk.observation;

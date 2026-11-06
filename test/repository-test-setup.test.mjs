@@ -234,6 +234,71 @@ test('a Maven reactor root suggests what the gate runs for each module, never a 
   }
 });
 
+test('at a reactor root the gate and readiness run each module too: no command keeps a report path no run writes', async t => {
+  const { moduleTestCommands } = await import('../src/test-module-markers.mjs');
+  const { resolveAffectedModule } = await import('../src/code-delivery-tests.mjs');
+  const { inferRepositoryTestCommands } = await import('../src/repository-test-command-inference.mjs');
+  const { resolveDeliveryQualityCommands, uncoveredTestDeliveryPaths } = await import('../src/delivery-evidence.mjs');
+  const root = await fixture(t);
+  await mkdir(path.join(root, 'svc', 'src', 'test', 'java'), { recursive: true });
+  await mkdir(path.join(root, 'docs'), { recursive: true });
+  await writeFile(path.join(root, 'pom.xml'), '<project><packaging>pom</packaging><modules><module>svc</module><module>docs</module></modules></project>');
+  // Failsafe bound, so a full run is `verify` and readiness's unit-only run stays on `test`.
+  await writeFile(path.join(root, 'svc', 'pom.xml'), '<project><build><plugins><plugin><artifactId>maven-failsafe-plugin</artifactId><executions><execution><goals><goal>integration-test</goal></goals></execution></executions></plugin></plugins></build></project>');
+  await writeFile(path.join(root, 'docs', 'pom.xml'), '<project/>');
+  await writeFile(path.join(root, 'mvnw'), '');
+  const gate = await moduleTestCommands(root, await resolveAffectedModule(root, 'pom.xml'));
+  assert.deepEqual(gate.map((command) => [command.id, command.argv, command.workingDirectory, command.result.path, command.affectedRoots]),
+    [['svc-maven-tests', ['./mvnw', '-pl', 'svc', '-am', 'verify'], '.', 'svc/target/failsafe-reports', ['svc', '.']]]);
+  assert.deepEqual((await inferRepositoryTestCommands(root, { unitOnly: true })).map((command) => [command.id, command.argv, command.result.path]),
+    [['svc-maven-tests', ['./mvnw', '-pl', 'svc', '-am', 'test'], 'svc/target/surefire-reports']], 'readiness never starts integration tests');
+  // A change to the root's build file and to a module's source is one run, and that run answers for both.
+  const phase = { id: 'code', generation: { task: 'code' }, deliveryEvidence: { sourcePaths: ['svc/src/main/java/A.java'], configurationPaths: ['pom.xml'], testPaths: [] } };
+  const tests = await resolveDeliveryQualityCommands(root, phase);
+  assert.deepEqual(tests.map((command) => [command.id, command.affectedRoots]), [['svc-maven-tests', ['svc', '.']]]);
+  assert.deepEqual(uncoveredTestDeliveryPaths(phase.deliveryEvidence, 'unrestricted', tests.map((command) => ({ ...command, provenance: 'inferred' }))), []);
+  // A reactor with no tests anywhere has nothing to run, and says so by having no command.
+  const empty = await fixture(t);
+  await writeFile(path.join(empty, 'pom.xml'), '<project><modules><module>docs</module></modules></project>');
+  await mkdir(path.join(empty, 'docs'));
+  await writeFile(path.join(empty, 'docs', 'pom.xml'), '<project/>');
+  assert.deepEqual(await moduleTestCommands(empty, { root: '.', system: 'maven', manifest: 'pom.xml' }), []);
+});
+
+test('a Gradle multi-project root runs each project that holds tests, and its own tests by :test; a written root command asks for one per project', async t => {
+  const { declaredGradleProjects, moduleTestCommands } = await import('../src/test-module-markers.mjs');
+  const { resolveAffectedModule } = await import('../src/code-delivery-tests.mjs');
+  const { inferRepositoryTestCommands } = await import('../src/repository-test-command-inference.mjs');
+  const { completeWrittenTestCommand } = await import('../src/instruction-test-commands.mjs');
+  assert.deepEqual(declaredGradleProjects("rootProject.name = 'x'\ninclude 'app', ':lib:core'\n// include 'old'\ninclude(\":ui\")\ninclude(\n  \"one\",\n  \"two\"\n)\nincludeBuild 'tools'\n"), ['app', 'lib/core', 'ui', 'one', 'two']);
+  assert.equal(declaredGradleProjects("include 'app'\nproject(':app').projectDir = file('elsewhere')\n"), null, 'a moved project is not guessed');
+  const root = await fixture(t);
+  for (const project of ['app', 'lib', 'empty']) {
+    await mkdir(path.join(root, project), { recursive: true });
+    await writeFile(path.join(root, project, 'build.gradle'), "plugins { id 'java' }\n");
+  }
+  await mkdir(path.join(root, 'app', 'src', 'test', 'java'), { recursive: true });
+  await mkdir(path.join(root, 'lib', 'src', 'test', 'java'), { recursive: true });
+  await writeFile(path.join(root, 'settings.gradle'), "include 'app', 'lib', 'empty'\n");
+  await writeFile(path.join(root, 'gradlew'), '');
+  const shown = (commands) => commands.map((command) => [command.id, command.argv, command.workingDirectory, command.result.path]);
+  const each = [['app-gradle-tests', ['./gradlew', '-p', 'app', 'test'], '.', 'app/build/test-results/test'], ['lib-gradle-tests', ['./gradlew', '-p', 'lib', 'test'], '.', 'lib/build/test-results/test']];
+  assert.deepEqual(shown(await moduleTestCommands(root, await resolveAffectedModule(root, 'settings.gradle'))), each);
+  assert.deepEqual(shown(await inferRepositoryTestCommands(root)), each, 'no build.gradle at the root, as is common: readiness finds it from settings');
+  assert.deepEqual((await inspectRepositoryTestSetup(root)).suggestions.map((command) => [command.id, command.affectedRoots]), [['app-gradle-tests', ['app']], ['lib-gradle-tests', ['lib']]]);
+  // A root with tests of its own: `:test` is its task alone, so its report is where the path says.
+  await mkdir(path.join(root, 'src', 'test', 'java'), { recursive: true });
+  await writeFile(path.join(root, 'build.gradle'), "plugins { id 'java' }\n");
+  assert.deepEqual(shown(await moduleTestCommands(root, await resolveAffectedModule(root, 'build.gradle'))), [['.-gradle-tests', ['./gradlew', ':test'], '.', 'build/test-results/test'], ...each]);
+  // A single project keeps its command.
+  const single = await fixture(t);
+  await writeFile(path.join(single, 'settings.gradle'), "rootProject.name = 'x'\n");
+  await writeFile(path.join(single, 'build.gradle'), "plugins { id 'java' }\n");
+  assert.deepEqual(shown(await moduleTestCommands(single, await resolveAffectedModule(single, 'build.gradle'))), [['.-gradle-tests', ['gradle', 'test'], '.', 'build/test-results/test']]);
+  assert.match((await completeWrittenTestCommand(root, { text: 'gradle test' })).reason, /multi-project build: each project writes its own reports.*one command per project folder/u);
+  assert.equal((await completeWrittenTestCommand(root, { text: 'gradle -p app test' })).command.result.path, 'app/build/test-results/test');
+});
+
 test('a Maven reactor named as the module directory is read the same way; a plain project keeps its command', async t => {
   const root = await fixture(t);
   await mkdir(path.join(root, 'group', 'nested', 'src', 'test', 'java'), { recursive: true });

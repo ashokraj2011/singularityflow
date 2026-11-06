@@ -435,6 +435,29 @@ export async function walk(story, scenario, { maxSteps = 24 } = {}) {
 }
 
 /**
+ * A spec-driven Story at its Release, drafted: Verification reused Implementation's run on the same source
+ * tree, and the report says `verdict` of every clause, citing that run.
+ */
+export async function releaseDraftTemplate(t, { verdict = 'matched' } = {}) {
+  const { storyAtVerification, writeVerificationEvidence } = await import('./story-to-verification.mjs');
+  const story = await storyAtVerification(t, WORK);
+  const { cli, item, root } = story;
+  await writeVerificationEvidence(story);
+  cli('phase', 'publish', 'verification', '--authored', 'human', '--channel', 'manual-in-place');
+  cli('submit', 'verification');
+  cli('approve', 'verification', '--yes');
+  cli('prepare', 'release');
+  const report = path.join(item, 'artifacts/release/conformance.md');
+  const sample = `| \`${WORK}:REQ-001\` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |`;
+  await mkdir(path.join(item, 'artifacts/release/verification'), { recursive: true });
+  await writeFile(path.join(item, 'artifacts/release/verification/evidence-index.md'), `# Release verification evidence index — ${WORK}\n\nVerification generation 1 is approved, and it reused the run Implementation recorded on this same source tree.\n`);
+  await writeFile(report, (await readFile(report, 'utf8')).replace(sample, story.clauses.map((clause) => `| \`${clause}\` | \`test/value.test.mjs\`, the run reused on this source tree | ${verdict} |`).join('\n'))
+    .replace(/TODO:[^\n]*/gu, `Compared ${story.clauses.join(' and ')} against the recorded run.`).replace(/\bTODO\b/gu, 'none'));
+  cli('artifact', 'scan', '--phase', 'release');
+  return { parent: story.directory, root, item: path.relative(root, item), cli };
+}
+
+/**
  * A spec-driven Story whose code is approved and whose convergence is prepared with items open: the
  * plan has a requirement the code never claimed. Coverage only records here, as a person decides it.
  */

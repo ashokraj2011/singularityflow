@@ -1627,7 +1627,7 @@ export const PLAN_STEP_LIMIT = 3;
 export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue',
   'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run']);
 
-const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',
+const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'correct-report': 'correct-conformance-report', 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',
   'repair-return': 'return-conformance-gap', 'evidence-reuse': 'reuse-recorded-evidence', 'fresh-recorded-run': 'record-fresh-run' });
 
 /**

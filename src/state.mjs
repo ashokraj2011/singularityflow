@@ -5052,6 +5052,7 @@ function reusedQualityCheck(policy, command, standing, { testInputSha256, testRu
     testRuntime, startedAt: attempt.process.startedAt, completedAt: attempt.process.completedAt,
     status: 'passed', exitCode: 0, signal: null, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false,
     evidenceUse: 'reused', reusedFrom: { attemptId: attempt.attemptId, phase: attempt.phase, generation: attempt.generation, commit: attempt.candidate.commit,
+      treeSha256: attempt.candidate.treeSha256, receiptPath: standing.path, receiptSha256: standing.sha256,
       ...(attempt.testScope?.files ? { files: attempt.testScope.files } : {}), counts: attempt.tests }
   };
   Object.defineProperty(check, 'unchangedRun', { value: standing, configurable: true });
@@ -6839,8 +6840,10 @@ export async function evaluateApproval(root, config, workflow, {
         // person's decision on it (the terminal gate asks the same function) [owner decision 2026-10-19].
         const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
         const approvedAt = nowIso();
-        const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report, { workflow, phaseId: phase.id }),
-          { now: approvedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, approvedAt) });
+        const verdictGaps = conformanceVerdictGaps(report, { workflow, phaseId: phase.id });
+        const refusal = conformanceGapRefusal(workflow, phase.id, verdictGaps,
+          { now: approvedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, approvedAt),
+            satisfied: verdictGaps.length ? await (await import('./evidence/clause-outlook.mjs')).clausesReadSatisfied(root, config, workflow) : [] });
         if (refusal) {
           // One plain sentence and the decision list first; each clause's own routes stay in details.
           const { decisionRefusalLead, phaseEndsStory } = await import('./decision-list-facts.mjs');

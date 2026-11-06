@@ -199,6 +199,9 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
   const later = submitted ? '' : ` once ${phaseId} is submitted`;
   const decide = issue ? ['upstream-issue', 'decide', issue.id, '--work-id', workId] : null;
   return Object.freeze([
+    // The record reads this clause satisfied, so the report is the first thing a person may want to look at again.
+    ...(gap.evidenceSatisfied && submitted && returnable(phaseId) ? [gapChoice('correct-report', phaseId, reject(phaseId), '/sf-reject',
+      `${clause}: the recorded evidence reads it satisfied; return ${phaseId} so its author can check the verdict against that evidence.`)] : []),
     issue
       ? gapChoice('decide-upstream-issue', owner, [...decide, '--outcome', 'accept-risk', '--expires', '<YYYY-MM-DD>', '--reason', '<why>'], '/sf-decide',
         `${issue.id}: ${owner}'s approvers decide ${clause}; keep the verdict.`)
@@ -227,7 +230,8 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
  * Approval of the conformance step and the terminal gate
  * both call this, so they agree. Anything else carries its routes; none edits the verdict.
  */
-export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [] } = {}) {
+export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [], satisfied = [] } = {}) {
+  const readsSatisfied = (clause) => satisfied.some((id) => String(id).toUpperCase() === String(clause).toUpperCase());
   const states = upstreamIssueStates(workflow, now);
   const owner = conformanceGapOwner(workflow, phaseId);
   const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
@@ -265,9 +269,10 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
     // A superseded issue owes nothing; its replacement names the clause if it carries the gap.
     return (pendingIssues.length ? pendingIssues : [null]).map((pending) => {
       const gapOwner = pending?.issue.phase ?? owner;
+      const evidenceSatisfied = !pending && readsSatisfied(gap.clauseId);
       return Object.freeze({ ...gap, owner: gapOwner, status: pending ? pending.status === 'expired' ? 'expired' : 'undecided' : 'unraised',
-        issue: pending?.issue.id ?? null, outcome: null, expiresAt: pending?.decision?.expiresAt ?? null,
-        choices: conformanceGapRoutes(workflow, phaseId, { ...gap, owner: gapOwner }, pending?.issue ?? null) });
+        issue: pending?.issue.id ?? null, outcome: null, expiresAt: pending?.decision?.expiresAt ?? null, ...(evidenceSatisfied ? { evidenceSatisfied } : {}),
+        choices: conformanceGapRoutes(workflow, phaseId, { ...gap, owner: gapOwner, evidenceSatisfied }, pending?.issue ?? null) });
     });
   });
 }
@@ -277,7 +282,9 @@ export function conformanceGapLine(gap) {
   const owner = gap.owner ?? 'the owning step';
   const state = gap.status === 'expired' ? `${gap.issue}'s accepted risk expired at ${gap.expiresAt}; ${owner}'s approvers decide it again`
     : gap.status === 'undecided' ? `${gap.issue} awaits ${owner}'s approvers`
-      : `no linked issue; raise one against ${owner}`;
+      // Telling them to raise a problem against a step nothing shows at fault sent them after the wrong thing (bin-opr2).
+      : gap.evidenceSatisfied ? `no linked issue, and the recorded evidence reads it satisfied, so nothing shows ${owner} at fault. A person returns this report to correct it, or, if ${owner} does owe something, raises it on the list`
+        : `no linked issue; raise one against ${owner}`;
   return `${gap.clauseId} remains ${gap.verdict}: ${state}`;
 }
 
@@ -285,8 +292,8 @@ export function conformanceGapLine(gap) {
  * The refusal shared by conformance approval and the terminal gate, or null when a person decided
  * every gap. Its details carry each clause's routes and the exact commands, never a verdict edit.
  */
-export function conformanceGapRefusal(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [] } = {}) {
-  const open = conformanceGapDecisions(workflow, phaseId, gaps, { now, reused }).filter((gap) => gap.status !== 'decided');
+export function conformanceGapRefusal(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [], satisfied = [] } = {}) {
+  const open = conformanceGapDecisions(workflow, phaseId, gaps, { now, reused, satisfied }).filter((gap) => gap.status !== 'decided');
   if (!open.length) return null;
   const seen = new Set();
   const recoveryCommands = open.flatMap((gap) => gap.choices).filter((choice) => choice.command && !seen.has(choice.command) && seen.add(choice.command))
@@ -295,7 +302,7 @@ export function conformanceGapRefusal(workflow, phaseId, gaps, { now = new Date(
     gaps: Object.freeze(open), lines: Object.freeze(open.map(conformanceGapLine)),
     details: Object.freeze({
       workId: workflow?.workItem?.id ?? null, phase: phaseId, route: '/sf-decide', rule: CONFORMANCE_GAP_RULE,
-      conformanceGaps: open.map(({ clauseId, verdict, line, owner, status, issue, expiresAt, choices }) => ({ clauseId, verdict, line, owner, status, issue, expiresAt, choices })),
+      conformanceGaps: open.map(({ clauseId, verdict, line, owner, status, issue, expiresAt, choices, evidenceSatisfied = false }) => ({ clauseId, verdict, line, owner, status, issue, expiresAt, choices, ...(evidenceSatisfied ? { evidenceSatisfied } : {}) })),
       nextAction: recoveryCommands[0] ?? null, recoveryCommands
     })
   });

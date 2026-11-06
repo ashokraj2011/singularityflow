@@ -58,16 +58,19 @@ export async function upstreamEntrySummary(root, definition, workflow, phase, { 
   const amendments = forwardAmendmentTerminalBlockers(workflow);
   const finalGate = evaluateTerminalReadiness && endsStory(workflow, phase)
     ? await finalGatePreview(root, definition, workflow, { evaluateTerminalReadiness }) : null;
+  // A clause that will end partial is said here, while its owner is reachable, not first at the last step.
+  const clauseOutlook = await (await import('./evidence/clause-outlook.mjs')).clauseOutlookForStep(root, definition, workflow, phase);
   // The final evaluation's preview defers witnesses at this boundary, so they are listed here.
   const owed = owedDecisions ? await owedDecisions(root, definition, workflow, stepsThrough(workflow, phase.id, { inclusive: false })) : null;
   const attention = inputs.some((entry) => !['approved', 'skipped'].includes(entry.status))
-    || openIssues.length > 0 || amendments.length > 0 || finalGate?.status === 'blocked' || owed?.status === 'owed';
+    || openIssues.length > 0 || amendments.length > 0 || finalGate?.status === 'blocked' || owed?.status === 'owed' || clauseOutlook.length > 0;
   return {
     attention,
     inputs,
     openIssues,
     amendments,
     finalGate,
+    ...(clauseOutlook.length ? { clauseOutlook } : {}),
     owedDecisions: owed,
     instruction: attention
       ? 'These are owned by earlier steps or people, not by this draft. Keep working; never edit an earlier step to clear one. Record a defect you find with upstream-issue raise; the Story completes only when each item here is decided. In your summary, list each open item and blocker with its exact command for the people who own it.'

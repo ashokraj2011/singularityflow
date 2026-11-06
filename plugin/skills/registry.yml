@@ -269,7 +269,7 @@ skills:
   sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: delegation, executionBoundary: machine, delegatesTo: sflow-documents }
   sflow-validate: { class: echo, executionBoundary: repository }
-  sflow-verify: { class: generative, maximumTokenOverride: 848, exception: "It relays a verification step routed to another skill and ends with the engine-computed handoff, which carries any decision arguments a hard-coded submit lacked. It states the repair bound as the repair protocol means it: never recheck an unchanged draft, and after an edit that leaves the same findings, correct differently up to the returned limit; a bare `stop unchanged` ended self-repair after one attempt (2026-10-26)." }
+  sflow-verify: { class: generative, maximumTokenOverride: 859, exception: "It relays a verification step routed to another skill and ends with the engine-computed handoff, which carries any decision arguments a hard-coded submit lacked. It states the repair bound as the repair protocol means it: never recheck an unchanged draft, and after an edit that leaves the same findings, correct differently up to the returned limit; a bare `stop unchanged` ended self-repair after one attempt (2026-10-26)." }
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo, executionBoundary: repository }
   sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional, executionBoundary: repository }

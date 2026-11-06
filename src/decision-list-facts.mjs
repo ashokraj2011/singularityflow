@@ -77,10 +77,12 @@ async function reportGaps(root, config, workflow, step, at) {
   const file = path.join(workDir(root, config, workflow.workItem.id), step.requiredArtifact.path);
   const report = await readFile(file, 'utf8');
   const reused = await conformanceEvidenceReuse(root, config, workflow, step.id, at);
-  const gaps = conformanceGapDecisions(workflow, step.id, conformanceVerdictGaps(report, { workflow, phaseId: step.id }), { now: at, reused })
+  const verdicts = conformanceVerdictGaps(report, { workflow, phaseId: step.id });
+  const satisfied = verdicts.length ? await (await import('./evidence/clause-outlook.mjs')).clausesReadSatisfied(root, config, workflow) : [];
+  const gaps = conformanceGapDecisions(workflow, step.id, verdicts, { now: at, reused, satisfied })
     .filter((gap) => gap.status !== 'decided')
     .map((gap) => ({ report: step.id, clauseId: gap.clauseId, verdict: gap.verdict, line: gap.line ?? null, owner: gap.owner,
-      status: gap.status, issue: gap.issue, expiresAt: gap.expiresAt ?? null, choices: gap.choices }));
+      status: gap.status, issue: gap.issue, expiresAt: gap.expiresAt ?? null, choices: gap.choices, ...(gap.evidenceSatisfied ? { evidenceSatisfied: true } : {}) }));
   return { gaps, digest: sha256(report), reused };
 }
 

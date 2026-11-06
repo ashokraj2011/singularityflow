@@ -18,7 +18,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { refusalRemediationPlan, KNOWN_REFUSAL_CODES } from '../src/refusal-remediation.mjs';
-import { codeStepTemplate, openConvergenceTemplate, registryReader, returnedRoutes, routeEffect, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
+import { codeStepTemplate, openConvergenceTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,6 +39,12 @@ const unplannedHelper = async (story) => {
 // Each one a fault a real run met; `real` says where it came from in the logs' ranking, and `meets` is
 // what the walk must run into, so a fault that stopped firing cannot pass as a route that works.
 const SCENARIOS = Object.freeze([
+  { id: 'release-on-a-reused-run', meets: 'next', real: 'a real Story: Release marked every clause partial because Verification reused its runs', template: 'release', phase: 'release',
+    start: 'singularity-flow phase prepublish release --for-agent --json --publish-if-ready', reached: published },
+  { id: 'release-says-less-than-the-record', meets: 'CONFORMANCE_BLOCKING_VERDICTS', real: 'a real Story: "raise one against implementation", with nothing wrong with Implementation', template: 'releasePartial', phase: 'release',
+    setup: (story) => { story.cli('phase', 'publish', 'release', '--authored', 'human', '--channel', 'manual-in-place'); story.cli('submit', 'release'); },
+    start: `singularity-flow approve release --work-id ${WORK} --yes --json`,
+    reasons: { CONFORMANCE_BLOCKING_VERDICTS: { mustNotMatch: /raise one against/u, mustMatch: /reads it satisfied/u, because: 'the record reads these clauses satisfied, so nothing shows the step before it at fault' } } },
   { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
     setup: (story) => story.write('test/value.test.mjs', failingOnThisNode), start: PREPUBLISH, reached: published },
   { id: 'test-fails-for-a-real-bug', meets: 'CODE_TEST_FAILED', real: 'the same refusal when the code is at fault: a route that can change the state has a way through',
@@ -114,7 +120,8 @@ test('every walk reaches its outcome or a person, or its dead end is on the list
     workType.phases = workType.phases.slice(0, workType.phases.indexOf('convergence') + 1);
     for (const dropped of ['verification', 'release']) delete workType.phaseOverrides?.[dropped];
   };
-  const templates = { code: await codeStepTemplate(t), convergence: await openConvergenceTemplate(t), ending: await openConvergenceTemplate(t, { configure: endAtConvergence }) };
+  const templates = { code: await codeStepTemplate(t), convergence: await openConvergenceTemplate(t), ending: await openConvergenceTemplate(t, { configure: endAtConvergence }),
+    release: await releaseDraftTemplate(t), releasePartial: await releaseDraftTemplate(t, { verdict: 'partial' }) };
   for (const scenario of SCENARIOS) {
     await t.test(scenario.id, async (sub) => {
       const story = await storyCopy(sub, templates[scenario.template ?? 'code']);

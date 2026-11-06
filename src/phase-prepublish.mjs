@@ -625,6 +625,7 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       : (briefOnly || authoringRepairOnly) && agentOwnsRepair);
   const planningRepairAllowed = planningRepairCandidate && sameTurnCorrection;
   const finalGate = lifecycleReady ? await endingObligations(root, config, workflow, phase) : null;
+  const clauseOutlook = lifecycleReady ? await (await import('./evidence/clause-outlook.mjs')).clauseOutlookForStep(root, config, workflow, phase) : [];
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
   // The same finding returning after the author changed something is a loop no repair can end:
   // say so, and hand it on [recoverable-findings M3]. Machine-local and advisory; nothing is accepted.
@@ -704,7 +705,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
         line: entry.line ?? null, field: entry.details?.field ?? null, code: entry.details?.sourceCode ?? entry.code }))
     }) : null,
     grounding: Object.freeze(dependencies.grounding),
-    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : []),
+    ...(clauseOutlook.length ? { clauseOutlook: Object.freeze(clauseOutlook) } : {}),
+    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : []), ...clauseOutlook.map((entry) => entry.words),
       ...(finalGate?.status === 'blocked' ? [`Final evaluation: submitting ${phase.id} ends the Story and would be refused for ${finalGate.blockers.length + finalGate.more} open obligation(s) until each is resolved; this does not block publishing. See finalGate for each one and its command.`] : [])]),
     readiness: Object.freeze({
       lifecycle: lifecycleReady,

@@ -339,7 +339,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,526,350 (measured 9,526,318, commands/phase-lifecycle.mjs): the Node-version failure offers one choice: its item (decision-list.mjs +1641), the refusal's first step (refusal-remediation.mjs +921, state.mjs +760), recovery's lead (recovery-plan.mjs +665). What reads and records it stays lazy (node-pin.mjs).
     // 9,527,700 (measured 9,527,624, commands/phase-lifecycle.mjs): a publish after a publish says so (phase-lifecycle.mjs +1120, phase-publish-if-ready's route stays lazy; the check itself is lazy, phase-publication-unchanged.mjs).
     // 9,528,000 (measured 9,527,964, commands/phase-lifecycle.mjs): a decision with nobody's word behind it names the person's route (copilot-mutation-guard.mjs +264).
-    assert.ok(closure.bytes <= 9_528_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,529,700 (measured 9,529,648, commands/phase-lifecycle.mjs): a run reused on the same source tree keeps its evidence: read from its own record (phase-execution-evidence.mjs +1400, evidence-consistency.mjs +280), and the conformance refusal says what the record reads (upstream-routes.mjs, decision-list.mjs). The outlook itself stays lazy (evidence/clause-outlook.mjs).
+    assert.ok(closure.bytes <= 9_529_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

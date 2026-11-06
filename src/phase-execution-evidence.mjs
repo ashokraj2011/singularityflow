@@ -17,7 +17,7 @@ const LIMIT = 8;
 const CHECK_LIMIT = 8;
 export const MAX_EXECUTION_EVIDENCE_BYTES = 24 * 1024;
 
-export const EXECUTION_EVIDENCE_INSTRUCTION = 'Use retainedExecutionEvidence for governed command outcomes, not earlier authored prose or IDE test discovery. An IDE "No tests found" is a separate discovery failure, not a failed governed run or a pass. Current source/test-input bindings must match before reusing results; command success alone proves neither every criterion nor visual acceptance. Reconcile contradictions explicitly in this draft, citing the packet, generation and source; preserve approved reports and decisions. If policy requires new execution or a prior-phase correction, follow the returned human/rework route, never relabel partial evidence as matched.';
+export const EXECUTION_EVIDENCE_INSTRUCTION = 'Use retainedExecutionEvidence for governed command outcomes, not earlier authored prose or IDE test discovery. An IDE "No tests found" is a separate discovery failure, not a failed governed run or a pass. Current source/test-input bindings must match before reusing results; a check whose `testResult.reused` is set is that run on this same source tree, not run again because the code did not change, so cite its attempt ID and counts as you would a fresh run: no fresh run is missing. Command success alone proves neither every criterion nor visual acceptance. Reconcile contradictions explicitly in this draft, citing the packet, generation and source; preserve approved reports and decisions. If policy requires new execution or a prior-phase correction, follow the returned human/rework route, never relabel partial evidence as matched.';
 
 function guidance(argv) {
   return safeCommandGuidance({ executable: 'singularity-flow', argv });
@@ -64,7 +64,8 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
       sourceTreeSha256: check.sourceTreeSha256 ?? null, testInputSha256: check.testInputSha256 ?? null,
       ...(check.testRuntime ? { recordedRuntimeSha256: check.testRuntime.sha256 ?? null } : {}),
       startedAt: check.startedAt ?? null, completedAt: check.completedAt ?? null,
-      ...(check.reusedFrom ? { reusedFrom: { attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase } } : {}),
+      ...(check.reusedFrom ? { reusedFrom: { attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase, generation: check.reusedFrom.generation ?? null,
+        commit: check.reusedFrom.commit ?? null } } : {}),
       binding, commandSuccessReusable: processPassed && binding === 'matched',
       criterionVerdict: 'not-established-by-command-success' };
   });
@@ -75,8 +76,41 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
     checks, omittedChecks: Math.max(0, tests.length - checks.length) };
 }
 
-function executionDetails(root, packet, testPolicy) {
-  return (packet.submissionEvidence?.testExecutions ?? []).slice(0, CHECK_LIMIT).map(reference => {
+/**
+ * A run a document step reused rather than ran again [TCE:REQ-080]: read from its own record at this
+ * packet's commit, so the counts and the binding are the run's, never a copy of a claim. It keeps its
+ * evidence only when that record is the same run on this same source tree; on anything less it is
+ * left out, and the check reads as having no structured result.
+ */
+export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, listed = []) {
+  return (packet.checks ?? []).filter(check => check?.kind === 'test' && check.reusedFrom?.attemptId && !listed.includes(check.id)).slice(0, CHECK_LIMIT).flatMap(check => {
+    const source = check.reusedFrom;
+    const relative = source.receiptPath ?? `${itemRelative}/context/code-delivery/tests/attempts/${source.phase}/${source.attemptId}.json`;
+    let bytes = null;
+    try { bytes = exactFileAtObject(root, packet.evidenceCommit, relative, { regularOnly: true, maximumBytes: 8 * 1024 * 1024 }); } catch { return []; }
+    if (!bytes) return [];
+    let receipt;
+    let sha256;
+    // A receipt's digest is over its canonical form (attemptSha256), as the code step's own reference holds it.
+    try {
+      const value = JSON.parse(bytes.toString('utf8'));
+      sha256 = createHash('sha256').update(canonicalJson(value)).digest('hex');
+      receipt = readRecord('test-execution', value).record;
+    } catch { return []; }
+    if (receipt.attemptId !== source.attemptId || receipt.workId !== packet.workId || receipt.status !== 'passed' || receipt.exitCode !== 0
+        || receipt.candidate?.treeSha256 !== check.sourceTreeSha256 || check.sourceTreeSha256 !== packet.sourceTreeSha256
+        || (receipt.candidate?.testInputSha256 ?? null) !== (check.testInputSha256 ?? null)
+        || (source.receiptSha256 && source.receiptSha256 !== sha256)) return [];
+    return [{ attemptId: receipt.attemptId, commandId: check.id, path: relative, sha256, status: receipt.status, adapter: receipt.adapter, counts: receipt.tests,
+      assurance: receipt.assurance, reused: { recordedBy: receipt.phase, generation: receipt.generation, commit: receipt.candidate.commit, treeSha256: receipt.candidate.treeSha256 },
+      meetsPinnedCountPolicy: testReceiptPassing(receipt, testPolicy?.minimumDiscovered ?? 1, testPolicy?.minimumPassed ?? 1) && receipt.tests?.skipped === 0,
+      criterionVerdict: 'requires-bound-witness-evaluation' }];
+  });
+}
+
+function executionDetails(root, packet, testPolicy, itemRelative) {
+  const references = packet.submissionEvidence?.testExecutions ?? [];
+  return [...references.slice(0, CHECK_LIMIT).map(reference => {
     // readStoryReviewPacket already verified these exact immutable bytes and their bound digests.
     // Read at evidenceCommit, never the mutable result path or an IDE's cached report.
     if (reference.kind === 'phase-validation-observation') return {
@@ -106,7 +140,7 @@ function executionDetails(root, packet, testPolicy) {
       meetsPinnedCountPolicy: testReceiptPassing(receipt, testPolicy?.minimumDiscovered ?? 1, testPolicy?.minimumPassed ?? 1)
         && receipt.tests?.skipped === 0,
       criterionVerdict: 'requires-bound-witness-evaluation' };
-  });
+  }), ...reusedExecutionDetails(root, packet, testPolicy, itemRelative, references.map(reference => reference.commandId))];
 }
 
 /**
@@ -165,7 +199,7 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
           code: error.code ?? 'TCA_EPOCH_VALIDATION_REQUIRED', status: 'unavailable' }); }
       }
       packets.push({ ...candidate, packet, epochVerified,
-        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests) });
+        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`) });
     } catch (error) {
       // A missing/shallow history is evidence unavailable, never a new gate on draft repair.
       diagnostics.push({ phase: candidate.phase.id, generation: candidate.entry.generation,
@@ -184,7 +218,7 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
     return { ...projected, checks: projected.checks.map(check => {
       const execution = executions.find(record => record.commandId === check.commandId);
       return { ...check, testResult: execution ? { status: execution.status, counts: execution.counts ?? null,
-        assurance: execution.assurance } : { status: 'no-structured-result-in-packet', counts: null },
+        assurance: execution.assurance, ...(execution.reused ? { reused: execution.reused } : {}) } : { status: 'no-structured-result-in-packet', counts: null },
         structuredTestsReusable: check.commandSuccessReusable && execution?.meetsPinnedCountPolicy === true };
     }), path: entry.path, executions,
       omittedExecutions: Math.max(0, (packet.submissionEvidence?.testExecutions?.length ?? 0) - executions.length) };

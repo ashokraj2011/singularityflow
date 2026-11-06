@@ -190,7 +190,7 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   const unraised = attempt('approve', 'conformance', '--yes');
   assert.notEqual(unraised.status, 0, 'approval waits for a person to decide the gap');
   const unraisedText = unraised.stdout + unraised.stderr;
-  assert.match(unraisedText, new RegExp(`${AC1} remains partial: no linked issue; raise one against implementation`, 'u'));
+  assert.match(unraisedText, new RegExp(`${AC1} remains partial: no linked issue, and the recorded evidence reads it satisfied, so nothing shows implementation at fault`, 'u'));
   assert.match(unraisedText, new RegExp(`singularity-flow upstream-issue raise --phase implementation --about ${AC1}`, 'u'));
   assert.match(unraisedText, /Keep the honest verdict; never edit it to clear a check/u);
   // The recovery plan names the decision and every route, never a repair of the report itself.

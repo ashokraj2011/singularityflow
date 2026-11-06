@@ -185,8 +185,11 @@ function gapItem(workflow, context, group) {
   const candidate = coveringCandidate(context.facts.candidates, clauses);
   const problem = context.facts.reuseProblems?.find((entry) => clauses.some((clause) => (entry.clauses ?? []).some((id) => sameClause(id, clause))))
     ?? context.facts.reuseProblems?.[0] ?? null;
+  // Every clause here reads satisfied in the record: the report is the thing to look at again, not the step before it.
+  const reportOnly = !issue && gaps.every((gap) => gap.evidenceSatisfied);
   const why = [`The ${reportWords} marks ${names} ${listWords(verdicts)}; ${issue
-    ? `${ownerName} owns the linked upstream problem` : `${ownerName} delivered ${clauses.length === 1 ? 'it' : 'them'}`}.`];
+    ? `${ownerName} owns the linked upstream problem` : reportOnly ? `the recorded evidence reads ${clauses.length === 1 ? 'it' : 'them'} satisfied, so nothing shows ${ownerName} at fault`
+      : `${ownerName} delivered ${clauses.length === 1 ? 'it' : 'them'}`}.`];
   if (candidate) {
     why.push(`No run by ${stepName(workflow, candidate.consumer)} is recorded, and the code has not changed since ${stepName(workflow, candidate.producer)}'s`
       + ` recorded run (${runCounts(candidate.tests)}), which covers ${clauses.length === 1 ? 'it' : 'them'}.`);
@@ -205,6 +208,12 @@ function gapItem(workflow, context, group) {
   const raise = issue ? [] : [{ kind: 'upstream-issue', phase: owner, about: clauses.join(', ').slice(0, 200),
     problem: `The ${reportWords} marks ${clauses.join(', ')} ${listWords(verdicts)}, and ${ownerName}'s approvers decide the gap. Raised from the decision list.` }];
   const options = [];
+  const corrected = reportOnly ? gaps.flatMap((gap) => gap.choices ?? []).find((choice) => choice.kind === 'correct-report' && choice.command) : null;
+  if (corrected) {
+    options.push({ ...personalStep({ id: 'correct-report', label: `Return ${reports.map((id) => stepName(workflow, id)).join(' and ')} to correct the report`,
+      command: corrected.command, words: 'Its author checks the verdict against the recorded evidence and publishes it again; nothing before it changes.' }),
+    decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: reports[0] }], context) });
+  }
   if (candidate) {
     const consumer = stepName(workflow, candidate.consumer);
     const producer = stepName(workflow, candidate.producer);

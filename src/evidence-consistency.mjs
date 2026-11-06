@@ -11,7 +11,7 @@ import { recordSha256 } from './records.mjs';
 export const EVIDENCE_CONSISTENCY_REVISION = 'evidence-consistency-v1';
 export const EVIDENCE_CONSISTENCY_HEADING = '# Evidence consistency';
 export const MAX_EVIDENCE_CONSISTENCY_BYTES = 32 * 1024;
-export const EVIDENCE_CONSISTENCY_INSTRUCTION = 'Use this read-only account for evidence provenance and outstanding decisions. A missing retained execution record does not prove tests never ran; it means that run is not established by the retained packet. Earlier runs remain attributed to their producer, even after approved reuse. Reported clause verdicts are author claims, not verdicts established by this projection. Keep gaps and exceptions visible; never infer approval, invent results, or edit approved records to make a report consistent.';
+export const EVIDENCE_CONSISTENCY_INSTRUCTION = 'Use this read-only account for evidence provenance and outstanding decisions. A missing retained execution record does not prove tests never ran; it means that run is not established by the retained packet. A run reused on the same source tree is evidence for this step as well: no fresh run is missing. Earlier runs remain attributed to their producer, even after approved reuse. Reported clause verdicts are author claims, not verdicts established by this projection. Keep gaps and exceptions visible; never infer approval, invent results, or edit approved records to make a report consistent.';
 /**
  * Said once, when the account lists recorded visual reviews. The composed prompt carries them only
  * here (the separate recorded-visual-reviews section repeated them), so the rule travels with them.
@@ -27,6 +27,7 @@ function projectRun(check, entry) {
     sourceCommit: check.sourceCommit ?? null,
     receiptPath: execution?.path ?? null, receiptSha256: execution?.sha256 ?? null,
     counts: execution?.counts ?? null, assurance: execution?.assurance ?? null,
+    ...(execution?.reused ? { reused: execution.reused } : {}),
     structuredTestsReusable: check.structuredTestsReusable === true,
     criterionVerdict: 'not-established-by-suite-counts',
     // A local-integration run keeps its own label here: never shown as a governed run [RUN M3].
@@ -66,7 +67,9 @@ function ownEvidenceLine(entry) {
   if (!entry.runs.length) return `${who}: ${entry.status}; no passing execution is established by this projection.`;
   return `${who}: ${entry.runs.map((run) => {
     const counts = run.counts ? `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped` : 'no structured counts';
-    return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${run.label ? `; ${run.label}` : ''}`;
+    // Not run again because the code did not change: the same run stands, and nothing is missing from this step.
+    const reused = run.reused ? `; the run ${run.attemptId} that ${run.reused.recordedBy} recorded on this same source tree (${run.reused.treeSha256}), which stands for this step, so cite it as a fresh run` : '';
+    return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${reused}${run.label ? `; ${run.label}` : ''}`;
   }).join('; ')}. Suite counts alone do not establish a clause verdict.`;
 }
 

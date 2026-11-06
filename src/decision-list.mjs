@@ -758,7 +758,7 @@ function planPathItems(workflow, context, hold) {
     const flag = (entry) => `singularity-flow decision plan ${workId} --fetch ${entry} --reason "<REASON>"`;
     return {
       kind: 'plan-accounting', title: `Say where ${file} belongs`,
-      why: `${file} changed and no row of the plan names it, so approval waits. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.`,
+      why: `${file} changed and no row of the plan names it, so ${hold.waits ?? 'approval waits'}. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.${hold.keepOut ? ` If it is not part of this Story, keep it out instead: ${hold.keepOut} shows the private-copy route.` : ''}`,
       options: [
         ...rows.map((row) => ({ ...option(workflow, context, {
           id: `row-${String(row.clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`.slice(0, 64),
@@ -933,7 +933,9 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(pending.owed ?? []).filter(entry => entry.kind !== 'witness' || !(facts.evidence ?? []).some(row =>
       row.criterion === entry.clauseId && row.witnesses.some(witness => witness.slot === entry.slot)))
       .map((entry) => owedItem(workflow, context, entry)),
-    ...(pending.applicability ?? []).map((entry) => applicabilityItem(workflow, context, entry))
+    ...(pending.applicability ?? []).map((entry) => applicabilityItem(workflow, context, entry)),
+    // Publication would refuse these before the step could ever await approval.
+    ...(facts.excludedChanges ? planPathItems(workflow, context, facts.excludedChanges) : [])
   ];
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].

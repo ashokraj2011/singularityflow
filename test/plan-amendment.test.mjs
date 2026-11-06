@@ -149,6 +149,14 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   assert.match(refused.stdout + refused.stderr, /These changed files would be excluded from implementation/);
   assert.match(refused.stdout + refused.stderr, /decision plan.*--add-location/);
   assert.equal(await readFile(path.join(root, 'src/helper.mjs'), 'utf8'), 'export const approved = 2;\n', 'the helper stays in the worktree');
+  // The same refusal is a choice on the list, with no blank to fill in: each file, and the rows it may join.
+  const open = JSON.parse(cli('decisions', W, '--json').stdout).data;
+  const excluded = open.items.filter((entry) => entry.kind === 'plan-accounting');
+  assert.deepEqual(excluded.map((entry) => entry.details.path), ['NOTES.md', 'src/helper.mjs']);
+  assert.match(excluded[0].why, new RegExp(`publishing this step would leave it out.*singularity-flow recover ${W} --phase implementation --json shows the private-copy route`));
+  assert.ok(excluded[1].options.some((option) => option.effects[0]?.change?.clauseId === `${W}:AC-001`));
+  assert.equal(excluded[1].holdsApproval, false, 'nothing awaits approval yet');
+  assert.equal(open.record.copilotCommand, `/sf-decide ${W}`);
 
   cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
   const noteRecovery = JSON.parse(cli('recover', W, '--json').stdout);

@@ -168,6 +168,22 @@ async function completenessFacts(root, config, workflow) {
 }
 
 /**
+ * While a code step is open: the changed files publication would refuse to leave out, and the rows each
+ * may join. Only when the list is read to answer it, since a file a person is still writing is no count.
+ */
+async function excludedChangeFacts(root, config, workflow, phase) {
+  if (phase.status !== 'in_progress' || phase.id !== workflow.currentPhase) return null;
+  try {
+    const { unreconciledCandidatePaths } = await import('./candidate-scope.mjs');
+    const paths = await unreconciledCandidatePaths(root, config, workflow, phase);
+    if (!paths.length) return null;
+    const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);
+    return { unclaimedPaths: paths, planRows: planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? [])),
+      waits: 'publishing this step would leave it out', keepOut: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` };
+  } catch (error) { if (error instanceof SingularityFlowError) return null; throw error; }
+}
+
+/**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
  * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
@@ -265,6 +281,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     inactiveTestCommands: commandReviews.inactive,
     visual: await visualProfiles(root, config, workflow, phase),
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
+    excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,

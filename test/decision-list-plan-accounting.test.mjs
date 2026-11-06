@@ -116,3 +116,19 @@ test('what is test setup: runner configuration and setup files, with what change
   assert.deepEqual(testSetupFiles(['src/test/setup.js', 'src/test/helpers.js', 'tests/support/page.mjs', 'tests/support/page.test.mjs']), ['src/test/setup.js', 'src/test/helpers.js', 'tests/support/page.mjs']);
   assert.deepEqual(testSetupFiles(['vite.config.js']), []);
 });
+
+test('what publication would leave out is a choice while the step is open, in the same words, and stops the step', () => {
+  const workflow = story();
+  workflow.phases.implementation.status = 'in_progress';
+  const packet = decisionPacket(workflow, { phaseId: 'implementation', pending: {}, approvalCheck: null,
+    excludedChanges: { unclaimedPaths: ['src/helper.mjs', 'package.json'], planRows: [{ clauseId: 'W-1:REQ-001', result: 'The button converts.' }],
+      waits: 'publishing this step would leave it out', keepOut: 'singularity-flow recover W-1 --phase implementation --json' } }, { authorities: AUTHORITIES, actor: ME, at: AT });
+  assert.deepEqual(packet.items.map((item) => [item.kind, item.details.path, item.holdsApproval]), [['plan-accounting', 'src/helper.mjs', false], ['plan-accounting', 'package.json', false]]);
+  assert.match(packet.items[0].why, /so publishing this step would leave it out\..*keep it out instead: singularity-flow recover W-1 --phase implementation --json shows the private-copy route/u);
+  assert.deepEqual(packet.items[1].options.map((option) => option.id), ['row-w-1-req-001', 'supporting']);
+  assert.equal(packet.next.kind, 'plan-accounting', 'it is what stops this step');
+  assert.equal(packet.next.copilotCommand, '/sf-decide W-1');
+  assert.match(packet.headline, /2 decisions/u);
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: { d1: 'row-w-1-req-001' }, reason: { d1: 'The helper holds the value the row delivers.' } }), { at: AT });
+  assert.equal(plan.steps[0].effects[0].change.path, 'src/helper.mjs');
+});

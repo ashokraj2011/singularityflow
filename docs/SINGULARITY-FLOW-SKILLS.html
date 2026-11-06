@@ -2813,7 +2813,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~2236 body tokens</span>
+          <span class="pill">~2187 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-decide</code></dd></div>
@@ -2854,7 +2854,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 6. For each `applicability` entry not `satisfied`, show `responsibility`, `declaredReason` and who decides (`authority`); ask why it does not apply. Run `singularity-flow decision applicability &lt;WORK-ID&gt; --fetch --responsibility &lt;RESPONSIBILITY&gt; --reason &quot;&lt;REASON&gt;&quot;`; report the commit; stop.
 7. Scope statements: run `singularity-flow evidence scope &lt;WORK-ID&gt; --json`. For each `unresolved` item show `id`, `text` and `sourceId`; ask for a disposition (clauses for included or existing) and a reason. Run `singularity-flow decision scope &lt;WORK-ID&gt; --fetch --item &lt;ID&gt; --as &lt;DISPOSITION&gt; [--clause &lt;IDS&gt;] --reason &quot;&lt;REASON&gt;&quot;`.
 8. Completeness review, only when `structurallyComplete`: show `inventorySha256`; ask for each article (completeness, ambiguity, consistency, verifiability, boundary-conditions, non-functional) as satisfied, exception or not-applicable. Run `singularity-flow decision completeness &lt;WORK-ID&gt; --fetch --confirm &lt;inventorySha256&gt; --article &lt;ID&gt;=&lt;DECISION&gt;... --reason &quot;&lt;REASON&gt;&quot;`. A review, not proof of correct scope.
-9. Options with `chat.command` (a path no plan row names, a scope statement, a responsibility): `ask_user` with their `label`s plus Not now, then the reason and any clauses. Run that `chat.command` once with those at `&lt;REASON&gt;` and `&lt;CLAUSES&gt;`; report what it recorded; go on to the next item. A path with no item here (refused at publish): ask its row or supporting class and why; run `singularity-flow decision plan &lt;WORK-ID&gt; --fetch --add-location &lt;CLAUSE&gt;=&lt;PATH&gt; --reason &quot;&lt;REASON&gt;&quot;`.
+9. Options with `chat.command` (a path no plan row names, a scope statement, a responsibility): `ask_user` with their `label`s plus Not now, then the reason and any clauses. Run that `chat.command` once with those at `&lt;REASON&gt;` and `&lt;CLAUSES&gt;`; report what it recorded; go on to the next item.
 10. For `singularity-flow upstream-issue raise`, ask what&#39;s wrong (20+ characters); use their words. For existing issues show `id`, `phase`, `about` and allowed outcomes. Ask outcome, reason and any required PRC/FAM link or expiry; run its returned `singularity-flow upstream-issue decide` command with those answers. Never duplicate a linked issue.
 11. Lead with `data.headline`; show each item&#39;s `title` and `why`. Not yours (`decidedBy.allowed` false): say `decidedBy.words`, give `decidedBy.share`, skip it.
 12. Use the native review at 1 for `action.humanReview`; `chat.command` options at 9; otherwise `ask_user` per other item: option `label`s (recommended first) plus Not now, then each `needs` value with its `default`. `action` is theirs to do: give `action.command`; never record it.

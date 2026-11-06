@@ -29,6 +29,13 @@ export function planAuthorities(workflow) {
   return [...groups].sort();
 }
 
+/** The plan's rows, as a person chooses among them to account for a path. */
+export function planRowsOf(planned) {
+  return Object.entries(planned).slice(0, 40).map(([clauseId, claim]) => ({ clauseId,
+    ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}),
+    ...(claim.fulfillment === 'test-only' ? { testOnly: true } : {}) }));
+}
+
 function exactPath(value, label) {
   const candidate = posix(String(value ?? '').trim());
   if (!candidate || candidate.startsWith('/') || /^[a-z]:/iu.test(candidate) || candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..')

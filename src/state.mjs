@@ -192,6 +192,7 @@ import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSou
 import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
+import { planRowsOf } from './plan-amendments.mjs';
 import {
   buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes,
   evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
@@ -2017,9 +2018,7 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         ...(coverage.unclaimedChangedPaths.length ? {
           recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
             `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`),
-          planRows: Object.entries(planned).slice(0, 40).map(([clauseId, claim]) => ({ clauseId,
-            ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}),
-            ...(claim.fulfillment === 'test-only' ? { testOnly: true } : {}) }))
+          planRows: planRowsOf(planned)
         } : {})
       }
     }

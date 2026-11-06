@@ -1,0 +1,272 @@
+{
+  "walks": {
+    "node-version": {
+      "read-only-route:CODE_TEST_FAILED": "Its routes are /sf-recover and /sf-logs, which read. A .nvmrc would change the Node the tests run on, and no route names it.",
+      "loop:CODE_TEST_FAILED": "recover sends it back to publish with nothing changed, so the same test fails on the same state.",
+      "exhausted:CODE_TEST_FAILED": "SFlow escalates after the repeats, but the escalation names no command a person can run."
+    },
+    "chain-under-another-node": {
+      "loop:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "Refused in /sf-code with /sf-code as its route: the turn it names refuses the same call, and an agent has no allowed way to try another Node.",
+      "read-only-route:CODE_TEST_FAILED": "After the guard, the walk meets the same test failure as node-version, with the same read-only routes.",
+      "loop:CODE_TEST_FAILED": "After the guard, the walk meets the same loop as node-version.",
+      "exhausted:CODE_TEST_FAILED": "After the guard, the walk ends as node-version does, with no command for a person."
+    },
+    "appeal-for-a-file-not-there-yet": {
+      "false-reason:PHASE_APPEAL_PATH_UNSUPPORTED": "It blames protected paths and boundary changes. The real reason is that the file does not exist yet.",
+      "read-only-route:PHASE_APPEAL_PATH_UNSUPPORTED": "Its routes are /sf-recover and /sf-phase-documents, which read. Neither says to create the file.",
+      "goal-lost:PHASE_APPEAL_PATH_UNSUPPORTED": "recover leads to /sf-code, and publishing goes ahead without the pin the person chose: their choice is lost."
+    },
+    "appeal-with-no-changes-listed": {
+      "read-only-route:PHASE_APPEAL_INVALID": "Its routes read, and none says which changes to list or where the list comes from.",
+      "goal-lost:PHASE_APPEAL_INVALID": "recover leads to /sf-code, and publishing goes ahead without the appeal that was asked for."
+    },
+    "appeal-with-no-supporting-reason": {
+      "read-only-route:SINGULARITY_FLOW_ERROR": "A missing option gets the generic code and plan, and its routes read. Only the message says what was missing.",
+      "goal-lost:SINGULARITY_FLOW_ERROR": "recover leads to /sf-code, and publishing goes ahead without the appeal that was asked for."
+    },
+    "chain-in-the-decision-turn": {
+      "no-route:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "The reason says in words to run the commands one at a time. Nothing returned names a command, so only a model can act on it.",
+      "exhausted:PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED": "With no route returned, the walk ends where it started."
+    },
+    "looking-for-node-is-not-a-repository-search": {
+      "false-reason:GUARD_PROSE": "It says the call searches for a repository. The call looks for a Node binary, and nothing is searched.",
+      "no-route:GUARD_PROSE": "The way out is a command written in the sentence, and the guard returns no route.",
+      "exhausted:GUARD_PROSE": "With no route returned, the walk ends where it started."
+    },
+    "dirty-checkout-at-approval": {
+      "read-only-route:LIFECYCLE_WORKTREE_REVIEW_REQUIRED": "The refusal names only /sf-recover, and 3 of 3 real sessions ended there. recover does name the person's set-aside, one step later than it should."
+    }
+  },
+  "readOnlyFirstRoutes": [
+    {
+      "route": "/sf-recover",
+      "reason": "The generic plan: the first route is /sf-recover, which reads. It may then name a way through, but the refusal itself names nothing that changes the state and no one who decides.",
+      "codes": [
+        "ACTION_TERMINAL_PRESENTATION_REQUIRED",
+        "ACTIVE_WORKSPACE_SELECTION_BUSY",
+        "AGENT_PHASE_DEFAULT_AMBIGUOUS",
+        "AGENT_PHASE_DEFAULT_MISSING",
+        "AGENT_PHASE_UNKNOWN",
+        "AGENT_PHASE_UNMAPPED",
+        "APPROVAL_INTENT_AMENDMENT_PENDING",
+        "APPROVAL_POLICY_UNATTAINABLE",
+        "APR_CONFIRMATION_REQUIRED",
+        "APR_NOTHING_TO_ADD",
+        "APR_PUBLICATION_PENDING",
+        "APR_REFRESH_BLOCKED",
+        "AUTHORITY_CONFLICT",
+        "AUTHORITY_NOT_CONFIGURED",
+        "AUTHORITY_PIN_INVALID",
+        "AUTHORITY_PIN_MISSING",
+        "AUTHORITY_REBIND_REQUIRED",
+        "AUTHORITY_ROUTE_AMBIGUOUS",
+        "AUTHORITY_ROUTE_REQUIRED",
+        "AUTO_DISABLED",
+        "AUTO_FLIGHT_BINDING_MISMATCH",
+        "AUTO_PLAN_INVALID",
+        "AUTO_RECOVERY_CHECKOUT_FAILED",
+        "AUTO_STORY_BRANCH_INVALID",
+        "AUTO_STORY_BRANCH_UNSUPPORTED",
+        "AUTO_WORK_TYPE_INELIGIBLE",
+        "BACKUP_DESTINATION_INVALID",
+        "BACKUP_INSIDE_CHECKOUT",
+        "BACKUP_INTEGRITY_FAILED",
+        "BACKUP_INVALID",
+        "BACKUP_REPOSITORY_MISMATCH",
+        "BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL",
+        "CAPABILITY_PROPOSAL_PACKAGED_COMPATIBILITY_REQUIRED",
+        "CHANGE_SET_POLICY_VIOLATION",
+        "CLARIFICATION_MODE_OFF",
+        "CODE_TEST_FAILED",
+        "CODE_TEST_RESULT_REQUIRED",
+        "CODE_TEST_SKIPPED",
+        "CODE_TEST_SUPPRESSED",
+        "CODE_TEST_TIMEOUT",
+        "CODE_TEST_ZERO_DISCOVERED",
+        "COMMAND_REMOVED",
+        "CONFIGURATION_APPROVE_NOTHING",
+        "CONFIGURATION_BOOTSTRAP_CAPABILITY_REVIEW_REQUIRED",
+        "CONFIGURATION_BOOTSTRAP_INVALID",
+        "CONFIGURATION_DRAFTS_CHANGED",
+        "CONFIGURATION_DRAFTS_EMPTY",
+        "CONFIGURATION_DRAFTS_INVALID",
+        "CONFIGURATION_DRAFTS_LIMIT",
+        "CONFIGURATION_DRAFT_OPERATION_REUSED",
+        "CONFIGURATION_DRAFT_UNKNOWN",
+        "CONFIGURATION_PROJECTION_BASE_UNAVAILABLE",
+        "CONFIGURATION_PROPOSAL_AUTHORITY_MISSING",
+        "CONSTITUTION_CITATION_INVALID",
+        "CONVERGENCE_LEGACY_MIGRATION_REQUIRED",
+        "DOCS_MANIFEST_MISMATCH",
+        "DOCUMENT_HASH_MISMATCH",
+        "DOCUMENT_RESTORE_HASH_MISMATCH",
+        "EPIC_PLANNING_PACKAGE_INVALID",
+        "EPIC_TRACEABILITY_INCOMPLETE",
+        "FACTORY_RESET_ACTIVE_OPERATIONS",
+        "FACTORY_RESET_IN_PROGRESS",
+        "FOS_BOOTSTRAP_UNSUPPORTED",
+        "FOS_CACHE_PATH_INVALID",
+        "FOS_FEATURE_DISABLED",
+        "GENERATION_DIRTY_START",
+        "GENERATION_EXCLUDED_CHANGES_UNRESOLVED",
+        "GENERATION_PUBLICATION_MIGRATION_REQUIRED",
+        "GIT_ENTERPRISE_CONFIG_UNAVAILABLE",
+        "GIT_STORAGE_UNAVAILABLE",
+        "GOVERNED_GOAL_PUBLICATION_ACTIVE",
+        "INITIATIVE_IMPACT_MAP_UNGROUNDED",
+        "INITIATIVE_OUTPUTS_MISSING",
+        "INITIATIVE_PUBLICATION_ACTIVE",
+        "INITIATIVE_STORY_PLAN_INVALID",
+        "INPUT_RESTORE_PLAN_CHANGED",
+        "INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED",
+        "LEDGER_CHAIN_INVALID",
+        "LEGACY_PERSONA_MIGRATION_UNSAFE",
+        "LIFECYCLE_WORKTREE_REVIEW_REQUIRED",
+        "LOCAL_EPIC_RESERVATION_AMBIGUOUS",
+        "MCP_AGENT_TOOLS_MISMATCH",
+        "OBJECT_SERVICE_UNAVAILABLE",
+        "PRODUCT_ALIGNMENT_INSTALL_ACTIVE",
+        "PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING",
+        "PRODUCT_ALIGNMENT_STEP_FAILED",
+        "PRODUCT_ALIGNMENT_VERIFICATION_FAILED",
+        "PUBLICATION_SET_ASIDE_REFUSED",
+        "QUALITY_COMMAND_SOURCE_MUTATION",
+        "REMOTE_UNKNOWN",
+        "REPAIR_BUDGET_EXHAUSTED",
+        "REPOSITORY_ONBOARDING_MIGRATION_SOURCE_MISSING",
+        "RETAINED_EVIDENCE_CHANGED",
+        "REWORK_ROLL_FORWARD_SUPERSEDED",
+        "SCHEMA_VERSION_ARCHIVED",
+        "SCHEMA_VERSION_FUTURE",
+        "SEQUENCE_CONFIRMATION_REQUIRED",
+        "SESSION_LOCAL_SYNC_DIRTY",
+        "SESSION_LOCAL_SYNC_DIVERGED",
+        "SESSION_REPOSITORY_UNAVAILABLE",
+        "SGOS_AUTHORITY_LOCK_CORRUPT",
+        "SGOS_AUTHORITY_LOCK_RELEASE_MISMATCH",
+        "SGOS_AUTHORITY_LOCK_RELEASE_REFUSED",
+        "SGOS_AUTHORITY_PATH_UNSAFE",
+        "SGOS_AUTHORITY_STORE_BUSY",
+        "SINGULARITY_FLOW_AUTHORITY_UNAVAILABLE",
+        "SINGULARITY_FLOW_UNINITIALIZED_REPOSITORY",
+        "SPEC_CLAIM_MAP_UNKNOWN_CLAUSE",
+        "SPEC_CLAUSE_DEPENDENCY_MISSING",
+        "SPEC_COVERAGE_INCOMPLETE",
+        "SPEC_PLANNED_ALLOCATION_INVALID",
+        "SPEC_PLANNED_EVIDENCE_TYPE_INVALID",
+        "SPEC_PLANNED_FULFILLMENT_INVALID",
+        "SPEC_PLANNED_OBSERVABLE_INVALID",
+        "SPEC_PLANNED_PATH_ROLE_INVALID",
+        "SPEC_PLANNED_PATH_SENTINEL_INVALID",
+        "SPEC_PLANNED_ROW_REQUIRED",
+        "SPEC_PLANNED_TABLE_INVALID",
+        "SPEC_PUBLICATION_GATE_REFUSED",
+        "SPEC_SUPPORTING_FILE_INVALID",
+        "SPEC_VERIFICATION_CONTRACT_INVALID",
+        "SPEC_VERIFICATION_INTENT_INVALID",
+        "STORY_ARCHIVED_BY_REBUILD",
+        "STORY_CONFIGURATION_AUTHORITY_MISSING",
+        "STORY_HISTORY_REWRITTEN",
+        "STORY_PUBLICATION_IN_PROGRESS",
+        "STORY_REVIEW_INTERVENING_COMMIT",
+        "STORY_STATE_INVALID",
+        "STUDIO_CHANGES_INVALID",
+        "STUDIO_NOTHING_TO_PROPOSE",
+        "SUBJECT_LOCK_BUSY",
+        "SUBJECT_LOCK_RELEASE_INVALID",
+        "SUBJECT_LOCK_RELEASE_MISMATCH",
+        "SUBJECT_LOCK_RELEASE_REFUSED",
+        "TCA_AUTHORITY_ORIGIN_UNAVAILABLE",
+        "TCA_EPOCH_VALIDATION_REQUIRED",
+        "TCA_PRIOR_PUBLICATION_UNSUPPORTED",
+        "TCA_PUBLICATION_PENDING",
+        "TCA_SOURCE_DRAFT_UNCOMMITTED",
+        "TEST_SETUP_COMMAND_INVALID",
+        "TRANSPORT_INTENT_BUSY",
+        "TRANSPORT_INTENT_INTEGRITY_INVALID",
+        "TRP_AUTHORITY_REQUIRED",
+        "TRP_FEATURE_ADMISSION_BLOCKED",
+        "TRP_PHASE_GATE_BLOCKED",
+        "TRP_PUBLICATION_PENDING",
+        "TRP_RISK_ADAPTER_UNAVAILABLE",
+        "TRP_RISK_REVIEW_STALE",
+        "UNKNOWN_COMMAND",
+        "UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE",
+        "USER_AGENT_FOLDER_IS_WORKFLOW",
+        "USER_AGENT_MAIN_INVALID",
+        "WFA_RUNTIME_INCOMPATIBLE",
+        "WITNESS_EVIDENCE_UNPUBLISHED",
+        "WITNESS_EXCEPTION_RENEWAL_INVALID",
+        "WITNESS_EXCEPTION_STORY_CLOSED",
+        "WITNESS_EXCEPTION_UNKNOWN",
+        "WMB_REMOVED",
+        "WORKFLOW_CONFIGURATION_MISSING",
+        "WORKFLOW_IMPORT_CONFLICT",
+        "WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED",
+        "WORKFLOW_PROPOSAL_AUTHORITY_MISSING",
+        "WORKFLOW_PROPOSAL_UNAVAILABLE",
+        "WORKFLOW_UNKNOWN",
+        "WORKSPACE_REGISTRY_BUSY",
+        "WORKSPACE_REGISTRY_RELEASE_INVALID",
+        "WORKSPACE_REGISTRY_RELEASE_MISMATCH",
+        "WORKSPACE_REGISTRY_RELEASE_REFUSED",
+        "WORKSPACE_SYNCED_FOLDER",
+        "WORK_PRESERVATION_FAILED",
+        "XPL2_SUBJECT_UNKNOWN"
+      ]
+    },
+    {
+      "route": "/sf-phase-documents",
+      "reason": "The first route shows the documents the person still has to read; nothing named records that they did.",
+      "codes": [
+        "APPROVAL_CHECKLIST_INCOMPLETE"
+      ]
+    },
+    {
+      "route": "/sf-stories",
+      "reason": "The first route lists Stories, and the refusal does not say what to do with the list.",
+      "codes": [
+        "SESSION_STATE_REFRESH_UNAVAILABLE"
+      ]
+    },
+    {
+      "route": "/sf-status",
+      "reason": "The first route shows status for a phase the refusal says it does not know.",
+      "codes": [
+        "RECOVERY_PHASE_UNKNOWN"
+      ]
+    },
+    {
+      "route": "/sf-test-setup",
+      "reason": "The first route reads the test setup; the command that records one comes later in the plan.",
+      "codes": [
+        "CODE_DELIVERY_TEST_COMMAND_REQUIRED"
+      ]
+    },
+    {
+      "route": "/sf-phase",
+      "reason": "The first route rechecks a draft, and the authoring itself is left to words.",
+      "codes": [
+        "ARTIFACT_AUTHORING_INCOMPLETE"
+      ]
+    },
+    {
+      "route": "singularity-flow",
+      "reason": "The first route repeats the refused command without the confirmation the refusal asks for: the step after it holds the way through.",
+      "codes": [
+        "APPROVAL_CONFIRMATION_REQUIRED"
+      ]
+    },
+    {
+      "route": "no route",
+      "reason": "Who decides, not what is decided: the steps are the person's, given in words with no command to run.",
+      "codes": [
+        "APPROVAL_IDENTITY_ALREADY_RECORDED",
+        "APPROVAL_IDENTITY_MISSING",
+        "APPROVAL_IDENTITY_NOT_AUTHORIZED",
+        "APPROVAL_SELF_APPROVAL_PROHIBITED"
+      ]
+    }
+  ],
+  "journeys": {}
+}

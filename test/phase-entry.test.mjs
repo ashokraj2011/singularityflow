@@ -431,6 +431,8 @@ test('a future user-created workflow composes a question-only checkpoint for its
     '--response-file', entry.clarification.responseStagingPath, '--for-agent', '--json'], 'the agent records replies through a bounded route');
   assert.equal(recordAction.commandGuidance.copilotCommand, '/sf-phase');
   assert.match(entry.context.text, /Formulating evidence-grounded questions is permitted/);
+  // A real chat got its answers from ask_user, then ended the turn with no next action.
+  assert.match(entry.context.text, /When `ask_user` returns, the person is done: in this same turn stage their answers/);
   assert.equal(await readFile(statePath, 'utf8'), before);
   assert.equal(entry.effects.testsRun, false);
   assert.equal(entry.effects.storyAdvanced, false);

@@ -116,7 +116,7 @@ export function confirmForm(packet, answers) {
   const words = answers.map((entry) => {
     const item = items.get(entry.item);
     const label = item?.options.find((option) => option.id === entry.option)?.label ?? entry.option;
-    return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
+    return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause.replace(/\.+$/u, '')}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
   });
   const left = decidable(packet).filter((item) => !answers.some((entry) => entry.item === item.id));
   return { message: [`Record ${answers.length} decision${answers.length === 1 ? '' : 's'} on ${packet.workId}, each under your name:`, ...words,

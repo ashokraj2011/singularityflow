@@ -120,7 +120,7 @@ export function decideSummary(packet: DecisionPacket, choices: readonly Decision
   const lines = choices.map((choice) => {
     const item = rows.find((entry) => entry.id === choice.item);
     const option = item?.options.find((entry) => entry.id === choice.option);
-    return `${item?.title ?? choice.item}: ${option?.label ?? choice.option}.${choice.expires ? ` Until ${choice.expires}.` : ''}${choice.cause ? ` What stops the tests: ${choice.cause}.` : ''}${choice.reason ? ` Reason: ${choice.reason}` : ''}`;
+    return `${item?.title ?? choice.item}: ${option?.label ?? choice.option}.${choice.expires ? ` Until ${choice.expires}.` : ''}${choice.cause ? ` What stops the tests: ${choice.cause.replace(/\.+$/u, '')}.` : ''}${choice.reason ? ` Reason: ${choice.reason}` : ''}`;
   });
   const left = rows.filter((item) => item.decidedBy?.allowed && !choices.some((choice) => choice.item === item.id));
   return [...lines, ...(left.length ? ['', `Still undecided: ${left.map((item) => item.title).join('; ')}`] : [])].join('\n');

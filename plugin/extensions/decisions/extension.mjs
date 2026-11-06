@@ -109,6 +109,8 @@ session = await joinSession({
   }],
   tools: [{
     name: 'sflow_decide',
+    // Always listed, for the same reason as sflow_adjudicate below.
+    defer: 'never',
     description: 'Show the person everything a Story\'s step waits on as one table and let them decide all of it. Pass only the exact workId. The person answers and confirms; no answer, reason or selection comes from you. It returns what was recorded and what remains.',
     parameters: { type: 'object', additionalProperties: false, required: ['workId'], properties: { workId: { type: 'string', pattern: WORK_ID.source } } },
     handler: async (input) => {

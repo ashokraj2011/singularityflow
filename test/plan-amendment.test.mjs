@@ -157,6 +157,7 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   assert.ok(excluded[1].options.some((option) => option.effects[0]?.change?.clauseId === `${W}:AC-001`));
   assert.equal(excluded[1].holdsApproval, false, 'nothing awaits approval yet');
   assert.equal(open.record.copilotCommand, `/sf-decide ${W}`);
+  assert.equal(JSON.parse(cli('decisions', W, '--no-card', '--json').stdout).data.record.copilotCommand, `/sf-decide ${W}`, 'a /sf-decide turn records these itself, card or not');
 
   cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
   const noteRecovery = JSON.parse(cli('recover', W, '--json').stdout);

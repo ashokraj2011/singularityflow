@@ -87,8 +87,8 @@ test('a restored test definition is historical information, not a decision or im
     state: { testCommandReviewBindings: [{ request: 'TCD-001', current: 'changed', reference: 'same' }] } }).packetSha256,
   'the preview is invalidated if the live definition changes again');
 });
-const packetOf = (workflow, extra = {}, who = actor) => decisionPacket(workflow, facts(workflow, extra),
-  { authorities: workflow.resolution.approvalAuthorities, actor: who, at: AT });
+const packetOf = (workflow, extra = {}, who = actor, options = {}) => decisionPacket(workflow, facts(workflow, extra),
+  { authorities: workflow.resolution.approvalAuthorities, actor: who, at: AT, ...options });
 
 test('a gap and the issue that names it are one item; the superseded original never appears', () => {
   const workflow = story();
@@ -469,10 +469,14 @@ test('an evidence item is the person\'s own step: the list shows its commands an
   assert.equal(accepted.steps[0].effects[0].category, risks[0].effects[0].category);
   assert.match(effectWords(workflow, accepted.steps[0].effects[0], accepted.steps[0].values), /risk of .* until \d{4}-\d{2}-\d{2} \(risk decision\)/u);
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${item.id}=witness-result`] }), { at: AT }));
-  // With only such items left, the next step is the person's own command, never /sf-decide again:
-  // /sf-decide recorded fact-01's gap and then routed back to itself for the witness (2026-10-26).
+  // With only such items left, /sf-decide opens the card that answers them, and no route reads as "no verified equivalent".
   assert.equal(packet.next.command, item.options[0].action.command);
-  assert.equal(packet.next.copilotCommand, null);
+  assert.equal(packet.next.copilotCommand, '/sf-decide BIN-501');
+  // A host with no card keeps the person's own command, never /sf-decide again: /sf-decide recorded
+  // fact-01's gap and then routed back to itself for the witness (2026-10-26).
+  const noCard = packetOf(workflow, { gaps: [], issues: [], evidence }, actor, { card: false });
+  assert.equal(noCard.next.command, item.options[0].action.command);
+  assert.equal(noCard.next.copilotCommand, null);
   assert.equal(skillForCommandLine(sign.action.command), null, sign.action.command);
   for (const command of ['decision test-risk BIN-501', 'decision test-narrowing BIN-501', 'decision evidence-reuse BIN-501', 'decision visual-profile BIN-501']) {
     assert.equal(skillForCommandLine(`singularity-flow ${command}`), null, command);
@@ -509,7 +513,7 @@ test('a re-pin in the list shows before and after and whether tests were dropped
   assert.doesNotMatch(older.items.find((entry) => entry.kind === 'test-command').why, /Before and after/u);
 });
 
-test('an accepted test command is the person\'s own record: no route sends it back to /sf-decide', () => {
+test('an accepted test command is the person\'s own record: the card answers it, and with no card no route sends it back to /sf-decide', () => {
   const workflow = story();
   // A re-pin (2026-10-27): /sf-decide previewed it, which only the person records, then named
   // /sf-decide again as the way to record it, and the first route to it was /sf-decide too.
@@ -522,7 +526,9 @@ test('an accepted test command is the person\'s own record: no route sends it ba
   assert.deepEqual(item.options.map((option) => option.id), ['accept-test-command']);
   assert.equal(DECISION_LIST_CHAT_OPTIONS.includes('accept-test-command'), false);
   // Nothing holds the release: its approval is next, and the request is the person's own record.
-  assert.deepEqual([packet.next.kind, packet.next.copilotCommand, packet.record.copilotCommand], ['approval', '/sf-approve release --work-id BIN-501', null]);
+  assert.deepEqual([packet.next.kind, packet.next.copilotCommand, packet.record.copilotCommand], ['approval', '/sf-approve release --work-id BIN-501', '/sf-decide BIN-501']);
+  const noCard = packetOf(workflow, { gaps: [], issues: [], testCommands: [request] }, actor, { card: false });
+  assert.deepEqual([noCard.next.kind, noCard.next.copilotCommand, noCard.record.copilotCommand], ['approval', '/sf-approve release --work-id BIN-501', null]);
   const record = decisionRecordCommand('BIN-501', { choices: [[item.id, 'accept-test-command']], digest: packet.packetSha256 });
   for (const command of [record, item.details.commands[0]]) assert.equal(skillForCommandLine(command), null, command);
   // With a decision a /sf-decide turn may record open too (the story's gap), the list keeps that route.

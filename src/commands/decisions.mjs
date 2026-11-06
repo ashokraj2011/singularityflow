@@ -26,12 +26,12 @@ import { action, commandResult, effects, noEffects, succeeded } from '../narrati
 import { emitCommandResult } from '../narration/emit.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause']);
+const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card']);
 const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
 export const DECISIONS_USAGE = [
-  'Usage: singularity-flow decisions [WORK-ID] [--phase PHASE] [--json]',
+  'Usage: singularity-flow decisions [WORK-ID] [--phase PHASE] [--no-card] [--json]',
   '       singularity-flow decisions [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT] [--clause ITEM=IDS] [--json]',
   '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...] --confirm sha256:DIGEST [--json]',
   '       singularity-flow decisions record [WORK-ID] --answers FILE',
@@ -58,8 +58,8 @@ async function storyContext(root, workId, { record, fetch }) {
 }
 
 /** The list as it stands now, for the current Git identity. */
-export async function readDecisionPacket(root, config, workflow, { phaseId = null, at = nowIso() } = {}) {
-  return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at });
+export async function readDecisionPacket(root, config, workflow, { phaseId = null, at = nowIso(), card = true } = {}) {
+  return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at, card });
 }
 
 async function answersFrom(options) {
@@ -479,7 +479,7 @@ async function show(root, options, workId) {
   const { config, workflow } = await storyContext(root, workId, { record: false });
   const phaseId = optionString(options, 'phase') ?? null;
   const at = nowIso();
-  const packet = await readDecisionPacket(root, config, workflow, { phaseId, at });
+  const packet = await readDecisionPacket(root, config, workflow, { phaseId, at, card: options.card !== false });
   const answers = await answersFrom(options);
   if (answered(answers)) {
     const { decisionRecordPlan } = await import('../decision-list.mjs');

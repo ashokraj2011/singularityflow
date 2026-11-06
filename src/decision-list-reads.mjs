@@ -312,11 +312,11 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
  * identity from what this machine knows, never dialling GitHub on a read path.
  */
 export async function readPendingList(root, config, workflow, { phaseId = null, at = new Date().toISOString(), requestedPhase = phaseId,
-  offline = false, ...known } = {}) {
+  offline = false, card = true, ...known } = {}) {
   const [{ decisionPacket }, { actionActor }, { identity }] = await Promise.all([import('./decision-list.mjs'), import('./commands/kernel.mjs'), import('./git.mjs')]);
   const facts = await decisionListFacts(root, config, workflow, { phaseId: phaseId ?? workflow.currentPhase, at, ...known });
   const actor = offline && !process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? identity(root, { offline: true }) : actionActor(root);
   return decisionPacket(workflow, facts, {
-    authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, actor, at, requestedPhase
+    authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, actor, at, requestedPhase, card
   });
 }

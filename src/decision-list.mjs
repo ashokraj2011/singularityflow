@@ -910,9 +910,9 @@ function choiceFlags(choices, values) {
 /**
  * The packet: items, the digest over exactly what a person confirms (items, options, effects, the
  * defaults they would record, and the Story state they depend on), and the record commands.
- * `context`: { authorities, actor, at, requestedPhase }.
+ * `context`: { authorities, actor, at, requestedPhase, card }. `card: false` is a host with no card to open.
  */
-export function decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase = null } = {}) {
+export function decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase = null, card = true } = {}) {
   const context = { workflow, facts, authorities, actor, at };
   const phase = workflow.phases?.[facts.phaseId] ?? null;
   const awaiting = phase?.status === 'awaiting_approval';
@@ -999,12 +999,13 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // What to do next: the first item that holds the approval; with none, the approval itself; before
   // submission, what stops the step, then whatever is left.
   const first = items.find((item) => item.holdsApproval) ?? (awaiting ? items.at(-1) : items.find(stopsStep) ?? items[0]);
-  // When every option left is a person's own terminal step, /sf-decide would only show it again: a
-  // command no skill runs (a witness, an obligation risk), a choice recorded on this list that a
+  // A sign-off and any choice this list records are answered on a host's card, which /sf-decide opens: no
+  // route read as "no verified equivalent". A host with no card asks with `card: false`, where /sf-decide
+  // would only show them again: a command no skill runs (a witness, an obligation risk), a choice a
   // /sf-decide turn may not record (an accepted test command), or a hold's route with its own skill.
   const theirsAlone = (item) => Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.recordable === false
-    ? typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command)
-    : !DECISION_LIST_CHAT_OPTIONS.includes(entry.id) && !entry.chat));
+    ? typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command) && !(card && entry.action.humanReview)
+    : !card && !DECISION_LIST_CHAT_OPTIONS.includes(entry.id) && !entry.chat));
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,

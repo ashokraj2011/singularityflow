@@ -26,6 +26,7 @@
  * command by the digest and cause class the refusal names instead; every use still re-checks the
  * cause of the run it lets through.
  */
+import { testReceiptPassing } from './code-delivery-tests.mjs';
 import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { classifyTestRunCause, testRunCauseCategory, testRunCauseWords } from './test-run-cause.mjs';
@@ -287,6 +288,32 @@ export function testRunRiskRefusalDetails(workflow, { phaseId, attempt, at }) {
     ? `This run stopped on a code cause, ${testRunCauseText(cause)}: fix it in the step. A test-run risk decision never covers a code cause.`
     : `Nothing in this run says the environment stopped it: ${testRunCauseText(cause)}. No test-run risk decision covers it; read the saved output and fix the cause.`;
   return { testRunCause: { category: cause.category, class: cause.class, ...(cause.file ? { file: cause.file } : {}), ...(guidance ? { guidance } : {}) } };
+}
+
+/**
+ * A suite beside the one that refused a gate, as that refusal reports it; null when it passed or a
+ * person's decision carries it. Reading it decides nothing and runs nothing.
+ */
+export function otherFailedTest(workflow, phase, command, attempt, { at }) {
+  const minimumPassed = Math.max(command.result.minimumPassed ?? 1, workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1);
+  if (attempt && testReceiptPassing(attempt, command.result.minimumDiscovered ?? 1, minimumPassed)) return null;
+  if (coveringTestRunRisk(workflow, { phaseId: phase.id, attempt, at })) return null;
+  const cause = attempt ? testRunCause(attempt) : null;
+  return { commandId: command.id, attemptId: attempt?.attemptId ?? null, status: attempt?.status ?? 'skipped', exitCode: attempt?.exitCode ?? null,
+    tests: attempt?.tests ?? null, causeClass: cause?.class ?? null, cause: cause ? testRunCauseWords(cause.class) : null, ...(cause?.file ? { file: cause.file } : {}) };
+}
+
+/** A gate's refusal, naming the other suites of the same run that failed. Its full diagnostic stays the first's. */
+export function withOtherFailedTests(refusal, others) {
+  const failed = others.filter(Boolean);
+  if (!failed.length) return refusal;
+  const words = failed.map(({ commandId, status, exitCode, tests, cause }) => {
+    const ended = [exitCode ? `exit ${exitCode}` : status, tests?.failed ? `${tests.failed} of ${tests.discovered} tests failed` : null].filter(Boolean).join(', ');
+    return `'${commandId}' (${ended}${cause ? `: ${cause}` : ''})`;
+  });
+  refusal.message = `${refusal.message} Also failed: ${words.join(', ')}.`;
+  refusal.details = { ...(refusal.details ?? {}), otherFailedTests: failed };
+  return refusal;
 }
 
 /**

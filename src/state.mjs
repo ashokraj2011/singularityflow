@@ -5112,17 +5112,31 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   const attempts = [];
   const runRisks = [];
   deliveryEvidence.preflightAttempts = attempts;
+  const recordedRuns = new Map();
+  let refusal = null;
+  const otherFailed = [];
   try {
+    // Every run is one immutable attempt, recorded before any result is judged [E2G-016], so one
+    // suite's failure never drops another's.
     for (const command of commands) {
       const check = checks.find((entry) => entry.id === command.id);
-      // Every run is one immutable attempt, recorded before its result is judged [E2G-016].
       const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
         command, check, purpose: 'preflight', workId: workflow.workItem.id, phaseId: phase.id,
         generation: nextPhaseGeneration(phase), delivery: deliveryEvidence, ...pins.attempt(command.id)
       }) : null;
+      recordedRuns.set(command.id, recorded);
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
           receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots });
+      }
+    }
+    for (const command of commands) {
+      const check = checks.find((entry) => entry.id === command.id);
+      const recorded = recordedRuns.get(command.id);
+      // Past the first refusal a suite is only read for the report: nothing can let the step through now.
+      if (refusal) {
+        otherFailed.push((await import('./test-run-risk.mjs')).otherFailedTest(workflow, phase, command, recorded?.attempt, { at: nowIso() }));
+        continue;
       }
       try {
         if (!check || check.status === 'skipped-warning') {
@@ -5185,12 +5199,13 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
             new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' }));
         }
         const narrowed = pins.narrowed(receipt, 'publish'); // refused unless a step approver accepted it [TCE:REQ-022]
-        if (narrowed) attempts.at(-1).testNarrowing = narrowed;
+        if (narrowed) attempts.find((entry) => entry.commandId === command.id).testNarrowing = narrowed;
         passing.push(command);
       } catch (error) {
-        throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
+        refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
       }
     }
+    if (refusal) throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
   } finally {
     const acceptedIds = new Set(passing.map((command) => command.id));
     for (const check of checks) await restoreTransientQualityResult(check, {
@@ -5631,7 +5646,21 @@ async function submitPhaseTransition(root, config, workflow, {
   const attemptHistory = [];
   const submittedAttempts = new Map();
   if (codeDeliveryRequired) {
+    const recordedRuns = new Map();
+    let refusal = null;
+    const otherFailed = [];
     try {
+      // As at publication: every suite's attempt is recorded before any result is judged [E2G-016].
+      for (const command of requiredTestCommands) {
+        if (retainedRisk && command.id === retainedRisk.observation.obligationId) continue;
+        const check = phase.checks.find((entry) => entry.id === command.id);
+        const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
+          command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
+          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, delivery: phase.deliveryEvidence, ...pins?.attempt(command.id)
+        }) : null;
+        recordedRuns.set(command.id, recorded);
+        if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
+      }
       for (const command of requiredTestCommands) {
         const check = phase.checks.find((entry) => entry.id === command.id);
         if (retainedRisk && command.id === retainedRisk.observation.obligationId) {
@@ -5644,11 +5673,12 @@ async function submitPhaseTransition(root, config, workflow, {
         }
         let parsed;
         let receipt;
-        const recorded = check ? await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
-          command, check, purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id,
-          phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null, delivery: phase.deliveryEvidence, ...pins?.attempt(command.id)
-        }) : null;
-        if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
+        const recorded = recordedRuns.get(command.id);
+        // Past the first refusal a suite is only read for the report: nothing can let the step through now.
+        if (refusal) {
+          otherFailed.push((await import('./test-run-risk.mjs')).otherFailedTest(workflow, phase, command, recorded?.attempt, { at: nowIso() }));
+          continue;
+        }
         let runRisk = null;
         try {
           if (!check || check.status === 'skipped-warning') {
@@ -5699,7 +5729,8 @@ async function submitPhaseTransition(root, config, workflow, {
             }
           }
         } catch (error) {
-          throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
+          refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
+          continue;
         }
         if (runRisk) {
           // The attempt is bound like a passing one, with the decision that let it through.
@@ -5717,6 +5748,7 @@ async function submitPhaseTransition(root, config, workflow, {
         });
         submittedAttempts.set(command.id, receipt);
       }
+      if (refusal) throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
     } finally {
       const acceptedIds = new Set(testExecutions.map((execution) => execution.commandId));
       for (const check of phase.checks) await restoreTransientQualityResult(check, {

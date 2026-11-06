@@ -27,6 +27,7 @@ import { generationRecovery } from '../src/recovery-plan.mjs';
 import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
+import { stepAttempts } from '../src/verification/attempts.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { recordInjection } from '../src/inject.mjs';
 import { recordClarificationResponses } from '../src/clarifications.mjs';
@@ -337,7 +338,11 @@ async function codeFixture(name, {
       result: configuredResult ?? {
         adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1
       }
-    }]
+    }, ...(testProfile === 'two-suites' ? [{
+      id: 'second-tests', kind: 'test', argv: [process.execPath, 'second-runner.mjs'],
+      workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/second.json', minimumDiscovered: 1 }
+    }] : [])]
   };
   // This fixture's approved requirements owner is part of the accepted execution policy. Older
   // setup appended it to workflow.resolution after snapshot capture, which correctly looks like
@@ -2426,6 +2431,93 @@ test('a submission that runs its tests again exposes a required test failure wit
     assert.equal(execution.stderr.text, 'SUBMIT-STDERR');
     return true;
   });
+});
+
+// Stands in for one suite of several: passes, or fails as `exit`, writing the report it counts either way.
+// With `atSubmit` it fails only once .sflow/results/fail-submit exists: the code itself must not change.
+const suiteRunner = (report, { exit = 0, failed = 0, atSubmit = false } = {}) => [
+  "import { existsSync, writeFileSync } from 'node:fs';",
+  `const failing = ${atSubmit ? "existsSync('.sflow/results/fail-submit')" : 'true'};`,
+  `writeFileSync('.sflow/results/${report}', JSON.stringify({ run: Date.now(), tests: { discovered: 2, passed: failing ? ${2 - failed} : 2, failed: failing ? ${failed} : 0, skipped: 0 } }));`,
+  `process.exit(failing ? ${exit} : 0);`, ''
+].join('\n');
+
+async function twoSuites(t, name, { first = {}, second = {} } = {}) {
+  const context = await codeFixture(name, { testProfile: 'two-suites' });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), suiteRunner('unit.json', first));
+  await writeFile(path.join(context.root, 'second-runner.mjs'), suiteRunner('second.json', second));
+  return context;
+}
+const publishTwoSuites = (context) => inContext(context.root, () => publishGeneration(
+  context.root, context.config, context.workflow, { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }));
+const attemptsOf = async (context) => (await stepAttempts(context.root, 'singularity/work-items/DELIVERY-1', 'DELIVERY-1', 'implementation'))
+  .map((attempt) => [attempt.commandId, attempt.purpose, attempt.status, attempt.exitCode]);
+
+test('every suite of a refused run keeps its attempt, and the refusal reports every suite that failed', async (t) => {
+  const context = await twoSuites(t, 'two-suites-both-fail', { first: { exit: 1, failed: 1 }, second: { exit: 7, failed: 2 } });
+  await assert.rejects(() => publishTwoSuites(context), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    assert.equal(error.details.requiredTestExecution.commandId, 'fixture-tests', 'the first refusal keeps its full diagnostic');
+    assert.match(error.message, /'fixture-tests' failed before publication \(exit 1\).*Also failed: 'second-tests' \(exit 7, 2 of 2 tests failed: tests ran and failed\)\./su);
+    assert.deepEqual(error.details.otherFailedTests.map((entry) => [entry.commandId, entry.status, entry.exitCode, entry.tests.failed, entry.causeClass]),
+      [['second-tests', 'failed', 7, 2, 'assertion-failure']]);
+    assert.match(error.details.otherFailedTests[0].attemptId, /^TA-/u);
+    const refusal = refusalEnvelope(error, ['phase', 'publish', 'implementation', '--json']);
+    assert.deepEqual(refusal.error.details.otherFailedTests.map((entry) => [entry.commandId, entry.exitCode, entry.tests.failed, entry.cause]),
+      [['second-tests', 7, 2, 'tests ran and failed']]);
+    return true;
+  });
+  assert.deepEqual(await attemptsOf(context), [['fixture-tests', 'preflight', 'failed', 1], ['second-tests', 'preflight', 'failed', 7]]);
+  assert.equal(context.phase.generation, 0);
+});
+
+test('a suite that passes beside one that failed is recorded and not reported, and a later failure alone still refuses', async (t) => {
+  const firstFails = await twoSuites(t, 'two-suites-first-fails', { first: { exit: 1, failed: 1 } });
+  await assert.rejects(() => publishTwoSuites(firstFails), (error) => {
+    assert.equal(error.details.requiredTestExecution.commandId, 'fixture-tests');
+    assert.equal(error.details.otherFailedTests, undefined);
+    assert.doesNotMatch(error.message, /Also failed/u);
+    return true;
+  });
+  assert.deepEqual(await attemptsOf(firstFails), [['fixture-tests', 'preflight', 'failed', 1], ['second-tests', 'preflight', 'passed', 0]]);
+  const secondFails = await twoSuites(t, 'two-suites-second-fails', { second: { exit: 1, failed: 1 } });
+  await assert.rejects(() => publishTwoSuites(secondFails), (error) => error.code === 'CODE_TEST_FAILED' && error.details.requiredTestExecution.commandId === 'second-tests');
+  assert.equal(secondFails.phase.generation, 0, 'no run passes on less');
+  assert.equal(secondFails.phase.deliveryEvidence, undefined);
+});
+
+test('a suite that exits 0 with no tests beside a failed one is reported too, and never counted', async (t) => {
+  const context = await twoSuites(t, 'two-suites-zero', { first: { exit: 1, failed: 1 } });
+  await writeFile(path.join(context.root, 'second-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('.sflow/results/second.json', JSON.stringify({ tests: { discovered: 0, passed: 0, failed: 0, skipped: 0 } }));", ''
+  ].join('\n'));
+  await assert.rejects(() => publishTwoSuites(context), (error) => {
+    assert.match(error.message, /Also failed: 'second-tests' \(failed: the run found no tests\)\./u);
+    assert.deepEqual(error.details.otherFailedTests.map((entry) => entry.causeClass), ['no-tests']);
+    return true;
+  });
+});
+
+test('a submission that runs its tests again records every suite and reports every one that failed', async (t) => {
+  const context = await twoSuites(t, 'two-suites-submit', { first: { exit: 3, failed: 1, atSubmit: true }, second: { exit: 4, failed: 2, atSubmit: true } });
+  await inContext(context.root, () => publishCodeGoverned(context.root, context.config, context.workflow, 'implementation'));
+  await mkdir(path.join(context.root, '.sflow', 'results'), { recursive: true });
+  await writeFile(path.join(context.root, '.sflow', 'results', 'fail-submit'), '1\n');
+  await assert.rejects(() => withAnotherEnvironment(() => inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  ))), (error) => {
+    assert.equal(error.code, 'CODE_TEST_FAILED');
+    assert.equal(error.details.requiredTestExecution.commandId, 'fixture-tests');
+    assert.match(error.message, /'fixture-tests' failed \(exit 3\).*Also failed: 'second-tests' \(exit 4, 2 of 2 tests failed/su);
+    return true;
+  });
+  const submissions = (await attemptsOf(context)).filter(([, purpose]) => purpose === 'submission');
+  assert.deepEqual(submissions, [['fixture-tests', 'submission', 'failed', 3], ['second-tests', 'submission', 'failed', 4]]);
 });
 
 test('a protected workflow edit refuses before tests run or generation state changes', async (t) => {

@@ -1,6 +1,4 @@
 /** Bounded, content-safe diagnostics for a refused required test execution. */
-import path from 'node:path';
-
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
 const MAX_TEXT = 2000;
@@ -232,7 +230,7 @@ export async function requiredTestFailureExamples(parsed, adapter) {
   const messages = testCaseMessages(adapter, contents, occurrences.length);
   const examples = new Set();
   for (const suite of failedSuiteMessages(adapter, contents).slice(0, 3)) {
-    if (suite.message) examples.add(boundedText(`${path.posix.basename(suite.name.replaceAll('\\', '/'))}: ${suite.message}`, 600));
+    if (suite.message) examples.add(boundedText(`${suite.name.split(/[\\/]/u).at(-1)}: ${suite.message}`, 600));
   }
   for (let index = 0; index < occurrences.length && examples.size < 3; index += 1) {
     if (occurrences[index].outcome === 'failed' && messages?.[index]) examples.add(boundedText(messages[index], 600));

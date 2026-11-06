@@ -267,7 +267,7 @@ export function agentAct(result) {
       read: ['error.details.testCommandPin', 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
       said: 'Diagnose the changed test definition first. Preserve a repair that retains the pin when an incidental config edit is unnecessary; otherwise reuse/request the exact re-pin for human review. No automatic acceptance, blind restoration or unchanged retries.' };
     if (!plan.escalation && plan.repairContinuation?.revision === 'repair-continuation-v1' && plan.repairContinuation.currentTurnRepair === true) return withRoute({
-      state: 'repair', do: null, read: ['error.requiredTestExecution', ...(result.error?.details?.testRunRisk ? ['error.details.testRunRisk'] : []), 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
+      state: 'repair', do: null, read: ['error.requiredTestExecution', ...(result.error?.details?.testRunRisk ? ['error.details.testRunRisk'] : []), ...(result.error?.details?.otherFailedTests ? ['error.details.otherFailedTests'] : []), 'remediationPlan.repairContinuation', 'remediationPlan.steps'],
       strategy: 'diagnose-repair-verify', said: 'The required test failed: diagnose its saved execution, repair within the admitted authoring scope, verify the changed condition, then rerun the original gate. Do not end authoring merely because tests failed or claim passing evidence from a diagnostic run.'
     }, (plan.steps ?? []).find((entry) => entry?.command));
     const step = (plan.steps ?? []).find((entry) => entry?.command) ?? null;

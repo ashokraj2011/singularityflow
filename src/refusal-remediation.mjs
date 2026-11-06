@@ -2095,6 +2095,14 @@ export function refusalDetails(details) {
     }) : null))
   }) : null));
   if (conformanceGaps.length) projected.conformanceGaps = conformanceGaps;
+  // The other suites of the refused run that failed: the refusal's own diagnostic is the first's.
+  const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : null);
+  const otherFailedTests = list(details.otherFailedTests, (entry) => (entry && typeof entry === 'object' && text(entry.commandId) ? compact({
+    commandId: text(entry.commandId), attemptId: text(entry.attemptId), status: text(entry.status), exitCode: Number.isInteger(entry.exitCode) ? entry.exitCode : null,
+    tests: entry.tests && typeof entry.tests === 'object' ? compact({ discovered: count(entry.tests.discovered), passed: count(entry.tests.passed), failed: count(entry.tests.failed), skipped: count(entry.tests.skipped) }) : null,
+    causeClass: text(entry.causeClass), cause: text(entry.cause), file: text(entry.file)
+  }) : null));
+  if (otherFailedTests.length) projected.otherFailedTests = otherFailedTests;
   if (runRisk?.eligible === true && text(runRisk.phase) && text(runRisk.commandId)) {
     projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId), causeClass: text(runRisk.causeClass),
       decision: text(runRisk.decision), lapsed: text(runRisk.lapsed), command: text(runRisk.command) });

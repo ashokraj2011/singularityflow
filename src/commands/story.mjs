@@ -1690,22 +1690,29 @@ export async function storyAdjudicateCommand(positionals, options) {
         actor: actorKey(actor),
         at
       }));
-      const kept = (existing.findings ?? []).filter((finding) => !itemIds.includes(finding.itemId)).map(findingAdjudication);
-      let projection = adjudicatedConvergenceProjection(existing, [...kept, ...decisions]);
+      const earlier = new Map((existing.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
+      // The same answer again records nothing: a second run used to replace the first and say "Recorded".
+      const unchanged = decisions.filter((decision) => sameAdjudication(earlier.get(decision.itemId), decision));
+      const changing = decisions.filter((decision) => !unchanged.includes(decision));
+      const phaseId = subject.phase.id;
+      if (!changing.length) return { decisions: [], unchanged, earlier, projection: existing, authority, phaseId };
+      const changingIds = changing.map((decision) => decision.itemId);
+      const kept = (existing.findings ?? []).filter((finding) => !changingIds.includes(finding.itemId)).map(findingAdjudication);
+      let projection = adjudicatedConvergenceProjection(existing, [...kept, ...changing]);
       // SF Guard (SPEC-PSS-v1 §10.10): on a Story it requires, an adjudication is the approver's signed
       // step. One touch signs each new decision exactly as its finding records it, before anything is
       // written, and the presence block is kept in the sealed projection (family v4), where every
       // reader counts it (`countedConvergence`).
-      const signed = projection.findings.filter((finding) => itemIds.includes(finding.itemId)).map(findingAdjudication);
+      const signed = projection.findings.filter((finding) => changingIds.includes(finding.itemId)).map(findingAdjudication);
       await (await import('../presence/person-steps.mjs')).signPersonRecords(root, workflow,
         signed.map((record) => ({ label: 'Convergence adjudication', action: 'decision.adjudicate', record })));
       if (signed.some((record) => record.presence)) {
         const presence = new Map(signed.map((record) => [record.itemId, record.presence]));
         projection = adjudicatedConvergenceProjection(existing,
-          [...kept, ...decisions.map((decision) => ({ ...decision, presence: presence.get(decision.itemId) }))]);
+          [...kept, ...changing.map((decision) => ({ ...decision, presence: presence.get(decision.itemId) }))]);
       }
       await writeConvergenceProjection(root, subject, projection);
-      return { decisions, projection, authority };
+      return { decisions: changing, unchanged, earlier, projection, authority, phaseId };
     },
     {
       // Adjudication is a human governance decision, not governed-agent authorship. Deterministic
@@ -1727,12 +1734,35 @@ export async function storyAdjudicateCommand(positionals, options) {
       }
     }
   );
-  const { decisions, projection, authority } = result;
+  const { decisions, unchanged, earlier, projection, authority, phaseId } = result;
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
-  for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor} (${authority.authorityGroup}).`);
-  console.log(`Blocking findings: ${projection.unresolvedBlockers.length ? projection.unresolvedBlockers.join(', ') : 'none'}`);
-  console.log(`Allowed next: ${projection.allowedNext.join(', ') || 'none'}`);
+  for (const decision of unchanged) console.log(`Already recorded: ${decision.disposition} on ${decision.itemId} at ${earlier.get(decision.itemId).at}. Nothing changed.`);
+  for (const decision of decisions) {
+    const replaced = earlier.get(decision.itemId);
+    console.log(`${replaced ? `Replaced ${replaced.disposition} from ${replaced.at} with` : 'Recorded'} ${decision.disposition} on ${decision.itemId} by ${decision.actor} (${authority.authorityGroup}).`);
+  }
+  // "Findings" are only what a person has decided, so "Blocking findings: none" read as finished with items still owed.
+  const items = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])];
+  const decided = new Set((projection.findings ?? []).map((finding) => finding.itemId));
+  const open = items.filter((item) => !decided.has(item.id));
+  if (open.length) {
+    const named = open.slice(0, 8).map((item) => `${item.id}${item.paths?.length ? ` ${item.paths.join(', ')}` : ''}`);
+    console.log(`${open.length} of ${items.length} still need a decision: ${named.join('; ')}${open.length > named.length ? `; and ${open.length - named.length} more` : ''}.`);
+  } else console.log(`All ${items.length} decided.`);
+  if (projection.unresolvedBlockers.length) console.log(`Blocking findings: ${projection.unresolvedBlockers.join(', ')}`);
+  const nextActions = projection.allowedNext.filter((action) => action !== 'adjudicate');
+  if (!open.length && !projection.unresolvedBlockers.length) console.log(`Next: /sf-converge in Copilot, or singularity-flow prepare ${phaseId} here, regenerates the report to publish.`);
+  else if (nextActions.length) console.log(`Allowed next: ${nextActions.join(', ')}`);
+}
+
+/** One person's same answer on one item: same disposition, classification, reason and clauses. */
+function sameAdjudication(recorded, decision) {
+  const clauses = (entry) => [...(entry.clauseIds ?? [])].sort().join('\n');
+  return Boolean(recorded) && recorded.disposition === decision.disposition
+    && (recorded.classification ?? null) === (decision.classification ?? null)
+    && String(recorded.reason ?? '').trim() === String(decision.reason ?? '').trim()
+    && clauses(recorded) === clauses(decision);
 }
 
 function amendmentDirectoryRelative(root, config, workflow) {

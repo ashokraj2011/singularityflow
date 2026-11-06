@@ -547,7 +547,7 @@ test('a migrated legacy projection stays bound to its lossless archive', async (
   const { commandFunction } = await import('./helpers/command-source.mjs');
   assert.match(
     await commandFunction('storyAdjudicateCommand'),
-    /adjudicatedConvergenceProjection\(existing,\s*\[\.\.\.kept,\s*\.\.\.decisions\]\)/,
+    /adjudicatedConvergenceProjection\(existing,\s*\[\.\.\.kept,\s*\.\.\.changing\]\)/,
     'the adjudication command can sever the migrated evidence chain'
   );
 

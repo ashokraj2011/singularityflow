@@ -379,10 +379,23 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const absent = iteration.facts.find((fact) => fact.kind === 'absent-observed-claim' && fact.clauseIds.includes('E2E:REQ-002'))
     ?? iteration.facts.find((fact) => fact.kind === 'absent-observed-claim');
   assert.ok(absent, 'no absent-claim fact to adjudicate');
-  sflow(root, ['story', 'adjudicate', absent.id, '--disposition', 'rework', '--clause', 'E2E:REQ-002']);
-  for (const fact of iteration.facts.filter((entry) => entry.id !== absent.id)) {
-    sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'dismissed', '--reason', 'Refactor noise; no requirement claims it.']);
+  const adjudicateAbsent = () => sflow(root, ['story', 'adjudicate', absent.id, '--disposition', 'rework', '--clause', 'E2E:REQ-002']).stdout;
+  const firstAnswer = adjudicateAbsent();
+  const others = iteration.facts.filter((entry) => entry.id !== absent.id);
+  // Each answer says what is still owed, where "Blocking findings: none" used to read as finished.
+  assert.match(firstAnswer, others.length ? new RegExp(`${others.length} of ${iteration.facts.length} still need a decision: ${others[0].id}`) : /All 1 decided\./u);
+  // The same answer again records nothing, and says so; a different one says what it replaced.
+  const repeated = adjudicateAbsent();
+  assert.match(repeated, new RegExp(`Already recorded: rework on ${absent.id} at .*Nothing changed\\.`));
+  assert.doesNotMatch(repeated, /^(?:Recorded|Replaced)/mu);
+  sflow(root, ['story', 'adjudicate', absent.id, '--disposition', 'deferred', '--reason', 'Looking at this later.']);
+  assert.match(adjudicateAbsent(), new RegExp(`Replaced deferred from .* with rework on ${absent.id}`));
+  let lastAnswer = firstAnswer;
+  for (const fact of others) {
+    lastAnswer = sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'dismissed', '--reason', 'Refactor noise; no requirement claims it.']).stdout;
   }
+  assert.match(lastAnswer, new RegExp(`All ${iteration.facts.length} decided\\.`));
+  assert.match(lastAnswer, /Blocking findings: /u, 'the rework still blocks, and says so');
 
   const blocked = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
   assert.ok(blocked.unresolvedBlockers.length, 'rework produced no blocker');

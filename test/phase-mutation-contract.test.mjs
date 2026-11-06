@@ -1046,6 +1046,23 @@ test('a person\'s decision is refused in every turn but the one they start for i
   const plain = await f.enter('Looks fine, finish it.', 'plain-decider');
   const shell = command => repositoryToolGuard({ ...plain, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   assert.match((await shell(decisions['epic-story-decision'][0])).permissionDecisionReason, /they run \/sf-epic-review-decision, which asks them/u);
+  // The route under the refusal is that same turn, where a turn owns the step; none says none.
+  const accounted = await shell(decisions['story-decision'][4]);
+  assert.match(accounted.next[0].copilotCommand, /^\/sf-decide\b/u);
+  assert.doesNotMatch(accounted.permissionDecisionReason, /no verified equivalent/u);
+  assert.match((await shell(decisions['convergence-adjudication'][0])).next[0].copilotCommand, /^\/sf-converge\b/u);
+  assert.match((await shell(decisions['agent-trust'][0])).permissionDecisionReason, /no verified equivalent/u);
+  // A chain in the turn that owns the decision keeps the person's answers: run them one at a time.
+  const chain = 'singularity-flow story adjudicate CF-1 --disposition dismissed --reason "Not a defect." && singularity-flow story adjudicate CF-2 --disposition dismissed --reason "Nor this."';
+  const converging = await f.enter('/sf-converge', 'converger');
+  const inOwnTurn = await repositoryToolGuard({ ...converging, toolName: 'bash', toolArgs: { command: chain, cwd: f.root } });
+  assert.equal(inOwnTurn.permissionDecision, 'deny', 'a chain is still refused, so each command is checked alone');
+  assert.match(inOwnTurn.permissionDecisionReason, /nothing was recorded because these commands were chained/u);
+  assert.match(inOwnTurn.permissionDecisionReason, /with the answers the person already gave/u);
+  assert.doesNotMatch(inOwnTurn.permissionDecisionReason, /do not retry/u);
+  assert.notEqual((await repositoryToolGuard({ ...converging, toolName: 'bash', toolArgs: { command: decisions['convergence-adjudication'][0], cwd: f.root } })).permissionDecision, 'deny');
+  const elsewhere = await repositoryToolGuard({ ...plain, toolName: 'bash', toolArgs: { command: chain, cwd: f.root } });
+  assert.match(elsewhere.permissionDecisionReason, ownDenial, 'any other turn keeps the person\'s refusal');
   assert.match((await shell(decisions['agent-trust'][0])).permissionDecisionReason, /in their own terminal, and no turn runs it/u);
   // Its previews stay open.
   for (const command of ['singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --dry-run',

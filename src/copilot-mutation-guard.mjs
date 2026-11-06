@@ -1116,6 +1116,8 @@ const PERSON_DECISION_DENIALS = Object.freeze({
   'upstream-issue-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers, in /sf-decide or their own terminal, never by an agent. Show the user the command and stop; do not retry it'
 });
 
+const CHAINED_OWNED_STEP_DENIAL = 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: nothing was recorded because these commands were chained. This turn may record each one: run them now, one standalone command per call, with the answers the person already gave. Do not ask them again';
+
 const TEST_ENVIRONMENT_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an SFlow command run with NODE_ENV=test or a SINGULARITY_FLOW_TEST_ variable set is refused in every chat: those switches belong to SFlow\'s own test suite and never stand in for a person\'s confirmation, choice or identity. Run the command without them; do not retry it with another spelling';
 
 /** Why a person's decision is refused here: the turn they start for it, or their own terminal. */
@@ -1141,7 +1143,9 @@ function personStepRefusal({ id, argv, owners }) {
   const decision = Object.hasOwn(PERSON_DECISION_DENIALS, id);
   // The person confirms an approval or return by typing the step in their own terminal, not with --yes.
   const guidance = safeCommandGuidance({ argv: decision || owners ? argv.filter(value => !['--yes', '-y', '--for-agent'].includes(value)) : argv });
-  const routes = guidance ? [{ ...guidance, ...(decision ? {} : { skill: null, copilotCommand: null }) }] : [];
+  // A step a turn owns keeps that turn as its Copilot route: the reason names it, and "no verified
+  // equivalent" under it sent a person to a terminal for what /sf-decide records in chat (2026-11-06).
+  const routes = guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
   const reason = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
   return { permissionDecision: 'deny', next: routes,
@@ -1871,6 +1875,9 @@ async function mutationToolDecision(payload, record) {
         // Inside a chain or wrapper the checks above cannot read the command; a person's step there is
         // refused for what it is too, with its exact line (an approval turn keeps its own approve route).
         const chained = verifiedShellForm(call, value) ? null : personStepOfCall(call, payload.cwd);
+        // The turn that owns the decision may record it, one command at a time. Calling a chain "never an
+        // agent's" and "do not retry" lost four answers the person had just given (2026-11-06).
+        if (chained?.owners?.includes(skillName(record.skill))) return mutationDenial(contract, CHAINED_OWNED_STEP_DENIAL, [], own());
         if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained);
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded

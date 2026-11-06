@@ -24,7 +24,10 @@ export interface DecisionOptionPacket {
   effects?: Array<Record<string, unknown>>;
   needs?: DecisionNeeds;
   decidedBy: DecisionDecidedBy;
-  /** False for a person's own action (capturing a screenshot) that the list never records. */
+  /**
+   * False only says `decisions record` does not write this option: the person takes its own command.
+   * It says nothing about who may run that command, or whether a /sf-decide turn may.
+   */
   recordable?: boolean;
   available?: boolean;
   action?: { command: string; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string } };

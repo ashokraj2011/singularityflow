@@ -18,7 +18,6 @@ import { checklistDecisions } from './commands/shared/checklist-decisions.mjs';
 import { decisionWorkflow } from './commands/shared/decision-workflow.mjs';
 import { printSelectionReceipt } from './commands/shared/print-selection-receipt.mjs';
 import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
-import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
 import { recordPublishedWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
@@ -4529,48 +4528,11 @@ async function decisionPlanCommand(positionals, options) {
     ...optionStrings(options, 'add-location').map((entry) => { const [clauseId, file] = split(entry, '--add-location'); return { kind: 'add-location', clauseId, path: file }; }),
     ...optionStrings(options, 'add-supporting').map((entry) => { const [file, kind] = split(entry, '--add-supporting'); return { kind: 'add-supporting', path: file, class: kind, reason: reasons[next++] ?? null }; })
   ];
-  const groups = planAuthorities(workflow);
-  if (!groups.length) {
-    throw new SingularityFlowError('No step of this Story holds the plan with an approval group, so nobody can amend it.', { code: 'PLAN_AMENDMENT_AUTHORITY_UNAVAILABLE' });
-  }
-  const records = await loadActiveSpecRecords(workDir(root, config, id), workflow);
-  const plan = mergePlannedClaimRecords(records.planned ?? []);
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const decide = (aggregate) => recordPlanAmendment(aggregate, {
-    changes, reason: optionString(options, 'reason') ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), plan
-  });
-  decide(structuredClone(workflow));
-  const { value: amendment, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'plan' }
-    },
-    `[${id}][plan:amend] ${changes.length} change(s)`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'amend the plan');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'plan_amended', phase: aggregate.currentPhase ?? null,
-        detail: `${recorded.id}: ${recorded.changes.map((change) => change.kind === 'add-location' ? `${change.path} added to ${change.clauseId}` : `${change.path} listed as ${change.class}`).join('; ')}. ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'plan', amendment: recorded.id, reviewPacketSha256: null }
-      })
-    }
-  );
+  const { commitPlanAmendment } = await import('./commands/decision-plan-amendment.mjs');
+  const { amendment, publication } = await commitPlanAmendment(root, config, workflow, { changes, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded plan amendment ${amendment.id} for ${id} through ${amendment.authorityGroup}.`);
     console.log(publication.pushed

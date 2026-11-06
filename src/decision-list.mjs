@@ -16,6 +16,8 @@
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
 import { planAuthorities } from './plan-amendments.mjs';
+import { isTestAutomationPath } from './source-boundary.mjs';
+import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
@@ -34,9 +36,12 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'upstream-issue-decision']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
+// `decision plan`'s own limits: a supporting change states its reason in at most 500 characters.
+const PLAN_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
+const SUPPORTING_REASON = Object.freeze({ minimum: 20, maximum: 500 });
 
 function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -73,6 +78,7 @@ function issueGroups(workflow, phaseId) {
 function effectGroups(workflow, effect) {
   if (effect.kind === 'upstream-issue') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
+  if (effect.kind === 'plan-amendment') return planAuthorities(workflow);
   return testRunRiskAuthorities(workflow, effect.phase);
 }
 
@@ -316,7 +322,10 @@ const anyone = (words) => ({ groups: [], labels: [], allowed: true, words });
 /** Nothing names who takes this step: it is never said to be this person's, and never said to be anyone's. */
 const nobodyNamed = (words) => ({ groups: [], labels: [], allowed: false, words: `Singularity Flow cannot say who decides this. ${words}`.trimEnd() });
 
-/** A choice that is the person's own step: its command is theirs to run, never recorded from the list. */
+/**
+ * A choice that is the person's own step. `recordable: false` says only that `decisions record` does
+ * not write it; whether a chat turn may run its command is the guard's (command-skills.mjs).
+ */
 function personalStep({ id, label, command, words, decidedBy = nobodyNamed(words) }) {
   return { id, label, recommended: false, words, effects: [], needs: {}, recordable: false,
     action: { command, alternativeCommands: [] }, decidedBy };
@@ -649,6 +658,42 @@ function holdItem(workflow, context, kind, hold) {
   };
 }
 
+/**
+ * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
+ * is a choice for an approver of the plan. One item per path, each option its row, with no answer
+ * chosen and no reason suggested. `chat` is the same write as a /sf-decide turn runs it (with the
+ * person's own reason in place of the blank): `decision plan` is on that turn's list, so `recordable`
+ * here and there are two different questions.
+ */
+function planPathItems(workflow, context, hold) {
+  const workId = workflow.workItem.id;
+  const quoted = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
+  const need = { reason: textNeed('', PLAN_REASON) };
+  return hold.unclaimedPaths.map((file) => {
+    const rows = (hold.planRows ?? []).filter((row) => !row.testOnly || isTestAutomationPath(file));
+    const supporting = classifySupportingChange(file).class ?? null;
+    const flag = (entry) => `singularity-flow decision plan ${workId} --fetch ${entry} --reason "<REASON>"`;
+    return {
+      kind: 'plan-accounting', title: `Say where ${file} belongs`,
+      why: `${file} changed and no row of the plan names it, so approval waits. Add it to the row it serves${supporting ? `, or list it as a supporting change (${supporting})` : ''}: the code and its tests stay as they are, and no step is reset.`,
+      options: [
+        ...rows.map((row) => ({ ...option(workflow, context, {
+          id: `row-${String(row.clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`.slice(0, 64),
+          label: `Add to ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}`,
+          words: `${file} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery.`,
+          effects: [{ kind: 'plan-amendment', change: { kind: 'add-location', clauseId: row.clauseId, path: file } }], needs: need }),
+        chat: { command: flag(`--add-location ${quoted(`${row.clauseId}=${file}`)}`) } })),
+        ...(supporting ? [{ ...option(workflow, context, {
+          id: 'supporting', label: `List it as a supporting change (${supporting})`,
+          words: 'It stays out of every requirement, listed with your reason.',
+          effects: [{ kind: 'plan-amendment', change: { kind: 'add-supporting', path: file, class: supporting } }], needs: { reason: textNeed('', SUPPORTING_REASON) } }),
+        chat: { command: flag(`--add-supporting ${quoted(`${file}=${supporting}`)} --supporting-reason "<REASON>"`) } }] : [])
+      ],
+      details: { path: file, commands: [`singularity-flow decision plan ${workId} --fetch --add-location <clause>=${file} --reason "<why>"`] }
+    };
+  });
+}
+
 /** The step's approval itself: always the list's last item. */
 function approvalItem(workflow, context, phase, { heldBy, youDecide }) {
   const workId = workflow.workItem.id;
@@ -684,7 +729,7 @@ export const APPROVAL_HOLDING_KINDS = Object.freeze(['conformance-gap', 'upstrea
 export const PENDING_CONCEPTS = Object.freeze({
   'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
   'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation'] }),
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -709,17 +754,18 @@ const HOLD_KINDS = Object.freeze({
  */
 export function holdItemKind(hold) {
   if (hold.owner === 'you-decide') return 'approval';
+  if (hold.unclaimedPaths?.length) return 'plan-accounting';
   if (HOLD_KINDS[hold.code]) return HOLD_KINDS[hold.code];
   return (hold.clearedBy?.testRun || /test-run risk/iu.test(hold.summary ?? '')) && hold.owner === 'someone-decides' ? 'test-run-risk' : 'approval-hold';
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting']);
 
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
@@ -773,7 +819,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
   const carried = new Set(listed.map((item) => item.kind));
   const extra = holds.filter((hold) => hold.owner !== 'this-checkout' && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)))
-    .map((hold) => holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold));
+    .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
+      : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
   const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (awaiting && heldKinds.has(item.kind)
     && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
@@ -830,7 +877,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // /sf-decide turn may not record (an accepted test command), or a hold's route with its own skill.
   const theirsAlone = (item) => Boolean(item.routeSkill) || item.options.length > 0 && item.options.every((entry) => (entry.recordable === false
     ? typeof entry.action?.command === 'string' && commandLineWithoutSkill(entry.action.command)
-    : !DECISION_LIST_CHAT_OPTIONS.includes(entry.id)));
+    : !DECISION_LIST_CHAT_OPTIONS.includes(entry.id) && !entry.chat));
   const listRoute = decisions.length && decisions.every(theirsAlone) ? null : `/sf-decide ${workId}`;
   return {
     schemaVersion: 1, resultType: 'sflow-decisions', revision: DECISION_LIST_REVISION,
@@ -941,8 +988,9 @@ export function decisionRecordPlan(packet, answers, { at }) {
     const values = {};
     if (selected.needs.reason) {
       const reason = String(answers.reason.get(item.id) ?? selected.needs.reason.default).trim();
-      if (reason.length < REASON.minimum || reason.length > REASON.maximum) {
-        refused(`The reason for ${item.id} must be ${REASON.minimum} to ${REASON.maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
+      const { minimum, maximum } = selected.needs.reason;
+      if (reason.length < minimum || reason.length > maximum) {
+        refused(`The reason for ${item.id} must be ${minimum} to ${maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
       }
       values.reason = reason;
     }
@@ -977,6 +1025,10 @@ export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'test-narrowing') return `accept that ${effect.commandId} ran narrowed for ${stepName(workflow, effect.phase)} (test-narrowing decision)`;
   if (effect.kind === 'test-command') return `run ${effect.request}'s command as ${stepName(workflow, effect.phase)}'s tests for this Story (test-command decision)`;
   if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
+  if (effect.kind === 'plan-amendment') {
+    return effect.change.kind === 'add-location' ? `add ${effect.change.path} to ${clauseName(workflow, effect.change.clauseId)} (plan amendment)`
+      : `list ${effect.change.path} as a supporting change, ${effect.change.class} (plan amendment)`;
+  }
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;
 }

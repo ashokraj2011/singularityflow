@@ -255,7 +255,8 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
         if (value) values.cause[item.id] = value;
       }
       if (option.needs.reason) {
-        const value = await ask(`   Reason [${option.needs.reason.default}]: `);
+        // With no suggested wording, only the person's own reason answers it.
+        const value = await ask(`   Reason${option.needs.reason.default ? ` [${option.needs.reason.default}]` : ''}: `);
         if (value) values.reason[item.id] = value;
       }
     }
@@ -296,6 +297,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const { recordEvidenceReuseDecision } = await import('./decision-evidence-reuse.mjs');
     return (await recordEvidenceReuseDecision(root, config, workflow, { phaseId: effect.phase, attemptId: effect.attemptId,
       reason: step.values.reason }, { actor, agent })).record;
+  }
+  if (effect.kind === 'plan-amendment') {
+    const { commitPlanAmendment } = await import('./decision-plan-amendment.mjs');
+    const change = effect.change.kind === 'add-supporting' ? { ...effect.change, reason: step.values.reason } : effect.change;
+    return (await commitPlanAmendment(root, config, workflow, { changes: [change], reason: step.values.reason }, { actor, agent })).amendment;
   }
   if (effect.kind === 'visual-profile') {
     const { recordVisualProfileDecisionFor } = await import('./decision-visual-profile.mjs');

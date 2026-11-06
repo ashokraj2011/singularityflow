@@ -2017,8 +2017,9 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         ...(coverage.unclaimedChangedPaths.length ? {
           recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
             `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`),
-          planRows: Object.entries(planned).slice(0, 12).map(([clauseId, claim]) => ({ clauseId,
-            ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}) }))
+          planRows: Object.entries(planned).slice(0, 40).map(([clauseId, claim]) => ({ clauseId,
+            ...(claim.observableResult ? { result: String(claim.observableResult).slice(0, 120) } : {}),
+            ...(claim.fulfillment === 'test-only' ? { testOnly: true } : {}) }))
         } : {})
       }
     }

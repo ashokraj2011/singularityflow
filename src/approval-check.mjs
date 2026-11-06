@@ -799,7 +799,10 @@ export function approvalHold(error, workflow, phase) {
     ...(message.slice(0, MAX_HOLD_MESSAGE) !== summary ? { message: message.slice(0, MAX_HOLD_MESSAGE) } : {}),
     ...(clearedBy ? { clearedBy } : {}),
     ...(route ? { action: { ...route, ...(skill ? { skill } : {}) } } : {}),
-    ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {})
+    ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
+    // Only when these paths are all that holds it: then each is a choice, not a repair.
+    ...(owner === 'someone-decides' && error.details?.planRows?.length && error.details?.coverage?.unclaimedChangedPaths?.length
+      ? { unclaimedPaths: error.details.coverage.unclaimedChangedPaths } : {})
   };
 }
 

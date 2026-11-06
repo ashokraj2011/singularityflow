@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 7
+version: 8
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -92,7 +92,7 @@ start:
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV] [--debug]`, `singularity-flow app status`, `singularity-flow app stop [ID]`, `singularity-flow app suggest`, `singularity-flow app config preview --application-file <FILE>`; `singularity-flow tests plan`, `singularity-flow tests run [--command ID] [--environment ENV]` and `singularity-flow tests summary`.
+- **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV] [--debug]`, `singularity-flow app status`, `singularity-flow app stop [ID]`, `singularity-flow app suggest`, `singularity-flow app config preview --application-file <FILE>`; `singularity-flow tests plan`, `singularity-flow tests run [--command ID] [--environment ENV]`, `singularity-flow tests summary`, and `singularity-flow tests base --work-id ID`, which says whether a Story's failures also fail on its base commit (see test-recovery).
 - **VS Code:** the capability page runs `app start` as a task, reads `app status --json`, and opens the test summary from `tests summary --json`. Its Tests section and each run's confirmation say the plan in words, what was seen and not used, and what to do before starting.
 - **Copilot:** run `app plan`, `app start` and `tests run` instead of guessing a command; Copilot never runs `env bind`. At a code step it reads `recovery.testExecution.earlyChecks`.
 

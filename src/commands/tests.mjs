@@ -589,7 +589,9 @@ async function baseStory(root, options) {
   if (!baseCommit) fail(`Story ${context.workflow.workItem.id} names no base commit to compare with.`, 'TESTS_BASE_UNKNOWN');
   const attempts = await stepAttempts(root, workDirRelative(context.config, context.workflow.workItem.id), context.workflow.workItem.id, phase.id);
   const results = [];
-  for (const command of context.select(commands)) {
+  for (const selected of context.select(commands)) {
+    // Files only this Story added or changed are no question for the base: it runs the whole command.
+    const command = selected.testScope?.baseCommand ?? selected;
     const latest = attempts.filter((attempt) => attempt.commandId === command.id).at(-1) ?? null;
     const here = latest && latest.status !== 'passed' ? failedNames(latest.occurrences) : [];
     const cwd = path.join(root, command.workingDirectory ?? '.');

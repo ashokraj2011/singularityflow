@@ -13,7 +13,7 @@ import test from 'node:test';
 import { prepublishTestExecutionLines } from '../src/phase-prepublish.mjs';
 import { testExecutionHandoff } from '../src/test-execution-handoff.mjs';
 import { moduleTestCommands } from '../src/test-module-markers.mjs';
-import { describeTestCommand, earlyTestChecks, nodeRangeAccepts, pathCoverage, suitesNotUsed, testPlanText } from '../src/test-plan.mjs';
+import { assertNoUnreadRunner, describeTestCommand, earlyTestChecks, nodeRangeAccepts, pathCoverage, suitesNotUsed, testPlanText } from '../src/test-plan.mjs';
 
 async function repository(t, files) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-plan-'));
@@ -236,4 +236,15 @@ test('at a code step the handoff points to the early checks, and no longer says 
   assert.match(ready.guidance, /2 things found/u);
   assert.equal(testExecutionHandoff({ status: 'unavailable', commands: [], earlyChecks: [planned] }).runnerStatus, 'unavailable');
   assert.match(prepublishTestExecutionLines({ status: 'not-run', commands: [], earlyChecks: [planned] }).join('\n'), /Before the tests run: The plan names e2e\/x\.spec\.js\. Name them in the plan\./u);
+});
+
+test('TypeScript tests under a runner SFlow cannot read hear its name, not a generic refusal', async (t) => {
+  const root = await repository(t, { 'package.json': manifest({ scripts: { test: 'ava' }, devDependencies: { ava: '6' } }), 'test/a.test.ts': '' });
+  await assert.rejects(assertNoUnreadRunner(root, ['test/a.test.ts']), (error) => {
+    assert.equal(error.code, 'TEST_MODULE_UNCOVERED');
+    assert.match(error.message, /package\.json's test script runs ava, whose results SFlow cannot read yet, so no test command was inferred for test\/a\.test\.ts/u);
+    return true;
+  });
+  const plain = await repository(t, { 'package.json': manifest({ scripts: { lint: 'eslint .' } }), 'test/a.test.ts': '' });
+  await assertNoUnreadRunner(plain, ['test/a.test.ts']);
 });

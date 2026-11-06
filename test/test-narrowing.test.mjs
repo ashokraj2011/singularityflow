@@ -144,6 +144,7 @@ test('the paths a command names are read per runner, and an option\'s value is n
   assert.deepEqual(read('vitest', '--dir', 'src'), ['vitest', ['src'], []]);
   assert.deepEqual(read('jest', 'src/one', '--json', '--outputFile', 'r.json'), ['jest', ['src/one'], []]);
   assert.deepEqual(read('jest', '--bail', '1'), ['jest', [], ['1']], 'an option this cannot read may be taking the word');
+  assert.deepEqual(read('vitest', 'run', '--project', 'unit', '-t', 'adds'), ['vitest', [], []], 'a selecting option\'s value is its own, and read as a filter');
   assert.deepEqual(read('npx', '--no-install', 'playwright', 'test', 'e2e/login'), ['playwright', ['e2e/login'], []]);
   assert.deepEqual(read('python3', '-B', '-m', 'pytest', '-p', 'no:cacheprovider', 'tests/unit', '--junitxml=r.xml'), ['pytest', ['tests/unit'], []]);
   assert.deepEqual(read('go', 'test', '-json', './...'), ['go', [], []], './... is every package');
@@ -234,4 +235,7 @@ test('a guessed command carrying the path in its argv reads the same; SFlow\'s o
   assert.deepEqual(addedPathNarrowing(root, nodeFiles, { scripts: [], baseCommit, inferred: true }), []);
   const scoped = { ...carried, testScope: { mode: 'new-and-changed', files: ['src/a.test.js'] } };
   assert.deepEqual(addedPathNarrowing(root, scoped, { scripts, baseCommit, inferred: true }), [], 'a person chose this Story\'s test scope');
+  // A run the scope left whole is read as any other.
+  const left = { ...carried, testScope: { mode: 'new-and-changed', whole: 'the Story changed no test here' } };
+  assert.equal(addedPathNarrowing(root, left, { scripts: [], baseCommit, inferred: true })[0].droppedCount, 1);
 });

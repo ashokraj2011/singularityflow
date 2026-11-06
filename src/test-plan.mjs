@@ -142,6 +142,16 @@ export async function suitesNotUsed(root, commands, { reads = fileReads(root) } 
   return seen;
 }
 
+/** TypeScript tests under a runner the package names and SFlow cannot read: say that, not that no runner was found. */
+export async function assertNoUnreadRunner(root, tests) {
+  const [{ unreadRunnerOfPackage }, { SingularityFlowError }, { testSetupRoute }] = await Promise.all([import('./test-module-markers.mjs'), import('./util.mjs'), import('./code-delivery-tests.mjs')]);
+  const named = await unreadRunnerOfPackage(root, path.posix.dirname(tests[0]));
+  if (!named) return;
+  throw new SingularityFlowError(`${named.words}, whose results SFlow cannot read yet, so no test command was inferred for ${tests.join(', ')}. `
+    + 'Configure an approved test command that writes a report SFlow reads (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
+  { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ paths: tests, runner: named.runner }) });
+}
+
 /** Which suite covers each path: the files changed so far, else the plan's. Bounded for reading. */
 export async function pathCoverage(root, commands, { changed = [], planned = [] } = {}) {
   const [{ testCommandCoversPath }, { commandForTestFile }] = await Promise.all([import('./code-delivery-tests.mjs'), import('./test-module-markers.mjs')]);
@@ -189,7 +199,7 @@ async function dependencyChecks(root, commands, reads) {
   const seen = new Set();
   for (const command of commands) {
     const directory = command.workingDirectory ?? '.';
-    if (!SCRIPT_RUNNERS.has(launcherName(command.argv?.[0])) && !NODE_RUNNER_BINARIES.has(launcherName(command.argv?.[0])) && launcherName(command.argv?.[0]) !== 'npx') continue;
+    if (!SCRIPT_RUNNERS.has(launcherName(command.argv?.[0])) && !NODE_RUNNER_BINARIES.has(launcherName(command.argv?.[0])) && !['npx', 'pnpx', 'bunx'].includes(launcherName(command.argv?.[0]))) continue;
     const manifest = parsedManifest(await reads.read(joined(directory, 'package.json')));
     const binaries = (await resolved(command, reads)).launchers.filter((name) => NODE_RUNNER_BINARIES.has(name));
     if (!manifest && !binaries.length) continue;

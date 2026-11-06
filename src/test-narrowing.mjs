@@ -258,6 +258,8 @@ const VALUE_OPTIONS = new Set([...PLACE_OPTIONS, '-c', '--config', '--reporter',
   '--testTimeout', '--hookTimeout', '--mode', '--reporter-option', '--reporter-options', '-O', '--require', '--import', '--timeout', '-t', '--workers', '-j', '--retries', '--output',
   '-p', '-o', '--junitxml', '--rootdir', '--confcutdir', '--ignore', '--cov', '--test-reporter', '--test-reporter-destination', '--test-concurrency', '--test-timeout',
   '-coverprofile', '-covermode', '-count', '-timeout', '-tags', '-parallel', '-exec', '--env-file']);
+// A selecting option's value is the option's; its filter is already read above.
+for (const option of Object.values(FILTERS).flat()) if (!VALUELESS.has(option)) VALUE_OPTIONS.add(option);
 // Options known to take no value, so the word after them is a place for certain.
 const FLAG_OPTIONS = new Set(['--test', '--json', '-json', '--ci', '--coverage', '--verbose', '-v', '-q', '-x', '-s', '--silent', '--passWithNoTests', '--runInBand', '-i', '--no-cache',
   '-race', '-cover', '--headed', '--forbid-only', '--globals', '--run']);
@@ -358,7 +360,8 @@ function baseTestFiles(root, baseCommit, directory, runner) {
  * Where the base commit cannot be read this says nothing, as a filter it cannot see would.
  */
 export function addedPathNarrowing(root, command, { scripts = [], baseCommit = null, inferred = false } = {}) {
-  if (!baseCommit || command.testScope) return [];
+  // A run of only the new tests names its files by a person's choice of scope; `whole` runs as written.
+  if (!baseCommit || command.testScope?.files) return [];
   const directory = command.workingDirectory ?? '.';
   const manifest = path.posix.join(directory, 'package.json');
   const scriptFiles = scripts.map((script) => String(script.source ?? '').split('#scripts.')[0]).filter(Boolean);

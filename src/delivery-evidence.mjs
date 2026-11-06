@@ -1833,6 +1833,8 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
         workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
         result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 }
       });
+    } else if (tests.length && tests.every((candidate) => /\.[cm]?tsx?$/i.test(candidate))) {
+      await (await import('./test-plan.mjs')).assertNoUnreadRunner(root, tests);
     }
   }
   const commandKey = command => JSON.stringify([commandText(command), command?.workingDirectory ?? '.']);

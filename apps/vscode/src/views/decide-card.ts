@@ -17,7 +17,7 @@ import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, type DecideDraft } from './decide-card-page.ts';
+import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
 export interface DecideResult { status: string; message: string; recorded?: string[]; remaining?: string[]; next?: unknown }
 
@@ -42,14 +42,15 @@ async function record(client: SingularityFlowClient, packet: DecisionPacket, ans
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export async function reviewDecisions(client: SingularityFlowClient, target: { workId?: unknown }, refresh?: () => Promise<unknown>): Promise<DecideResult> {
+export async function reviewDecisions(client: SingularityFlowClient, target: { workId?: unknown }, refresh?: () => Promise<unknown>, { askedInChat = false } = {}): Promise<DecideResult> {
   if (!target || Object.keys(target).some((key) => key !== 'workId') || typeof target.workId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(target.workId)) {
     throw new Error('This page takes only a Story ID. Answers and reasons come from the person on the page.');
   }
   const workId = target.workId;
   if (open) { open.reveal(); return { status: 'busy', message: 'The decisions page is already open. Finish it there.' }; }
   let packet = await readList(client, workId);
-  if (!decideRows(packet).length) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
+  // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on.
+  if (!(askedInChat ? openRows(packet) : decideRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
   open = panel;
@@ -107,7 +108,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
           if (result.status === 'recorded' && result.record) recorded = [...recorded, result.record];
           await reread();
           busy = false; panel.reveal();
-          if (!decideRows(packet).length) return finish({ status: 'recorded', recorded, remaining: [], message: `${recorded.length} recorded. All decided.`, next: packet.next ?? null });
+          if (!openRows(packet).length) return finish({ status: 'recorded', recorded, remaining: [], message: `${recorded.length} recorded. All decided.`, next: packet.next ?? null });
           render(null, result.message ?? null);
         } catch (error) { busy = false; panel.reveal(); render((error as Error).message); }
       },

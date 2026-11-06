@@ -5,17 +5,19 @@
  */
 import { escape } from './webview.ts';
 import type { InboundMessage } from './messages.ts';
-import { optionRow, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
+import { optionRow, type DecisionArticleAnswer, type DecisionChoice, type DecisionItemPacket, type DecisionOptionPacket, type DecisionPacket } from './decision-list-model.ts';
 
 /** What the person has entered, by the item's title: IDs are renumbered when the list changes. A render never loses it. */
-export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; cause: string; expires: string }>;
+export type DecideDraft = ReadonlyMap<string, { option: string; reason: string; cause: string; expires: string; clause: string; article: DecisionArticleAnswer[] }>;
 
 const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 
 /** Every open decision: the approval itself is reviewed on its own page, last. */
-export const decideRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind !== 'approval');
+export const openRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind !== 'approval');
+/** What this page shows: the open decisions, then anything offered that nothing waits on. */
+export const decideRows = (packet: DecisionPacket): DecisionItemPacket[] => [...openRows(packet), ...(packet.offered ?? [])];
 
 /** The answers one reason may cover: offered by two or more rows, needing nothing but a reason. */
 export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label: string; rows: number }> {
@@ -24,7 +26,7 @@ export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label
     if (!item.decidedBy?.allowed) continue;
     for (const option of item.options.filter(decidable)) {
       const needs = option.needs ?? {};
-      if (needs.cause || needs.expires) continue;
+      if (needs.cause || needs.expires || needs.clause || needs.article) continue;
       const known = seen.get(option.id);
       if (known) known.rows += 1; else seen.set(option.id, { id: option.id, label: option.label, rows: 1 });
     }
@@ -34,11 +36,19 @@ export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label
 
 function fieldsHtml(item: DecisionItemPacket, entered: DecideDraft extends ReadonlyMap<string, infer V> ? V | undefined : never): string {
   const name = escape(item.title);
-  const needed = (flag: 'reason' | 'cause' | 'expires') => item.options.filter(decidable).find((option) => option.needs?.[flag])?.needs?.[flag];
+  const needed = (flag: 'reason' | 'cause' | 'expires' | 'clause' | 'article') => item.options.filter(decidable).find((option) => option.needs?.[flag])?.needs?.[flag];
   const reason = needed('reason') as { default: string; maximum: number } | undefined;
   const cause = needed('cause') as { default: string; maximum: number } | undefined;
   const expires = needed('expires') as { latest: string } | undefined;
+  const clause = needed('clause') as { known?: string[] } | undefined;
+  const article = needed('article') as { articles: Array<{ id: string; title: string; question: string }>; decisions: string[] } | undefined;
   return [
+    clause ? `<input data-field="clause" aria-label="The clauses that carry ${name}" placeholder="Clauses: ${escape((clause.known ?? []).slice(0, 4).join(', ') || 'their IDs, separated by commas')}" value="${escape(entered?.clause ?? '')}">` : '',
+    article ? `<div data-field="article" class="dc-articles">${article.articles.map(({ id, title, question }) => {
+      const given = entered?.article?.find((entry) => entry.article === id);
+      return `<label class="dc-article"><span title="${escape(question)}">${escape(title)}</span><select data-article="${escape(id)}" aria-label="${escape(question)}"><option value="">Choose…</option>${article.decisions.map((decision) => `<option value="${escape(decision)}"${given?.decision === decision ? ' selected' : ''}>${escape(decision)}</option>`).join('')}</select>
+        <input data-article-reason="${escape(id)}" aria-label="Why, for ${escape(title)}" placeholder="Why, if not satisfied" maxlength="500" value="${escape(given?.reason ?? '')}"></label>`;
+    }).join('')}</div>` : '',
     reason ? `<input data-field="reason" aria-label="Reason for ${name}" placeholder="${escape(reason.default || 'Your reason')}" maxlength="${reason.maximum}" value="${escape(entered?.reason ?? '')}">` : '',
     cause ? `<input data-field="cause" aria-label="What stops the tests, ${name}" placeholder="${escape(cause.default || 'What stops the tests')}" maxlength="${cause.maximum}" value="${escape(entered?.cause ?? '')}">` : '',
     expires ? `<label class="dc-date">Until <input type="date" data-field="expires" aria-label="Until when, ${name}" max="${escape(expires.latest)}" value="${escape(entered?.expires ?? '')}"></label>` : ''
@@ -94,14 +104,15 @@ const pageRows = (message: InboundMessage) => (Array.isArray(message.rows) ? mes
 
 export function decideDraftFrom(message: InboundMessage): DecideDraft {
   return new Map(pageRows(message).filter((row) => typeof row?.title === 'string')
-    .map((row) => [row.title as string, { option: text(row.option), reason: text(row.reason), cause: text(row.cause), expires: text(row.expires) }]));
+    .map((row) => [row.title as string, { option: text(row.option), reason: text(row.reason), cause: text(row.cause), expires: text(row.expires), clause: text(row.clause),
+      article: (Array.isArray(row.article) ? row.article as DecisionArticleAnswer[] : []) }]));
 }
 
 /** The rows the person answered, as the list's choices, or what is wrong: a reason with no decision is never taken for one. */
 export function decideChoicesFrom(packet: DecisionPacket, message: InboundMessage): { choices: unknown[]; problem: string | null } {
   const choices: unknown[] = [];
   for (const row of pageRows(message)) {
-    const item = packet.items.find((entry) => entry.id === row?.item);
+    const item = decideRows(packet).find((entry) => entry.id === row?.item);
     if (!item) return { choices: [], problem: 'The page named an item that is not on this list. Nothing was recorded.' };
     if (!text(row.option)) {
       if (text(row.reason).trim()) return { choices: [], problem: `Choose a decision for "${item.title}", or clear its reason.` };
@@ -109,7 +120,8 @@ export function decideChoicesFrom(packet: DecisionPacket, message: InboundMessag
     }
     const option = item.options.find((entry) => entry.id === row.option);
     choices.push({ item: item.id, option: row.option, ...(option?.needs?.reason ? { reason: text(row.reason) } : {}),
-      ...(option?.needs?.cause ? { cause: text(row.cause) } : {}), ...(option?.needs?.expires ? { expires: text(row.expires) } : {}) });
+      ...(option?.needs?.cause ? { cause: text(row.cause) } : {}), ...(option?.needs?.expires ? { expires: text(row.expires) } : {}),
+      ...(option?.needs?.clause ? { clause: text(row.clause) } : {}), ...(option?.needs?.article ? { article: row.article } : {}) });
   }
   return choices.length ? { choices, problem: null } : { choices, problem: 'Choose a decision for at least one row.' };
 }
@@ -120,9 +132,10 @@ export function decideSummary(packet: DecisionPacket, choices: readonly Decision
   const lines = choices.map((choice) => {
     const item = rows.find((entry) => entry.id === choice.item);
     const option = item?.options.find((entry) => entry.id === choice.option);
-    return `${item?.title ?? choice.item}: ${option?.label ?? choice.option}.${choice.expires ? ` Until ${choice.expires}.` : ''}${choice.cause ? ` What stops the tests: ${choice.cause.replace(/\.+$/u, '')}.` : ''}${choice.reason ? ` Reason: ${choice.reason}` : ''}`;
+    const articles = choice.article?.map((entry) => `${entry.article}: ${entry.decision}${entry.reason ? ` (${entry.reason})` : ''}`).join('; ');
+    return `${item?.title ?? choice.item}: ${option?.label ?? choice.option}.${choice.clause ? ` Carried by ${choice.clause}.` : ''}${articles ? ` ${articles}.` : ''}${choice.expires ? ` Until ${choice.expires}.` : ''}${choice.cause ? ` What stops the tests: ${choice.cause.replace(/\.+$/u, '')}.` : ''}${choice.reason ? ` Reason: ${choice.reason}` : ''}`;
   });
-  const left = rows.filter((item) => item.decidedBy?.allowed && !choices.some((choice) => choice.item === item.id));
+  const left = openRows(packet).filter((item) => item.decidedBy?.allowed && !choices.some((choice) => choice.item === item.id));
   return [...lines, ...(left.length ? ['', `Still undecided: ${left.map((item) => item.title).join('; ')}`] : [])].join('\n');
 }
 
@@ -143,6 +156,11 @@ export const DECIDE_STYLE = `
 .dc-fields input { display:block; width:100%; min-width:12rem; box-sizing:border-box; margin-bottom:.35rem; }
 .dc-fields [hidden], .dc-date[hidden] { display:none; }
 .dc-date { display:block; }
+.dc-articles { display:grid; gap:.35rem; margin-bottom:.35rem; }
+.dc-articles[hidden] { display:none; }
+.dc-article { display:grid; grid-template-columns:minmax(8rem,1fr) minmax(8rem,1fr); gap:.25rem .5rem; align-items:center; }
+.dc-article input { grid-column:1 / -1; margin:0; }
+.dc-article input[hidden] { display:none; }
 .dc-why { font-size:.9em; margin-top:.25rem; overflow-wrap:anywhere; }
 .dc-own { display:grid; gap:.3rem; margin-top:.35rem; justify-items:start; }
 .dc-own code { overflow-wrap:anywhere; white-space:pre-wrap; }
@@ -161,15 +179,21 @@ const sync = (row) => {
   const choice = row.querySelector('[data-choice]');
   if (!choice) return;
   const needs = (choice.selectedOptions[0]?.dataset.needs ?? '').split(' ');
-  for (const name of ['reason', 'cause', 'expires']) {
+  for (const name of ['reason', 'cause', 'expires', 'clause', 'article']) {
     const input = field(row, name);
     if (!input) continue;
     (input.closest('.dc-date') ?? input).hidden = !needs.includes(name);
   }
+  for (const pick of row.querySelectorAll('[data-article]')) {
+    const why = row.querySelector('[data-article-reason="' + pick.dataset.article + '"]');
+    if (why) why.hidden = !pick.value || pick.value === 'satisfied';
+  }
 };
 const value = (row, name) => field(row, name)?.value ?? '';
 const answers = () => rows().map((row) => ({ item: row.dataset.item, title: row.dataset.title, option: row.querySelector('[data-choice]')?.value ?? '',
-  reason: value(row, 'reason'), cause: value(row, 'cause'), expires: value(row, 'expires') }));
+  reason: value(row, 'reason'), cause: value(row, 'cause'), expires: value(row, 'expires'), clause: value(row, 'clause'),
+  article: [...row.querySelectorAll('[data-article]')].map((pick) => ({ article: pick.dataset.article, decision: pick.value,
+    reason: row.querySelector('[data-article-reason="' + pick.dataset.article + '"]')?.value ?? '' })) }));
 rows().forEach(sync);
 document.addEventListener('change', (event) => { const row = event.target.closest('tr[data-item]'); if (row) sync(row); });
 document.addEventListener('click', (event) => {

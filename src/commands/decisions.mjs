@@ -15,8 +15,8 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  * failure part way names what was recorded and what remains; listing again shows only what remains.
  *
  * The Copilot guard lets an agent record here only options that write upstream-issue records, in a
- * /sf-decide turn; reusing a recorded run or accepting a test-run risk is the person's own step in
- * their own terminal, as for `decision evidence-reuse`, `decision test-risk` and `decision test-command`.
+ * /sf-decide turn; everything else is the person's own step, on a host's card or in their own terminal,
+ * as for `decision evidence-reuse`, `decision test-risk` and `decision test-command`.
  */
 import { readFile } from 'node:fs/promises';
 import { stdin as processInput, stdout as processOutput } from 'node:process';
@@ -26,13 +26,13 @@ import { action, commandResult, effects, noEffects, succeeded } from '../narrati
 import { emitCommandResult } from '../narration/emit.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause']);
+const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause']);
 const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
 export const DECISIONS_USAGE = [
   'Usage: singularity-flow decisions [WORK-ID] [--phase PHASE] [--json]',
-  '       singularity-flow decisions [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT] [--json]',
+  '       singularity-flow decisions [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT] [--clause ITEM=IDS] [--json]',
   '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...] --confirm sha256:DIGEST [--json]',
   '       singularity-flow decisions record [WORK-ID] --answers FILE',
   '       singularity-flow decisions record [WORK-ID]   (interactive terminal)',
@@ -67,30 +67,34 @@ async function answersFrom(options) {
   const { parseDecisionAnswers } = await import('../decision-list.mjs');
   if (!file) {
     return parseDecisionAnswers({ choose: optionStrings(options, 'choose'), reason: optionStrings(options, 'reason'),
-      expires: optionStrings(options, 'expires'), cause: optionStrings(options, 'cause') });
+      expires: optionStrings(options, 'expires'), cause: optionStrings(options, 'cause'), clause: optionStrings(options, 'clause') });
   }
-  for (const flag of ['choose', 'reason', 'expires', 'cause', 'confirm']) {
+  for (const flag of ['choose', 'reason', 'expires', 'cause', 'clause', 'confirm']) {
     if (options[flag] !== undefined) refused(`--answers carries the choices and the confirmation; do not combine it with --${flag}.`, 'DECISIONS_OPTIONS_INVALID');
   }
   let value;
   try { value = JSON.parse(await readFile(file, 'utf8')); }
   catch (error) { refused(`The answers file ${file} could not be read as JSON (${error.code ?? error.message}).`, 'DECISIONS_ANSWER_INVALID'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) refused('The answers file holds one JSON object: { "choose": { "d1": "reuse" }, "confirm": "sha256:..." }.', 'DECISIONS_ANSWER_INVALID');
-  const unknown = Object.keys(value).filter((key) => !['choose', 'reason', 'expires', 'cause', 'confirm'].includes(key));
+  const unknown = Object.keys(value).filter((key) => !['choose', 'reason', 'expires', 'cause', 'clause', 'article', 'confirm'].includes(key));
   if (unknown.length) refused(`The answers file has unknown field(s): ${unknown.join(', ')}.`, 'DECISIONS_ANSWER_INVALID');
   return { ...parseDecisionAnswers(value), confirm: typeof value.confirm === 'string' ? value.confirm : null };
 }
 
 const answered = (answers) => answers.choose.size > 0;
 
+/** An item of the list, or one it offers beside what it waits on. */
+const listedItem = (packet, id) => [...packet.items, ...(packet.offered ?? [])].find((item) => item.id === id);
+
 /** The values a person changed from the defaults, so the exact record command carries only those. */
 function changedValues(packet, plan) {
-  const values = { reason: {}, expires: {}, cause: {} };
+  const values = { reason: {}, expires: {}, cause: {}, clause: {} };
   for (const step of plan.steps) {
-    const option = packet.items.find((item) => item.id === step.item).options.find((entry) => entry.id === step.option);
-    for (const flag of Object.keys(values)) {
+    const option = listedItem(packet, step.item).options.find((entry) => entry.id === step.option);
+    for (const flag of ['reason', 'expires', 'cause']) {
       if (step.values[flag] != null && step.values[flag] !== option.needs[flag]?.default) values[flag][step.item] = step.values[flag];
     }
+    if (step.values.clause) values.clause[step.item] = step.values.clause.join(',');
   }
   return values;
 }
@@ -98,7 +102,7 @@ function changedValues(packet, plan) {
 async function previewOf(workflow, packet, plan) {
   const [{ decisionApprovalFlags, decisionRecordCommand, effectWords, ISSUE_ONLY_OPTIONS }, { recordableInApproval }] = await Promise.all([
     import('../decision-list.mjs'), import('../approval-decisions.mjs')]);
-  const summary = plan.steps.map((step) => `${step.item}. ${packet.items.find((item) => item.id === step.item).title}: ${step.label}. `
+  const summary = plan.steps.map((step) => `${step.item}. ${listedItem(packet, step.item).title}: ${step.label}. `
     + `Records: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}.`);
   const chosen = { choices: plan.steps.map((step) => [step.item, step.option]), digest: packet.packetSha256, values: changedValues(packet, plan) };
   const command = plan.steps.length ? decisionRecordCommand(packet.workId, {
@@ -109,7 +113,7 @@ async function previewOf(workflow, packet, plan) {
   // Choices that each hold the step's approval, made by one of its approvers, go in the approval commit [SPEC-OAP M4].
   const approval = packet.items.find((item) => item.kind === 'approval');
   const withApproval = command && approval?.decidedBy?.allowed && !plan.refused.length && plan.steps.every((step) => {
-    const item = packet.items.find((entry) => entry.id === step.item);
+    const item = listedItem(packet, step.item);
     return item.holdsApproval && recordableInApproval(item.options.find((option) => option.id === step.option));
   }) ? { phase: packet.phase, flags: decisionApprovalFlags(chosen), recordInChat: recordInChat && plan.steps.every((step) => step.option !== 'return'),
     command: `singularity-flow approve ${packet.phase} --work-id ${packet.workId} --fetch ${decisionApprovalFlags(chosen)}` } : null;
@@ -139,11 +143,12 @@ function itemLines(item, index, { numbered = false } = {}) {
 function packetText(packet) {
   const lines = [packet.headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
     ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
-  if (!packet.items.length) return `${lines.join('\n')}\n`;
+  if (!packet.items.length && !packet.offered?.length) return `${lines.join('\n')}\n`;
   lines.push('');
   for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');
+  for (const [index, item] of (packet.offered ?? []).entries()) lines.push(...itemLines(item, index), '');
   if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
-  if (packet.items.some((item) => item.options.some((option) => option.recordable !== false))) {
+  if ([...packet.items, ...(packet.offered ?? [])].some((item) => item.options.some((option) => option.recordable !== false))) {
     lines.push('Decide them in this terminal:', ...formatCommandRouteLines({ command: packet.record.interactive, copilotCommand: packet.record.copilotCommand }));
     if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.copilotCommand }));
     if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
@@ -213,10 +218,10 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
     if (line === null) throw Object.assign(new Error('input ended'), { ended: true });
     return line.trim();
   };
-  const values = { choose: {}, reason: {}, expires: {}, cause: {} };
+  const values = { choose: {}, reason: {}, expires: {}, cause: {}, clause: {}, article: {} };
   try {
     say(packet.headline);
-    for (const [index, item] of packet.items.entries()) {
+    for (const [index, item] of [...packet.items, ...(packet.offered ?? [])].entries()) {
       say('');
       for (const line of itemLines(item, index, { numbered: true })) say(line);
       if (!item.decidedBy.allowed) continue;
@@ -253,6 +258,24 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       if (option.needs.cause) {
         const value = await ask(`   What stops the tests [${option.needs.cause.default}]: `);
         if (value) values.cause[item.id] = value;
+      }
+      if (option.needs.clause) {
+        const known = option.needs.clause.known ?? [];
+        values.clause[item.id] = await ask(`   The clauses that carry it, separated by commas${known.length ? ` (${known.slice(0, 8).join(', ')})` : ''}: `);
+      }
+      if (option.needs.article) {
+        const { articles, decisions } = option.needs.article;
+        values.article[item.id] = [];
+        for (const { id, title, question } of articles) {
+          say(`   ${title}: ${question}`);
+          let decision = null;
+          while (!decision) {
+            const pick = Number(await ask(`   ${decisions.map((entry, at) => `${at + 1}) ${entry}`).join('  ')}: `));
+            decision = decisions[pick - 1] ?? null;
+            if (!decision) say(`   Type a number from 1 to ${decisions.length}.`);
+          }
+          values.article[item.id].push({ article: id, decision, ...(decision === 'satisfied' ? {} : { reason: await ask('   Why: ') }) });
+        }
       }
       if (option.needs.reason) {
         // With no suggested wording, only the person's own reason answers it.
@@ -313,6 +336,17 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     return (await recordVisualProfileDecisionFor(root, config, workflow, { phaseId: effect.phase, profileId: effect.profileId,
       reason: step.values.reason }, { actor, agent })).record;
   }
+  if (['scope-disposition', 'completeness-review', 'applicability', 'routing'].includes(effect.kind)) {
+    const records = await import('./decision-story-records.mjs');
+    if (effect.kind === 'scope-disposition') return (await records.commitScopeDecision(root, config, workflow, { item: effect.item, disposition: effect.disposition,
+      clauseIds: step.values.clause ?? [], reason: step.values.reason }, { actor, agent })).decision;
+    if (effect.kind === 'completeness-review') return (await records.commitCompletenessReview(root, config, workflow, { confirm: effect.inventorySha256,
+      checklist: step.values.article, reason: step.values.reason }, { actor, agent })).review;
+    if (effect.kind === 'applicability') return (await records.commitApplicabilityDecision(root, config, workflow, { responsibility: effect.responsibility,
+      reason: step.values.reason }, { actor, agent })).decision;
+    return (await records.commitRoutingChoice(root, config, workflow, { option: effect.option ?? null, to: effect.to ?? null, reason: step.values.reason, expected: effect.key },
+      { actor, agent })).result.outcome;
+  }
   if (effect.kind === 'test-command') {
     const { recordStoryTestCommand } = await import('./decision-test-command.mjs');
     return (await recordStoryTestCommand(root, config, workflow, { accept: effect.request, reason: step.values.reason ?? '' }, { actor, agent })).record;
@@ -337,6 +371,10 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
 
 function recordId(kind, record) {
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
+  if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
+  if (kind === 'completeness-review') return 'completeness review';
+  if (kind === 'applicability') return `${record?.responsibility} does not apply`;
+  if (kind === 'routing') return `route ${record?.route}`;
   return record?.id ?? record?.accepts ?? record?.revokes ?? null;
 }
 
@@ -360,7 +398,7 @@ async function record(root, options, workId, io) {
   const { decisionRecordPlan, runDecisionPlan, effectWords } = await import('../decision-list.mjs');
   let prompt = null;
   if (interactive) {
-    if (!packet.items.length) {
+    if (!packet.items.length && !packet.offered?.length) {
       console.log(packet.headline);
       return;
     }

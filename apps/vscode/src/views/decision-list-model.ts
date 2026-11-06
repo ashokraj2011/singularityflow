@@ -16,7 +16,11 @@ import type { ReviewConfirmationRequest } from './review-confirmation-page.ts';
 
 export interface DecisionTextNeed { default: string; minimum: number; maximum: number }
 export interface DecisionDateNeed { default: string; latest: string }
-export interface DecisionNeeds { reason?: DecisionTextNeed; cause?: DecisionTextNeed; expires?: DecisionDateNeed }
+/** The clauses a person may name for a statement. */
+export interface DecisionClauseNeed { known?: string[] }
+/** A checklist answered one article at a time. */
+export interface DecisionArticleNeed { articles: Array<{ id: string; title: string; question: string }>; decisions: string[] }
+export interface DecisionNeeds { reason?: DecisionTextNeed; cause?: DecisionTextNeed; expires?: DecisionDateNeed; clause?: DecisionClauseNeed; article?: DecisionArticleNeed }
 export interface DecisionDecidedBy { groups?: string[]; labels?: string[]; allowed: boolean; words: string; share?: string }
 
 export interface DecisionOptionPacket {
@@ -48,6 +52,8 @@ export interface DecisionPacket {
   status: 'decisions-needed' | 'nothing-to-decide' | string;
   headline: string; rule?: string;
   items: DecisionItemPacket[];
+  /** Offered beside what waits: on the list's digest and record, in nobody's count. */
+  offered?: DecisionItemPacket[];
   packetSha256: string;
   next?: { item: string; kind: string; title: string; command: string; copilotCommand: string | null } | null;
   record?: { form?: string; recommended?: string | null; interactive?: string; share?: string };
@@ -55,7 +61,8 @@ export interface DecisionPacket {
 }
 
 /** What a person chose for one item, with the values they see in its fields. */
-export interface DecisionChoice { item: string; option: string; reason?: string; expires?: string; cause?: string }
+export interface DecisionArticleAnswer { article: string; decision: string; reason?: string }
+export interface DecisionChoice { item: string; option: string; reason?: string; expires?: string; cause?: string; clause?: string; article?: DecisionArticleAnswer[] }
 
 /** The answers `decisions record --answers FILE` reads; only values a person changed from the defaults. */
 export interface DecisionAnswers {
@@ -63,6 +70,8 @@ export interface DecisionAnswers {
   reason: Record<string, string>;
   expires: Record<string, string>;
   cause: Record<string, string>;
+  clause?: Record<string, string>;
+  article?: Record<string, DecisionArticleAnswer[]>;
 }
 
 export interface DecisionPreview {
@@ -234,7 +243,7 @@ export function decisionAnswersFromChoices(packet: DecisionPacket, raw: unknown,
     if (!ITEM.test(itemId) || !OPTION.test(optionId)) { errors.push('A choice did not name an item and an option of this list.'); continue; }
     if (seen.has(itemId)) { errors.push(`${itemId} was chosen twice.`); continue; }
     seen.add(itemId);
-    const item = packet.items.find((candidate) => candidate.id === itemId);
+    const item = [...packet.items, ...(packet.offered ?? [])].find((candidate) => candidate.id === itemId);
     const option = item?.options.find((candidate) => candidate.id === optionId);
     if (!item || !option) { errors.push(`${itemId} has no option '${optionId}' in this list. Refresh it and choose again.`); continue; }
     const row = optionRow(option);
@@ -259,6 +268,25 @@ export function decisionAnswersFromChoices(packet: DecisionPacket, raw: unknown,
         errors.push(`${item.title}: choose a date after today and no later than ${expiry.latest}.`);
         valid = false;
       } else if (typed !== expiry.default) answers.expires[itemId] = typed;
+    }
+    if (option.needs?.clause) {
+      const typed = (text(entry?.clause) ?? '').trim();
+      choice.clause = typed;
+      if (typed) (answers.clause ??= {})[itemId] = typed;
+      else { errors.push(`${item.title}: name the clauses that carry it.`); valid = false; }
+    }
+    const articles = option.needs?.article;
+    if (articles) {
+      const given = (Array.isArray(entry?.article) ? entry.article : []).map((value) => object(value)).filter((value) => value !== null);
+      const answered = given.map((value) => ({ article: text(value.article) ?? '', decision: text(value.decision) ?? '', reason: (text(value.reason) ?? '').trim() }))
+        .map(({ reason, ...rest }) => ({ ...rest, ...(rest.decision === 'satisfied' ? {} : { reason }) }));
+      choice.article = answered;
+      (answers.article ??= {})[itemId] = answered;
+      if (articles.articles.some(({ id }) => !articles.decisions.includes(answered.find((value) => value.article === id)?.decision ?? ''))) {
+        errors.push(`${item.title}: answer every article of the checklist.`); valid = false;
+      } else if (answered.some((value) => value.decision !== 'satisfied' && !value.reason)) {
+        errors.push(`${item.title}: an article that is not satisfied needs its own reason.`); valid = false;
+      }
     }
     choices.push(choice);
     if (valid) answers.choose[itemId] = optionId;
@@ -285,8 +313,8 @@ export function decisionListArgv(workId: string, phase: string | null = null): s
 export function decisionPreviewArgv(workId: string, answers: DecisionAnswers, phase: string | null = null): string[] {
   const argv = ['decisions', assertWorkId(workId), ...phaseArgs(phase)];
   for (const [item, option] of Object.entries(answers.choose)) argv.push('--choose', `${item}=${option}`);
-  for (const flag of ['reason', 'expires', 'cause'] as const) {
-    for (const [item, value] of Object.entries(answers[flag])) if (answers.choose[item]) argv.push(`--${flag}`, `${item}=${value}`);
+  for (const flag of ['reason', 'expires', 'cause', 'clause'] as const) {
+    for (const [item, value] of Object.entries(answers[flag] ?? {})) if (answers.choose[item]) argv.push(`--${flag}`, `${item}=${value}`);
   }
   return [...argv, '--json'];
 }
@@ -299,8 +327,9 @@ export function decisionRecordArgv(workId: string, answersFile: string, phase: s
 /** The answers file's JSON: exactly what was previewed, bound to the digest the person confirmed. */
 export function decisionAnswersDocument(answers: DecisionAnswers, digest: string): Record<string, unknown> {
   if (!DIGEST.test(digest)) throw new Error('The decision list has no digest to confirm.');
-  const chosen = (values: Record<string, string>) => Object.fromEntries(Object.entries(values).filter(([item]) => answers.choose[item]));
-  return { choose: { ...answers.choose }, reason: chosen(answers.reason), expires: chosen(answers.expires), cause: chosen(answers.cause), confirm: digest };
+  const chosen = <T>(values: Record<string, T>) => Object.fromEntries(Object.entries(values).filter(([item]) => answers.choose[item]));
+  return { choose: { ...answers.choose }, reason: chosen(answers.reason), expires: chosen(answers.expires), cause: chosen(answers.cause),
+    ...(Object.keys(answers.clause ?? {}).length ? { clause: chosen(answers.clause!) } : {}), ...(Object.keys(answers.article ?? {}).length ? { article: chosen(answers.article!) } : {}), confirm: digest };
 }
 
 /**

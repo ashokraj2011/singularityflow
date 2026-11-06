@@ -337,7 +337,7 @@ async function askApprovalDecisions(root, config, workflow, phase, who) {
   const packet = await readPendingList(root, config, workflow, { phaseId: phase.id });
   const items = approvalDecisionItems(packet);
   if (!items) return { decisions: null, prompt: null };
-  const prompt = await promptDecisionAnswers({ ...packet, items,
+  const prompt = await promptDecisionAnswers({ ...packet, items, offered: [],
     headline: `Before you approve: ${items.length === 1 ? 'one decision holds' : `${items.length} decisions hold`} ${phase.label ?? phase.id}, and you may record ${items.length === 1 ? 'it' : 'them'} with the approval.` },
   { input: processInput, output: processOutput, nothingChosen: 'Nothing chosen; the approval records no decisions.' });
   if (!prompt) return { decisions: null, prompt: null };

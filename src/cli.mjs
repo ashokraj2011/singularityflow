@@ -13,11 +13,9 @@ import { storyDraftTransaction } from './commands/shared/story-draft-transaction
 import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
 import { prepareConfiguredPhase } from './commands/shared/prepare-configured-phase.mjs';
 import { completionContinuation } from './commands/shared/completion-continuation.mjs';
-import { withRefusalMemory } from './commands/shared/with-refusal-memory.mjs';
 import { checklistDecisions } from './commands/shared/checklist-decisions.mjs';
 import { decisionWorkflow } from './commands/shared/decision-workflow.mjs';
 import { printSelectionReceipt } from './commands/shared/print-selection-receipt.mjs';
-import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
 import { riskAuthorities } from './evidence/risk-decisions.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
 import { recordPublishedWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
@@ -41,7 +39,7 @@ import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repositor
 
 import { currentPhase } from './phase-generation.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
-import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
+import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
@@ -96,7 +94,7 @@ import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
-import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
+import { applicabilityStatus } from './evidence/applicability.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
@@ -152,7 +150,7 @@ import { canonicalCommand, commandDefinition, operationById, validateCommandHand
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
 import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
-import { parseDecisionAssignments, resolveDecisionChoice, storyDecisionView, storyDecisionReadGuidance } from './workflow-decisions.mjs';
+import { parseDecisionAssignments, storyDecisionView, storyDecisionReadGuidance } from './workflow-decisions.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { FRESH_INSTALL_CONFIRMATION, freshInstallReset, freshInstallResetPlan, localReset, localResetPlan, installerGeneratedResetPaths, sameResetPathIdentity } from './fresh-install-reset.mjs';
@@ -4144,53 +4142,11 @@ async function decisionApplicabilityCommand(positionals, options) {
   if (!responsibility) {
     throw new SingularityFlowError('Name the responsibility with --responsibility <scope|plan|implement|verify|review>.', { code: 'APPLICABILITY_RESPONSIBILITY_REQUIRED' });
   }
-  const reason = optionString(options, 'reason') ?? '';
-  // The same checks the transaction makes, before anything is locked or written.
-  const groups = omissionAuthorities(workflow, responsibility);
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = groups.length ? requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  ) : null;
-  const decide = (aggregate) => recordApplicabilityDecision(aggregate, {
-    responsibility, reason, actor: actorKey(actor), authorityGroup: authority?.authorityGroup ?? null,
-    identityAssurance: authority?.identityAssurance ?? null, at: nowIso()
-  });
-  decide(structuredClone(workflow));
-  const { value: decision, publication } = await transactStory(
-    root,
-    config,
-    workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE,
-      phaseId: workflow.currentPhase ?? null,
-      generation: null,
-      actor,
-      agent,
-      authorityGroup: authority.authorityGroup,
-      payload: { decision: 'applicability', responsibility }
-    },
-    `[${id}][applicability:${responsibility}] does not apply`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record an applicability decision');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'applicability_decided', phase: aggregate.currentPhase ?? null,
-        detail: `${responsibility} does not apply. Reason: ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      // The publication otherwise names the current phase's approval as the decision.
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'applicability', responsibility, reviewPacketSha256: null }
-      })
-    }
-  );
+  const { commitApplicabilityDecision } = await import('./commands/decision-story-records.mjs');
+  const { decision, publication } = await commitApplicabilityDecision(root, config, workflow, { responsibility, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${responsibility} does not apply to ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
     console.log(publication.pushed
@@ -4231,55 +4187,11 @@ async function decisionScopeCommand(positionals, options) {
     throw new SingularityFlowError('Name the item with --item <SRI-...|DOC-...> and the disposition with --as <included|existing|excluded|deferred|informative|duplicate|superseded>.', { code: 'SCOPE_DECISION_INCOMPLETE' });
   }
   const clauseIds = String(optionString(options, 'clause') ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
-  const { evidenceGraphFromAggregate, scopeDecisionPreview } = await import('./evidence/graph.mjs');
-  const graph = await evidenceGraphFromAggregate(root, config, workflow);
-  const preview = await scopeDecisionPreview(root, config, workflow);
-  const inventory = preview.inventory ?? graph.scope;
-  if (!inventory) {
-    throw new SingularityFlowError('The scope inventory of this Story cannot be built; see singularity-flow evidence scope.', { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
-  }
-  const knownClauseIds = [...new Set([...(graph.records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)), ...preview.clauseIds])];
-  const groups = scopeAuthorities(workflow);
-  if (!groups.length) {
-    throw new SingularityFlowError('No step of this Story defines its scope with an approval group, so nobody can decide it.', { code: 'SCOPE_AUTHORITY_UNAVAILABLE' });
-  }
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const reason = optionString(options, 'reason') ?? '';
-  const decide = (aggregate) => recordScopeDecision(aggregate, {
-    item, disposition, clauseIds, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), inventory, knownClauseIds
-  });
-  decide(structuredClone(workflow));
-  const { value: decision, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'scope', item, disposition }
-    },
-    `[${id}][scope:${item}] ${disposition}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a scope decision');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'scope_decided', phase: aggregate.currentPhase ?? null,
-        detail: `${item} is ${disposition}${recorded.clauseIds.length ? ` (${recorded.clauseIds.join(', ')})` : ''}. Reason: ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'scope', item, disposition, reviewPacketSha256: null }
-      })
-    }
-  );
+  const { commitScopeDecision } = await import('./commands/decision-story-records.mjs');
+  const { decision, publication } = await commitScopeDecision(root, config, workflow, { item, disposition, clauseIds, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
     console.log(publication.pushed
@@ -4515,52 +4427,12 @@ async function decisionCompletenessCommand(positionals, options) {
   if (workflow.status !== 'in_progress') {
     throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its scope is reviewed while it is in progress.`, { code: 'SCOPE_STORY_CLOSED' });
   }
-  const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
-  const inventory = (await evidenceGraphFromAggregate(root, config, workflow)).scope;
-  if (!inventory) {
-    throw new SingularityFlowError('The scope inventory of this Story cannot be built; see singularity-flow evidence scope.', { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
-  }
-  const groups = scopeAuthorities(workflow);
-  if (!groups.length) {
-    throw new SingularityFlowError('No step of this Story defines its scope with an approval group, so nobody can review it.', { code: 'SCOPE_AUTHORITY_UNAVAILABLE' });
-  }
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const checklist = await checklistDecisions(options);
-  const decide = (aggregate) => recordCompletenessReview(aggregate, {
-    inventory, confirm: optionString(options, 'confirm') ?? null, checklist, reason: optionString(options, 'reason') ?? '',
-    actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso()
-  });
-  decide(structuredClone(workflow));
-  const { value: review, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'completeness', inventorySha256: inventory.inventorySha256 }
-    },
-    `[${id}][scope:completeness] reviewed`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a completeness review');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'completeness_reviewed', phase: aggregate.currentPhase ?? null,
-        detail: `Scope inventory ${recorded.inventorySha256} reviewed for completeness. ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'completeness', inventorySha256: recorded.inventorySha256, reviewPacketSha256: null }
-      })
-    }
-  );
+  const { commitCompletenessReview } = await import('./commands/decision-story-records.mjs');
+  const { review, publication } = await commitCompletenessReview(root, config, workflow,
+    { confirm: optionString(options, 'confirm') ?? null, checklist: await checklistDecisions(options), reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${review.actor} reviewed the scope of ${id} for completeness through ${review.authorityGroup}.`);
     console.log(publication.pushed
@@ -4594,58 +4466,12 @@ async function decisionChooseCommand(positionals, options) {
   }
   const option = optionString(options, 'option') ?? null;
   const to = optionString(options, 'to') ?? null;
-  const reason = optionString(options, 'reason') ?? '';
-  const expected = optionString(options, 'expected') ?? pending.key;
-  resolveDecisionChoice(workflow, pending, { option, to });
-  if (!reason.trim()) throw new SingularityFlowError('Say why with --reason; the decision log keeps it.', { code: 'DECISION_REASON_REQUIRED' });
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === workflow.workItem.id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: pending.by, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const after = workflow.phases[pending.after];
-  const { value: result, publication } = await withRefusalMemory(root, {
-    operation: 'decision.choose', workId: workflow.workItem.id, phase: pending.after, actor: actorKey(actor), args: [option, to, pending.key]
-  }, () => transactStory(
-    root,
-    config,
-    workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE,
-      phaseId: pending.after,
-      generation: after?.generation ?? null,
-      actor,
-      agent,
-      authorityGroup: authority.authorityGroup,
-      payload: { decision: pending.decision, pendingKey: pending.key, option, to }
-    },
-    `[${workflow.workItem.id}][decision:${pending.decision}] ${option ?? `to ${to}`}`,
-    (aggregate) => decideStory(root, config, aggregate, {
-      option, to, reason, expectedKey: expected, channel: 'terminal', actor, agent
-    }),
-    {
-      eventFromResult: (transition) => ({
-        actor,
-        agent,
-        authorityGroup: transition.authority.authorityGroup,
-        identityAssurance: transition.authority.identityAssurance,
-        payload: {
-          decision: transition.outcome.decision,
-          route: transition.outcome.route,
-          kind: transition.outcome.kind,
-          target: transition.outcome.target ?? null,
-          pendingKey: transition.pendingKey
-        }
-      })
-    }
-  ));
-  await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
-    const reloaded = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    return activateWorkItemSession(root, reloaded.config, reloaded.workflow);
-  });
+  const { commitRoutingChoice } = await import('./commands/decision-story-records.mjs');
+  const { result, publication, authority } = await commitRoutingChoice(root, config, workflow,
+    { option, to, reason: optionString(options, 'reason') ?? '', expected: optionString(options, 'expected') ?? pending.key }, { actor, agent });
   const outcome = result.outcome;
   const where = outcome.kind === 'loop' ? `back to ${workflow.phases[outcome.target]?.label ?? outcome.target}`
     : outcome.kind === 'end' ? 'the end of the Story' : workflow.phases[outcome.target]?.label ?? outcome.target;

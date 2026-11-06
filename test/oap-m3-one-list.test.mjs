@@ -124,9 +124,9 @@ test('the list holds every pending kind in one order, and the approval last, nam
   assert.equal(routing.decidedBy.allowed, false);
   assert.match(routing.decidedBy.words, /^The Product approvers \(Product Owner\) decide this; ask them\./u);
   assert.equal(routing.decidedBy.share, `/sf-decide ${WORK}`);
-  assert.deepEqual(routing.options.map((option) => option.action.command), [
-    `singularity-flow decision choose ${WORK} --fetch --option ship --reason "<why>" --expected route-1`,
-    `singularity-flow decision choose ${WORK} --fetch --option rework --reason "<why>" --expected route-1`]);
+  assert.deepEqual(routing.options.map((option) => option.chat.command), [
+    `singularity-flow decision choose ${WORK} --fetch --option ship --reason "<REASON>" --expected route-1`,
+    `singularity-flow decision choose ${WORK} --fetch --option rework --reason "<REASON>" --expected route-1`]);
   // What to do next is the first open item; every surface counts all of them.
   assert.equal(packet.open, packet.items.length);
   assert.deepEqual(packet.next, { item: 'd1', kind: 'story-publication', title: `Publish ${WORK}'s retained commit`, command: `singularity-flow sync ${WORK}`,
@@ -135,8 +135,8 @@ test('the list holds every pending kind in one order, and the approval last, nam
   const summary = pendingSummary(packet);
   assert.equal(summary.open, packet.open);
   assert.deepEqual(summary.items.map((item) => item.id), packet.items.map((item) => item.id));
-  // Nothing on the new kinds is recordable from the list: each is the person's own step with its command.
-  assert.ok(packet.items.filter((item) => !['conformance-gap', 'upstream-issue', 'test-run-risk', 'visual-profile', 'test-command'].includes(item.kind))
+  // Beyond a route, nothing on the new kinds is recordable from the list: each is the person's own step with its command.
+  assert.ok(packet.items.filter((item) => !['conformance-gap', 'upstream-issue', 'test-run-risk', 'visual-profile', 'test-command', 'routing-decision'].includes(item.kind))
     .every((item) => item.options.every((option) => option.recordable === false && option.action?.command)));
 });
 

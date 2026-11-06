@@ -37,12 +37,20 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'obligation-risk', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'upstream-issue-decision']);
+// Effects that carry the groups their own command checks, read where the list's facts are read.
+const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 // `decision plan`'s own limits: a supporting change states its reason in at most 500 characters.
 const PLAN_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const SUPPORTING_REASON = Object.freeze({ minimum: 20, maximum: 500 });
+// `decision choose` asks only for a reason the log can keep.
+const ROUTING_REASON = Object.freeze({ minimum: 1, maximum: 1000 });
+// DECIDABLE_SCOPE_DISPOSITIONS in src/scope/extract.mjs, as a person reads them; a test pins the two equal.
+const SCOPE_CHOICES = Object.freeze([['included', 'Included: named clauses carry it', true], ['existing', 'It already exists: named clauses carry it', true],
+  ['excluded', 'Exclude it from this Story', false], ['deferred', 'Defer it to later work', false], ['informative', 'It informs; it is not a requirement', false],
+  ['duplicate', 'It duplicates another statement', false], ['superseded', 'A later statement replaces it', false]]);
 
 function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -80,7 +88,7 @@ function effectGroups(workflow, effect) {
   if (effect.kind === 'upstream-issue') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
   if (effect.kind === 'plan-amendment') return planAuthorities(workflow);
-  if (effect.kind === 'obligation-risk') return effect.groups ?? [];
+  if (EFFECTS_NAMING_GROUPS.includes(effect.kind)) return effect.groups ?? [];
   return testRunRiskAuthorities(workflow, effect.phase);
 }
 
@@ -491,19 +499,38 @@ function stepItem(workflow, context, { kind, title, why, groups = [], forAnyone 
 
 const approvers = (workflow, phaseId) => issueGroups(workflow, phaseId);
 
-/** The workflow's own routing decision waiting after a step (`decision choose`). */
+/**
+ * The workflow's own routing decision waiting after a step. Each route is a choice recorded here, and
+ * `chat` is the same write as a /sf-decide turn runs it with the person's own reason. With no group
+ * named it stays their own step, since nothing could say who may choose.
+ */
 function routingItem(workflow, context, pending) {
   const workId = workflow.workItem.id;
   const after = stepName(workflow, pending.after);
-  return stepItem(workflow, context, {
-    kind: 'routing-decision', title: `Choose where ${workId} goes after ${after}: ${pending.label ?? pending.decision}`,
-    why: `${pending.reason ? `${pending.reason} ` : ''}The workflow waits for this choice before it moves on.`,
-    groups: pending.by ?? [],
-    options: (pending.options ?? []).map((choice) => ({ id: `choose-${choice.id}`, label: `${choice.label ?? choice.id}${choice.to ? ` (goes to ${stepName(workflow, choice.to)})` : ''}`,
-      command: `singularity-flow decision choose ${workId} --fetch --option ${choice.id} --reason "<why>" --expected ${pending.key}`,
-      words: 'You choose in your own terminal with a reason; nothing is chosen here.' })),
-    details: { key: pending.key, decision: pending.decision, after: pending.after }
-  });
+  const base = { kind: 'routing-decision', title: `Choose where ${workId} goes after ${after}: ${pending.label ?? pending.decision}`,
+    why: `${pending.reason === 'limit' ? `All ${pending.maxRounds} rounds are used. ` : ''}The workflow waits for this choice before it moves on.` };
+  // A route's `to` may be a word, not a step.
+  const routeLabel = (choice) => `${choice.label ?? choice.id}${!choice.to || choice.to === 'next' ? '' : choice.to === 'end' ? ' (finishes the Story)' : ` (goes to ${stepName(workflow, choice.to)})`}`;
+  const details = { key: pending.key, decision: pending.decision, after: pending.after };
+  if (!pending.by?.length) {
+    return stepItem(workflow, context, { ...base, groups: [], details,
+      options: (pending.options ?? []).map((choice) => ({ id: `choose-${choice.id}`, label: routeLabel(choice),
+        command: `singularity-flow decision choose ${workId} --fetch --option ${choice.id} --reason "<why>" --expected ${pending.key}`,
+        words: 'You choose in your own terminal with a reason; nothing is chosen here.' })) });
+  }
+  const route = ({ id, label, words, effect, flag }) => ({ ...option(workflow, context, { id, label, words, effects: [{ kind: 'routing', key: pending.key, groups: pending.by, ...effect }],
+    needs: { reason: textNeed('', ROUTING_REASON) } }),
+  decidedBy: stepDecidedBy(workflow, context, pending.by, words),
+  chat: { command: `singularity-flow decision choose ${workId} --fetch ${flag} --reason "<REASON>" --expected ${pending.key}` } });
+  const named = (pending.options ?? []).map((choice) => route({ id: `choose-${choice.id}`, label: routeLabel(choice),
+    words: 'The Story moves on as you chose, and the log keeps your reason.', effect: { option: choice.id }, flag: `--option ${choice.id}` }));
+  // A step the decision lets a person name instead of a route: every step for an any-step decision, the earlier ones it may reopen otherwise.
+  const steps = pending.anyStep ? [...(workflow.phaseOrder ?? []), 'end'] : pending.reopen ?? [];
+  const reached = new Set((pending.options ?? []).map((choice) => choice.to));
+  const others = steps.filter((step) => !reached.has(step)).map((step) => route({ id: `to-${String(step).toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`.slice(0, 64),
+    label: step === 'end' ? 'Finish the Story here' : `Go to ${stepName(workflow, step)}`,
+    words: 'The Story moves as you named it, and the log keeps your reason.', effect: { to: step }, flag: `--to ${step}` }));
+  return { ...base, options: [...named, ...others], details };
 }
 
 /**
@@ -576,8 +603,56 @@ function witnessWhy(workflow, entry) {
     : `${who} signs it off, naming the file they inspected: the plan names none. The Story cannot end without it.`;
 }
 
+/** A requirement statement the Story's ending needs a disposition of: each disposition a choice, the same write as `decision scope`. */
+function scopeItem(workflow, context, entry) {
+  const workId = workflow.workItem.id;
+  return {
+    kind: 'owed-decision', title: `Decide scope item ${entry.id}`,
+    why: `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
+    options: SCOPE_CHOICES.map(([disposition, label, linked]) => ({ ...option(workflow, context, { id: `scope-${disposition}`, label,
+      words: linked ? 'The clauses you name carry this statement.' : 'The statement stays in the inventory with your reason.',
+      effects: [{ kind: 'scope-disposition', item: entry.id, disposition, groups: entry.groups }],
+      needs: { ...(linked ? { clause: { known: entry.clauses ?? [] } } : {}), reason: textNeed('', REASON) } }),
+    chat: { command: `singularity-flow decision scope ${workId} --fetch --item ${entry.id} --as ${disposition}${linked ? ' --clause <CLAUSES>' : ''} --reason "<REASON>"` } })),
+    details: { scopeItem: entry.id, ...(entry.source ? { source: entry.source } : {}) }
+  };
+}
+
+/** A responsibility this Story's end leaves out: why it does not apply is a person's word before it can finish. */
+function applicabilityItem(workflow, context, entry) {
+  const workId = workflow.workItem.id;
+  return {
+    kind: 'owed-decision', title: `Say why ${entry.responsibility} does not apply`,
+    why: `This Story ends without ${entry.responsibility}${entry.declaredReason ? `: ${String(entry.declaredReason).replace(/\.+$/u, '')}` : ''}. Someone who may decide it records why it does not apply to this Story before the Story can finish.`,
+    options: [{ ...option(workflow, context, { id: 'does-not-apply', label: 'It does not apply to this Story',
+      words: 'Recorded with your reason; the Story can then end without it.',
+      effects: [{ kind: 'applicability', responsibility: entry.responsibility, groups: [entry.authority] }], needs: { reason: textNeed('', REASON) } }),
+    chat: { command: `singularity-flow decision applicability ${workId} --fetch --responsibility ${entry.responsibility} --reason "<REASON>"` } }],
+    details: { responsibility: entry.responsibility, authority: entry.authority }
+  };
+}
+
+/**
+ * Offered, not owed: nothing waits on a completeness review, so it is no open item and no count reads
+ * it. It records that a person looked for what is missing, bound to the inventory's exact digest.
+ */
+function completenessItem(workflow, context, entry) {
+  const workId = workflow.workItem.id;
+  return {
+    kind: 'scope-completeness', title: 'Review the scope for completeness',
+    why: `All ${entry.statements} requirement statement${entry.statements === 1 ? ' has' : 's have'} a link or a disposition. Nothing waits on this review. It records that you looked for what is missing, contradictory or unmeasurable; it never says the scope is correct.`,
+    options: [{ ...option(workflow, context, { id: 'reviewed', label: 'I reviewed it: record my answers',
+      words: 'Your answers bind this exact inventory; a later change to it makes the review no longer current.',
+      effects: [{ kind: 'completeness-review', inventorySha256: entry.inventorySha256, groups: entry.groups }],
+      needs: { article: { articles: entry.articles, decisions: entry.decisions }, reason: textNeed('', REASON) } }),
+    chat: { command: `singularity-flow decision completeness ${workId} --fetch --confirm ${entry.inventorySha256} --article <ID>=<DECISION> --reason "<REASON>"` } }],
+    details: { inventorySha256: entry.inventorySha256, statements: entry.statements }
+  };
+}
+
 /** A sign-off or scope disposition an approved step owes the Story's ending; it does not hold this step. */
 function owedItem(workflow, context, entry) {
+  if (entry.kind === 'scope' && entry.groups?.length) return scopeItem(workflow, context, entry);
   const witness = entry.kind === 'witness';
   const notYet = witness && entry.available === false;
   return stepItem(workflow, context, {
@@ -857,7 +932,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry)),
     ...(pending.owed ?? []).filter(entry => entry.kind !== 'witness' || !(facts.evidence ?? []).some(row =>
       row.criterion === entry.clauseId && row.witnesses.some(witness => witness.slot === entry.slot)))
-      .map((entry) => owedItem(workflow, context, entry))
+      .map((entry) => owedItem(workflow, context, entry)),
+    ...(pending.applicability ?? []).map((entry) => applicabilityItem(workflow, context, entry))
   ];
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
@@ -886,18 +962,22 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
   }
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
+  const offered = (facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []).map((item, index) => ({ id: `d${items.length + index + 1}`, ...item,
+    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false }));
   if (door) items.unshift({ id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true });
   // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
   // item, the approval included: what every surface shows.
   const holding = items.filter((item) => item.holdsApproval).length;
   const workId = workflow.workItem.id;
   const phaseId = facts.phaseId;
+  const decidedHere = ({ id, kind, title, why, options, details }) => ({ id, kind, title, why, details,
+    options: options.map(({ id: optionId, label, recommended, effects, needs, decidedBy: who }) => ({ id: optionId, label, recommended, effects, needs, groups: who.groups })) });
   const bound = {
     revision: DECISION_LIST_REVISION, workId, phase: phaseId, at: String(at).slice(0, 10),
     // A person's own step and a refusal's words are not confirmed here: bound by what they are, not their prose.
-    items: boundItems.map(({ id, kind, title, why, options, details }) => (DECIDED_HERE.has(kind) && !details?.code ? { id, kind, title, why, details,
-      options: options.map(({ id: optionId, label, recommended, effects, needs, decidedBy: who }) => ({ id: optionId, label, recommended, effects, needs, groups: who.groups })) }
-      : { id, kind, details: Object.fromEntries(Object.entries(details ?? {}).filter(([key]) => key !== 'commands')) })),
+    items: boundItems.map((item) => ((DECIDED_HERE.has(item.kind) || item.options.some((entry) => entry.recordable !== false)) && !item.details?.code ? decidedHere(item)
+      : { id: item.id, kind: item.kind, details: Object.fromEntries(Object.entries(item.details ?? {}).filter(([key]) => key !== 'commands')) })),
+    ...(offered.length ? { offered: offered.map(decidedHere) } : {}),
     state: facts.state ?? null
   };
   const digest = `sha256:${recordSha256(bound)}`;
@@ -932,6 +1012,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     workId, phase: phaseId, phaseLabel: stepName(workflow, phaseId), status: decisions.length ? 'decisions-needed' : 'nothing-to-decide',
     headline, rule: CONFORMANCE_GAP_RULE,
     items, holding, open: items.length,
+    ...(offered.length ? { offered } : {}),
     ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
     next: first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
       copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute } : null,
@@ -973,9 +1054,10 @@ function validDate(value, at, latest) {
 
 /**
  * The person's answers from `--choose d1=reuse` style values (repeatable) or an answers file:
- * { choose: { d1: 'reuse' }, reason: { d1: 'TEXT' }, expires: { d1: 'YYYY-MM-DD' }, cause: { ... } }.
+ * { choose: { d1: 'reuse' }, reason: { d1: 'TEXT' }, expires: { d1: 'YYYY-MM-DD' }, cause: { ... }, clause: { d1: 'A,B' },
+ * article: { d1: [{ article, decision, reason }] } }. The checklist has one answer per article, so it comes only from a file or a form.
  */
-export function parseDecisionAnswers({ choose = [], reason = [], expires = [], cause = [] } = {}) {
+export function parseDecisionAnswers({ choose = [], reason = [], expires = [], cause = [], clause = [], article = {} } = {}) {
   const read = (flag, values) => {
     const entries = Array.isArray(values) ? values.map((value) => {
       const text = String(value);
@@ -991,7 +1073,36 @@ export function parseDecisionAnswers({ choose = [], reason = [], expires = [], c
     }
     return map;
   };
-  return { choose: read('choose', choose), reason: read('reason', reason), expires: read('expires', expires), cause: read('cause', cause) };
+  const articles = new Map();
+  for (const [item, value] of Object.entries(article ?? {})) {
+    if (!/^d\d{1,3}$/u.test(item) || !Array.isArray(value)) refused(`The article answers name '${item}': each item of the list holds a list of { article, decision, reason }.`, 'DECISIONS_ANSWER_INVALID');
+    articles.set(item, value);
+  }
+  return { choose: read('choose', choose), reason: read('reason', reason), expires: read('expires', expires), cause: read('cause', cause), clause: read('clause', clause), article: articles };
+}
+
+/** The clauses a person named for an item, spelled as the Story's index spells them. */
+function namedClauses(item, text, known) {
+  const named = String(text ?? '').split(/[\s,]+/u).filter(Boolean).map((entry) => {
+    const upper = entry.toUpperCase();
+    return known.find((id) => id === upper || id.endsWith(`:${upper}`)) ?? upper;
+  });
+  if (!named.length) refused(`Name the clauses that carry ${item.id}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
+  const unknown = known.length ? named.filter((id) => !known.includes(id)) : [];
+  if (unknown.length) refused(`${item.id} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'is not a clause' : 'are not clauses'} of this Story. Its clauses: ${known.slice(0, 12).join(', ')}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id, unknown });
+  return [...new Set(named)];
+}
+
+/** One answer per article, and a reason for anything but satisfied: the rule the review's own record applies. */
+function checkedArticles(item, given, need) {
+  const answers = Array.isArray(given) ? given : [];
+  const problem = need.articles.find(({ id }) => answers.filter((entry) => entry?.article === id).length !== 1)
+    ? 'Answer every checklist article once'
+    : answers.find((entry) => !need.decisions.includes(entry?.decision)) ? `Each article is ${need.decisions.join(', ')}`
+      : answers.find((entry) => entry.decision !== 'satisfied' && !String(entry.reason ?? '').trim()) ? 'An article that is not satisfied needs its own reason'
+        : answers.length !== need.articles.length ? 'Those are not this checklist\'s articles' : null;
+  if (problem) refused(`${item.id}: ${problem}. A terminal asks each one with singularity-flow decisions record.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
+  return answers.map(({ article, decision, reason }) => ({ article, decision, ...(decision === 'satisfied' ? {} : { reason: String(reason).trim() }) }));
 }
 
 /**
@@ -1002,11 +1113,11 @@ export function parseDecisionAnswers({ choose = [], reason = [], expires = [], c
 export function decisionRecordPlan(packet, answers, { at }) {
   const steps = [];
   const refusedItems = [];
-  for (const item of packet.items) {
+  for (const item of [...packet.items, ...(packet.offered ?? [])]) {
     const chosen = answers.choose.get(item.id);
     if (!chosen) {
-      for (const flag of ['reason', 'expires', 'cause']) {
-        if (answers[flag].has(item.id)) refused(`--${flag} ${item.id}=... is given, but ${item.id} is not chosen with --choose.`, 'DECISIONS_ANSWER_INVALID');
+      for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
+        if (answers[flag]?.has(item.id)) refused(`--${flag} ${item.id}=... is given, but ${item.id} is not chosen with --choose.`, 'DECISIONS_ANSWER_INVALID');
       }
       continue;
     }
@@ -1015,8 +1126,8 @@ export function decisionRecordPlan(packet, answers, { at }) {
       refused(`${item.id} has no option '${chosen}'; its options are ${item.options.map((entry) => entry.id).join(', ')}.`, 'DECISIONS_ANSWER_INVALID',
         { item: item.id, options: item.options.map((entry) => entry.id) });
     }
-    for (const flag of ['reason', 'expires', 'cause']) {
-      if (answers[flag].has(item.id) && !selected.needs[flag]) refused(`${item.id}=${chosen} takes no --${flag}.`, 'DECISIONS_ANSWER_INVALID');
+    for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
+      if (answers[flag]?.has(item.id) && !selected.needs[flag]) refused(`${item.id}=${chosen} takes no --${flag}.`, 'DECISIONS_ANSWER_INVALID');
     }
     if (selected.recordable === false) {
       refused(selected.action
@@ -1054,10 +1165,14 @@ export function decisionRecordPlan(packet, answers, { at }) {
       }
       values.expires = expires;
     }
+    if (selected.needs.clause) values.clause = namedClauses(item, answers.clause?.get(item.id), selected.needs.clause.known ?? []);
+    if (selected.needs.article) values.article = checkedArticles(item, answers.article?.get(item.id), selected.needs.article);
     steps.push({ item: item.id, title: item.title, option: chosen, label: selected.label, values,
       effects: selected.effects.map((effect) => ({ ...effect })) });
   }
-  return { steps, refused: refusedItems };
+  // A route moves the Story on, so everything else on this list is written first.
+  const routes = (step) => step.effects.some((effect) => effect.kind === 'routing');
+  return { steps: [...steps.filter((step) => !routes(step)), ...steps.filter(routes)], refused: refusedItems };
 }
 
 /** One record a plan writes, in plain words with its record kind, for summaries and reports. */
@@ -1075,6 +1190,10 @@ export function effectWords(workflow, effect, values = {}) {
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `${(effect.changes ?? [effect.change]).map(words).join(', ')} (plan amendment)`;
   }
+  if (effect.kind === 'scope-disposition') return `record scope item ${effect.item} as ${effect.disposition}${values.clause?.length ? `, carried by ${values.clause.map((id) => clauseName(workflow, id)).join(', ')}` : ''} (scope decision)`;
+  if (effect.kind === 'completeness-review') return 'record that you reviewed the scope for completeness (completeness review)';
+  if (effect.kind === 'applicability') return `record that ${effect.responsibility} does not apply to this Story (applicability decision)`;
+  if (effect.kind === 'routing') return `send the Story ${effect.to ? (effect.to === 'end' ? 'to its end' : `to ${stepName(workflow, effect.to)}`) : `by route ${effect.option}`} (routing decision)`;
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;
 }

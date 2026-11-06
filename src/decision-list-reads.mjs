@@ -135,6 +135,38 @@ async function failedUploads(root) {
     });
 }
 
+/** The pending routing decision, with the earlier steps it lets a person reopen. */
+async function routingFacts(workflow) {
+  const { reopenableSteps } = await import('./workflow-decisions.mjs');
+  return { ...workflow.pendingDecision, reopen: reopenableSteps(workflow, workflow.pendingDecision) };
+}
+
+/**
+ * The clauses a person may name for a statement, as `decision scope` reads them. Only when the list
+ * is read to answer it: a count never asks for a clause.
+ */
+async function scopeClauses(root, config, workflow) {
+  const { evidenceGraphFromAggregate, scopeDecisionPreview } = await import('./evidence/graph.mjs');
+  const [graph, preview] = await Promise.all([evidenceGraphFromAggregate(root, config, workflow), scopeDecisionPreview(root, config, workflow)]);
+  return [...new Set([...(graph.records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)), ...preview.clauseIds])];
+}
+
+/**
+ * What `decision completeness` would review now, when nothing has yet: every statement has an answer,
+ * and nobody has looked for what is missing. Nothing waits on it, so an unreadable inventory is just not offered.
+ */
+async function completenessFacts(root, config, workflow) {
+  try {
+    const [{ evidenceGraphFromAggregate }, { scopeAuthorities }, { CHECKLIST_DECISIONS, STARTER_CHECKLIST }] = await Promise.all([
+      import('./evidence/graph.mjs'), import('./scope/decisions.mjs'), import('./specification-quality.mjs')]);
+    const graph = await evidenceGraphFromAggregate(root, config, workflow);
+    const groups = scopeAuthorities(workflow);
+    if (!graph.scope?.structurallyComplete || !graph.scope.items.length || graph.completenessReview || !groups.length) return null;
+    return { inventorySha256: graph.scope.inventorySha256, statements: graph.scope.items.length, groups,
+      articles: STARTER_CHECKLIST.articles.map(({ id, title, question }) => ({ id, title, question })), decisions: [...CHECKLIST_DECISIONS] };
+  } catch (error) { if (error instanceof SingularityFlowError) return null; throw error; }
+}
+
 /**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
@@ -165,6 +197,8 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
         .filter((entry) => entry.relevant && ['needs-human', 'correction-required', 'needs-reattestation'].includes(entry.status));
     } catch (error) { unavailable.push({ phase: phase.id, reason: error.code ?? 'appeals-unreadable' }); }
   }
+  const { applicabilityStatus } = await import('./evidence/applicability.mjs');
+  const applicability = applicabilityStatus(workflow).filter((entry) => !entry.satisfied && entry.authority);
   let owedEntries = [];
   const owedRead = owed !== undefined ? owed
     : await (async () => { const { owedDecisions, stepsThrough } = await import('./owed-decisions.mjs'); return owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id), { limit: 1000 }); })();
@@ -172,7 +206,7 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
     // Each with the groups its own command checks, so the list says who takes it.
     const [{ riskAuthorities }, { scopeAuthorities }] = await Promise.all([import('./evidence/risk-decisions.mjs'), import('./scope/decisions.mjs')]);
     owedEntries = [...(owedRead.witnesses ?? []).map((entry) => ({ kind: 'witness', ...entry, contextBinding: owedRead.contextBinding, groups: riskAuthorities(workflow, { owningSteps: entry.owners }) })),
-      ...(owedRead.scopeItems ?? []).map((entry) => ({ kind: 'scope', ...entry, groups: scopeAuthorities(workflow) }))];
+      ...(owedRead.scopeItems ?? []).map((entry) => ({ ...entry, kind: 'scope', groups: scopeAuthorities(workflow) }))];
   }
   if (owedRead?.status === 'unavailable') unavailable.push({ phase: phase.id, reason: owedRead.reason ?? 'owed-decisions-unavailable' });
   if (owedRead?.more?.witnesses || owedRead?.more?.scopeItems) unavailable.push({ phase: phase.id, reason: 'owed-decisions-truncated' });
@@ -190,8 +224,8 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
     approvalCheck: check,
     pending: {
       ...(retained ? { publication: { commit: null, cause: 'A commit was recorded here but its publication did not land.' } } : {}),
-      ...(workflow.pendingDecision ? { routing: workflow.pendingDecision } : {}),
-      intentAmendments, forwardAmendments, appeals, owed: owedEntries, transport
+      ...(workflow.pendingDecision ? { routing: await routingFacts(workflow) } : {}),
+      intentAmendments, forwardAmendments, appeals, owed: owedEntries, applicability, transport
     }
   };
 }
@@ -203,6 +237,12 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   // Reusable runs change an item's options, never how many items there are: a count skips them.
   const reuse = offerReuse ? await reuseCandidates(root, config, workflow, reports) : { candidates: [], problems: [] };
   const state = await pendingStateFacts(root, config, workflow, phase, { ...known, unavailable: blocking.unavailable });
+  // Like reusable runs, a count skips these: they change what a person answers, never how many items there are.
+  const answering = offerReuse && workflow.status === 'in_progress';
+  if (answering && state.pending.owed.some((entry) => entry.kind === 'scope')) {
+    const clauses = await scopeClauses(root, config, workflow).catch((error) => { if (error instanceof SingularityFlowError) return []; throw error; });
+    state.pending.owed = state.pending.owed.map((entry) => (entry.kind === 'scope' ? { ...entry, clauses } : entry));
+  }
   let evidence = [];
   const tests = await testRisks(root, config, workflow, phase, at);
   const requests = (workflow.testCommandDecisions ?? []).length
@@ -224,6 +264,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     testCommands: commandReviews.pending,
     inactiveTestCommands: commandReviews.inactive,
     visual: await visualProfiles(root, config, workflow, phase),
+    completeness: answering ? await completenessFacts(root, config, workflow) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
@@ -233,6 +274,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       testCommandReviewBindings: commandReviews.bindings,
       planAmendments: (workflow.planAmendments ?? []).length,
       witnessRecords: (workflow.witnessRecords ?? []).length,
+      scopeDispositions: (workflow.scopeDispositions ?? []).length, completenessReviews: (workflow.completenessReviews ?? []).length,
+      applicability: (workflow.applicability ?? []).length,
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
       evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),
       reports: Object.fromEntries(reports.map((entry) => [entry.step.id, entry.digest])),

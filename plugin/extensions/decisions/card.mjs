@@ -20,7 +20,9 @@ const ownSteps = (item) => item.options.filter((option) => option.action?.comman
 const itemName = (item) => item.details?.path ?? item.title;
 
 /** Every open decision: the approval itself stays with /sf-approve. */
-export const cardRows = (packet) => packet.items.filter((item) => item.kind !== 'approval');
+export const openRows = (packet) => packet.items.filter((item) => item.kind !== 'approval');
+/** What this card shows: the open decisions, then anything offered that nothing waits on. */
+export const cardRows = (packet) => [...openRows(packet), ...(packet.offered ?? [])];
 const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable));
 
 function howWords(item) {
@@ -42,7 +44,7 @@ export function sharedAnswers(packet) {
   const seen = new Map();
   for (const item of decidable(packet)) {
     for (const option of item.options.filter(choosable)) {
-      if (option.needs?.cause || option.needs?.expires) continue;
+      if (option.needs?.cause || option.needs?.expires || option.needs?.clause || option.needs?.article) continue;
       const known = seen.get(option.id);
       if (known) known.items.push(item); else seen.set(option.id, { id: option.id, label: option.label, items: [item] });
     }
@@ -58,15 +60,24 @@ export function firstForm(packet) {
     reason: { type: 'string', title: 'Reason, if it is one answer for all', maxLength: 500 } } } } };
 }
 
+const answersChecklist = (item) => item.options.filter(choosable).some((option) => option.needs?.article);
+
 export function rowForms(items) {
   const pages = [];
-  for (let at = 0; at < items.length; at += FORM_SIZE) pages.push(items.slice(at, at + FORM_SIZE));
+  const plain = items.filter((item) => !answersChecklist(item));
+  for (let at = 0; at < plain.length; at += FORM_SIZE) pages.push(plain.slice(at, at + FORM_SIZE));
+  // A checklist fills a form of its own.
+  pages.push(...items.filter(answersChecklist).map((item) => [item]));
   return pages.map((page, index) => ({ items: page, form: {
     message: `Decide each one (${index + 1} of ${pages.length}).`,
     requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.flatMap((item, row) => {
       const options = item.options.filter(choosable);
       const need = (flag) => options.find((option) => option.needs?.[flag])?.needs?.[flag];
+      const articles = need('article');
       return [[`decision${row}`, { type: 'string', title: clip(`${itemName(item)}: ${item.why}`), enum: [LEAVE, ...options.map((option) => option.label)] }],
+        ...(need('clause') ? [[`clause${row}`, { type: 'string', title: clip(`Clauses that carry ${itemName(item)}, separated by commas, if you include it${need('clause').known?.length ? ` (${need('clause').known.slice(0, 4).join(', ')})` : ''}`) }]] : []),
+        ...(articles ? articles.articles.flatMap(({ id, question }) => [[`article${row}-${id}`, { type: 'string', title: clip(question), enum: articles.decisions }],
+          [`why${row}-${id}`, { type: 'string', title: clip(`Why, if not satisfied: ${id}`), maxLength: 500 }]]) : []),
         ...(need('reason') ? [[`reason${row}`, { type: 'string', title: clip(`Reason for ${itemName(item)}`), maxLength: need('reason').maximum }]] : []),
         ...(need('cause') ? [[`cause${row}`, { type: 'string', title: clip(`What stops the tests, ${itemName(item)}`), maxLength: need('cause').maximum }]] : []),
         ...(need('expires') ? [[`until${row}`, { type: 'string', title: clip(`Until when, ${itemName(item)} (YYYY-MM-DD, at most ${need('expires').latest})`) }]] : [])];
@@ -82,6 +93,12 @@ function checked(item, option, values) {
     if (size < needs[flag].minimum || size > needs[flag].maximum) return `The ${words} for ${name} must be ${needs[flag].minimum} to ${needs[flag].maximum} characters.`;
   }
   if (needs.expires && (!DATE.test(values.expires ?? '') || values.expires > needs.expires.latest)) return `The date for ${name} must be YYYY-MM-DD and no later than ${needs.expires.latest}.`;
+  if (needs.clause && !String(values.clause ?? '').trim()) return `Name the clauses that carry ${name}.`;
+  if (needs.article) {
+    const answers = values.article ?? [];
+    if (needs.article.articles.some(({ id }) => !needs.article.decisions.includes(answers.find((entry) => entry.article === id)?.decision))) return `Answer every article of the checklist for ${name}.`;
+    if (answers.some((entry) => entry.decision !== 'satisfied' && !entry.reason)) return `An article that is not satisfied needs its own reason, for ${name}.`;
+  }
   return null;
 }
 
@@ -98,7 +115,12 @@ export function answersFromRows(items, content) {
     const option = item.options.filter(choosable).find((entry) => entry.label === word);
     if (!option) return { answers: [], problem: `That is not a decision SFlow knows for ${itemName(item)}.` };
     const values = { ...(option.needs?.reason ? { reason } : {}), ...(option.needs?.cause ? { cause: String(content?.[`cause${row}`] ?? '').trim() } : {}),
-      ...(option.needs?.expires ? { expires: String(content?.[`until${row}`] ?? '').trim() } : {}) };
+      ...(option.needs?.expires ? { expires: String(content?.[`until${row}`] ?? '').trim() } : {}),
+      ...(option.needs?.clause ? { clause: String(content?.[`clause${row}`] ?? '').trim() } : {}),
+      ...(option.needs?.article ? { article: option.needs.article.articles.map(({ id }) => {
+        const decision = content?.[`article${row}-${id}`];
+        return { article: id, decision, ...(decision === 'satisfied' ? {} : { reason: String(content?.[`why${row}-${id}`] ?? '').trim() }) };
+      }) } : {}) };
     const problem = checked(item, option, values);
     if (problem) return { answers: [], problem };
     answers.push({ item: item.id, title: item.title, option: option.id, ...values });
@@ -108,17 +130,18 @@ export function answersFromRows(items, content) {
 
 const answersDocument = (packet, answers) => {
   const column = (flag) => Object.fromEntries(answers.filter((entry) => entry[flag] !== undefined).map((entry) => [entry.item, entry[flag]]));
-  return { choose: Object.fromEntries(answers.map((entry) => [entry.item, entry.option])), reason: column('reason'), cause: column('cause'), expires: column('expires'), confirm: packet.packetSha256 };
+  return { choose: Object.fromEntries(answers.map((entry) => [entry.item, entry.option])), reason: column('reason'), cause: column('cause'), expires: column('expires'), clause: column('clause'), article: column('article'), confirm: packet.packetSha256 };
 };
 
 export function confirmForm(packet, answers) {
-  const items = new Map(packet.items.map((item) => [item.id, item]));
+  const items = new Map(cardRows(packet).map((item) => [item.id, item]));
   const words = answers.map((entry) => {
     const item = items.get(entry.item);
     const label = item?.options.find((option) => option.id === entry.option)?.label ?? entry.option;
-    return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause.replace(/\.+$/u, '')}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
+    const articles = entry.article?.map((answer) => `${answer.article}: ${answer.decision}${answer.reason ? ` (${answer.reason})` : ''}`).join('; ');
+    return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.clause ? ` Carried by ${entry.clause}.` : ''}${articles ? ` ${articles}.` : ''}${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause.replace(/\.+$/u, '')}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
   });
-  const left = decidable(packet).filter((item) => !answers.some((entry) => entry.item === item.id));
+  const left = openRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable) && !answers.some((entry) => entry.item === item.id));
   return { message: [`Record ${answers.length} decision${answers.length === 1 ? '' : 's'} on ${packet.workId}, each under your name:`, ...words,
     ...(left.length ? [`Still undecided: ${left.map(itemName).join(', ')}`] : [])].join('\n'),
   requestedSchema: { type: 'object', required: ['confirm'], properties: { confirm: { type: 'string', title: 'I reviewed this exact change', enum: [RECORD, NOT_NOW] } } } };
@@ -127,7 +150,7 @@ export function confirmForm(packet, answers) {
 /** The answers on a list that changed, by what each row is: only those that still mean the same thing. */
 export function answersOnCurrentList(packet, answers) {
   return answers.flatMap((entry) => {
-    const item = packet.items.find((candidate) => candidate.title === entry.title);
+    const item = cardRows(packet).find((candidate) => candidate.title === entry.title);
     return item?.options.some((option) => option.id === entry.option && choosable(option)) ? [{ ...entry, item: item.id }] : [];
   });
 }
@@ -203,9 +226,10 @@ async function askRows(packet, ask, show) {
  * writes one sign-off and `inspect(packet, file)` puts a file in front of the person. The caller passes
  * these in, so a test can run every route and no route can be answered by anything but `ask`.
  */
-export async function runCard({ ask, show, read, record, witness, inspect }) {
+export async function runCard({ ask, show, read, record, witness, inspect, askedInChat = false }) {
   let packet = await read();
-  if (!cardRows(packet).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
+  // A chat that asked carries on when nothing waits: only a person who typed /decide sees a review nothing waits on.
+  if (!(askedInChat ? openRows(packet) : cardRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, recorded: [], remaining: [] };
   await show(decisionsTable(packet));
   const recorded = [];
   let answers = decidable(packet).length ? await askRows(packet, ask, show) : [];
@@ -249,7 +273,7 @@ export async function runCard({ ask, show, read, record, witness, inspect }) {
       break;
     }
   }
-  const remaining = cardRows(packet).map((item) => itemName(item));
+  const remaining = openRows(packet).map((item) => itemName(item));
   return { status: recorded.length ? 'recorded' : 'cancelled', recorded, remaining,
     message: `${recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}` };
 }

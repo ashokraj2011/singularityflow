@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
+import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, openRows, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionAnswersFromChoices } from '../apps/vscode/src/views/decision-list-model.ts';
 
 const allowed = { allowed: true, words: 'You may decide this (Plan approvers).', groups: ['planners'] };
@@ -101,4 +101,48 @@ test('a Story signed with SF Guard hands over one command with nothing to fill i
 test('the page script uses the one VS Code handle page() already took', () => {
   assert.match(DECIDE_SCRIPT, /window\.__sfVscode/u);
   assert.doesNotMatch(DECIDE_SCRIPT, /acquireVsCodeApi/u, 'a second call kills every button');
+});
+
+const scopeRow = (id, statement) => ({ id, kind: 'owed-decision', title: `Decide scope item ${id}`, why: `"${statement}" needs a link.`, decidedBy: allowed, details: { scopeItem: id }, options: [
+  choice('scope-included', 'Included: named clauses carry it', { clause: { known: ['PAY-1:REQ-001', 'PAY-1:REQ-002'] }, reason: { default: '', minimum: 20, maximum: 1000 } }),
+  choice('scope-excluded', 'Exclude it from this Story')] });
+const checklist = { articles: [{ id: 'completeness', title: 'Completeness', question: 'Is every scenario covered?' }, { id: 'ambiguity', title: 'Ambiguity', question: 'Is it free of ambiguity?' }], decisions: ['satisfied', 'exception', 'not-applicable'] };
+const review = { id: 'd9', kind: 'scope-completeness', title: 'Review the scope for completeness', why: 'Nothing waits on this review.', decidedBy: allowed, details: {}, options: [
+  choice('reviewed', 'I reviewed it: record my answers', { article: checklist, reason: { default: '', minimum: 20, maximum: 1000 } })] };
+
+test('a scope statement asks for clauses only where they carry it, and one answer never covers them', () => {
+  const list = packet({ items: [scopeRow('d1', 'It must export.'), scopeRow('d2', 'It must log.')] });
+  const html = decideHtml(list);
+  assert.match(html, /data-needs="clause reason"/u);
+  assert.match(html, /data-field="clause"[^>]*placeholder="Clauses: PAY-1:REQ-001, PAY-1:REQ-002"/u);
+  assert.deepEqual(sharedAnswers(list).map((entry) => entry.id), ['scope-excluded'], 'naming clauses is each row\'s own');
+  const noClause = decisionAnswersFromChoices(list, decideChoicesFrom(list, { type: 'x', rows: [answer('d1', 't', 'scope-included', 'The first requirement carries it.')] }).choices, { today: '2026-11-06' });
+  assert.match(noClause.errors[0], /name the clauses/u);
+  const { choices } = decideChoicesFrom(list, { type: 'x', rows: [answer('d1', 't', 'scope-included', 'The first requirement carries it.', { clause: 'REQ-001' }), answer('d2', 't', 'scope-excluded', 'Logging is not part of this Story.', { clause: 'ignored' })] });
+  const { answers, errors } = decisionAnswersFromChoices(list, choices, { today: '2026-11-06' });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(answers.clause, { d1: 'REQ-001' }, 'a disposition with no clauses never carries any');
+  assert.match(decideSummary(list, choices), /Carried by REQ-001\./u);
+  const kept = decideHtml(list, { draft: decideDraftFrom({ type: 'x', rows: [answer('Decide scope item d1', 'Decide scope item d1', 'scope-included', 'x', { clause: 'REQ-002' })] }) });
+  assert.match(kept, /value="REQ-002"/u, 'a re-render keeps the clauses typed');
+});
+
+test('a review nothing waits on is offered, answered article by article, and never counted as open', () => {
+  const list = packet({ items: [scopeRow('d1', 'It must export.')], offered: [review] });
+  assert.deepEqual(openRows(list).map((item) => item.id), ['d1']);
+  assert.deepEqual(decideRows(list).map((item) => item.id), ['d1', 'd9']);
+  const html = decideHtml(list);
+  assert.match(html, /<select data-article="completeness"/u);
+  assert.doesNotMatch(html, /<option value="satisfied"[^>]* selected/u, 'no article is answered for the person');
+  const row = (article, reason = 'I looked at all of it, carefully.') => ({ type: 'x', rows: [answer('d9', 't', 'reviewed', reason, { article })] });
+  const partial = decisionAnswersFromChoices(list, decideChoicesFrom(list, row([{ article: 'completeness', decision: 'satisfied' }])).choices, { today: '2026-11-06' });
+  assert.match(partial.errors[0], /answer every article/u);
+  const noWhy = decisionAnswersFromChoices(list, decideChoicesFrom(list, row([{ article: 'completeness', decision: 'satisfied' }, { article: 'ambiguity', decision: 'exception', reason: ' ' }])).choices, { today: '2026-11-06' });
+  assert.match(noWhy.errors[0], /needs its own reason/u);
+  const { choices } = decideChoicesFrom(list, row([{ article: 'completeness', decision: 'satisfied', reason: 'dropped' }, { article: 'ambiguity', decision: 'exception', reason: 'Two words read two ways.' }]));
+  const { answers, errors } = decisionAnswersFromChoices(list, choices, { today: '2026-11-06' });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(answers.article.d9, [{ article: 'completeness', decision: 'satisfied' }, { article: 'ambiguity', decision: 'exception', reason: 'Two words read two ways.' }]);
+  assert.match(decideSummary(list, choices), /ambiguity: exception \(Two words read two ways\.\)/u);
+  assert.doesNotMatch(decideSummary(list, choices), /Still undecided: .*Review the scope/u);
 });

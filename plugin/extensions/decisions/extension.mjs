@@ -81,7 +81,8 @@ async function inspect(packet, file) {
   if (opener) await executeFile(opener, [absolute], { timeout: 5000 }).catch(() => undefined);
 }
 
-const decide = (workId) => runCard({
+const decide = (workId, { askedInChat = false } = {}) => runCard({
+  askedInChat,
   read: async () => (await runFlow(['decisions', ...(workId ? [workId] : []), '--json'])).data,
   ask: (form) => session.ui.elicitation(form),
   show: (text) => session.log(text),
@@ -120,7 +121,7 @@ session = await joinSession({
       if (Object.keys(input ?? {}).some((key) => key !== 'workId') || !WORK_ID.test(String(input?.workId ?? ''))) {
         return JSON.stringify({ status: 'blocked', recorded: null, message: 'This takes only a Story ID. Answers and reasons come from the person.' });
       }
-      try { return JSON.stringify(await decide(input.workId)); }
+      try { return JSON.stringify(await decide(input.workId, { askedInChat: true })); }
       catch (error) { return JSON.stringify({ status: 'unavailable', recorded: null, message: `Nothing more was recorded. ${error.message}` }); }
     }
   }, {

@@ -145,3 +145,47 @@ test('the confirmation names every answer with its reason', () => {
   assert.match(form.message, /a\.js: Add to REQ-002\. Reason: Its own reason/u);
   assert.deepEqual(form.requestedSchema.properties.confirm.enum, [RECORD, NOT_NOW]);
 });
+
+const scopeRow = (id, statement) => ({ id, kind: 'owed-decision', title: `Decide scope item ${id}`, why: `"${statement}" needs a link.`, decidedBy: allowed, details: { scopeItem: id }, options: [
+  choice('scope-included', 'Included: named clauses carry it', { clause: { known: ['PAY-1:REQ-001'] }, reason: { default: '', minimum: 20, maximum: 1000 } }),
+  choice('scope-excluded', 'Exclude it from this Story')] });
+const checklist = { articles: [{ id: 'completeness', title: 'Completeness', question: 'Is every scenario covered?' }, { id: 'ambiguity', title: 'Ambiguity', question: 'Is it free of ambiguity?' }], decisions: ['satisfied', 'exception', 'not-applicable'] };
+const reviewRow = { id: 'd9', kind: 'scope-completeness', title: 'Review the scope for completeness', why: 'Nothing waits on this review.', decidedBy: allowed, details: {}, options: [
+  choice('reviewed', 'I reviewed it: record my answers', { article: checklist, reason: { default: '', minimum: 20, maximum: 1000 } })] };
+
+test('a scope row asks for clauses, and an included statement with none goes back to the form', async () => {
+  const list = packet({ items: [scopeRow('d1', 'It must export.'), scopeRow('d2', 'It must log.')] });
+  assert.deepEqual(sharedAnswers(list).map((entry) => entry.id), ['scope-excluded'], 'naming clauses is each row\'s own');
+  const [page] = rowForms(list.items);
+  assert.ok(page.form.requestedSchema.properties.clause0, 'the clause field');
+  assert.deepEqual(page.form.requestedSchema.required, ['decision0', 'decision1'], 'clauses are asked only of a choice that needs them');
+  const fields = { decision0: 'Included: named clauses carry it', reason0: 'The first requirement carries it.', decision1: 'Exclude it from this Story', reason1: 'Logging is not part of this Story.' };
+  assert.match(answersFromRows(page.items, fields).problem, /Name the clauses that carry/u);
+  const { answers, problem } = answersFromRows(page.items, { ...fields, clause0: 'REQ-001', clause1: 'ignored' });
+  assert.equal(problem, null);
+  assert.deepEqual(answers.map((entry) => entry.clause), ['REQ-001', undefined], 'a disposition with no clauses never carries any');
+  const { seen, ui } = person([accept({ choice: EACH }), accept({ ...fields, clause0: 'REQ-001' }), accept({ confirm: RECORD })], [list, { ...list, items: [] }]);
+  await runCard(ui);
+  assert.deepEqual(seen.recorded[0].document.clause, { d1: 'REQ-001' });
+  assert.match(seen.asked.at(-1).message, /Carried by REQ-001\./u);
+});
+
+test('a review nothing waits on has its own form, and only a person who typed /decide meets it alone', async () => {
+  const list = packet({ items: [], offered: [reviewRow] });
+  assert.deepEqual(cardRows(list).map((item) => item.id), ['d9']);
+  const chat = person([], [list]);
+  assert.equal((await runCard({ ...chat.ui, askedInChat: true })).status, 'nothing-to-decide', 'a chat that asked carries on');
+  assert.equal(chat.seen.asked.length, 0, 'it never stops a chat turn');
+  const [page] = rowForms(list.offered);
+  const schema = page.form.requestedSchema;
+  assert.deepEqual(schema.required, ['decision0'], 'nothing is answered for the person');
+  assert.equal(schema.properties['article0-completeness'].title, 'Is every scenario covered?');
+  const fields = { decision0: 'I reviewed it: record my answers', reason0: 'I looked at all of it, carefully.', 'article0-completeness': 'satisfied' };
+  assert.match(answersFromRows(page.items, fields).problem, /Answer every article/u);
+  assert.match(answersFromRows(page.items, { ...fields, 'article0-ambiguity': 'exception' }).problem, /needs its own reason/u);
+  const person2 = person([accept({ ...fields, 'article0-ambiguity': 'exception', 'why0-ambiguity': 'Two words read two ways.' }), accept({ confirm: RECORD })], [list, { ...list, offered: [] }]);
+  const result = await runCard(person2.ui);
+  assert.deepEqual(person2.seen.recorded[0].document.article.d9, [{ article: 'completeness', decision: 'satisfied' }, { article: 'ambiguity', decision: 'exception', reason: 'Two words read two ways.' }]);
+  assert.equal(result.status, 'recorded');
+  assert.deepEqual(result.remaining, [], 'offered rows are not what remains');
+});

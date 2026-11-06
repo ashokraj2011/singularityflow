@@ -439,7 +439,7 @@ function nodePinItem(workflow, context, pin) {
   return {
     kind: 'node-pin',
     title: `${name}'s tests need another Node`,
-    why: `${pin.words} Node ${pin.node} is installed here. ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} ${replaces ? `Changing ${pin.file} to it amends the plan, or install Node ${replaces} and there is nothing to choose` : `Pinning it creates ${pin.file} and amends the plan`}; the code and its tests stay as they are.`,
+    why: `${pin.words}${pin.words.includes(`Node ${pin.node}`) ? '' : ` Node ${pin.node} is installed here.`} ${pin.tried?.words ?? `Whether the tests pass on it is not known yet: ${tryIt} finds out and records nothing as evidence.`} ${replaces ? `Changing ${pin.file} to it amends the plan, or install Node ${replaces} and there is nothing to choose` : `Pinning it creates ${pin.file} and amends the plan`}; the code and its tests stay as they are.`,
     options: [option(workflow, context, {
       id: 'pin-node', label: replaces ? `Change ${pin.file} from ${replaces} to Node ${pin.version} and amend the plan` : `Pin Node ${pin.version}: create ${pin.file} and amend the plan`,
       words: `${replaces ? `Replaces ${replaces} with ${pin.version} in ${pin.file}` : `Creates ${pin.file} holding ${pin.version}`} in this checkout and lists it in the plan as a supporting change (${NODE_PIN_CLASS}) with your reason. SFlow then runs this repository's tests on Node ${pin.node}.`,

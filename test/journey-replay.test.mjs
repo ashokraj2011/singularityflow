@@ -96,7 +96,8 @@ async function fixture(t) {
 }
 
 // A refusal that was wrong then. Once the guard stops making it, its key moves here from the list.
-const CORRECTED = new Set([]);
+// A false refusal since fixed: looking at one named path is no repository search.
+const CORRECTED = new Set(['bin-opr2 sf-code bash ls -l <SYSTEM-PATH> <SYSTEM-PATH>']);
 // Lowered as entries go. Raising it is a decision a reviewer sees.
 const CEILING = 3;
 const journeys = (await readdir(JOURNEYS)).filter((name) => name.endsWith('.json')).sort();

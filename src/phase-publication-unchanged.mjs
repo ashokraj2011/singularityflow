@@ -11,7 +11,7 @@ import path from 'node:path';
 import { authoredArtifactFingerprint } from './artifact-review-read.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
-import { changedFiles, exactFileAtObject } from './git.mjs';
+import { changedFiles, committedChangedPaths, exactFileAtObject } from './git.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './phase-inspection-generation.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 
@@ -19,14 +19,17 @@ export async function documentUnchangedSincePublication(root, config, workflow, 
   if (phase?.status !== 'in_progress' || phaseRequiresCodeDelivery(phase) || isConvergencePhase(phase)
       || !hasPublishedPhaseGeneration(phase) || requiresProspectivePhaseInspection(workflow, phase)) return false;
   try {
-    const relative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, phase.requiredArtifact.path);
+    const story = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+    const relative = path.posix.join(story, phase.requiredArtifact.path);
     const commit = publishedGenerationCommit(root, workflow, phase);
     const bytes = commit ? exactFileAtObject(root, commit, relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true }) : null;
     if (!bytes) return false;
     const current = await readFile(path.join(root, relative), 'utf8');
     if (authoredArtifactFingerprint(current) !== authoredArtifactFingerprint(bytes.toString('utf8'))) return false;
-    // A step's artifact folder can hold more than its one document; any other change there is new work.
+    // What a publication would commit is new work under the same words: a capture recorded for the next
+    // generation sits in the Story's context, and a step's artifact folder holds more than its one document.
     const folder = `${path.posix.dirname(relative)}/`;
-    return !changedFiles(root).some((file) => file !== relative && file.startsWith(folder));
+    return !changedFiles(root).some((file) => file !== relative && file.startsWith(`${story}/`))
+      && !committedChangedPaths(root, commit).some((file) => file !== relative && file.startsWith(folder));
   } catch { return false; }
 }

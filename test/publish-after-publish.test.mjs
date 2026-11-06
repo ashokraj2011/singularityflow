@@ -3,7 +3,7 @@
  * published, then a model ran `phase publish`, and planning went 1, 2, 3, 4, each pair seconds apart.
  */
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -73,4 +73,16 @@ test('publishing unchanged says so and records nothing, and a changed draft publ
   assert.equal(changed.value.generation ?? 2, 2);
   assert.notEqual(commits(), before);
   assert.match(sflow('phase', 'show', 'intake'), /generation 2|Generation: 2/iu);
+
+  // The same words with something new to carry are no repeat: what a publication would commit can sit in the
+  // Story's context (a capture for the next generation), and a sibling can already be committed beside the document.
+  const story = path.join(root, 'singularity/work-items/QF-1');
+  await mkdir(path.join(story, 'context'), { recursive: true });
+  await writeFile(path.join(story, 'context/capture.json'), '{}\n');
+  assert.notEqual(publish().value.status, 'retained', 'an uncommitted file in the Story is new work');
+  await rm(path.join(story, 'context/capture.json'), { force: true });
+  await writeFile(path.join(story, 'artifacts/intake/extra.md'), '# Extra\n');
+  must('git', ['add', path.join(story, 'artifacts/intake/extra.md')]);
+  must('git', ['commit', '-q', '-m', 'A sibling document']);
+  assert.notEqual(publish().value.status, 'retained', 'a sibling committed since the publication is new work');
 });

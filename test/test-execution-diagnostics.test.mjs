@@ -15,7 +15,8 @@ test('required test failures distinguish runtime, report, test, and process caus
     ['source-mutation', 'QUALITY_COMMAND_SOURCE_MUTATION', { status: 'failed' }, observed({ failed: 1 })],
     ['failed-tests', 'CODE_TEST_FAILED', { status: 'failed', exitCode: 1 }, observed({ failed: 2 })],
     ['process-failed-with-passing-report', 'CODE_TEST_FAILED', { status: 'failed', exitCode: 1 }, observed({ discovered: 2, passed: 2, failed: 0, skipped: 0 })],
-    ['invalid-or-missing-report', 'CODE_TEST_FAILED', { status: 'failed', exitCode: 1 }, observed({ discovered: 0, passed: 0, failed: 0, skipped: 0 })],
+    ['no-tests', 'CODE_TEST_FAILED', { status: 'failed', exitCode: 5 }, observed({ discovered: 0, passed: 0, failed: 0, skipped: 0 })],
+    ['no-tests', 'CODE_TEST_ZERO_DISCOVERED', { status: 'passed', exitCode: 0 }, observed({ discovered: 0, passed: 0, failed: 0, skipped: 0 })],
     ['invalid-or-missing-report', 'CODE_TEST_FAILED', { status: 'failed', exitCode: 1 }, observed({ discovered: 2, passed: 0, failed: 0, skipped: 2 })],
     ['invalid-or-missing-report', 'CODE_TEST_RESULT_REQUIRED', { status: 'passed', exitCode: 0 }, { status: 'unavailable' }],
     ['generic', 'CODE_TEST_FAILED', { status: 'failed', exitCode: 2 }, { status: 'unavailable' }]

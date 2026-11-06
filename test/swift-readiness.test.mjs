@@ -19,6 +19,11 @@ import { SWIFT_TEST_ARGUMENTS, SWIFT_TEST_REPORT_DIRECTORY as REPORTS, SWIFT_TES
 const MANIFEST = '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "Pilot", targets: [.target(name: "Pilot"), .testTarget(name: "PilotTests", dependencies: ["Pilot"])])\n';
 const xml = (name, status = '') => `<testsuites><testsuite name="PilotTests" tests="1" failures="${status === 'failure' ? 1 : 0}" skipped="${status === 'skipped' ? 1 : 0}" errors="0"><testcase classname="PilotTests" name="${name}">${status ? `<${status}/>` : ''}</testcase></testsuite></testsuites>`;
 
+// Exactly what SwiftPM 6.4 writes beside the report that holds the tests, whichever framework has none:
+// the root has no count of its own and its one suite declares zero tests.
+const REAL_EMPTY_SWIFT_TESTING = '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>\n  <testsuite name="TestResults" errors="0" tests="0" failures="0" skipped="0" time="0.000199666">\n\n  </testsuite>\n</testsuites>\n';
+const REAL_EMPTY_XCTEST = '<?xml version="1.0" encoding="UTF-8"?>\n\n<testsuites>\n<testsuite name="TestResults" errors="0" tests="0" failures="0" time="0.0">\n</testsuite>\n</testsuites>\n';
+
 async function fixture(t, files = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-swift-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -132,6 +137,49 @@ test('Swift Testing-only and XCTest-only output are collected without requiring 
     const parsed = await parseTestResult(root, command);
     assert.equal(parsed.tests.passed, 1);
     assert.equal(parsed.result.files.length, 1);
+  }
+});
+
+test('the empty companion a real SwiftPM run writes reads as no tests, beside the report that holds them', async (t) => {
+  for (const [full, empty, expected] of [['tests.xml', ['tests-swift-testing.xml', REAL_EMPTY_SWIFT_TESTING], 'XCTest'],
+    ['tests-swift-testing.xml', ['tests.xml', REAL_EMPTY_XCTEST], 'Swift Testing']]) {
+    const root = await fixture(t, { 'Package.swift': MANIFEST });
+    const [command] = await inferRepositoryTestCommands(root);
+    await prepareInferredSwiftTestReports(root, command);
+    await report(root, full, xml('example'));
+    await report(root, ...empty);
+    const parsed = await parseTestResult(root, command);
+    assert.deepEqual(parsed.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 }, expected);
+    assert.equal(parsed.result.files.length, 2, 'both reports are kept');
+  }
+});
+
+test('a real SwiftPM run with an empty companion leaves a passing readiness receipt', async (t) => {
+  const root = await fixture(t, { 'Package.swift': MANIFEST, 'Package.resolved': '{"version":3,"pins":[]}' });
+  const options = { scope: 'dependency-test' };
+  const plan = await buildRepositoryReadinessPlan(root, options);
+  const result = await executeRepositoryReadinessPlan(root, { ...options, confirmation: plan.planId, runCommand: async () => {
+    await report(root, 'tests.xml', xml('testXCTest'));
+    await report(root, 'tests-swift-testing.xml', REAL_EMPTY_SWIFT_TESTING);
+    return success;
+  } });
+  assert.deepEqual(result.receipt.testObservations[0].counts, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal((await inspectRepositoryReadinessReceipt(root, options)).status, 'pass');
+});
+
+test('a report set of only empty companions, or one suite with a count no test case backs, is never read as a pass', async (t) => {
+  for (const [name, contents, code] of [
+    ['tests.xml', REAL_EMPTY_XCTEST, null],
+    ['tests.xml', '<testsuites><testsuite tests="2" failures="0"/></testsuites>', 'CODE_TEST_RESULT_REQUIRED'],
+    ['tests.xml', '<testsuites><testsuite tests="0" errors="1"/></testsuites>', 'CODE_TEST_RESULT_REQUIRED'],
+    ['tests.xml', '<testsuites></testsuites>', 'CODE_TEST_RESULT_REQUIRED']
+  ]) {
+    const root = await fixture(t, { 'Package.swift': MANIFEST });
+    const [command] = await inferRepositoryTestCommands(root);
+    await prepareInferredSwiftTestReports(root, command);
+    await report(root, name, contents);
+    if (code) await assert.rejects(parseTestResult(root, command), (error) => error.code === code, contents);
+    else assert.deepEqual((await parseTestResult(root, command)).tests, { discovered: 0, passed: 0, failed: 0, skipped: 0 });
   }
 });
 

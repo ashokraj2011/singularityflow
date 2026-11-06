@@ -12,8 +12,8 @@
  *   permission was denied, or every discovered test skipped itself.
  * - Code: a compile error, a syntax error, an import that does not resolve (a repository path, or
  *   a package imported from a file the Story changed), or tests that ran and failed.
- * - Unknown: the run timed out (a hang the change caused looks like a slow machine), or its output
- *   names nothing recognised here.
+ * - Unknown: the run timed out (a hang the change caused looks like a slow machine), its report
+ *   counts no tests, or its output names nothing recognised here.
  *
  * A code marker wins over an environment one, and an unknown cause is never an environment cause:
  * a wrong reading can only refuse a run a person might have accepted, never accept a code fault. A
@@ -44,6 +44,7 @@ export const TEST_RUN_CAUSES = Object.freeze({
   'import-error': [CODE, 'an import that does not resolve'],
   'assertion-failure': [CODE, 'tests ran and failed'],
   timeout: [UNKNOWN, 'the run timed out'],
+  'no-tests': [UNKNOWN, 'the run found no tests'],
   unrecognised: [UNKNOWN, 'the output names no cause recognised here']
 });
 
@@ -214,7 +215,8 @@ export function classifyTestRunCause({ check = null, tests = null, failedMessage
   if (executed > 0) return cause('unrecognised', 'tests passed, run failed', 'process');
   const discovered = count(tests?.discovered);
   if (discovered > 0 && count(tests?.skipped) === discovered) return cause('all-tests-skipped', 'every test skipped', 'tests');
-  return environmentCause(output, changed) ?? cause('unrecognised', 'no recognised marker', 'process');
+  return environmentCause(output, changed)
+    ?? (tests && discovered === 0 ? cause('no-tests', 'report counts no tests', 'tests') : cause('unrecognised', 'no recognised marker', 'process'));
 }
 
 function playwrightFailureMessages(contents) {

@@ -48,7 +48,7 @@ function testFindingRoute(workflow, phase, finding, code) {
   const workId = workflow.workItem.id;
   const diagnosedFailure = finding.details?.requiredTestExecution?.failure?.kind;
   const repairableFailure = ['failed-tests', 'missing-launcher', 'missing-dependency', 'timeout',
-    'invalid-or-missing-report', 'process-failed-with-passing-report'].includes(diagnosedFailure);
+    'no-tests', 'invalid-or-missing-report', 'process-failed-with-passing-report'].includes(diagnosedFailure);
   if (!repairableFailure && (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true)) {
     return route('risk-inspection', 'validation-approval-authority',
       ['story', 'test-policy', 'risks', '--phase', phase.id, '--operation', 'publish', '--json'],

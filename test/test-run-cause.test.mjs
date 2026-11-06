@@ -104,6 +104,16 @@ test('a hang, an unrecognised exit and passing tests in a failed run are never e
   assert.equal(testRunCauseCategory('nonsense'), null);
 });
 
+test('a report that counts no tests says so, and is never an environment cause on that alone', () => {
+  const none = { discovered: 0, passed: 0, failed: 0, skipped: 0 };
+  // pytest's own exit 5, with the report it writes when it collects nothing.
+  const collectedNothing = classOf(failed('collected 0 items\n\n============ no tests ran in 0.00s ============\n', { exitCode: 5 }), { tests: none });
+  assert.deepEqual(collectedNothing, { category: 'unknown', class: 'no-tests', basis: 'tests', signal: 'report counts no tests' });
+  assert.equal(testRunCauseWords('no-tests'), 'the run found no tests');
+  assert.equal(classOf(failed('collected 0 items\n')).class, 'unrecognised', 'a report that could not be read counts nothing');
+  assert.equal(classOf(failed('sh: 1: pytest: not found\n'), { tests: none }).category, 'environment', 'the output still names what stopped it');
+});
+
 test('each failed test of a Playwright report is read for its message', () => {
   const report = Buffer.from(JSON.stringify({ suites: [{ specs: [{ tests: [
     { status: 'unexpected', results: [{ status: 'failed', error: { message: "browserType.launch: Executable doesn't exist at /x/chrome" } }] },

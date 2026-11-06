@@ -817,6 +817,12 @@ function validateJunitStructure(node, insideTestcase = false) {
   for (const child of node.children) validateJunitStructure(child, testcase);
 }
 
+function emptySuites(root) {
+  const suites = root.localName === 'testsuites' ? descendants(root, 'testsuite') : [];
+  return suites.length > 0 && suites.every((suite) => integerAttribute(suite, ['tests', 'total'], { required: true }) === 0
+    && [['failures', 'failed'], ['errors'], ['skipped', 'notExecuted'], ['disabled']].every((names) => !integerAttribute(suite, names)));
+}
+
 function junitObservation(xml, { maximumOccurrences = MAX_TESTCASE_OCCURRENCES } = {}) {
   const root = parseXml(xml);
   if (!['testsuite', 'testsuites'].includes(root.localName)) xmlFailure(`unrecognized JUnit root '${root.name}'`);
@@ -837,6 +843,12 @@ function junitObservation(xml, { maximumOccurrences = MAX_TESTCASE_OCCURRENCES }
       validateJunitAggregate(aggregate, descendants(aggregate, 'testcase'));
     }
     return { tests: counts, occurrences: junitCases(root, null, [], maximumOccurrences) };
+  }
+  // A root with no count whose suites each declare zero tests: the empty companion SwiftPM writes beside
+  // the report that holds its tests, or a pytest run that collected nothing. A suite that declares any
+  // test or outcome no test case backs has no such reading and stays refused below.
+  if (!['tests', 'total'].some((name) => Object.hasOwn(root.attributes, name)) && emptySuites(root)) {
+    return { tests: { discovered: 0, passed: 0, failed: 0, skipped: 0 }, occurrences: [] };
   }
   const discovered = integerAttribute(root, ['tests', 'total'], { required: true });
   const failed = (integerAttribute(root, ['failures', 'failed']) ?? 0) + (integerAttribute(root, ['errors']) ?? 0);

@@ -43,6 +43,11 @@ const FAILURE_GUIDANCE = Object.freeze({
     guidance: 'The test command was not run because it declares no modelPolicy and models are disabled for this run. Rerun with the model enabled, or have configuration declare modelPolicy: never for the command (then adopt it with story test-policy amend).',
     retryCondition: 'runtime-changed'
   },
+  // The report was read and counts nothing: the fault is what ran, not the reporter.
+  'no-tests': {
+    guidance: 'The report counts zero tests, so no test ran. Read the output: the run stopped before collecting any, or the command looks where there are no tests. A run with no tests is never a pass.',
+    retryCondition: 'diagnostic-reviewed'
+  },
   'invalid-or-missing-report': {
     guidance: 'Repair the repository-owned test reporter or result path; the process exit alone is not passing test evidence.',
     retryCondition: 'report-repaired'
@@ -137,6 +142,7 @@ export function classifyRequiredTestFailure(errorCode, check = null, report = nu
       && safeCount(report.tests.skipped) === discovered) {
     return failureOf('all-tests-skipped');
   }
+  if (observed && discovered === 0 && failed === 0) return failureOf('no-tests');
   if (observed && failed === 0 && !(discovered > 0 && passed > 0)) {
     return failureOf('invalid-or-missing-report');
   }

@@ -227,10 +227,6 @@
     "bin-opr sf-approve bash singularity-flow choices begin approve <VALUE> --fetch --for-agent --json --review-packet": {
       "reason": "The real call named the Story in a form the scrubber made a plain value, so the fixture's own answer differs. This is a limit of the replay, and nothing shows the guard is wrong."
     },
-    "bin-opr2 sf-code bash ls -l <SYSTEM-PATH> <SYSTEM-PATH>": {
-      "falseRefusal": "GUARD_PROSE_REPOSITORY_SEARCH",
-      "reason": "A false refusal. The call looks for a Node binary, and the guard calls it searching home or parent directories for a repository."
-    },
     "bin-opr sf-converge bash singularity-flow story adjudicate <VALUE> --disposition <VALUE> --reason <TEXT> && singularity-flow story adjudicate <VALUE> --disposition <VALUE> --reason <TEXT> && singularity-flow story adjudicate <VALUE> --disposition <VALUE> --reason <TEXT> && singularity-flow story adjudicate <VALUE> --disposition <VALUE> --reason <TEXT> && singularity-flow prepare convergence": {
       "reason": "The guard changed after this run: a chain in the turn that owns the decision now says to run the commands one at a time. The walk's chain scenario holds what remains wrong with it."
     }

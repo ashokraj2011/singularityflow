@@ -99,7 +99,7 @@ async function fixture(t) {
 // A false refusal since fixed: looking at one named path is no repository search.
 const CORRECTED = new Set(['bin-opr2 sf-code bash ls -l <SYSTEM-PATH> <SYSTEM-PATH>']);
 // Lowered as entries go. Raising it is a decision a reviewer sees.
-const CEILING = 3;
+const CEILING = 2;
 const journeys = (await readdir(JOURNEYS)).filter((name) => name.endsWith('.json')).sort();
 const keyOf = (journey, row) => `${journey} ${row.turn} ${row.tool} ${row.args.command ?? JSON.stringify(row.args)}`;
 

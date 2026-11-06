@@ -24,7 +24,7 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RATCHET = JSON.parse(readFileSync(path.join(ROOT, 'test/fixtures/known-dead-ends.json'), 'utf8'));
 // Lowered as entries go. Raising one is a decision a reviewer sees, not a line in a long list.
-const CEILING = Object.freeze({ walks: 20, readOnlyFirstRoutes: 181 });
+const CEILING = Object.freeze({ walks: 19, readOnlyFirstRoutes: 181 });
 
 const MAJOR = process.versions.node.split('.')[0];
 const failingOnThisNode = `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.notEqual(process.versions.node.split('.')[0], '${MAJOR}'); });\n`;

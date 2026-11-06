@@ -1,6 +1,6 @@
 /** Immutable, exact-diff phase appeals. Scope accounting is not risk acceptance or phase approval. */
 import path from 'node:path';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -149,6 +149,10 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
   let total = 0;
   for (const entry of changes) {
     const selected = set.entries.find(item => item.newPath === entry.path);
+    // Not a policy matter: an appeal accounts for a change, and a file not yet written is no change.
+    if (!selected && !existsSync(path.join(root, entry.path))) {
+      fail(`'${entry.path}' does not exist yet, so there is no change to account for. Create the file first, then run this appeal prepare again.`, 'PHASE_APPEAL_PATH_UNSUPPORTED');
+    }
     if (!selected || !['added', 'modified'].includes(selected.status) || selected.newContent?.kind !== 'regular-file'
         || protectedViolations.some(item => item.path === entry.path) || outside.some(item => item.path === entry.path)) {
       fail(`Cannot account for '${entry.path}' here. Protected paths, boundary changes, links, renames and deletions require the owning configuration or reviewed recovery process.`, 'PHASE_APPEAL_PATH_UNSUPPORTED');

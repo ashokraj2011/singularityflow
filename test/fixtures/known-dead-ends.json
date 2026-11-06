@@ -12,7 +12,6 @@
       "exhausted:CODE_TEST_FAILED": "After the guard, the walk ends as node-version does, with no command for a person."
     },
     "appeal-for-a-file-not-there-yet": {
-      "false-reason:PHASE_APPEAL_PATH_UNSUPPORTED": "It blames protected paths and boundary changes. The real reason is that the file does not exist yet.",
       "read-only-route:PHASE_APPEAL_PATH_UNSUPPORTED": "Its routes are /sf-recover and /sf-phase-documents, which read. Neither says to create the file.",
       "goal-lost:PHASE_APPEAL_PATH_UNSUPPORTED": "recover leads to /sf-code, and publishing goes ahead without the pin the person chose: their choice is lost."
     },

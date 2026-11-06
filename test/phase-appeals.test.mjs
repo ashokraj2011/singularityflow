@@ -760,6 +760,9 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     const protectedConfig = Object.assign(Object.create(Object.getPrototypeOf(definition)), definition,
       { governance: { ...definition.governance, protectedPaths: ['src/helper.mjs'] } });
     await assert.rejects(preparePhaseAppeal(f.root, protectedConfig, workflow, request), { code: 'PHASE_APPEAL_PATH_UNSUPPORTED' });
+    // A file not written yet is told so, and what to do: nothing here is protected.
+    await assert.rejects(preparePhaseAppeal(f.root, definition, workflow, { ...request, changes: [{ kind: 'add-supporting', path: '.nvmrc', class: 'build-configuration', reason: 'The person chose to pin the Node version.' }] }),
+      (error) => error.code === 'PHASE_APPEAL_PATH_UNSUPPORTED' && /'\.nvmrc' does not exist yet.*Create the file first/u.test(error.message) && !/Protected paths/u.test(error.message));
     await assert.rejects(preparePhaseAppeal(f.root, definition, workflow, { ...request,
       changes: [{ ...request.changes[0], clauseId: 'OTHER-STORY:AC-001' }] }), /has no row/);
     await assert.rejects(submitPhaseAppeal(f.root, definition, workflow, { ...request, confirm: sha('wrong') }), { code: 'PHASE_APPEAL_STALE' });

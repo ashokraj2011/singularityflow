@@ -2051,7 +2051,7 @@ async function nextCommand(options) {
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   const convergence = convergencePreparationState(prepared.convergence);
   if (convergence) {
-    console.log(`Convergence projection: iteration ${convergence.iteration} · ${convergence.factCount} fact(s) · ${convergence.findingCount} disposition(s).`);
+    console.log(`Convergence projection: iteration ${convergence.iteration} · ${convergence.factCount} fact(s) · ${convergence.findingCount} disposition(s)${convergence.settledCount ? ` · ${convergence.settledCount} changed path(s) settled by the plan, not asked` : ''}.`);
     if (convergence.undisposedItemIds.length) {
       console.log('Human disposition is required before deterministic publication:');
     } else if (convergence.unresolvedBlockers.length) {

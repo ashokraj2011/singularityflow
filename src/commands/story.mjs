@@ -1414,7 +1414,7 @@ async function readConvergence(root, itemRelative, iteration) {
 }
 
 function currentConvergenceProjectionInputs(workflow, subject) {
-  return { facts: subject.facts, bindings: subject.bindings };
+  return { facts: subject.facts, settlement: subject.settlement, bindings: subject.bindings };
 }
 
 function mergeManagedConvergenceArtifact(existing, projection) {
@@ -1429,7 +1429,8 @@ async function writeConvergenceProjection(root, subject, projection) {
     workId: projection.workId,
     iteration: subject.iteration,
     currentBindings: subject.bindings,
-    currentFacts: subject.facts
+    currentFacts: subject.facts,
+    currentSettlement: subject.settlement
   });
   await assertConvergenceSources(root, stored, { itemRelative: subject.itemRelative });
   const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
@@ -1492,7 +1493,7 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
       // body belongs to the deterministic kernel and is replaced below from the exact projection.
       await preparePhase(root, config, workflow, subject.phase.id);
       await saveStoryDraft(root, config, workflow);
-      const { facts, bindings } = currentConvergenceProjectionInputs(workflow, subject);
+      const { facts: currentFacts, settlement, bindings } = currentConvergenceProjectionInputs(workflow, subject);
       let previous;
       let legacyMigration = null;
       try {
@@ -1522,7 +1523,8 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
             workId: workflow.workItem.id,
             iteration: subject.iteration,
             currentBindings: bindings,
-            currentFacts: facts
+            currentFacts,
+            currentSettlement: settlement
           });
           await assertConvergenceSources(root, previous, { itemRelative: subject.itemRelative });
         } catch (error) {
@@ -1540,6 +1542,12 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
         }
       }
 
+      // A record from before v5 asked about every changed path. Nobody has answered a plain draft, so it
+      // is rebuilt with what the plan settles. Once a person has answered, or an assisted pass is bound
+      // to its facts, it keeps its questions: no answer or candidate may change what it was about.
+      const keepsEveryQuestion = previous?.settledByPlan === undefined
+        && Boolean(previous?.findings?.length || previous?.candidates?.length);
+      const facts = keepsEveryQuestion ? previous.facts : currentFacts;
       const assistedResult = assisted
         ? await runAssistedConvergence(root, config, workflow, subject, {
           facts, bindings, model, refresh
@@ -1562,7 +1570,8 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
           legacyMigration: legacyMigration ?? previous?.legacyMigration ?? null,
           // Carried forward only after the exact current binding and complete candidate source have
           // been verified under the Story mutation lock.
-          adjudications: previous?.findings?.map(findingAdjudication) ?? []
+          adjudications: previous?.findings?.map(findingAdjudication) ?? [],
+          settledByPlan: keepsEveryQuestion ? null : settlement.settled
         }),
         candidateSnapshot: candidates
       };
@@ -1607,6 +1616,7 @@ export async function storyConvergeCommand(positionals, options) {
   console.log(`  bound to: reconciliation ${bindings.reconciliation.sha256.slice(0, 12)}, source ${String(bindings.sourceTargetCommit ?? '').slice(0, 8)}, ${bindings.clauseIndexSha256.length} clause index/es`);
   console.log(`  facts:    ${facts.length}`);
   for (const item of facts) console.log(`    ${item.id} ${item.kind}: ${item.detail}`);
+  for (const item of projection.settledByPlan ?? []) console.log(`    ${item.id} settled by the plan: ${item.paths.join(', ')} (${settledEntryWords(item.settledBy)})`);
   if (assisted) {
     console.log(`  candidates: ${assisted.record.candidates.length} (${assisted.path})${assisted.reused ? ' — recorded earlier for this exact prompt; no model call (add --refresh to ask again)' : ''}`);
     for (const candidate of assisted.record.candidates) console.log(`    ${candidate.id} ${candidate.classification}${candidate.clauseIds.length ? ` (${candidate.clauseIds.join(', ')})` : ''}: ${candidate.text}`);
@@ -1669,25 +1679,22 @@ async function adjudicationList(root, config, workflow) {
   const subject = await convergenceSubject(root, config, workflow);
   const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
   if (!projection) return { ...base, status: 'not-prepared', items: [], open: 0, message: `Convergence has not been prepared. Run singularity-flow prepare ${phase.id}.` };
-  const supporting = new Map((subject.records?.planned ?? []).flatMap((map) => map?.supportingFileDetails ?? []).map((entry) => [entry.path, entry]));
-  const { countedRecords } = await import('../presence/counted.mjs');
-  const amendments = countedRecords(workflow, workflow.planAmendments).flatMap((amendment) =>
-    (amendment.changes ?? []).map((change) => ({ ...change, id: amendment.id, why: change.reason ?? amendment.reason ?? null })));
-  const planSays = (file) => {
-    const listed = supporting.get(file);
-    if (listed) return { kind: 'supporting', class: listed.class ?? null, text: listed.reason ?? null };
-    const amended = amendments.find((change) => change.path === file);
-    return amended ? { kind: 'amendment', id: amended.id, clause: amended.clauseId ?? null, class: amended.class ?? null, text: amended.why } : null;
-  };
+  const changed = new Map((subject.reconciliation?.findings ?? []).map((finding) => [posix(finding.path), finding]));
+  const planSays = (file) => subject.planAccount(changed.get(file) ?? { path: file });
   const decided = new Map((projection.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
+  const decisionOn = (id) => {
+    const decision = decided.get(id);
+    return decision ? { disposition: decision.disposition, reason: decision.reason ?? null, clauseIds: decision.clauseIds ?? [], actor: decision.actor ?? null, at: decision.at ?? null } : null;
+  };
   const items = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])].map((item) => {
-    const decision = decided.get(item.id);
     return { id: item.id, kind: item.kind ?? 'item', paths: item.paths ?? [], clauseIds: item.clauseIds ?? [], detail: item.detail ?? item.summary ?? null,
       plan: (item.paths ?? []).map(planSays).find(Boolean) ?? null,
       // One reason may cover only changed files no requirement claims: a failing test or a missing bound test gets its own answer.
       acceptAll: item.kind === 'unclaimed-changed-path',
-      decision: decision ? { disposition: decision.disposition, reason: decision.reason ?? null, clauseIds: decision.clauseIds ?? [], actor: decision.actor ?? null, at: decision.at ?? null } : null };
+      decision: decisionOn(item.id) };
   });
+  // Not a question, and never out of sight: each says which entry of the plan answered it.
+  const settled = (projection.settledByPlan ?? []).map((item) => ({ id: item.id, paths: item.paths, clauseIds: item.clauseIds, settledBy: item.settledBy, decision: decisionOn(item.id) }));
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
   const groups = phase.approvalPolicy?.authorities ?? [];
   let registry = {};
@@ -1695,10 +1702,10 @@ async function adjudicationList(root, config, workflow) {
   const labels = groups.map((id) => registry?.[id]?.label ?? id);
   let allowed = false;
   try { allowed = matchApprovalAuthority(authorities, phase.approvalPolicy, actionActor(root)).authorized === true; } catch { allowed = false; }
-  return { ...base, status: 'open', iteration: subject.iteration, items, open: items.filter((item) => !item.decision).length,
+  return { ...base, status: 'open', iteration: subject.iteration, items, settled, open: items.filter((item) => !item.decision).length,
     decidedBy: { groups, labels, allowed, words: `${allowed ? 'You may decide these' : `The ${labels.join(' or ')} decide these`}${allowed && labels.length ? ` (${labels.join(' or ')})` : ''}.` },
     dispositions: DISPOSITIONS.map((id) => ({ id, label: DISPOSITION_WORDS[id] ?? id })),
-    digest: `sha256:${recordSha256({ iteration: subject.iteration, items: items.map(({ id, paths, decision }) =>
+    digest: `sha256:${recordSha256({ iteration: subject.iteration, settled: settled.map(({ id, settledBy }) => ({ id, settledBy })), items: items.map(({ id, paths, decision }) =>
       ({ id, paths, decision: decision && { disposition: decision.disposition, reason: decision.reason, clauseIds: decision.clauseIds } })) })}` };
 }
 
@@ -1712,9 +1719,15 @@ export async function storyAdjudicationsCommand(positionals, options) {
   if (list.status !== 'open') return console.log(list.message);
   console.log(`${list.decidedBy.words} ${list.open} of ${list.items.length} still need a decision.`);
   for (const item of list.items) {
-    const says = item.plan ? ` Plan: ${item.plan.kind === 'amendment' ? item.plan.id : 'supporting file'}${item.plan.text ? `, ${item.plan.text}` : ''}` : '';
+    const says = item.plan ? ` Plan: ${settledEntryWords(item.plan)}${item.plan.askedBecause ? ` · Still asked: ${item.plan.askedBecause}` : ''}` : '';
     console.log(`${item.id}  ${item.paths.join(', ') || item.kind}  ${item.decision ? item.decision.disposition : 'undecided'}${says}`);
   }
+  for (const item of list.settled) console.log(`${item.id}  ${item.paths.join(', ')}  ${item.decision ? item.decision.disposition : 'settled by the plan, not asked'}. Plan: ${settledEntryWords(item.settledBy)}`);
+}
+
+/** Which entry of the plan answers for a path, in the words a person reads it in. */
+function settledEntryWords(entry) {
+  return `${entry.kind === 'amendment' ? `${entry.id}${entry.clause ? ` under ${entry.clause}` : ''}` : 'supporting file'}${entry.text ? `, ${entry.text}` : ''}`;
 }
 
 /** A card's answers: each item's own disposition and reason, read once and refused whole when malformed. */
@@ -1755,12 +1768,13 @@ export async function storyAdjudicateCommand(positionals, options) {
           `Convergence iteration ${subject.iteration} has not been run. Run singularity-flow story converge first.`
         , { details: { nextAction: { executable: 'singularity-flow', argv: ['story', 'converge'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
       }
-      const { bindings, facts } = currentConvergenceProjectionInputs(workflow, subject);
+      const { bindings, facts, settlement } = currentConvergenceProjectionInputs(workflow, subject);
       assertConvergenceIntegrity(existing, {
         workId: workflow.workItem.id,
         iteration: subject.iteration,
         currentBindings: bindings,
-        currentFacts: facts
+        currentFacts: facts,
+        currentSettlement: settlement
       });
       await assertConvergenceSources(root, existing, { itemRelative: subject.itemRelative });
       // What the person answered is what they saw: a list that moved since records nothing.
@@ -1776,7 +1790,7 @@ export async function storyAdjudicateCommand(positionals, options) {
           reason: entry.reason, clauseIds: entry.clauseIds ?? [], actor: actorKey(actor), at }));
       const earlier = new Map((existing.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
       // The same answer again records nothing: a second run used to replace the first and say "Recorded".
-      const known = new Map([...(existing.facts ?? []), ...(existing.candidateSnapshot ?? [])].map((item) => [item.id, item]));
+      const known = new Map([...(existing.facts ?? []), ...(existing.settledByPlan ?? []), ...(existing.candidateSnapshot ?? [])].map((item) => [item.id, item]));
       const unchanged = decisions.filter((decision) => sameAdjudication(earlier.get(decision.itemId), decision, known.get(decision.itemId)));
       const changing = decisions.filter((decision) => !unchanged.includes(decision));
       const phaseId = subject.phase.id;
@@ -1842,7 +1856,7 @@ export async function storyAdjudicateCommand(positionals, options) {
   if (open.length) {
     const named = open.slice(0, 8).map((item) => `${item.id}${item.paths?.length ? ` ${item.paths.join(', ')}` : ''}`);
     console.log(`${open.length} of ${items.length} still need a decision: ${named.join('; ')}${open.length > named.length ? `; and ${open.length - named.length} more` : ''}.`);
-  } else console.log(`All ${items.length} decided.`);
+  } else if (items.length) console.log(`All ${items.length} decided.`);
   if (projection.unresolvedBlockers.length) console.log(`Blocking findings: ${projection.unresolvedBlockers.join(', ')}`);
   const nextActions = projection.allowedNext.filter((action) => action !== 'adjudicate');
   if (!open.length && !projection.unresolvedBlockers.length) console.log(`Next: /sf-converge in Copilot, or singularity-flow prepare ${phaseId} here, regenerates the report to publish.`);
@@ -2701,12 +2715,13 @@ export async function storyAdvanceCommand(positionals, options) {
     const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
     if (!projection) throw missingConvergenceProjectionError(workflow, subject);
     if (projection) {
-      const { bindings, facts } = currentConvergenceProjectionInputs(workflow, subject);
+      const { bindings, facts, settlement } = currentConvergenceProjectionInputs(workflow, subject);
       assertConvergenceIntegrity(projection, {
         workId: workflow.workItem.id,
         iteration: subject.iteration,
         currentBindings: bindings,
-        currentFacts: facts
+        currentFacts: facts,
+        currentSettlement: settlement
       });
       await assertConvergenceSources(root, projection, { itemRelative: subject.itemRelative });
     }

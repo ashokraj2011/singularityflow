@@ -251,7 +251,7 @@ export async function currentConvergenceContext(root, config, workflow) {
     phase: implementation.id,
     generation: implementation.generation
   });
-  const facts = convergenceFacts({
+  const everyFact = convergenceFacts({
     workflow,
     reconciliation,
     indexes: records.indexes,
@@ -261,6 +261,12 @@ export async function currentConvergenceContext(root, config, workflow) {
     amendedClauses: [...new Set((workflow.workIntervals?.current?.amendments ?? [])
       .flatMap((entry) => entry.clauses ?? []))]
   });
+  // Stop asking what the approved plan answered. The answer stays on the record, by its entry.
+  const { pathsKeptByPerson, planAccounts, settleChangedPaths } = await import('./plan-accounts.mjs');
+  const planAccount = planAccounts(workflow, records.planned, {
+    keptByPerson: await pathsKeptByPerson(root, itemRelative, iteration)
+  });
+  const { facts, settled } = settleChangedPaths(everyFact, { reconciliation, planAccount });
   const bindings = convergenceBindings({
     iteration,
     configurationSha256: workflow.resolution?.configSha256 ?? null,
@@ -289,6 +295,8 @@ export async function currentConvergenceContext(root, config, workflow) {
     acceptance,
     iteration,
     facts,
+    settlement: { settled, everyFact },
+    planAccount,
     bindings
   };
 }
@@ -525,7 +533,8 @@ export async function loadVerifiedConvergenceProjection(root, config, workflow) 
     workId: workflow.workItem.id,
     iteration: current.iteration,
     currentBindings: current.bindings,
-    currentFacts: current.facts
+    currentFacts: current.facts,
+    currentSettlement: current.settlement
   });
   const candidateSources = await assertConvergenceSources(root, projection, {
     itemRelative: current.itemRelative

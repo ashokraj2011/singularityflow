@@ -25,6 +25,8 @@ import test from 'node:test';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { serializeConvergence } from '../src/convergence.mjs';
+import { recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { loadSession } from '../src/session.mjs';
 
@@ -245,6 +247,8 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     '| Clause | Expected paths | Planned tests |', '|---|---|---|',
     '| `E2E:REQ-001` | `src/payments/retry.ts` | `tests/payments-retry.test.mjs` |',
     '| `E2E:REQ-002` | `src/payments/attempts.ts` | `tests/payments-attempts.test.mjs` |', '',
+    '## Supporting files', '',
+    '- `package.json` — names the retry test script so operators can run it.', '',
     '## Risks and rollback', '',
     'Risk is accidental mutation of the failed attempt; rollback removes the retry handler and append helper.', ''
   ].join('\n');
@@ -295,6 +299,10 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.match(afterPlanning.phases.planning.claimMaps?.planned?.sha256 ?? '', /^[0-9a-f]{64}$/,
     'planning did not publish its exact planned-test claim map');
 
+  // A change the plan did not name, accounted for by someone who approves the plan. Convergence must not ask again.
+  sflow(root, ['decision', 'plan', WORK, '--add-location', 'E2E:REQ-001=tests/support/setup.mjs',
+    '--reason', 'Test-only: the retry test needs a shared stand-in; no product behaviour changes.']);
+
   // ---- implementation: source and artifact, one requirement deliberately incomplete -------------
   // Publication refuses a generation whose changed source lacks a planned requirement's clause
   // comment, so REQ-002 is tagged where its change will land while the append-only helper and its
@@ -303,6 +311,8 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   sflow(root, ['prepare', 'implementation']);
   await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001 starts the first retry attempt\nexport function retry() { return { attempt: 1 }; }\n');
   await write(root, 'src/payments/attempts.ts', '// @clause:E2E:REQ-002 attempts stay listed; the append-only helper is not delivered yet\nexport const attempts = [];\n');
+  await write(root, 'package.json', '{ "name": "payments", "scripts": { "test:retry": "node --test tests/payments-retry.test.mjs" } }\n');
+  await write(root, 'tests/support/setup.mjs', 'export const standIn = {};\n');
   // The specification states requirements, not acceptance criteria, and the plan binds each test to
   // its requirement. An `@ac:` tag would name a criterion the specification does not hold, which
   // publication refuses (EVIDENCE_CRITERION_UNKNOWN).
@@ -344,6 +354,56 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const iteration = JSON.parse(first.stdout);
   assert.equal(iteration.iteration, 1);
   assert.ok(iteration.facts.length > 0, 'convergence found nothing on a Story with an unclaimed requirement');
+  // What the approved plan answered is on the record, by its entry, and nobody is asked it again.
+  const settledBy = Object.fromEntries((iteration.settledByPlan ?? []).map((item) => [item.paths[0], item.settledBy]));
+  assert.equal(settledBy['package.json']?.kind, 'supporting', 'a planned supporting file was asked again');
+  assert.match(settledBy['package.json'].text, /names the retry test script/);
+  assert.deepEqual([settledBy['tests/support/setup.mjs']?.kind, settledBy['tests/support/setup.mjs']?.id, settledBy['tests/support/setup.mjs']?.clause],
+    ['amendment', 'PAM-001', 'E2E:REQ-001'], 'an approved plan amendment was asked again');
+  const askedPaths = iteration.facts.flatMap((fact) => fact.paths);
+  assert.ok(!askedPaths.includes('package.json') && !askedPaths.includes('tests/support/setup.mjs'), 'a settled path is still a question');
+  const convergenceReport = path.join(root, `singularity/work-items/${WORK}/artifacts/convergence/convergence.md`);
+  const reportNow = await readFile(convergenceReport, 'utf8');
+  assert.match(reportNow, /## Settled by the approved plan/);
+  assert.match(reportNow, /package\.json · Supporting file of planning generation 1 · build-configuration: names the retry test script/);
+  assert.match(reportNow, /tests\/support\/setup\.mjs · PAM-001 under E2E:REQ-001: Test-only/);
+
+  // A person disagrees: a settled path takes an answer like any other, and that answer is theirs to take back.
+  const convergenceRecord = path.join(root, `singularity/work-items/${WORK}/context/convergence/iteration-1.json`);
+  const settledPackage = iteration.settledByPlan.find((item) => item.paths[0] === 'package.json');
+  const overruled = JSON.parse(sflow(root, ['story', 'adjudicate', settledPackage.id, '--disposition', 'rework', '--json']).stdout);
+  assert.equal(overruled.unresolvedBlockers.length, 1, 'overruling the plan did not block');
+  await writeFile(convergenceRecord, serializeConvergence(iteration));
+  assert.deepEqual(JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout).findings, []);
+
+  // A draft from before family v5 reads as it was written, every changed path asked, with the seal it was given.
+  const beforeV5 = (facts, findings = []) => {
+    const { settledByPlan, convergenceSha256, candidateSnapshot, ...core } = iteration;
+    const old = { ...core, schemaVersion: 4, facts, findings };
+    return serializeConvergence({ ...old, candidateSnapshot: [], convergenceSha256: recordSha256(old) });
+  };
+  const everyFact = [...iteration.facts, ...iteration.settledByPlan.map(({ settledBy: _, ...fact }) => fact)]
+    .sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+  await writeFile(convergenceRecord, beforeV5(everyFact));
+  const oldTable = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout);
+  assert.equal(oldTable.items.length, everyFact.length, 'an old draft lost a question');
+  assert.deepEqual(oldTable.settled, []);
+  assert.equal(oldTable.items.find((item) => item.paths.includes('package.json')).plan.kind, 'supporting', 'an old row stopped saying what the plan says');
+  // Nobody answered it, so preparing again rebuilds it with what the plan settles.
+  const rebuilt = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
+  assert.equal(rebuilt.schemaVersion, currentSchemaVersion('convergence-record'));
+  assert.deepEqual(rebuilt.settledByPlan, iteration.settledByPlan, 'an unanswered old draft was not rebuilt');
+  assert.deepEqual(rebuilt.facts, iteration.facts);
+  // Once a person answered part of one it keeps its questions, and that answer stays.
+  await writeFile(convergenceRecord, beforeV5(everyFact));
+  const onPackage = everyFact.find((fact) => fact.paths.includes('package.json'));
+  sflow(root, ['story', 'adjudicate', onPackage.id, '--disposition', 'dismissed', '--reason', 'Answered before the plan could say so.']);
+  const answeredOld = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
+  assert.equal(answeredOld.settledByPlan, undefined, 'an answered old draft changed what its answer was about');
+  assert.deepEqual(answeredOld.facts, everyFact);
+  assert.deepEqual(answeredOld.findings.map((finding) => finding.itemId), [onPackage.id]);
+  await writeFile(convergenceRecord, serializeConvergence(iteration));
+  assert.deepEqual(JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout).settledByPlan, iteration.settledByPlan);
   assert.deepEqual(iteration.allowedNext, ['adjudicate'], 'undisposed facts allowed something other than adjudication');
   assert.deepEqual(iteration.findings, [], 'a fact became a finding without a human');
   const reviewRequired = JSON.parse(sflow(root, ['phase', 'draft-check', 'convergence', '--json']).stdout);
@@ -385,6 +445,8 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.equal(table.status, 'open');
   assert.equal(table.open, table.items.length);
   assert.deepEqual(table.items.map((item) => item.id).sort(), iteration.facts.map((fact) => fact.id).sort());
+  assert.deepEqual(table.settled.map((item) => item.id).sort(), iteration.settledByPlan.map((item) => item.id).sort(), 'the table lost what the plan settled');
+  assert.equal(table.settled.find((item) => item.paths.includes('tests/support/setup.mjs')).settledBy.id, 'PAM-001');
   assert.ok(table.items.every((item) => item.acceptAll === (item.kind === 'unclaimed-changed-path')), 'Accept all reached more than changed files');
   assert.deepEqual(table.dispositions.map((entry) => entry.id).includes('accepted-deviation'), true);
   assert.equal(table.decidedBy.allowed, true);
@@ -425,6 +487,8 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   }
   assert.match(lastAnswer, new RegExp(`All ${iteration.facts.length} decided\\.`));
   assert.match(lastAnswer, /Blocking findings: /u, 'the rework still blocks, and says so');
+  // Someone in the group sends a settled path back. The plan does not get to settle it next time.
+  sflow(root, ['story', 'adjudicate', settledPackage.id, '--disposition', 'rework', '--clause', 'E2E:REQ-002', '--reason', 'The retry script must not run against production.']);
 
   const blocked = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
   assert.ok(blocked.unresolvedBlockers.length, 'rework produced no blocker');
@@ -455,6 +519,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   // the append-only change it was sent back for.
   await write(root, 'src/payments/retry.ts', '// @clause:E2E:REQ-001 starts a new attempt and leaves the failed one in place\nexport function retry() { return { attempt: 1 }; }\n');
   await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\n// @clause:E2E:REQ-002 appends each attempt to the history\nexport function append(attempt) { return [...attempts, attempt]; }\n');
+  await write(root, 'package.json', '{ "name": "payments", "private": true, "scripts": { "test:retry": "node --test tests/payments-retry.test.mjs" } }\n');
   // Keep one genuine incomplete obligation for the update-intent convergence rail. A delivered
   // planned test is claimed evidence, not the historical false-positive unclaimed-path finding.
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
@@ -477,6 +542,10 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     'the second iteration bound the first iteration\'s reconciliation');
 
   assert.ok(second.facts.length, 'the second implementation generation produced no convergence facts');
+  assert.ok(second.facts.some((fact) => fact.paths.includes('package.json')), 'the plan settled a path a person sent back');
+  assert.ok(!second.settledByPlan.some((item) => item.paths.includes('package.json')));
+  assert.match(JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).items.find((item) => item.paths.includes('package.json')).plan.askedBecause,
+    /sent it back in an earlier iteration/);
   const intentFinding = second.facts[0];
   sflow(root, ['story', 'adjudicate', intentFinding.id, '--disposition', 'update-intent',
     '--clause', 'E2E:REQ-001', '--reason', 'The approved intent must limit retries to a payments operator.']);

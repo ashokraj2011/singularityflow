@@ -394,7 +394,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 856,970 (measured 856,969): env files classify in command-registry.mjs, which every command reads to dispatch.
   // 857,250 (measured 857,240): git-remote-diagnostics.mjs +249 and command-registry.mjs +22, as start. Every command reads them to dispatch.
   // 857,450 (measured 857,408): `story test-policy scope` classifies in command-registry.mjs (+168), which every command reads to dispatch.
-  assert.ok(root.bytes <= 857_450, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,350 (measured 858,295): convergence-record family v5's step and seal (schema-migrations.mjs +870). Every command reads the registry to dispatch.
+  assert.ok(root.bytes <= 858_350, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

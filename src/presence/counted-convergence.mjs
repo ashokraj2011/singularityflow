@@ -21,7 +21,7 @@ export function countedConvergence(workflow, record) {
   const view = convergenceProjection({ workId: record.workId, bindings: record.bindings, facts: record.facts ?? [],
     candidates: record.candidateSnapshot ?? [], candidateRecords: record.candidateRecords ?? [],
     candidateRecordBindings: record.candidateRecordBindings ?? [], legacyMigration: record.legacyMigration ?? null,
-    adjudications: adjudications.filter((entry) => counts.has(entry)) });
+    adjudications: adjudications.filter((entry) => counts.has(entry)), settledByPlan: record.settledByPlan ?? null });
   const kept = new Set(view.findings.map((finding) => finding.id));
   const counted = { ...record, findings: view.findings, unresolvedBlockers: view.unresolvedBlockers, allowedNext: view.allowedNext,
     uncountedFindings: (record.findings ?? []).filter((finding) => !kept.has(finding.id)).map((finding) => finding.id) };

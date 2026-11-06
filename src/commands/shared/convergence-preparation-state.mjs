@@ -10,6 +10,7 @@ export function convergencePreparationState(projection) {
     iteration: projection.iteration,
     sha256: projection.convergenceSha256,
     factCount: projection.facts?.length ?? 0,
+    settledCount: projection.settledByPlan?.length ?? 0,
     findingCount: projection.findings?.length ?? 0,
     undisposedItemIds,
     unresolvedBlockers: projection.unresolvedBlockers ?? [],

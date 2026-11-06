@@ -1,0 +1,154 @@
+{
+  "allowedNext": [
+    "adjudicate"
+  ],
+  "bindings": {
+    "clauseIndexSha256": [
+      "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    ],
+    "configurationRevision": null,
+    "configurationSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "constitutionSha256": null,
+    "evidenceSha256": [],
+    "iteration": 1,
+    "observedClaimsSha256": [
+      "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "plannedClaimsSha256": [
+      "1111111111111111111111111111111111111111111111111111111111111111"
+    ],
+    "planning": null,
+    "reconciliation": {
+      "intervalId": "INT-1",
+      "path": "singularity/work-items/BIN-1/context/work-intervals/reconciliations/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "sourceBaseCommit": "cccccccccccccccccccccccccccccccccccccccc",
+    "sourceTargetCommit": "dddddddddddddddddddddddddddddddddddddddd",
+    "specification": null
+  },
+  "candidateRecordBindings": [],
+  "candidateRecords": [],
+  "candidateSnapshot": [],
+  "candidates": [],
+  "convergenceSha256": "12aee7a75ba5abb2f4a6f6951182d312ccbac88549e2ffb2948197747670ebd8",
+  "facts": [
+    {
+      "clauseIds": [],
+      "detail": "package.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-21034d278357",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "package.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "README.md changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-307400fd757a",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "README.md"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "vitest.config.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-3c858279b3cc",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "vitest.config.js"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "package-lock.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-418b395c70fc",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "package-lock.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "tsconfig.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-550b7ad8c7e0",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "tsconfig.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "eslint.config.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-6fc4d036923d",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "eslint.config.js"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "playwright.config.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-82d0ecf747f0",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "playwright.config.js"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "test-results/.last-run.json changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-b707f55e9cd0",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "test-results/.last-run.json"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": ".gitignore changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-c91bf1a6d454",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        ".gitignore"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": ".github/workflows/ci.yml changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-ca9d670e4141",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "clauseIds": [],
+      "detail": "src/test/setup.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned",
+      "evidence": [],
+      "id": "CF-d481d2555b77",
+      "kind": "unclaimed-changed-path",
+      "paths": [
+        "src/test/setup.js"
+      ]
+    }
+  ],
+  "findings": [],
+  "iteration": 1,
+  "legacyMigration": null,
+  "resultType": "convergence",
+  "schemaVersion": 4,
+  "unresolvedBlockers": [],
+  "workId": "BIN-1"
+}

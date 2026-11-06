@@ -100,7 +100,8 @@ function projection(adjudications) {
 
 /** A v3 projection as an older build sealed it. */
 function v3(record) {
-  const { convergenceSha256: _sha, candidateSnapshot, ...core } = { ...record, schemaVersion: 3 };
+  // No v3 record has a settled list: family v5 added it.
+  const { convergenceSha256: _sha, candidateSnapshot, settledByPlan: _settled, ...core } = { ...record, schemaVersion: 3 };
   return { ...core, convergenceSha256: recordSha256(core), candidateSnapshot };
 }
 
@@ -132,7 +133,7 @@ test('SF Guard required: an adjudication keeps its signature in the sealed proje
     { itemId: 'CF-000000000001', disposition: 'dismissed', reason: 'Refactor noise; no clause claims it.', clauseIds: [], actor: ONE.email, at }
   ]);
   assert.equal(person.shown.length, 1, 'one card, one touch');
-  assert.equal(signed.schemaVersion, 4);
+  assert.equal(signed.schemaVersion, 5);
   assert.ok(signed.findings[0].decision.presence?.signature, 'the presence block is kept in the decision');
   assertConvergenceIntegrity(signed);
   assert.equal(countedConvergence(workflow, signed), signed, 'every finding counts: the projection as recorded');
@@ -174,14 +175,14 @@ test('SF Guard required: an adjudication keeps its signature in the sealed proje
     (error) => error.code === 'PSS_CARD_NOT_SHOWN');
 });
 
-test('older convergence projections still replay as v4, and a Story SF Guard does not require counts them as recorded', () => {
+test('older convergence projections still replay at the current version, and a Story SF Guard does not require counts them as recorded', () => {
   const older = v3(projection([{ itemId: 'CF-000000000001', disposition: 'rework', clauseIds: [], actor: ONE.email, at: '2026-01-01T00:00:00.000Z' }]));
   assert.equal(older.schemaVersion, 3);
   const decoded = decodeConvergenceRecord(Buffer.from(JSON.stringify(older)));
-  assert.equal(decoded.schemaVersion, 4);
+  assert.equal(decoded.schemaVersion, 5);
   assert.deepEqual(decoded.findings, older.findings);
   assert.deepEqual(decoded.unresolvedBlockers, older.unresolvedBlockers);
-  assert.equal(projection([]).schemaVersion, 4, 'every new projection is v4; an unsigned decision simply has no block');
+  assert.equal(projection([]).schemaVersion, 5, 'every new projection is v5; an unsigned decision simply has no block');
   assert.equal(countedConvergence({ resolution: {} }, decoded), decoded);
   assert.equal(countedConvergence({ resolution: { presence: { status: 'off' } }, workItem: { id: 'X' } }, decoded), decoded);
 });

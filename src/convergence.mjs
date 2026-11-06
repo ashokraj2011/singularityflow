@@ -26,7 +26,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, testOnlyClaimEvidence } from './specifications.mjs';
 
-import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { convergenceSealCore, currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const CONVERGENCE_SCHEMA_VERSION = currentSchemaVersion('convergence-record');
 
@@ -435,11 +435,15 @@ function allowedTransitions({ facts, candidates, findings, blockers }) {
  */
 export function convergenceProjection({
   workId, bindings, facts = [], candidates = [], candidateRecords = [],
-  candidateRecordBindings = [], legacyMigration = null, adjudications = []
+  candidateRecordBindings = [], legacyMigration = null, adjudications = [],
+  // What the approved plan settled (family v5). Null only for a record from before v5, which asks every changed path.
+  settledByPlan = []
 } = {}) {
   if (!workId) throw new SingularityFlowError('A convergence projection requires the work item it belongs to.');
-  const validated = adjudications.map((entry) => validateAdjudication(entry, { facts, candidates }));
-  const findings = governedFindings(validated, { facts, candidates });
+  // Nobody has to answer a settled path, and anyone in the group still may: a plan entry cannot overrule a person.
+  const answerable = [...facts, ...(settledByPlan ?? [])];
+  const validated = adjudications.map((entry) => validateAdjudication(entry, { facts: answerable, candidates }));
+  const findings = governedFindings(validated, { facts: answerable, candidates });
   const blockers = findings.filter((finding) => BLOCKING.includes(finding.disposition)).map((finding) => finding.id);
   const record = {
     schemaVersion: CONVERGENCE_SCHEMA_VERSION,
@@ -450,6 +454,7 @@ export function convergenceProjection({
     // Facts carry their detail; candidates are referenced by ID only, with their prose in the
     // record named below `[SPK:REQ-080]`.
     facts,
+    ...(settledByPlan ? { settledByPlan } : {}),
     candidates: candidates.map(({ id, classification, clauseIds }) => ({ id, classification, clauseIds })),
     candidateRecords: sorted(candidateRecords).map(posix),
     candidateRecordBindings: [...candidateRecordBindings]
@@ -463,7 +468,7 @@ export function convergenceProjection({
     unresolvedBlockers: blockers,
     allowedNext: allowedTransitions({ facts, candidates, findings, blockers })
   };
-  return { ...record, convergenceSha256: recordSha256(record) };
+  return { ...record, convergenceSha256: recordSha256(convergenceHashCore(record)) };
 }
 
 /**
@@ -483,7 +488,8 @@ export function adjudicatedConvergenceProjection(existing, adjudications) {
       candidateRecords: existing.candidateRecords ?? [],
       candidateRecordBindings: existing.candidateRecordBindings ?? [],
       legacyMigration: existing.legacyMigration ?? null,
-      adjudications
+      adjudications,
+      settledByPlan: existing.settledByPlan ?? null
     }),
     candidateSnapshot: existing.candidateSnapshot ?? []
   };
@@ -493,14 +499,27 @@ function convergenceIntegrityFailure(message, code = 'CONVERGENCE_RECORD_CORRUPT
   throw new SingularityFlowError(message, { code, details });
 }
 
-function convergenceHashCore(record) {
-  const core = structuredClone(record);
-  delete core.convergenceSha256;
-  // Version 1 stored the complete assisted-candidate snapshot beside the sealed projection. The
-  // projection still binds every candidate through its content-derived ID; validate the complete
-  // snapshot independently below rather than silently changing the historical v1 hash contract.
-  delete core.candidateSnapshot;
-  return core;
+// Version 1 stored the complete assisted-candidate snapshot beside the sealed projection. The
+// projection still binds every candidate through its content-derived ID; validate the complete
+// snapshot independently below rather than silently changing the historical v1 hash contract.
+const convergenceHashCore = convergenceSealCore;
+
+/** What each settled path must hold whatever else is checked: its own identity, and an entry that says what settled it. */
+function assertSettledByPlan(record) {
+  const settled = record.settledByPlan;
+  if (settled === undefined) return;
+  if (!Array.isArray(settled)) convergenceIntegrityFailure('Convergence settledByPlan is not an array.', 'CONVERGENCE_SETTLED_INVALID');
+  const facts = new Set((record.facts ?? []).map((entry) => entry?.id));
+  const seen = new Set();
+  for (const item of settled) {
+    const { kind, clauseIds, paths, evidence, settledBy } = item ?? {};
+    if (kind !== 'unclaimed-changed-path' || paths?.length !== 1 || item.id !== itemId('CF', { kind, clauseIds, paths, evidence })
+        || !(settledBy?.kind === 'supporting' || (settledBy?.kind === 'amendment' && settledBy.id)) || settledBy.askedBecause
+        || facts.has(item.id) || seen.has(item.id)) {
+      convergenceIntegrityFailure(`Convergence settled path '${item?.id ?? 'unknown'}' is not one changed path a plan entry settled.`, 'CONVERGENCE_SETTLED_INVALID');
+    }
+    seen.add(item.id);
+  }
 }
 
 function candidatePayload(candidate, index) {
@@ -538,7 +557,7 @@ function candidatePayload(candidate, index) {
  * the other half of the binding: changed prose/evidence cannot remain attached to the old ID.
  */
 export function assertConvergenceIntegrity(record, {
-  workId = null, iteration = null, currentBindings = null, currentFacts = null
+  workId = null, iteration = null, currentBindings = null, currentFacts = null, currentSettlement = null
 } = {}) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) {
     convergenceIntegrityFailure('Convergence record is not an object.');
@@ -593,6 +612,7 @@ export function assertConvergenceIntegrity(record, {
   if (factIds.some((id) => typeof id !== 'string') || new Set(factIds).size !== factIds.length) {
     convergenceIntegrityFailure('Convergence facts contain missing or duplicate identities.');
   }
+  assertSettledByPlan(record);
   if (!Array.isArray(record.findings)) {
     convergenceIntegrityFailure('Convergence findings are not an array.');
   }
@@ -621,7 +641,8 @@ export function assertConvergenceIntegrity(record, {
     candidateRecords: record.candidateRecords ?? [],
     candidateRecordBindings: record.candidateRecordBindings ?? [],
     legacyMigration: record.legacyMigration ?? null,
-    adjudications
+    adjudications,
+    settledByPlan: record.settledByPlan ?? null
   });
   for (const field of ['findings', 'unresolvedBlockers', 'allowedNext']) {
     if (canonicalJson(record[field] ?? []) !== canonicalJson(derived[field] ?? [])) {
@@ -674,15 +695,21 @@ export function assertConvergenceIntegrity(record, {
       }
     );
   }
-  if (currentFacts && canonicalJson(record.facts ?? []) !== canonicalJson(currentFacts)) {
-    convergenceIntegrityFailure(
-      'Convergence facts no longer match the deterministic result for the current approved inputs. Prepare the convergence step again before publishing, adjudicating, or advancing.',
-      'CONVERGENCE_FACTS_STALE',
-      {
-        storedFactsSha256: recordSha256(record.facts ?? []),
-        currentFactsSha256: recordSha256(currentFacts)
-      }
-    );
+  if (currentFacts) {
+    // A record from before v5 asked about every changed path, so that whole list is what it is held to.
+    const expected = record.settledByPlan === undefined ? (currentSettlement?.everyFact ?? currentFacts) : currentFacts;
+    const settledMoved = record.settledByPlan !== undefined
+      && canonicalJson(record.settledByPlan) !== canonicalJson(currentSettlement?.settled ?? []);
+    if (settledMoved || canonicalJson(record.facts ?? []) !== canonicalJson(expected)) {
+      convergenceIntegrityFailure(
+        'Convergence facts no longer match the deterministic result for the current approved inputs. Prepare the convergence step again before publishing, adjudicating, or advancing.',
+        'CONVERGENCE_FACTS_STALE',
+        {
+          storedFactsSha256: recordSha256(record.facts ?? []),
+          currentFactsSha256: recordSha256(expected)
+        }
+      );
+    }
   }
   return record;
 }
@@ -765,6 +792,26 @@ function markdownCell(value) {
   return String(value ?? '').replace(/\s+/g, ' ').replaceAll('|', '\\|').trim() || '—';
 }
 
+function planEntryWords(entry) {
+  const source = entry.kind === 'amendment'
+    ? `${entry.id}${entry.clause ? ` under ${entry.clause}` : ''}`
+    : `Supporting file${entry.phase ? ` of ${entry.phase} generation ${entry.generation}` : ''}`;
+  return `${source}${entry.class ? ` · ${entry.class}` : ''}${entry.text ? `: ${markdownCell(entry.text)}` : ''}`;
+}
+
+// Absent for a record with nothing settled, so every report written before this reads as it did.
+function settledSection(projection) {
+  const settled = projection.settledByPlan ?? [];
+  return settled.length ? [
+    '## Settled by the approved plan',
+    '',
+    'These changed paths no claim cites are ones the approved plan already accounts for, so no person is asked about them again.',
+    '',
+    ...settled.map((item) => `- **${item.id}** · ${markdownCell(item.paths.join(', '))} · ${planEntryWords(item.settledBy)}`),
+    ''
+  ] : [];
+}
+
 /** Deterministic human-readable projection used as the convergence phase artifact. */
 export function renderConvergenceArtifact(projection) {
   assertConvergenceIntegrity(projection);
@@ -787,6 +834,7 @@ export function renderConvergenceArtifact(projection) {
       ? projection.facts.map((fact) => `- **${fact.id}** · ${fact.kind}${fact.clauseIds?.length ? ` · ${fact.clauseIds.join(', ')}` : ''}: ${markdownCell(fact.detail)}`)
       : ['- No deterministic trace-evidence gaps were found.']),
     '',
+    ...settledSection(projection),
     '## Assisted candidates',
     '',
     ...(candidates.length

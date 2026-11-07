@@ -496,6 +496,16 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
     };
   }
   let phasePreparationOwner;
+  let phaseInputsOwner;
+  const phaseInputs = {};
+  for (const stage of ENGINE_OPERATIONS.find(operation => operation.port === 'phaseInputs').stages) {
+    phaseInputs[stage] = async (...args) => {
+      phaseInputsOwner ??= import('./git-phase-entry.mjs')
+        .then(({createGitPhaseInputsPort}) => createGitPhaseInputsPort({root,onContext:value=>{presentation=value;}}))
+        .catch(error => {phaseInputsOwner=undefined;throw error;});
+      return (await phaseInputsOwner)[stage](...args);
+    };
+  }
   const phasePreparation={};
   for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='phasePreparation').stages) {
     phasePreparation[stage]=async(...args)=>{
@@ -505,7 +515,7 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await phasePreparationOwner)[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, rejection, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, phaseDraftCheck, phaseRollover, phasePreparation, invocation: {
+  const engine = createEngine({ports:{publication:port, submission, approval, rejection, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, phaseDraftCheck, phaseRollover, phasePreparation, phaseInputs, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

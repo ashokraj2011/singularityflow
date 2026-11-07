@@ -203,7 +203,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===nativeReview&&!['src/engine-compatibility/git-phase-review.mjs','src/commands/shared/phase-review.mjs'].includes(relative))problems.push(relative);
         if(target===documentPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
         if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs','src/engine-compatibility/native-phase-entry.mjs'].includes(relative))problems.push(relative);
-        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs','src/commands/prepare.mjs','src/commands/shared/prepare-configured-phase.mjs'].includes(relative))problems.push(relative);
+        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs','src/commands/prepare.mjs','src/commands/inputs.mjs','src/commands/shared/prepare-configured-phase.mjs'].includes(relative))problems.push(relative);
         if(target===workflowAssetsPort&&!['src/engine-compatibility/git-query.mjs','src/workflow-transfer.mjs'].includes(relative))problems.push(relative);
         if(target===nativeEntry&&relative!=='src/engine-compatibility/git-phase-entry.mjs')problems.push(relative);
         if(target===nativeConvergence&&!['src/commands/story.mjs','src/engine-compatibility/git-phase-entry.mjs'].includes(relative))problems.push(relative);
@@ -348,6 +348,17 @@ test('draft-check host uses registry inspection and shares the installed pure dr
   const native=await readFile(path.join(packageRoot,'src/phase-draft-check.mjs'),'utf8');
   assert.match(native,/const clean = phaseDraftCheckReady\(/u);
   assert.doesNotMatch(host,/import \{ phaseDraftCheck \} from/u);
+});
+
+test('phase-input hosts delegate preparation and byte inspection while presentation contains no file reads',async()=>{
+  const host=await readFile(path.join(packageRoot,'src/commands/inputs.mjs'),'utf8');
+  const source=ts.createSourceFile('inputs.mjs',host,ts.ScriptTarget.Latest,true);
+  const command=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='inputsCommand');
+  assert.match(command.getText(source),/\.engine\.run\('phase\.inputs'/u);
+  assert.doesNotMatch(command.getText(source),/\b(preparePhaseInputs|saveStoryDraft|storyDraftTransaction|phaseInputArtifacts)\s*\(/u);
+  const presentation=await readFile(path.join(packageRoot,'src/phase-input-presentation.mjs'),'utf8');
+  assert.doesNotMatch(presentation,/node:(?:fs|crypto)|\breadFile\s*\(/u);
+  assert.match(presentation,/export \{ phaseInputArtifacts \} from '\.\/inputs\.mjs'/u);
 });
 
 test('rollover host delegates inspection and mutation to the registry, retaining only command projection',async()=>{

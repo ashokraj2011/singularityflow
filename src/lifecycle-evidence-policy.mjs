@@ -1,10 +1,5 @@
 /** Pure evidence-policy predicates. They interpret observations, never execute checks or mint receipts. */
-export function inputFindingSeverity(mode, optional, status) {
-  // A decision may skip a producer only when every phase still reached reads it optionally, so a
-  // skipped optional input is expected; a required one is an error the decision should have refused.
-  if (status === 'captured' || (optional && ['missing', 'unapproved', 'skipped'].includes(status))) return null;
-  return mode === 'enforce' ? 'error' : 'warning';
-}
+export { inputFindingSeverity } from './kernel/phase-inputs.mjs';
 
 export function qualityValidationVerdict(checks = [], { required = false } = {}) {
   const known = new Set(['passed', 'failed', 'blocked', 'skipped-warning', 'unavailable']);

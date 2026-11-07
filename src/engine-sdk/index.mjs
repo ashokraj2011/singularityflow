@@ -19,6 +19,7 @@ import {phaseEntrySelection,phaseEntryInspection,phaseEntryComposition,phaseEntr
 import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelection,phaseDraftCheckManifest} from '../kernel/phase-prepublish.mjs';
 import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phase-preparation.mjs';
 import {workflowAssetSelection,workflowAssetManifest} from '../kernel/workflow-assets.mjs';
+import {phaseInputsAuditRequired,phaseInputsManifest} from '../kernel/phase-inputs.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -119,6 +120,9 @@ const definitions = [
   {id:'phase.prepare',version:1,effect:'preparation',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phasePreparation',
     stages:Object.freeze(['load','prepare','inspect']),validate:phaseReviewInput,execute:preparePhase},
+  {id:'phase.inputs',version:1,effect:'input-preparation',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId','dryRun']),port:'phaseInputs',
+    stages:Object.freeze(['load','prepare','inspect']),validate:phaseInputsInput,execute:preparePhaseInputs},
   {id:'phase.rollover',version:1,effect:'local-draft',humanDecision:false,
     confirmation:'exact-current-draft-digest',inputFields:Object.freeze(['workId','phaseId','confirm']),port:'phaseRollover',
     stages:Object.freeze(['load','inspect','begin']),validate:phaseBeginInput,execute:rolloverPhase},
@@ -154,6 +158,44 @@ async function inspectWorkflowAssets(port, inputs, signal) {
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function phaseInputsInput(value, operation) {
+  const input = data(value);
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !operation.inputFields.includes(key))
+    || ['workId','phaseId'].some(key => input[key] != null && typeof input[key] !== 'string')
+    || input.dryRun != null && typeof input.dryRun !== 'boolean') invalid('Invalid phase-input selection or preview mode.');
+  return input;
+}
+
+async function preparePhaseInputs(port, inputs, signal) {
+  let binding = null, pendingStage = 'load'; const completedStages = [];
+  try {
+    notCancelled(signal);
+    const context = await port.load(inputs, { signal }); completedStages.push('load'); notCancelled(signal);
+    const selected = phaseBeginSelection(context?.workflow, inputs);
+    binding = data({ workId: selected.workId, phase: selected.phase, generation: selected.generation,
+      dryRun: inputs.dryRun === true, artifactKey: context.workflow.phases[selected.phase].requiredArtifact?.path ?? null,
+      auditRequired: phaseInputsAuditRequired(context.workflow, context.workflow.phases[selected.phase]) });
+    pendingStage = 'prepare'; await port.prepare(context, binding, { signal }); completedStages.push('prepare'); notCancelled(signal);
+    pendingStage = 'inspect'; const observed = await port.inspect(context, binding, { signal }); completedStages.push('inspect'); notCancelled(signal);
+    let facts, manifest;
+    try { facts = data(observed); manifest = data(phaseInputsManifest(binding, facts)); }
+    catch (cause) {
+      if (cause?.code === 'ENGINE_INPUT_INVALID') throw new SingularityFlowError('The phase-input port returned non-JSON facts.', { code: 'ENGINE_PORT_RESULT_INVALID', cause });
+      throw cause;
+    }
+    return data({ schemaVersion: 1, contract: ENGINE_CONTRACT, operation: 'phase.inputs', status: binding.dryRun ? 'inspected' : 'prepared',
+      subject: { kind: 'story', id: binding.workId }, phase: binding.phase, generation: binding.generation, manifest,
+      effects: { artifactPrepared: !binding.dryRun, inputAuditRecorded: facts.auditRecorded, generationOpened: facts.generationOpened,
+        localProgressMayBeWritten: true, testsRun: false, modelInvocations: 0, committed: false, pushed: false,
+        humanReviewRecorded: false, approvalRecorded: false, storyAdvanced: false } });
+  } catch (error) {
+    attachDiagnostic(error, 'enginePhaseInputs', { operation: 'phase.inputs', subject: binding ? { kind: 'story', id: binding.workId } : null,
+      phase: binding?.phase ?? null, generation: binding?.generation ?? null, completedStages, pendingStage,
+      localEffectsMayExist: pendingStage === 'prepare' || completedStages.includes('prepare'), committed: false, pushed: false, approvalRecorded: false });
+    throw error;
+  }
 }
 
 function rejectionInput(value, operation) {

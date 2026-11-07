@@ -1,4 +1,5 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
+import { phaseInputsAuditRequired } from './kernel/phase-inputs.mjs';
 import { resolutionPolicySha256, storyHistoryCommits, initialWorkflowRecord, committedResolutionPolicy, PROSPECTIVE_SKILL_AMENDMENT } from './story-policy-anchor.mjs';
 import { validateId, legacyPendingPublicationPath, saveWorkflow } from './story-state-write.mjs';
 export { validateId, saveWorkflow };
@@ -2156,8 +2157,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       let canonicalArtifact = preparedArtifactText;
       canonicalArtifact = applyInputsBlock(canonicalArtifact, rendered.text, inputs.mode);
       await writeText(target, canonicalArtifact);
-      if (phase.kind === 'skill'
-          || (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length)) {
+      if (phaseInputsAuditRequired(workflow, phase)) {
         const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
         phase.inputContext = {
           generation: inputs.generation,
@@ -2317,8 +2317,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         bytes: Buffer.byteLength(authored)
       };
     }
-    if (phase.kind === 'skill'
-        || (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length)) {
+    if (phaseInputsAuditRequired(workflow, phase)) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
       phase.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256, renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
       await updateArtifactMetadata(root, config, workflow, phase);

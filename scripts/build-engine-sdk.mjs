@@ -22,7 +22,7 @@ function allowedSource(relative) {
 
 function inputType(operation, field) {
   if (['workId', 'phaseId'].includes(field)) return 'string | null';
-  if (['fetch', 'compose', 'adoptExisting', 'runChecks', 'confirmEvidence', 'notApplicable', 'open', 'fromArtifact', 'repair'].includes(field)) return 'boolean | null';
+  if (['fetch', 'compose', 'adoptExisting', 'runChecks', 'confirmEvidence', 'notApplicable', 'open', 'fromArtifact', 'repair', 'dryRun'].includes(field)) return 'boolean | null';
   if (field === 'maximumBytes') return 'number | null';
   if (field === 'includeDetached') return 'boolean | null';
   if (field === 'confirmation' && operation.id === 'phase.approve') return 'ApprovalConfirmation | null';

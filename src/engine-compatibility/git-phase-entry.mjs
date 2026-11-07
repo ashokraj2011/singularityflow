@@ -11,6 +11,68 @@ import {measureCommandSpan} from '../dx-timing-context.mjs';
 import {withoutReadScope} from '../read-scope.mjs';
 import {withoutConfigurationReadScope} from '../configuration-read-scope.mjs';
 import {nextPhaseGeneration} from '../kernel/phase-policy.mjs';
+import {phaseInputsAuditRequired} from '../kernel/phase-inputs.mjs';
+
+/** Local input preparation reuses the installed writer and exposes only body-free observations. */
+export function createGitPhaseInputsPort({root,initialContext=null,onContext=()=>{}}) {
+  return {
+    async load(inputs) {
+      const accepted = initialContext ?? await (await import('../accepted-story-execution.mjs')).loadAcceptedStoryExecution(root, inputs.workId ?? null);
+      const context = {root, config: accepted.definition ?? accepted.config, workflow: accepted.workflow};
+      const phase = context.workflow.phases[inputs.phaseId ?? context.workflow.currentPhase];
+      context.initialIntent = {id: phase?.generationIntent?.id ?? null, status: phase?.generationIntent?.status ?? null};
+      onContext(context); return context;
+    },
+    async prepare(context,binding) {
+      const {preparePhaseInputs,saveStoryDraft} = await import('../state-stores.mjs');
+      const {storyDraftTransaction} = await import('./story-draft-transaction.mjs');
+      const {config,workflow} = context;
+      const prepareInputs = async () => {
+        const result = await preparePhaseInputs(root, config, workflow, binding.phase, {dryRun: binding.dryRun});
+        if (!binding.dryRun) await saveStoryDraft(root, config, workflow);
+        return result;
+      };
+      context.result = binding.dryRun ? await prepareInputs()
+        : await storyDraftTransaction(root, config, workflow, `inputs:${binding.phase}`, prepareInputs);
+    },
+    async inspect(context,binding) {
+      const {phaseInputArtifacts,inputReadinessReport} = await import('../inputs.mjs');
+      const {workflow,result,initialIntent} = context, phase = result.phase;
+      const artifacts = await phaseInputArtifacts(root, phase, result, binding.dryRun);
+      context.artifacts = artifacts; context.readiness = inputReadinessReport(workflow, phase, result);
+      const intent = phase.generationIntent;
+      return {workId: workflow.workItem.id, phase: phase.id, generation: Number(result.generation), dryRun: binding.dryRun,
+        mode: result.mode, renderedSha256: result.renderedSha256,
+        artifact: {key: phase.requiredArtifact.path, sha256: artifacts.artifact.sha256 ?? null, bytes: artifacts.artifact.size ?? null,
+          managedSha256: artifacts.artifact.managedBlock?.sha256 ?? null, managedMatchesRendered: artifacts.artifact.managedBlock?.matchesRendered ?? null},
+        audit: artifacts.audit ? {key: artifacts.audit.path, sha256: artifacts.audit.sha256, generation: Number(artifacts.audit.generation)} : null,
+        auditRecorded: !binding.dryRun && phaseInputsAuditRequired(workflow, phase),
+        generationOpened: !binding.dryRun && intent?.status === 'open' && (initialIntent.id !== intent.id || initialIntent.status !== 'open'),
+        records: result.records.map(record => ({phase: record.phase, key: record.repositoryPath ?? record.path ?? null,
+          optional: record.optional === true, status: record.status, producerStatus: record.producerStatus,
+          generation: Number(record.producerGeneration), approvedSha256: record.approvedSha256 ?? null,
+          observedSha256: record.sha256 ?? null, bytes: Number(record.bytes ?? 0), representation: record.representation,
+          maximumBytes: record.maxBytes == null ? null : Number(record.maxBytes),
+          maximumSummaryBytes: record.projection?.maximumSummaryBytes == null ? null : Number(record.projection.maximumSummaryBytes),
+          truncated: record.truncated === true,
+          brief: record.projection?.briefPath && record.projection?.briefSha256
+            ? {key: record.projection.briefPath, sha256: record.projection.briefSha256} : null,
+          output: record.skp?.output ?? null, receipt: record.skp?.receipt ? {...record.skp.receipt,
+            generation: Number(record.skp.receipt.generation)} : null, selectedClauses: record.selector?.selected ?? null})),
+        errorCount: result.errors.length, warningCount: result.warnings.length, remoteWarningCount: result.remoteWarnings.length,
+        remoteOutputCount: result.remoteOutputs.length};
+    }
+  };
+}
+
+export function createGitPhaseInputsEngine({root,initialContext=null}={}) {
+  if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
+    'Git phase-input preparation requires an explicit absolute checkout root.', {code: 'ENGINE_INPUT_INVALID'});
+  let context;
+  const phaseInputs = createGitPhaseInputsPort({root,initialContext,onContext:value=>{context=value;}});
+  const engine = createEngine({ports:{phaseInputs,invocation:{run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))}}});
+  return Object.freeze({engine,presentation:()=>context});
+}
 
 export function createGitPhaseEntryPort({root=null,cwd=process.cwd(),modelEnabled=true,onContext=()=>{}}={}) {
   let owner;

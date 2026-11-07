@@ -1,6 +1,6 @@
 import {nextPhaseGeneration} from './kernel/phase-policy.mjs';
-import {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases} from './kernel/phase-inputs.mjs';
-export {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases};
+import {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases,inputFindingSeverity,inputReadinessFindings} from './kernel/phase-inputs.mjs';
+export {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases,inputFindingSeverity,inputReadinessFindings};
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,7 +11,6 @@ import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from 
 import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson } from './records.mjs';
-import { inputFindingSeverity } from './lifecycle-evidence-policy.mjs';
 import { acceptedRevalidationBindings, pendingAmendmentRevalidations, revalidateCommand } from './forward-amendments.mjs';
 import {
   resolveSkillPhaseEvidenceBinding, verifyApprovedSkillOutputContinuity,
@@ -310,23 +309,6 @@ export async function collectInputs(root, workflow, phase, {
  * The inputs that stop a phase, one entry per producer file: which earlier phase owns it, where it
  * is, and why (`missing`, `unapproved`, `hash_mismatch`, `brief_missing`, `receipt_missing`, ...).
  */
-export function inputReadinessFindings(result) {
-  return (result?.records ?? [])
-    .filter((record) => inputFindingSeverity(result.mode, record.optional, record.status) === 'error'
-      && inputMessage({ id: 'phase' }, record))
-    .map((record) => ({
-      phase: record.phase,
-      path: record.repositoryPath ?? record.path ?? null,
-      status: record.status,
-      producerStatus: record.producerStatus ?? null,
-      approvedSha256: record.approvedSha256 ?? null,
-      sha256: record.sha256 ?? null,
-      // Changed or deleted bytes of an approved producer can be put back exactly; anything else
-      // (an unapproved producer, a missing brief or receipt) needs that producer's own route.
-      restorable: ['hash_mismatch', 'missing'].includes(record.status)
-        && record.producerStatus === 'approved' && Boolean(record.approvedSha256)
-    }));
-}
 
 /**
  * The coded refusal for a phase whose approved inputs are not ready. It names each producer and
@@ -621,4 +603,22 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
     passes.push(`phase inputs verified: ${phase.id} ← ${captured.map((entry) => `${entry.phase}@${entry.sha256.slice(0, 8)}`).join(', ') || 'none'}`);
   }
   return { errors, warnings, passes };
+}
+
+/** Return exact kernel-rendered metadata, never a request to hunt for the audit or its markers. */
+export async function phaseInputArtifacts(root, phase, result, dryRun) {
+  const audit = !dryRun && phase.inputContext ? {
+    path: phase.inputContext.path, sha256: phase.inputContext.sha256,
+    generation: phase.inputContext.generation
+  } : null;
+  if (dryRun) return { audit, artifact: { path: result.path, status: 'not-written' } };
+  const bytes = await readFile(path.join(root, result.path));
+  const managed = extractInputsBlock(bytes.toString('utf8'));
+  const hash = content => createHash('sha256').update(content).digest('hex');
+  return { audit, artifact: { path: result.path, size: bytes.length, sha256: hash(bytes),
+    status: 'rendered', managedBlock: { status: managed ? 'rendered' : 'not-applicable',
+      sha256: managed ? hash(managed) : null,
+      matchesRendered: managed ? hash(managed) === result.renderedSha256 : result.renderedSha256 === null,
+      startMarker: '<!-- singularity-flow:inputs:start -->',
+      endMarker: '<!-- singularity-flow:inputs:end -->' } } };
 }

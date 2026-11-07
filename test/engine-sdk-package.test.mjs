@@ -210,6 +210,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.rejectPhase({actor:{login:'admin'}});
       // @ts-expect-error member selections are exact string arrays
       engine.rejectPhase({members:'design.md'});
+      engine.run('phase.inputs',{workId:'example',phaseId:'review',dryRun:true});
+      // @ts-expect-error preview mode is a boolean, never a CLI string
+      engine.run('phase.inputs',{dryRun:'true'});
+      // @ts-expect-error native records and source bodies are not operation inputs
+      engine.run('phase.inputs',{records:[]});
       // @ts-expect-error A witness expected binding is an opaque string, not a request object.
       engine.run('decision.witness',{expectedContext:{workId:'different'}});
       // @ts-expect-error Scope requires a project identity.

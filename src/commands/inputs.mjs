@@ -2,8 +2,6 @@
 import { repoRoot } from '../git.mjs';
 import { optionBoolean, posix, table } from '../util.mjs';
 import { workDir } from '../story-paths.mjs';
-import { preparePhaseInputs, saveStoryDraft } from '../state-stores.mjs';
-import { storyDraftTransaction } from '../engine-compatibility/story-draft-transaction.mjs';
 import path from 'node:path';
 import { phaseContinuationLines } from '../phase-continuation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
@@ -29,25 +27,17 @@ export async function inputsCommand(positionals, options) {
   const accepted = entry ?? await loadAcceptedStoryExecution(root);
   const { definition: config, workflow } = accepted;
   const { resolveStorySnapshot, agentNextSteps, snapshotContinuation } = await import('./nextsteps.mjs');
-  const { inputRepresentationLabel, phaseInputArtifacts, compactInputContinuation } = await import('../phase-input-presentation.mjs');
+  const { inputRepresentationLabel, compactInputContinuation } = await import('../phase-input-presentation.mjs');
   const dryRun = optionBoolean(options, 'dry-run');
-  const prepareInputs = async () => {
-    const prepared = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
-    if (!dryRun) await saveStoryDraft(root, config, workflow);
-    return prepared;
-  };
-  const result = dryRun
-    ? await prepareInputs()
-    : await storyDraftTransaction(
-      root, config, workflow, `inputs:${positionals[1] ?? workflow.currentPhase}`, prepareInputs
-    );
+  const {createGitPhaseInputsEngine} = await import('../engine-compatibility/git-phase-entry.mjs');
+  const binding = createGitPhaseInputsEngine({root,initialContext:accepted});
+  await binding.engine.run('phase.inputs', {workId:workflow.workItem.id, phaseId:positionals[1] ?? null, dryRun});
+  const {result,artifacts,readiness} = binding.presentation();
   const workItemDirectory = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
   const records = result.records.map(({ content, ...entry }) => entry);
   const nextSnapshot = await resolveStorySnapshot(root, accepted);
   const continuation = snapshotContinuation(workflow, forAgent ? agentNextSteps(nextSnapshot) : nextSnapshot);
-  const artifacts = await phaseInputArtifacts(root, result.phase, result, dryRun);
-  const { inputReadinessReport, inputReadinessLines } = await import('../inputs.mjs');
-  const readiness = inputReadinessReport(workflow, result.phase, result);
+  const { inputReadinessLines } = await import('../inputs.mjs');
   if (optionBoolean(options, 'json')) {
     console.log((await import('../agent-packet-presentation.mjs')).agentOrIndentedJson(forAgent, {
       ...(entry?.packet ?? {}),

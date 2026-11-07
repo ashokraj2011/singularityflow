@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination, registered decision writers, convergence advancement and shared post-transition effects extracted; individual routes/amendments, manifests/queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, five standalone decision routes, convergence advancement and shared post-transition effects extracted; remaining standalone families, corrections/amendments, manifests/queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -391,3 +391,29 @@ Individual command routes, amendment orchestration, manifests/queries and admiss
 still required for Phase 5. Filesystem storage, application/database embedding and packaging,
 verified authority migration, obsolete-path removal and distribution/performance qualification
 remain required in phases 6–9; advancement alone does not complete the objective.
+
+## Phase 5 standalone decision delivery
+
+The [standalone decision slice](ENGINE-SDK-DECISION-RECORDS.md) registers scope, completeness,
+applicability, obligation risk and routing as five individual SDK operations. Their shared Story
+admission and request normalization have a pure kernel owner. CLI functions forward to host
+adapters for flag/file handling and output, and use actual SDK records and publication facts.
+The original native writers still own their unchanged authority, presence, transaction, history,
+binding and recovery behavior. The combined pending-list protocol continues to use those writers.
+
+All 54 focused Mac checks pass, including five real default-SDK integration cases, CLI receipt
+parity, unauthorized identities, another seeded workflow and committed routing despite failed
+local session activation and observer callbacks. All 33 broader checks also pass, including
+scope/checklist revisions, risk acceptance and headless SDK revocation, branching, bounded loops,
+early completion, reopening, cancellation, bundled CLI parity and the complete fresh-clone Story
+journey (98.5 seconds). Both runs have zero failures, cancellations or skips.
+
+The source gate passes 3,574 checks; typechecking, all 13 freshly rebuilt runtime budgets and
+package admission pass. The SDK remains 11 pure modules (109,063 source bytes, zero external
+imports). No ceiling increased, and the gateway remains at 852 modules. Qualification used only
+Mac and local fixture remotes; no Windows, hosted CI, live provider, merge or push was started.
+
+Plan corrections, witnesses, test/evidence-specific decision routes, upstream issue and amendment
+orchestration, manifests/queries and admission helpers remain Phase 5 work. Phases 6–9 remain
+required, including real alternate backends, headless packaging/resume, verified authority
+migration and obsolete-access removal; these five operations do not complete the objective.

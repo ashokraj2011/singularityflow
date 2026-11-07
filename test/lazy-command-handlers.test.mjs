@@ -554,6 +554,7 @@ test('extracted legacy helpers remain part of the development build identity', a
   for (const owner of ['engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/publication-intent.mjs',
     'kernel/decision-plan.mjs','kernel/decision-limits.mjs','engine-sdk/decision-execution.mjs',
     'engine-compatibility/git-decisions.mjs','decision-list.mjs','plan-amendments.mjs','commands/decisions.mjs',
+    'engine-compatibility/git-decision-record.mjs','commands/decision-record.mjs',
     'engine-compatibility/native-story-decisions.mjs','engine-compatibility/native-plan-decisions.mjs',
     'engine-compatibility/native-obligation-risk.mjs',
     'engine-compatibility/native-evidence-decisions.mjs','engine-compatibility/native-visual-decisions.mjs',

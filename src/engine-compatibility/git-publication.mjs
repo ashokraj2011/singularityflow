@@ -34,7 +34,8 @@ function publicationFacts(context, phase, result, status, retentionReason = null
     artifact: phase.requiredArtifact.path, ...(retentionReason ? {retentionReason} : {}) });
 }
 
-export function createGitEngine({ root, notice = () => {}, approvalInteraction = null, decisionInteraction = null } = {}) {
+export function createGitEngine({ root, notice = () => {}, approvalInteraction = null, decisionInteraction = null,
+  decisionRecordInteraction = null } = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
     'Git engine composition requires an explicit absolute checkout root.', { code: 'ENGINE_INPUT_INVALID' });
   if (typeof notice !== 'function') throw new SingularityFlowError(
@@ -364,7 +365,20 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       .catch(error=>{advancementOwner=undefined;throw error;});
     return (await advancementOwner).withReview(...args);
   }};
-  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, invocation: {
+  let decisionRecordOwner;
+  const recordInteraction=typeof decisionRecordInteraction?.prepare==='function'
+    ? Object.freeze({prepare:decisionRecordInteraction.prepare.bind(decisionRecordInteraction)}) : null;
+  const decisionRecord={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='decisionRecord').stages) {
+    decisionRecord[stage]=async(...args)=>{
+      decisionRecordOwner ??= import('./git-decision-record.mjs')
+        .then(({createGitDecisionRecordPort})=>createGitDecisionRecordPort({root,notice,interaction:recordInteraction,
+          onContext:context=>{presentation=context;}}))
+        .catch(error=>{decisionRecordOwner=undefined;throw error;});
+      return (await decisionRecordOwner)[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

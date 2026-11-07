@@ -153,7 +153,7 @@ function cliRun(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-test('the CLI accepts and revokes the risk of an inconclusive criterion through the step that owns it', async (t) => {
+test('the CLI accepts and the SDK revokes the same inconclusive risk through its owning step', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-risk-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -234,9 +234,22 @@ test('the CLI accepts and revokes the risk of an inconclusive criterion through 
     '--reason', 'The sandbox test is skipped until the provider restores it next sprint.');
   assert.deepEqual([verify().status, verify().facets.execution, verify().riskDecision.id], ['excepted', 'passed-with-skips', 'RISK-001']);
 
-  cli('decision', 'risk', '--revoke', 'RISK-001', '--reason', 'The provider restored the sandbox earlier than planned.');
+  const sdk = `const {createSflow}=await import(${JSON.stringify(new URL('../src/api.mjs',import.meta.url).href)});
+    const result=await createSflow({root:process.cwd()}).run('decision.risk',${JSON.stringify({workId:id,revoke:'RISK-001',reason:'The provider restored the sandbox earlier than planned.'})});
+    console.log(JSON.stringify(result));`;
+  const revoked=JSON.parse(cliRun(process.execPath,['--input-type=module','-e',sdk],root).stdout);
+  assert.equal(revoked.recordKind,'obligation-risk');
+  assert.equal(revoked.record.revokes,'RISK-001');
+  assert.equal(revoked.subject.id,id);
+  assert.equal(revoked.effects.committed,true);
+  assert.equal(cliRun('git',['rev-parse','HEAD'],root).stdout.trim(),revoked.revision);
   assert.equal(verify().status, 'inconclusive');
   const state = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.deepEqual(state.riskDecisions.map((entry) => entry.revokes ?? entry.id), ['RISK-001', 'RISK-001']);
   assert.deepEqual(state.history.filter((entry) => entry.event === 'risk_decided').length, 2);
+  const duplicate=cliRun(process.execPath,[CLI,'--no-model','decision','risk','--revoke','RISK-001',
+    '--reason','The human already recorded this revocation.','--json'],root,{allowFailure:true});
+  assert.notEqual(duplicate.status,0);
+  assert.equal(JSON.parse(duplicate.stdout).error.code,'RISK_DECISION_REVOKED');
+  assert.equal(cliRun('git',['rev-parse','HEAD'],root).stdout.trim(),revoked.revision);
 });

@@ -25,6 +25,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/decision-limits.mjs',
   'engine-sdk/decision-execution.mjs',
   'engine-compatibility/git-decisions.mjs',
+  'engine-compatibility/git-decision-record.mjs', 'commands/decision-record.mjs',
   'engine-compatibility/native-story-decisions.mjs',
   'engine-compatibility/native-plan-decisions.mjs',
   'engine-compatibility/native-obligation-risk.mjs',

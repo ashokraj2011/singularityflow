@@ -4124,45 +4124,7 @@ async function decisionShowCommand(positionals, options) {
  * in the group the omission names may decide, and the Story cannot finish until they have.
  */
 async function decisionApplicabilityCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(
-      `Story ${id} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`,
-      { code: 'APPLICABILITY_STORY_CLOSED' }
-    );
-  }
-  const responsibility = optionString(options, 'responsibility') ?? null;
-  if (!responsibility) {
-    throw new SingularityFlowError('Name the responsibility with --responsibility <scope|plan|implement|verify|review>.', { code: 'APPLICABILITY_RESPONSIBILITY_REQUIRED' });
-  }
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitApplicabilityDecision } = await import('./engine-compatibility/native-story-decisions.mjs');
-  const { decision, publication } = await commitApplicabilityDecision(root, config, workflow, { responsibility, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded that ${responsibility} does not apply to ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-    const open = applicabilityStatus(workflow).filter((row) => !row.satisfied);
-    if (open.length) console.log(`Still to decide before the Story can finish: ${open.map((row) => row.responsibility).join(', ')}.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.applicability', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.applicability.succeeded', { responsibility }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, decision, applicability: applicabilityStatus(workflow) }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-record.mjs')).decisionApplicabilityCommand(positionals, options);
 }
 
 /**
@@ -4170,42 +4132,7 @@ async function decisionApplicabilityCommand(positionals, options) {
  * Story's accepted-scope inventory [E2G-006].
  */
 async function decisionScopeCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its scope is decided while it is in progress.`, { code: 'SCOPE_STORY_CLOSED' });
-  }
-  const item = optionString(options, 'item') ?? null;
-  const disposition = optionString(options, 'as') ?? null;
-  if (!item || !disposition) {
-    throw new SingularityFlowError('Name the item with --item <SRI-...|DOC-...> and the disposition with --as <included|existing|excluded|deferred|informative|duplicate|superseded>.', { code: 'SCOPE_DECISION_INCOMPLETE' });
-  }
-  const clauseIds = String(optionString(options, 'clause') ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitScopeDecision } = await import('./engine-compatibility/native-story-decisions.mjs');
-  const { decision, publication } = await commitScopeDecision(root, config, workflow, { item, disposition, clauseIds, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.scope', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.scope.succeeded', { item, disposition }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, decision }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-record.mjs')).decisionScopeCommand(positionals, options);
 }
 
 /**
@@ -4213,45 +4140,7 @@ async function decisionScopeCommand(positionals, options) {
  * category, transitions and expiry, or revokes such a decision [E2G-025, D4].
  */
 async function decisionRiskCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; risks are decided while it is in progress.`, { code: 'RISK_STORY_CLOSED' });
-  }
-  const revoke = optionString(options, 'revoke') ?? null;
-  const obligationId = optionString(options, 'obligation') ?? null;
-  if (!revoke === !obligationId) {
-    throw new SingularityFlowError('Name an obligation with --obligation OBL-..., or a decision to revoke with --revoke RISK-...', { code: 'RISK_DECISION_INVALID' });
-  }
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitRiskDecision } = await import('./engine-compatibility/native-obligation-risk.mjs');
-  const { record, publication } = await commitRiskDecision(root, config, workflow, { obligationId, revoke, category: optionString(options, 'category') ?? null,
-    transitions: optionStrings(options, 'transition').length ? optionStrings(options, 'transition') : ['terminal'],
-    expires: optionString(options, 'expires') ?? null, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
-  if (!optionBoolean(options, 'json')) {
-    console.log(record.revokes
-      ? `Revoked ${record.revokes} on ${record.obligationId}.`
-      : `Recorded ${record.id}: the ${record.category} risk of ${record.obligationId} is accepted until ${record.expiresAt.slice(0, 10)} through ${record.authorityGroup}.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.risk', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.risk.succeeded', { record: record.revokes ? `the revocation of ${record.revokes}` : record.id }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, record }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-record.mjs')).decisionRiskCommand(positionals, options);
 }
 
 /**
@@ -4416,92 +4305,11 @@ async function decisionPlanCommand(positionals, options) {
  * reviewed the inventory's interpretation, bound to its exact digest [E2G-007].
  */
 async function decisionCompletenessCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its scope is reviewed while it is in progress.`, { code: 'SCOPE_STORY_CLOSED' });
-  }
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitCompletenessReview } = await import('./engine-compatibility/native-story-decisions.mjs');
-  const { review, publication } = await commitCompletenessReview(root, config, workflow,
-    { confirm: optionString(options, 'confirm') ?? null, checklist: await checklistDecisions(options), reason: optionString(options, 'reason') ?? '' }, { actor, agent });
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded that ${review.actor} reviewed the scope of ${id} for completeness through ${review.authorityGroup}.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.completeness', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.completeness.succeeded', { inventory: review.inventorySha256.slice(7, 19) }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, review }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-record.mjs')).decisionCompletenessCommand(positionals, options);
 }
 
 async function decisionChooseCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const pending = workflow.pendingDecision ?? null;
-  if (!pending) {
-    throw new SingularityFlowError(
-      `Story ${workflow.workItem.id} is not waiting for a decision. See its decisions with singularity-flow decision show ${workflow.workItem.id}.`,
-      { code: 'DECISION_NOT_PENDING' }
-    );
-  }
-  const option = optionString(options, 'option') ?? null;
-  const to = optionString(options, 'to') ?? null;
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === workflow.workItem.id ? loadedSession.agent ?? null : null;
-  const { commitRoutingChoice } = await import('./engine-compatibility/native-story-decisions.mjs');
-  const { result, publication, authority } = await commitRoutingChoice(root, config, workflow,
-    { option, to, reason: optionString(options, 'reason') ?? '', expected: optionString(options, 'expected') ?? pending.key },
-    { actor, agent, notice: presentPostPublicationNotice });
-  const outcome = result.outcome;
-  const where = outcome.kind === 'loop' ? `back to ${workflow.phases[outcome.target]?.label ?? outcome.target}`
-    : outcome.kind === 'end' ? 'the end of the Story' : workflow.phases[outcome.target]?.label ?? outcome.target;
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Decision '${pending.label}': ${outcome.routeLabel} → ${where}, chosen by ${actorKey(actor)} through ${authority.authorityGroup}.`);
-    if (outcome.skipped?.length) console.log(`Skipped: ${outcome.skipped.map((id) => workflow.phases[id]?.label ?? id).join(', ')}.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-    formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
-  }
-  // An `end` route finishes the Story only after its transaction passed the final evaluation.
-  const completion = recordedCompletion(workflow);
-  if (completion && !optionBoolean(options, 'json')) printCompletionVerdict(completion);
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.choose', classification: 'mutation' },
-    subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('decision.choose.succeeded', {
-      decision: pending.decision, route: outcome.route, kind: outcome.kind, target: outcome.target ?? null,
-      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
-    }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    ...completionContinuation(completion),
-    data: {
-      commit: publication.sha, pushed: publication.pushed, authorityGroup: authority.authorityGroup, skipped: outcome.skipped ?? [],
-      ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
-    }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-record.mjs')).decisionChooseCommand(positionals, options);
 }
 
 async function reopenCommand(positionals, options) {

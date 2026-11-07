@@ -76,8 +76,8 @@ test('the packaged CLI accepts an exact Story test command through its native wr
     'accepting a test command does not claim or execute its tests');
 });
 
-for(const mode of ['sdk','legacy'])test(`${mode} routing keeps the committed decision when local session activation fails`,async t=>{
-  const id=mode==='sdk'?'SDK-ROUTE-TAIL':'LEGACY-ROUTE-TAIL';
+for(const mode of ['sdk','standalone','legacy'])test(`${mode} routing keeps the committed decision when local session activation fails`,async t=>{
+  const id=mode==='sdk'?'SDK-ROUTE-TAIL':mode==='standalone'?'DIRECT-ROUTE-TAIL':'LEGACY-ROUTE-TAIL';
   const f=await approvedSpecificationStory(t,id,{configure(config){
     config.workTypes['spec-driven-standard'].decisions=[{
       id:'direction',after:'specification',kind:'ask',label:'Continue with the approved specification?',
@@ -100,15 +100,17 @@ for(const mode of ['sdk','legacy'])test(`${mode} routing keeps the committed dec
     console.warn=(...parts)=>warnings.push(parts.join(' '));
     try {
       let result,notices=[];
-      if(mode==='sdk') {
+      if(mode==='sdk'||mode==='standalone') {
         const{createSflow}=await import(${JSON.stringify(url('api'))});
-        const{readPendingList}=await import(${JSON.stringify(url('decision-list-reads'))});
-        const packet=await readPendingList(root,accepted.definition,accepted.workflow);
-        const item=packet.items.find(item=>item.kind==='routing-decision');
-        const option=item.options.find(option=>option.effects.some(effect=>effect.kind==='routing'&&effect.option==='continue'));
         const api=createSflow({root,notice:()=>{throw new Error('observer fixture');}});
-        result=await api.recordDecisions({workId:id,confirmation:packet.packetSha256,
-          answers:{choose:{[item.id]:option.id},reason:{[item.id]:reason}}});
+        if(mode==='sdk') {
+          const{readPendingList}=await import(${JSON.stringify(url('decision-list-reads'))});
+          const packet=await readPendingList(root,accepted.definition,accepted.workflow);
+          const item=packet.items.find(item=>item.kind==='routing-decision');
+          const option=item.options.find(option=>option.effects.some(effect=>effect.kind==='routing'&&effect.option==='continue'));
+          result=await api.recordDecisions({workId:id,confirmation:packet.packetSha256,
+            answers:{choose:{[item.id]:option.id},reason:{[item.id]:reason}}});
+        } else result=await api.run('decision.choose',{workId:id,option:'continue',reason,expected:accepted.workflow.pendingDecision.key});
         notices=(await api.notifications()).map(event=>({code:event.code,workId:event.workId,errorCode:event.error?.code}));
       } else {
         const{commitRoutingChoice}=await import(${JSON.stringify(url('commands/decision-story-records'))});
@@ -123,10 +125,16 @@ for(const mode of ['sdk','legacy'])test(`${mode} routing keeps the committed dec
     {cwd:f.root,env:{...process.env,NODE_ENV:'test',SINGULARITY_FLOW_TEST_IDENTITY:'History Tester'},allowFailure:true});
   assert.equal(response.status,0,response.stdout+'\n'+response.stderr);
   const result=lastJson(response.stdout);
-  if(mode==='sdk') {
+  if(mode==='sdk'||mode==='standalone') {
     assert.equal(result.result.status,'recorded');
-    assert.equal(result.result.recorded[0].kind,'routing');
-    assert.equal(result.result.recorded[0].value.route,'continue');
+    if(mode==='sdk') {
+      assert.equal(result.result.recorded[0].kind,'routing');
+      assert.equal(result.result.recorded[0].value.route,'continue');
+    } else {
+      assert.equal(result.result.recordKind,'routing');
+      assert.equal(result.result.record.route,'continue');
+      assert.equal(f.git('rev-parse','HEAD'),result.result.revision);
+    }
     assert.deepEqual(result.notices,[{code:'transition.tail-failed',workId:id,errorCode:'LOCAL_SESSION_FIXTURE'}]);
     assert.deepEqual(result.warnings,[],'the SDK returns local diagnostics without CLI warnings');
   } else {

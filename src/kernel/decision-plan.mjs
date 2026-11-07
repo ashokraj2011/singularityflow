@@ -5,6 +5,57 @@ function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
 }
 
+/** Existing standalone admission, shared by every host before it prepares a human request. */
+export function standaloneDecisionAdmission(operation, workflow) {
+  const workId = workflow.workItem.id;
+  if (operation === 'decision.choose') {
+    if (!workflow.pendingDecision) refused(
+      `Story ${workId} is not waiting for a decision. See its decisions with singularity-flow decision show ${workId}.`,
+      'DECISION_NOT_PENDING');
+    return {workId, phase:workflow.pendingDecision.after ?? null};
+  }
+  const closed = {
+    'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
+    'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
+    'decision.applicability':['APPLICABILITY_STORY_CLOSED', `Story ${workId} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`],
+    'decision.risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`]
+  }[operation];
+  if (!closed) refused('The standalone decision operation is unavailable.', 'ENGINE_OPERATION_UNSUPPORTED');
+  if (workflow.status !== 'in_progress') refused(closed[1], closed[0]);
+  return {workId, phase:workflow.currentPhase ?? null};
+}
+
+/** Normalize domain values only; identity, policy and publication are never request fields. */
+export function standaloneDecisionRequest(operation, input) {
+  const reason = input.reason ?? '';
+  if (operation === 'decision.scope') {
+    const item = input.item ?? null, disposition = input.disposition ?? null;
+    if (!item || !disposition) refused(
+      'Name the item with --item <SRI-...|DOC-...> and the disposition with --as <included|existing|excluded|deferred|informative|duplicate|superseded>.',
+      'SCOPE_DECISION_INCOMPLETE');
+    return {item, disposition, clauseIds:input.clauseIds ?? [], reason};
+  }
+  if (operation === 'decision.applicability') {
+    if (!input.responsibility) refused(
+      'Name the responsibility with --responsibility <scope|plan|implement|verify|review>.',
+      'APPLICABILITY_RESPONSIBILITY_REQUIRED');
+    return {responsibility:input.responsibility, reason};
+  }
+  if (operation === 'decision.risk') {
+    const revoke = input.revoke ?? null, obligationId = input.obligationId ?? null;
+    if (!revoke === !obligationId) refused(
+      'Name an obligation with --obligation OBL-..., or a decision to revoke with --revoke RISK-...',
+      'RISK_DECISION_INVALID');
+    return {obligationId, revoke, category:input.category ?? null, transitions:input.transitions ?? ['terminal'],
+      expires:input.expires ?? null, reason};
+  }
+  if (operation === 'decision.completeness') return {confirm:input.confirm ?? null,
+    checklist:input.checklist ?? [], reason};
+  if (operation === 'decision.choose') return {option:input.option ?? null, to:input.to ?? null,
+    expected:input.expected ?? null, reason};
+  refused('The standalone decision operation is unavailable.', 'ENGINE_OPERATION_UNSUPPORTED');
+}
+
 /** The policy data a planner consumes; host commands and display-only authority prose stay out. */
 export function decisionPolicyPacket(packet) {
   const item = entry => ({id: entry.id, kind: entry.kind, title: entry.title,

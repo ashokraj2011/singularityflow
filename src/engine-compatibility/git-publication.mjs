@@ -1,6 +1,6 @@
 /** Git/installed-owner composition for the SDK publication operation. No CLI dispatch. */
 import path from 'node:path';
-import { createEngine } from '../engine-sdk/index.mjs';
+import { createEngine, ENGINE_OPERATIONS } from '../engine-sdk/index.mjs';
 import { SingularityFlowError, readJson } from '../util.mjs';
 import { actionActor } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
@@ -308,7 +308,18 @@ export function createGitEngine({ root, notice = () => {} } = {}) {
       return publicationFacts(context, phase, result, 'published');
     }
   };
-  const engine = createEngine({ports:{publication:port, invocation: {
+  let submissionOwner;
+  const submission = {notice};
+  for (const stage of ENGINE_OPERATIONS.find(operation => operation.port === 'submission').stages) {
+    submission[stage] = async (...args) => {
+      submissionOwner ??= import('./git-submission.mjs')
+        .then(({createGitSubmissionPort}) => createGitSubmissionPort({root,notice,onContext:context => {presentation=context;}}))
+        .catch(error => {submissionOwner=undefined;throw error;});
+      const owner = await submissionOwner;
+      return owner[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

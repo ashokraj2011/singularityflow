@@ -1,0 +1,33 @@
+/** Submission preflight policy. No host discovery, I/O, provider or command renderer. */
+import { SingularityFlowError } from '../foundation/failures.mjs';
+import { isConvergencePhase } from './phase-policy.mjs';
+import { decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, recordedDecisionValues } from './decision-inputs.mjs';
+
+export function submissionDecisionIntent(workflow, phase, values = {}) {
+  const supplied = Object.keys(values).length > 0;
+  const decision = decisionFedBy(workflow, phase.id);
+  if (phase.status === 'awaiting_approval') return { ignoredDecisionValues: supplied };
+  if (!decision && supplied) throw new SingularityFlowError(
+    `Phase '${phase.id}' feeds no decision that records values; submit it without --decision.`, { code: 'DECISION_INPUT_UNKNOWN' });
+  if (decision && supplied) normalizeDecisionInputValues(decision, values);
+  else if (decision && !recordedDecisionValues(phase, decision)) throw new SingularityFlowError(
+    `Decision '${decision.label}' after '${phase.id}' reads values this submission must record. Submit with ${decisionInputsHint(decision)}.`,
+    { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id, inputs: decision.inputs } });
+  return { ignoredDecisionValues: false };
+}
+
+/** The ordinary operation cannot acquire convergence authority from an input flag. */
+export function assertSubmissionIntent(workflow, phase, { confirmedConvergence = false, confirmation = null } = {}) {
+  if (confirmedConvergence && !isConvergencePhase(phase)) throw new SingularityFlowError(
+    'A confirmed convergence submission requires the convergence phase.', { code: 'CONVERGENCE_PHASE_REQUIRED' });
+  if (!isConvergencePhase(phase)) return;
+  const workId = workflow.workItem.id;
+  if (!confirmedConvergence || typeof confirmation !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(confirmation)) {
+    throw new SingularityFlowError(
+      `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${workId} to review the deterministic result and receive its digest-bound confirmation command.`,
+      { code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED', details: { workId, nextAction: `singularity-flow story advance --work-id ${workId}` } });
+  }
+  if (phase.approvalPolicy?.mode !== 'required') throw new SingularityFlowError(
+    `Convergence phase '${phase.id}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
+    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED' });
+}

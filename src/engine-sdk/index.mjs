@@ -4,15 +4,23 @@
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
+import { submissionDecisionIntent, assertSubmissionIntent } from '../kernel/submission-intent.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
   'workId', 'phaseId', 'authored', 'channel', 'from', 'usageFile', 'usage', 'externalAiUse', 'changeOrigins'
 ]);
+const SUBMIT_FIELDS = Object.freeze(['workId', 'phaseId', 'runChecks', 'decisionValues']);
+const CONVERGENCE_FIELDS = Object.freeze([...SUBMIT_FIELDS, 'confirmation']);
+const WRITE_STAGES = Object.freeze(['load', 'retained', 'prepare', 'commit', 'finish']);
 export const ENGINE_OPERATIONS = Object.freeze([
   Object.freeze({ id: 'phase.publish', version: 1, effect: 'publication',
     inputFields: PUBLISH_FIELDS, port: 'publication',
-    stages: Object.freeze(['load', 'retained', 'prepare', 'commit', 'finish']) })
+    stages: WRITE_STAGES }),
+  Object.freeze({ id: 'phase.submit', version: 1, effect: 'submission', inputFields: SUBMIT_FIELDS,
+    port: 'submission', stages: WRITE_STAGES }),
+  Object.freeze({ id: 'convergence.submit', version: 1, effect: 'submission', inputFields: CONVERGENCE_FIELDS,
+    confirmation: 'exact-reviewed-convergence-digest', port: 'submission', stages: WRITE_STAGES })
 ]);
 const registry = new Map(ENGINE_OPERATIONS.map(operation => [operation.id, operation]));
 
@@ -69,6 +77,21 @@ function publicationInput(value) {
   return input;
 }
 
+function submissionInput(value, operation) {
+  const input = data(value);
+  if (!input || Array.isArray(input) || typeof input !== 'object'
+    || Object.keys(input).some(key => !operation.inputFields.includes(key))) invalid('Unknown submission input field.');
+  for (const key of ['workId', 'phaseId', 'confirmation']) {
+    if (input[key] != null && typeof input[key] !== 'string') invalid(`Submission ${key} must be a string or null.`);
+  }
+  if (input.runChecks != null && typeof input.runChecks !== 'boolean') invalid('Submission runChecks must be a boolean.');
+  if (input.decisionValues != null && (typeof input.decisionValues !== 'object' || Array.isArray(input.decisionValues)
+    || Object.values(input.decisionValues).some(value => value !== null && !['string','number','boolean'].includes(typeof value)))) {
+    invalid('Submission decisionValues must map names to scalar values.');
+  }
+  return input;
+}
+
 function notCancelled(signal) {
   if (signal?.aborted) throw new SingularityFlowError('The engine operation was cancelled before its next effect.', {
     code: 'ENGINE_OPERATION_CANCELLED'
@@ -118,25 +141,84 @@ async function publish(port, inputs, signal) {
   }
 }
 
+function submissionResult(context, facts, operation, retained) {
+  const fields = ['workId','phase','generation','revision','pushed','phaseStatus','submittedAt','approvalMode','currentPhase','reviewPacket'];
+  if (!facts || Object.keys(facts).some(key => !fields.includes(key))
+    || typeof facts.workId !== 'string' || !facts.workId || facts.workId !== context.subject?.id
+    || typeof facts.phase !== 'string' || !facts.phase || facts.phase !== context.phase?.id
+    || !Number.isSafeInteger(facts.generation) || facts.generation < 1
+    || !(retained && facts.revision === null || typeof facts.revision === 'string' && facts.revision.length > 0 && facts.revision.length <= 512)
+    || typeof facts.pushed !== 'boolean' || retained && facts.pushed
+    || !['approved','awaiting_approval'].includes(facts.phaseStatus)
+    || retained && facts.phaseStatus !== 'awaiting_approval'
+    || !['required','none','policy'].includes(facts.approvalMode)
+    || facts.phaseStatus === 'approved' && facts.approvalMode === 'required'
+    || facts.submittedAt !== null && typeof facts.submittedAt !== 'string'
+    || facts.currentPhase !== null && typeof facts.currentPhase !== 'string'
+    || facts.reviewPacket !== null && (typeof facts.reviewPacket !== 'string' || !facts.reviewPacket || facts.reviewPacket.length > 512)) {
+    throw new SingularityFlowError('The submission port returned an invalid or differently bound result.', { code: 'ENGINE_PORT_RESULT_INVALID' });
+  }
+  return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
+    status:retained?'retained':facts.phaseStatus==='approved'?'completed':'awaiting-approval',
+    subject:Object.freeze({kind:'story',id:facts.workId}),phase:facts.phase,generation:facts.generation,
+    revision:facts.revision,effects:Object.freeze({committed:!retained,pushed:facts.pushed}),
+    submission:Object.freeze({phaseStatus:facts.phaseStatus,submittedAt:facts.submittedAt,
+      approvalMode:facts.approvalMode,currentPhase:facts.currentPhase,reviewPacket:facts.reviewPacket})});
+}
+
+async function submit(port, inputs, signal, operation) {
+  notCancelled(signal);
+  const context = await port.load(inputs, { signal });
+  notCancelled(signal);
+  const intent = submissionDecisionIntent(context.workflow, context.phase, inputs.decisionValues ?? {});
+  if (intent.ignoredDecisionValues) await port.notice?.({code:'submission.decision-values-ignored',phase:context.phase.id});
+  const retained = await port.retained(context, inputs, { signal });
+  if (retained) return submissionResult(context, retained, operation, true);
+  const confirmedConvergence = operation.id === 'convergence.submit';
+  assertSubmissionIntent(context.workflow, context.phase, {confirmedConvergence,confirmation:inputs.confirmation});
+  notCancelled(signal);
+  const prepared = await port.prepare(context, inputs, {confirmedConvergence}, {signal});
+  notCancelled(signal);
+  const committed = await port.commit(context, prepared, {signal});
+  try {
+    return submissionResult(context, await port.finish(context, prepared, committed), operation, false);
+  } catch (error) {
+    if (error && typeof error === 'object' && Object.isExtensible(error)) error.enginePublication = committed;
+    throw error;
+  }
+}
+
 export function createEngine({ ports } = {}) {
   if (!ports || typeof ports !== 'object') invalid('Engine construction requires explicit trusted ports.');
-  const supplied = ports.publication;
-  if (!supplied || ENGINE_OPERATIONS[0].stages.some(name => typeof supplied[name] !== 'function')) {
-    invalid('The publication port must implement every declared operation stage.');
+  const bound = new Map();
+  for (const name of new Set(ENGINE_OPERATIONS.map(operation => operation.port))) {
+    const supplied = ports[name];
+    if (supplied === undefined) continue;
+    if (!supplied || WRITE_STAGES.some(stage => typeof supplied[stage] !== 'function')) {
+      invalid(`The ${name} port must implement every declared operation stage.`);
+    }
+    bound.set(name, Object.freeze(Object.fromEntries([
+      ...WRITE_STAGES.map(stage => [stage, supplied[stage].bind(supplied)]),
+      ...(typeof supplied.notice === 'function' ? [['notice', supplied.notice.bind(supplied)]] : [])
+    ])));
   }
-  const publication = Object.freeze(Object.fromEntries([
-    ...ENGINE_OPERATIONS[0].stages.map(name => [name, supplied[name].bind(supplied)]),
-    ...(typeof supplied.notice === 'function' ? [['notice', supplied.notice.bind(supplied)]] : [])
-  ]));
+  if (!bound.size) invalid('Engine construction requires at least one complete operation port.');
   const invoke = typeof ports.invocation?.run === 'function'
     ? ports.invocation.run.bind(ports.invocation) : callback => callback();
   const execute = async (operation, inputs = {}, { signal = null } = {}) => {
     if (typeof operation !== 'string' || !registry.has(operation)) throw new SingularityFlowError('The engine operation is unavailable in this contract.', {
       code: 'ENGINE_OPERATION_UNSUPPORTED', details: { operation: typeof operation === 'string' ? operation.slice(0, 128) : null, contract: ENGINE_CONTRACT }
     });
-    const input = publicationInput(inputs);
-    return invoke(() => publish(publication, input, signal));
+    const definition = registry.get(operation);
+    const input = operation === 'phase.publish' ? publicationInput(inputs) : submissionInput(inputs, definition);
+    const port = bound.get(definition.port);
+    if (!port) throw new SingularityFlowError('No port implements this engine operation in the current host.', {
+      code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port}
+    });
+    return invoke(() => operation === 'phase.publish' ? publish(port, input, signal) : submit(port, input, signal, definition));
   };
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
-    run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options) });
+    run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
+    submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
+    submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options) });
 }

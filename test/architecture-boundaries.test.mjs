@@ -91,10 +91,12 @@ test('Git compatibility composes existing owners without introducing another per
     './story-branch-authority.mjs', './git-ledger-adapter.mjs'].sort());
 });
 
-test('production consumers use kernel phase rules and only the compatibility aggregate opens the native generation transition',async()=>{
+test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs'].map(file=>path.join(packageRoot,file)));
-  const transition=path.join(packageRoot,'src/engine-compatibility/generation-publication.mjs');
+  const transitions=new Set(['src/engine-compatibility/generation-publication.mjs',
+    'src/engine-compatibility/submission-transition.mjs'].map(file=>path.join(packageRoot,file)));
+  const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -104,12 +106,23 @@ test('production consumers use kernel phase rules and only the compatibility agg
         :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
       if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.')){
         const target=path.resolve(path.dirname(file),specifier.text);
-        if(oldRules.has(target)||(target===transition&&relative!=='src/state.mjs'))problems.push(relative);
+        if(oldRules.has(target)||(transitions.has(target)&&relative!=='src/state.mjs'))problems.push(relative);
+        if(target===submissionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
   }
   assert.deepEqual(problems,[],'old paths are compatibility exports, not another internal policy or write path');
+});
+
+test('native transition extraction keeps every operation binding declared',async()=>{
+  const files=[...await sourceFiles('src/engine-compatibility'),...await sourceFiles('src/engine-sdk'),
+    ...await sourceFiles('src/kernel'),'src/state.mjs'].map(file=>path.join(packageRoot,file));
+  const program=ts.createProgram(files,{allowJs:true,checkJs:true,noResolve:true,types:[],target:ts.ScriptTarget.ESNext});
+  const missing=program.getSemanticDiagnostics().filter(diagnostic=>diagnostic.code===2304
+    && !/Cannot find name '(?:process|Buffer|NodeJS)'/.test(ts.flattenDiagnosticMessageText(diagnostic.messageText,' ')))
+    .map(diagnostic=>`${path.relative(packageRoot,diagnostic.file.fileName)}:${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line+1}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText,' ')}`);
+  assert.deepEqual(missing,[],'an extracted transition lost a required binding');
 });
 
 test('application surfaces cannot bypass the revisioned state-store boundary', async () => {
@@ -152,6 +165,18 @@ test('the revisioned store boundary does not expose raw persistence primitives',
   assert.equal(exportBlocks.some((block) => /\bsaveInitiative\b/.test(block)), false);
   assert.match(content, /saveStoryDraft/);
   assert.match(content, /saveInitiativeDraft/);
+});
+
+test('aggregate extraction preserves the existing status and validation exports', async () => {
+  const [aggregate, writer, validation] = await Promise.all([
+    import('../src/state.mjs'), import('../src/story-state-write.mjs'), import('../src/story-state-validation.mjs')
+  ]);
+  for (const name of ['statusPath', 'storyStatusMarkdown', 'validateId', 'saveWorkflow']) {
+    assert.equal(aggregate[name], writer[name], name);
+    assert.equal(typeof aggregate[name], 'function', name);
+  }
+  assert.equal(aggregate.validateWorkflow, validation.validateWorkflow);
+  assert.equal(typeof aggregate.validateWorkflow, 'function');
 });
 
 test('source code cannot hard-code a direct push to an application branch', async () => {

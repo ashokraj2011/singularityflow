@@ -16,6 +16,8 @@
  * limit stops and asks instead of carrying on. Everything here is pure: it validates configuration
  * and computes outcomes. The lifecycle owner applies them, inside its own transaction.
  */
+import { decisionAfter, decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, recordedDecisionValues } from './kernel/decision-inputs.mjs';
+export { decisionAfter, decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, recordedDecisionValues } from './kernel/decision-inputs.mjs';
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -456,17 +458,6 @@ export function obligationsDroppedBySkips(workflow) {
   return [...dropped].map(([phase, reason]) => ({ phase, reason }));
 }
 
-/** The decision pinned after a phase of this Story, or null. */
-export function decisionAfter(workflow, phaseId) {
-  return (workflow?.resolution?.decisions ?? []).find((decision) => decision.after === phaseId) ?? null;
-}
-
-/** The decision a phase feeds with inputs it must record at submission, or null. */
-export function decisionFedBy(workflow, phaseId) {
-  const decision = decisionAfter(workflow, phaseId);
-  return decision?.mode === 'auto' && decision.inputs.length ? decision : null;
-}
-
 export function testHolds(test, value, input) {
   if (value == null) return false;
   if (input.type === 'number') {
@@ -529,67 +520,6 @@ export function parseDecisionAssignments(assignments = []) {
     values[name] = raw.slice(at + 1).trim();
   }
   return values;
-}
-
-/** How to record a decision's inputs, for refusals and prompts. */
-export function decisionInputsHint(decision) {
-  return decision.inputs.map((input) => input.type === 'number'
-    ? `--decision ${input.name}=<number${input.minimum != null || input.maximum != null ? ` ${input.minimum ?? ''}..${input.maximum ?? ''}` : ''}>`
-    : `--decision ${input.name}=<${input.values.join('|')}>`).join(' ');
-}
-
-/**
- * Check supplied values against the decision's inputs and return them normalized: a choice takes
- * its declared spelling, a number becomes a number. Every input is required — a rule reading a value
- * nobody recorded would quietly fall through to the last route.
- */
-export function normalizeDecisionInputValues(decision, supplied = {}) {
-  const values = {};
-  const unknown = Object.keys(supplied).filter((name) => !decision.inputs.some((input) => input.name === name));
-  if (unknown.length) {
-    throw new SingularityFlowError(
-      `Decision '${decision.label}' does not record ${list(unknown)}. It records: ${decision.inputs.map((input) => input.name).join(', ')}.`,
-      { code: 'DECISION_INPUT_UNKNOWN' }
-    );
-  }
-  const missing = [];
-  for (const input of decision.inputs) {
-    if (!Object.hasOwn(supplied, input.name) || String(supplied[input.name]).trim() === '') { missing.push(input.name); continue; }
-    const raw = String(supplied[input.name]).trim();
-    if (input.type === 'number') {
-      const number = Number(raw);
-      if (!Number.isFinite(number)
-          || (input.minimum != null && number < input.minimum)
-          || (input.maximum != null && number > input.maximum)) {
-        throw new SingularityFlowError(
-          `Decision input '${input.name}' must be a number${input.minimum != null ? ` from ${input.minimum}` : ''}${input.maximum != null ? ` up to ${input.maximum}` : ''}; got '${raw}'.`,
-          { code: 'DECISION_INPUT_INVALID' }
-        );
-      }
-      values[input.name] = number;
-    } else {
-      const found = input.values.find((choice) => choice.toLowerCase() === raw.toLowerCase());
-      if (!found) {
-        throw new SingularityFlowError(
-          `Decision input '${input.name}' must be one of ${input.values.join(', ')}; got '${raw}'.`,
-          { code: 'DECISION_INPUT_INVALID' }
-        );
-      }
-      values[input.name] = found;
-    }
-  }
-  if (missing.length) {
-    throw new SingularityFlowError(
-      `Decision '${decision.label}' after '${decision.after}' needs ${list(missing)}. Submit with ${decisionInputsHint(decision)}.`,
-      { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id, missing } }
-    );
-  }
-  return values;
-}
-
-/** The values a phase recorded for its decision this round, or null. */
-export function recordedDecisionValues(phase, decision) {
-  return phase?.decisionInputs?.decision === decision?.id ? phase.decisionInputs.values ?? null : null;
 }
 
 /**

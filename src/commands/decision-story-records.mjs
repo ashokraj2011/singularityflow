@@ -12,7 +12,7 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { resolveDecisionChoice } from '../workflow-decisions.mjs';
 import { postPublicationStep } from './shared/post-publication-step.mjs';
-import { withRefusalMemory } from './shared/with-refusal-memory.mjs';
+import { withRefusalMemory } from '../evidence/refusal-memory.mjs';
 
 /** Why a responsibility the workflow leaves out does not apply to this Story. */
 export async function commitApplicabilityDecision(root, config, workflow, { responsibility, reason }, { actor, agent = null }) {

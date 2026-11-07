@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readFile} from 'node:fs/promises';
 
 import { commandFunction } from './helpers/command-source.mjs';
 
@@ -20,16 +21,18 @@ test('convergence advancement pins its selected Story through submission', async
     'advancement did not use the combined confirmation-and-submission boundary');
 
   const submit = await commandFunction('runSubmitCommand');
-  assert.match(submit, /const requestedWorkId = optionString\(options, 'work-id'\)/);
-  assert.match(submit, /const accepted = await loadAcceptedStoryExecution\(root, requestedWorkId\)/,
-    'submission did not resolve the caller-selected Story through its accepted execution closure');
-  assert.match(submit, /const config = accepted\.definition/,
-    'submission discarded the selected Story definition after accepted execution resolution');
-  assert.match(submit, /let workflow = accepted\.workflow/,
-    'submission discarded the selected Story workflow after accepted execution resolution');
+  assert.match(submit, /workId:optionString\(options,'work-id'\)/);
+  assert.match(submit, /engine\.run\('phase.submit',input\)/, 'submission must use the registered operation');
+  const native = await readFile(new URL('../src/engine-compatibility/git-submission.mjs', import.meta.url), 'utf8');
+  assert.match(native, /loadAcceptedStoryExecution\(root, input.workId \?\? null\)/,
+    'the registered operation did not load the caller-selected accepted Story');
+  assert.match(native, /const config = accepted\.definition, workflow = accepted\.workflow/,
+    'the operation discarded the selected definition or workflow');
   assert.doesNotMatch(submit, /loadStoryAggregate\(root, config, requestedWorkId\)/,
     'submission can bypass the accepted execution closure for the caller-selected Story');
-  assert.match(submit, /const resolvedWorkId = workflow\.workItem\.id/);
+  assert.match(native, /const resolvedWorkId = workflow\.workItem\.id/);
+  assert.doesNotMatch(native, /loadStoryAggregate\(root, config\)/,
+    'a native stage can still follow the incidental active Story');
   // Submission reads no telemetry and commits no reconciliation, so it has no mid-command reload.
   assert.doesNotMatch(submit, /reconcilePhaseTelemetry/, 'submission is part of the work and reads no Copilot telemetry');
   assert.doesNotMatch(submit, /loadStoryAggregate\(root, config\)/,

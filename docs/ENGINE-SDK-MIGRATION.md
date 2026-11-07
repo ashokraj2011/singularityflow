@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | Planned; extract each operation's rules alongside its orchestration |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: ordinary/confirmed convergence submission extracted; remaining operations and manifests retain their gates |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -252,3 +252,36 @@ filesystem storage, database/application embedding and standalone packaging, ver
 project migration, then removal/qualification of obsolete paths. Publication's 26 named legacy
 collaborators remain explicit compatibility work rather than a claim that all engine rules have
 already left the aggregate.
+
+## Phase 5 submission delivery
+
+The [submission slice](ENGINE-SDK-SUBMISSION.md) registers `phase.submit` and the distinct,
+digest-confirmed `convergence.submit`. CLI submission and the private confirmed-advancement
+callback enter those operations, as do the existing Node API's typed helpers. Decision-input
+validation now has a pure kernel owner; its old exports remain compatible. The 788-line native
+submission transition has left the aggregate with 43 named legacy collaborators. Its 111-statement
+body was compared with Phase 4 and is unchanged except for import rebasing and collaborator binding.
+
+Mac qualification on Node 26.12.0 passed a 159-test regression run and a separate 56-test journey
+run, both with zero failures, cancellations or skips. The latter includes the complete fresh-clone
+specification-to-release journey (94.7 seconds), with real local Git, executed tests, rework,
+confirmed convergence and human-approval fixtures. Other coverage includes exact SDK/CLI retry
+projection, stale-preview isolation, explicitly approval-free successor activation, source-review
+refusals, branching/loops, native recovery, retention and test-command epochs. Fixture identities
+are isolated from the developer; no live provider or remote CI is used.
+
+`npm run check` passed 3,539 checks across 191 skills. VS Code typechecking, all 13 rebuilt bundle
+budgets and npm dry-run package inclusion/exclusion passed. The gateway's module allowance admits
+exactly the two extracted owners (846 to 848); all byte and other runtime ceilings are unchanged.
+The Git audit moves one existing observation from the aggregate to the extracted transition,
+without adding a Git call or a privileged owner. The pure SDK remains free of Node builtins.
+
+Final receipt hardening also refuses a submission port that claims human approval was completed
+under a required-approval policy. Its 21 SDK/startup cases, four real SDK parity journeys and ten
+architecture/export/binding guards passed after the final edits, with zero failures or skips.
+
+Phase 5 remains in progress. Its remaining deliveries are the complete decision/approval and
+advancement operations, context manifests and queries, and the shared post-transition helper
+ownership. Phases 6–9 retain their filesystem/database, standalone packaging, explicit migration
+and obsolete-path/performance qualification requirements. No existing project or installed storage
+authority has been migrated, and no branch has been merged or pushed for this refactoring.

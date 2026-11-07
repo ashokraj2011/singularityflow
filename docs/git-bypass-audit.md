@@ -1,5 +1,11 @@
 # GAL Git bypass regression gate
 
+The engine submission extraction moves one existing, read-only `rev-parse <generation>^{tree}`
+call from `state.mjs` into `engine-compatibility/submission-transition.mjs`. Its arguments, bounded
+central launcher and place in the transition are unchanged. The aggregate count falls from 31 to
+30 and the native transition has one call. Only these two reviewed site summaries change; there
+is no additional Git call, general owner, authority exemption or transport permission.
+
 Story-start configuration reuse adds closed local sites for exact object presence, a private
 retention ref, and a disposable configuration-only shared-object checkout. Only that checkout's
 origin and HEAD/ref/index are initialized; no source index, application branch, or history scan is

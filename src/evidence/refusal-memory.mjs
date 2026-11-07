@@ -11,7 +11,7 @@ import { BUILD_INFO } from '../build-info.mjs';
 import { changedFiles, head } from '../git.mjs';
 import { repositoryGitPath } from '../git-directory.mjs';
 import { canonicalJson } from '../records.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { nowIso, SingularityFlowError } from '../util.mjs';
 import { projectGateRefusal } from './gate-refusal.mjs';
 
 const sha256 = (value) => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
@@ -85,4 +85,18 @@ export async function rememberRefusal(root, workId, fingerprint, refusal, at) {
 /** Forget a remembered refusal once the Story moved on. */
 export async function forgetRefusal(root, workId) {
   await rm(memoryFile(root, workId), { force: true });
+}
+
+/** Run once unless an identical gate refusal is retained; success clears that disposable memory. */
+export async function withRefusalMemory(root, subject, transition) {
+  const fingerprint = await refusalFingerprint(root, subject);
+  await assertRefusalChanged(root, subject.workId, fingerprint);
+  try {
+    const value = await transition();
+    await forgetRefusal(root, subject.workId);
+    return value;
+  } catch (error) {
+    if (error?.details?.gate) await rememberRefusal(root, subject.workId, fingerprint, error.details.gate, nowIso());
+    throw error;
+  }
 }

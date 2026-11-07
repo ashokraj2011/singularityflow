@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, draft and prepublication inspection, portable workflow asset inventory, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, draft and prepublication inspection, portable workflow asset inventory, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
 | 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port and namespace-backed phase/document read host implemented; portable lifecycle writers and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -83,6 +83,11 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 The [upstream operation boundary](ENGINE-SDK-UPSTREAM-OPERATIONS.md) covers author-raised issues,
 owner decisions, forward proposals and decisions, downstream revalidation and the read-only list.
 These routes keep their existing CLI output and native Git authority.
+
+The [rejection operation](ENGINE-SDK-REJECTION.md) coordinates the existing human-authorized
+return through the registry. Its native transition is separate from interaction and presentation;
+records, surgical member promises, bounded repair, retained approvals and recovery keep their
+existing owners. It creates no new unsubmitted-phase exception or alternative write authority.
 
 The [phase review query](ENGINE-SDK-PHASE-REVIEW.md) adds a narrow, provider-neutral read manifest.
 It captures all retained members before reading and keeps missing files and changed local bytes

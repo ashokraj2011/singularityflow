@@ -155,9 +155,11 @@ test('production consumers use kernel phase rules and only the compatibility agg
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
     'src/commands/shared/story-draft-transaction.mjs','src/commands/shared/convergence-preparation-state.mjs'].map(file=>path.join(packageRoot,file)));
   const transitions=new Set(['src/engine-compatibility/generation-publication.mjs',
-    'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs'].map(file=>path.join(packageRoot,file)));
+    'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs',
+    'src/engine-compatibility/rejection-transition.mjs'].map(file=>path.join(packageRoot,file)));
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
   const approvalPort=path.join(packageRoot,'src/engine-compatibility/git-approval.mjs');
+  const rejectionPort=path.join(packageRoot,'src/engine-compatibility/git-rejection.mjs');
   const decisionPort=path.join(packageRoot,'src/engine-compatibility/git-decisions.mjs');
   const advancementPort=path.join(packageRoot,'src/engine-compatibility/git-advancement.mjs');
   const singleDecisionPort=path.join(packageRoot,'src/engine-compatibility/git-decision-record.mjs');
@@ -188,6 +190,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(oldRules.has(target)||(transitions.has(target)&&relative!=='src/state.mjs'))problems.push(relative);
         if(target===submissionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===approvalPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===rejectionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===decisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===advancementPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===singleDecisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
@@ -212,6 +215,26 @@ test('production consumers use kernel phase rules and only the compatibility agg
     };visit(source);
   }
   assert.deepEqual(problems,[],'old paths are compatibility exports, not another internal policy or write path');
+});
+
+test('rejection host uses the registry and only the compatibility aggregate calls its native transition', async () => {
+  const cli = ts.createSourceFile('cli.mjs', await readFile(path.join(packageRoot, 'src/cli.mjs'), 'utf8'), ts.ScriptTarget.Latest, true);
+  const command = cli.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'rejectCommand');
+  assert.ok(command.getText(cli).includes("binding.engine.run('phase.reject'"));
+  const forbidden = new Set(['transactStory','rejectPhase','rejectNativePhase','activateWorkItemSession']);
+  const check = node => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) assert.equal(forbidden.has(node.expression.text), false, node.expression.text);
+    ts.forEachChild(node, check);
+  }; check(command);
+  const writers = [];
+  for (const file of await sourceFiles('src')) {
+    const source = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    const visit = node => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'rejectNativePhase') writers.push(file);
+      ts.forEachChild(node, visit);
+    }; visit(source);
+  }
+  assert.deepEqual(writers, ['src/state.mjs']);
 });
 
 test('extracted native decision writers do not import command handlers or host presentation',async()=>{

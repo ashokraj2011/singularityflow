@@ -38,7 +38,7 @@ import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repositor
 
 import { currentPhase } from './kernel/phase-policy.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
-import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
+import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
@@ -3571,48 +3571,31 @@ export { submitCommand } from './commands/submit.mjs';
 export { submitConfirmedConvergenceCommand } from './commands/submit.mjs';
 
 async function rejectCommand(positionals, options) {
-  const { root, config, workflow, phase: current, session, testingRepairPlan } = await decisionWorkflow(positionals, options, 'reject');
-  // SF Guard (SPEC-PSS-v1 M2): a Story it requires takes the person's presence signature; checked before any write.
-  const presence = workflow.resolution?.presence ? await (await import('./presence/person-records.mjs')).preparePersonPresence(root, { workflow, phase: current, actor: session.actor, action: 'phase.reject' }) : null;
-  const target = optionString(options, 'to') ?? current.id;
-  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
-  // Inside the transaction: rejecting used to write workflow.json and the change-request decision
-  // first and publish afterwards, so a refusal in the publication preflight reported that nothing
-  // had happened while leaving every downstream approval invalidated and the decision durable and
-  // unattested. `target` is resolved before the mutation, so the event needs nothing the transition
-  // produces.
-  const { value: phase } = await transactStory(
-    root,
-    config,
-    workflow,
-    { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: target.id ?? target } },
-    `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${target.id ?? target}`,
-    (aggregate) => rejectPhase(root, config, aggregate, {
-      phaseId: current.id,
-      target,
-      reason: optionString(options, 'reason'),
-      clauseIds: optionStrings(options, 'clause'),
-      members: optionStrings(options, 'member'),
-      channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
-      actionContext: activeActionContext(),
-      actor: session.actor, agent: session.agent, presence,
-      // The preview above already replayed the Code evidence and waiver; the transition reuses it only while it still binds the same digest, Story, step and HEAD.
-      testingRepairConfirm: testingRepairPlan ? optionString(options, 'confirm') : null,
-      testingRepairPlan
-    }),
-    {
-      eventFromResult: (transition) => ({
-        payload: {
-          targetPhaseId: target.id ?? target,
-          changeRequestId: transition.changeRequest.id
-        }
-      })
+  const root = repoRoot();
+  const { createGitEngine } = await import('./engine-compatibility/git-publication.mjs');
+  const binding = createGitEngine({ root, notice: presentPostPublicationNotice, rejectionInteraction: {
+    load: () => decisionWorkflow(positionals, options, 'reject', { root }),
+    async prepare(context) {
+      const { workflow, phase: current, session, target, testingRepairPlan } = context;
+      // Presence is checked before the announcement or any durable write, as on the native route.
+      const presence = workflow.resolution?.presence
+        ? await (await import('./presence/person-records.mjs')).preparePersonPresence(root, {
+          workflow, phase: current, actor: session.actor, action: 'phase.reject'
+        }) : null;
+      console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward are invalidated, except those of steps whose inputs do not change: they are kept.`);
+      return { presence, channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
+        actionContext: activeActionContext(), testingRepairConfirm: testingRepairPlan ? optionString(options, 'confirm') : null,
+        testingRepairPlan };
     }
-  );
-  await postPublicationStep('the returned-phase session activation', workflow.workItem.id, async () => {
-    const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    return activateWorkItemSession(root, accepted.config, accepted.workflow);
+  } });
+  await binding.engine.run('phase.reject', {
+    // The native interaction above owns modern/legacy selection grammar and returns verified IDs.
+    workId: null, phaseId: null, target: optionString(options, 'to') ?? null,
+    reason: optionString(options, 'reason') ?? null, clauseIds: optionStrings(options, 'clause'), members: optionStrings(options, 'member'),
+    repair: optionBoolean(options, 'repair'), confirm: optionString(options, 'confirm') ?? null,
+    selectionReceipt: optionString(options, 'selection-receipt') ?? null, fetch: optionBoolean(options, 'fetch'), agent: optionString(options, 'agent') ?? null
   });
+  const { workflow, phase: current, result: phase } = binding.presentation();
   console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
   if (phase.changeRequest.members?.length) {

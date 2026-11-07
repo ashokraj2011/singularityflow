@@ -35,7 +35,7 @@ function publicationFacts(context, phase, result, status, retentionReason = null
 }
 
 export function createGitEngine({ root, notice = () => {}, approvalInteraction = null, decisionInteraction = null,
-  decisionRecordInteraction = null, planCorrectionInteraction = null } = {}) {
+  decisionRecordInteraction = null, planCorrectionInteraction = null, rejectionInteraction = null } = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
     'Git engine composition requires an explicit absolute checkout root.', { code: 'ENGINE_INPUT_INVALID' });
   if (typeof notice !== 'function') throw new SingularityFlowError(
@@ -347,6 +347,20 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
     };
   }
   let decisionOwner;
+  let rejectionOwner;
+  const rejectInteraction = rejectionInteraction ? Object.freeze({
+    ...(typeof rejectionInteraction.load === 'function' ? { load: rejectionInteraction.load.bind(rejectionInteraction) } : {}),
+    ...(typeof rejectionInteraction.prepare === 'function' ? { prepare: rejectionInteraction.prepare.bind(rejectionInteraction) } : {})
+  }) : null;
+  const rejection = {};
+  for (const stage of ENGINE_OPERATIONS.find(operation => operation.port === 'rejection').stages) {
+    rejection[stage] = async (...args) => {
+      rejectionOwner ??= import('./git-rejection.mjs').then(({ createGitRejectionPort }) => createGitRejectionPort({
+        root, interaction: rejectInteraction, notice, onContext: context => { presentation = context; }
+      })).catch(error => { rejectionOwner = undefined; throw error; });
+      return (await rejectionOwner)[stage](...args);
+    };
+  }
   const decisionPreparation=typeof decisionInteraction?.prepare==='function'
     ? Object.freeze({prepare:decisionInteraction.prepare.bind(decisionInteraction)}) : null;
   const decisions={};
@@ -491,7 +505,7 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await phasePreparationOwner)[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, phaseDraftCheck, phaseRollover, phasePreparation, invocation: {
+  const engine = createEngine({ports:{publication:port, submission, approval, rejection, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, phaseDraftCheck, phaseRollover, phasePreparation, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

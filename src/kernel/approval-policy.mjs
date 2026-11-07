@@ -1,5 +1,69 @@
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
+/** Called at the existing native decision point, after actor authority has been verified. */
+export function rejectionTarget(workflow, phase, target, upstreamIssue = null) {
+  if (upstreamIssue && workflow.phaseOrder.indexOf(target) >= workflow.phaseOrder.indexOf(phase.id)) {
+    throw new SingularityFlowError(`${upstreamIssue.id} returns to an earlier step, not '${target}'.`, { code: 'UPSTREAM_ISSUE_NOT_EARLIER' });
+  }
+  const targetId = target ?? phase.id;
+  if (!upstreamIssue && !phaseCorrectionTargets(phase).includes(targetId)) {
+    throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${phaseCorrectionTargets(phase).join(', ')}.`);
+  }
+  const targetIndex = workflow.phaseOrder.indexOf(targetId);
+  if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
+  return { targetId, targetIndex };
+}
+
+export function assertRejectionComment(phase, reason, testingRepair) {
+  if ((testingRepair || phase.approvalPolicy.changeRequests?.commentRequired !== false) && !reason?.trim()) {
+    throw new SingularityFlowError('A change-request comment is required.');
+  }
+}
+
+/** Bind only lifecycle identity. Native ports retain sequence, presence and actor admission. */
+export function phaseRejectionSelection(workflow, inputs) {
+  const id = inputs.phaseId ?? workflow?.currentPhase, phase = workflow?.phases?.[id];
+  const generation = Number(phase?.generation ?? 0);
+  if (typeof workflow?.workItem?.id !== 'string' || !workflow.workItem.id || !phase || phase.id !== id
+    || !Number.isSafeInteger(generation) || generation < 0
+    || inputs.workId != null && inputs.workId !== workflow.workItem.id) {
+    throw new SingularityFlowError('The rejection port did not bind the requested Story and phase.', { code: 'ENGINE_PORT_RESULT_INVALID' });
+  }
+  return { workId: workflow.workItem.id, phase: phase.id, generation,
+    target: inputs.target ?? phase.id, clauseIds: [...new Set(inputs.clauseIds ?? [])],
+    members: [...new Set((inputs.members ?? []).map(value => value.trim().replaceAll('\\', '/')).filter(Boolean))],
+    reason: inputs.reason?.trim() || 'Changes requested.' };
+}
+
+export function phaseRejectionResult(binding, facts) {
+  const text = value => typeof value === 'string' && value.length > 0;
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const exact = (value, fields) => value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key));
+  const fields = ['workId','phase','generation','revision','pushed','currentPhase','changeRequest','repairBudget'];
+  const record = facts?.changeRequest, budget = facts?.repairBudget;
+  if (!exact(facts, fields) || facts.workId !== binding.workId || facts.phase !== binding.phase
+    || facts.generation !== binding.generation || facts.currentPhase !== binding.target || !text(facts.revision)
+    || typeof facts.pushed !== 'boolean'
+    || !exact(record, ['id','status','sourcePhase','sourceGeneration','targetPhase','clauseIds','members','reason','actorId','authorityGroup','reviewPacket'])
+    || !text(record.id) || record.status !== 'open' || record.sourcePhase !== binding.phase
+    || record.sourceGeneration !== binding.generation || record.targetPhase !== binding.target
+    || record.reason !== binding.reason || !text(record.actorId) || !text(record.authorityGroup)
+    || !Array.isArray(record.clauseIds) || record.clauseIds.length !== binding.clauseIds.length
+    || record.clauseIds.some((id, index) => id !== binding.clauseIds[index])
+    || !Array.isArray(record.members) || record.members.length !== binding.members.length
+    || record.members.some((member, index) => member !== binding.members[index])
+    || record.reviewPacket !== null && !text(record.reviewPacket)
+    || budget !== null && (!exact(budget, ['consumed','maximum']) || !count(budget.consumed) || !count(budget.maximum)
+      || budget.consumed < 1 || budget.consumed > budget.maximum)) {
+    throw new SingularityFlowError('The rejection port returned invalid or differently bound decision facts.', { code: 'ENGINE_PORT_RESULT_INVALID' });
+  }
+  return { schemaVersion: 1, contract: 'sflow-engine/v1', operation: 'phase.reject', status: 'recorded',
+    subject: { kind: 'story', id: binding.workId }, phase: binding.phase, generation: binding.generation,
+    revision: facts.revision, effects: { committed: true, pushed: facts.pushed }, currentPhase: facts.currentPhase,
+    changeRequest: record, repairBudget: budget };
+}
+
 export const DEFAULT_APPROVAL_AUTHORITY = 'git-contributors';
 export const APPROVAL_SECURITY_PROFILES = Object.freeze(['poc', 'team', 'regulated']);
 

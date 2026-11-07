@@ -5,7 +5,7 @@
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
-import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs';
+import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
@@ -25,7 +25,7 @@ export const ENGINE_CONTRACT = 'sflow-engine/v1';
 export const ENGINE_HELPERS = Object.freeze({
   publishPhase: 'phase.publish', beginPhase: 'phase.begin', preparePhase: 'phase.prepare',
   rolloverPhase: 'phase.rollover', prepublishPhase: 'phase.prepublish', draftCheckPhase: 'phase.draft-check',
-  submitPhase: 'phase.submit', submitConvergence: 'convergence.submit', approvePhase: 'phase.approve',
+  submitPhase: 'phase.submit', submitConvergence: 'convergence.submit', approvePhase: 'phase.approve', rejectPhase: 'phase.reject',
   recordDecisions: 'decisions.record', advanceConvergence: 'convergence.advance'
 });
 const PUBLISH_FIELDS = Object.freeze([
@@ -81,6 +81,9 @@ const definitions = [
   { id:'phase.approve',version:1,effect:'approval',inputFields:APPROVAL_FIELDS,port:'approval',
     humanDecision:true,stages:Object.freeze(['load','prepare','commit','finish']),
     validate:approvalInput,execute:approve },
+  { id:'phase.reject',version:1,effect:'rejection',humanDecision:true,port:'rejection',
+    inputFields:Object.freeze(['workId','phaseId','target','reason','clauseIds','members','repair','confirm','selectionReceipt','fetch','agent']),
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:rejectionInput,execute:reject },
   {id:'decisions.record',version:1,effect:'decision-records',inputFields:DECISION_FIELDS,port:'decisions',
     authority:'per-effect',humanDecision:true,stages:Object.freeze(['load','prepare','apply','finish']),
     validate:decisionInput,execute:recordDecisions},
@@ -151,6 +154,35 @@ async function inspectWorkflowAssets(port, inputs, signal) {
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function rejectionInput(value, operation) {
+  const input = data(value);
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !operation.inputFields.includes(key))
+    || ['workId','phaseId','target','reason','confirm','selectionReceipt','agent'].some(key => input[key] != null && typeof input[key] !== 'string')
+    || ['repair','fetch'].some(key => input[key] != null && typeof input[key] !== 'boolean')
+    || ['clauseIds','members'].some(key => input[key] != null && (!Array.isArray(input[key]) || !input[key].every(value => typeof value === 'string')))) {
+    invalid('Invalid rejection selection or change-request input.');
+  }
+  return input;
+}
+
+async function reject(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, { signal }); notCancelled(signal);
+  const binding = data(phaseRejectionSelection(context?.workflow, {
+    ...inputs, phaseId: inputs.phaseId ?? context?.phase?.id ?? null
+  }));
+  if (context?.subject?.kind !== 'story' || context.subject.id !== binding.workId) {
+    throw new SingularityFlowError('The rejection port returned another bound subject.', { code: 'ENGINE_PORT_RESULT_INVALID' });
+  }
+  const prepared = await port.prepare(context, inputs, { signal }); notCancelled(signal);
+  const committed = await port.commit(context, prepared, { signal });
+  try { return data(phaseRejectionResult(binding, data(await port.finish(context, prepared, committed)))); }
+  catch (error) {
+    if (error && typeof error === 'object' && Object.isExtensible(error)) error.enginePublication = committed;
+    throw error;
+  }
 }
 
 function attachDiagnostic(error,key,value) {

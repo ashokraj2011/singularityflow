@@ -30,6 +30,7 @@ export function createSflow({ root = repoRoot(), faultRepairPolicy = {}, executi
     submitPhase: (inputs, options) => executeOperation('phase.submit', inputs, options),
     submitConvergence: (inputs, options) => executeOperation('convergence.submit', inputs, options),
     approvePhase:(inputs,options)=>executeOperation('phase.approve',inputs,options),
+    rejectPhase:(inputs,options)=>executeOperation('phase.reject',inputs,options),
     recordDecisions:(inputs,options)=>executeOperation('decisions.record',inputs,options),
     advanceConvergence:(inputs,options)=>executeOperation('convergence.advance',inputs,options)
   });

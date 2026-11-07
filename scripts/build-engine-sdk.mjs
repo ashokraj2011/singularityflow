@@ -22,12 +22,12 @@ function allowedSource(relative) {
 
 function inputType(operation, field) {
   if (['workId', 'phaseId'].includes(field)) return 'string | null';
-  if (['fetch', 'compose', 'adoptExisting', 'runChecks', 'confirmEvidence', 'notApplicable', 'open', 'fromArtifact'].includes(field)) return 'boolean | null';
+  if (['fetch', 'compose', 'adoptExisting', 'runChecks', 'confirmEvidence', 'notApplicable', 'open', 'fromArtifact', 'repair'].includes(field)) return 'boolean | null';
   if (field === 'maximumBytes') return 'number | null';
   if (field === 'includeDetached') return 'boolean | null';
   if (field === 'confirmation' && operation.id === 'phase.approve') return 'ApprovalConfirmation | null';
   if (['usage', 'answers', 'decisions', 'decisionValues', 'command', 'reference'].includes(field)) return 'JsonValue';
-  if (['changeOrigins', 'clauseIds', 'transitions', 'sourceRoots'].includes(field)) return 'readonly string[] | null';
+  if (['changeOrigins', 'clauseIds', 'transitions', 'sourceRoots', 'members'].includes(field)) return 'readonly string[] | null';
   if (field === 'workflowIds') return 'readonly string[]';
   if (['checklist', 'witnessMappings', 'bindingDecisions', 'changes', 'operations'].includes(field)) return 'readonly JsonValue[] | null';
   return 'string | null';

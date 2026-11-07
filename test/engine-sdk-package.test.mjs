@@ -205,6 +205,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.publishPhase({root:'/another'});
       // @ts-expect-error Checks require a boolean.
       engine.submitPhase({runChecks:'true'});
+      engine.rejectPhase({workId:'example',phaseId:'review',target:'design',members:['design.md'],clauseIds:['REQ-001'],repair:true});
+      // @ts-expect-error identity is bound by a trusted port, never operation input
+      engine.rejectPhase({actor:{login:'admin'}});
+      // @ts-expect-error member selections are exact string arrays
+      engine.rejectPhase({members:'design.md'});
       // @ts-expect-error A witness expected binding is an opaque string, not a request object.
       engine.run('decision.witness',{expectedContext:{workId:'different'}});
       // @ts-expect-error Scope requires a project identity.

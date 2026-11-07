@@ -6,7 +6,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { parseWorkflowMarkup, markupChildren, markupShape, markupId, markupText, markupError, markupCompilerError } from './workflow-markup-parser.mjs';
 import { remapMarkupPhase, remapMarkupWorkflow } from './workflow-markup-references.mjs';
-import { mergePhaseOverride } from './phase-overrides.mjs';
+import { mergePhaseOverride } from './kernel/workflow-configuration.mjs';
 import { scanEntries } from './secrets.mjs';
 import { inlineInstructionTags } from './skill-instruction-composition.mjs';
 import { withoutAttachedSkills, effectiveLibrarySkills } from './skill-library.mjs';

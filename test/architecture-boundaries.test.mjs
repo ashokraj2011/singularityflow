@@ -406,13 +406,13 @@ test('native sequence and role adapters render shared admission while confirmati
   assert.match(actor, /phaseAgentMutationFacts\(/); assert.doesNotMatch(actor, /export function readOnlyAgent|SOURCE_REVIEW_REVIEWER_CANNOT_/);
   const alias = ts.createSourceFile('phase-actor-policy.mjs', await read('src/phase-actor-policy.mjs'), ts.ScriptTarget.Latest, true);
   assert.ok(alias.statements.every(ts.isExportDeclaration));
-  const config = await read('src/config.mjs'), review = await read('src/source-review-policy.mjs');
-  assert.match(config, /assertSourceReviewerAvailable, normalizeSourceReviewPolicy.*kernel\/phase-admission\.mjs/);
+  const config = await read('src/kernel/workflow-configuration.mjs'), review = await read('src/source-review-policy.mjs');
+  assert.match(config, /assertSourceReviewerAvailable, normalizeSourceReviewPolicy.*\.\/phase-admission\.mjs/);
   assert.doesNotMatch(review, /function normalizeSourceReviewPolicy|function assertSourceReviewerAvailable/);
   const simulation = await read('src/workflow-lifecycle-simulation.mjs');
   assert.match(simulation, /sequenceAdmission as evaluateSequence/); assert.doesNotMatch(simulation, /from '\.\/sequence\.mjs'/);
   const identity = await read('src/build-identity.mjs'), manifest = await read('src/vsix-source-manifest.mjs');
-  for (const name of ['kernel/lifecycle-transitions.mjs','kernel/phase-admission.mjs']) {
+  for (const name of ['kernel/lifecycle-transitions.mjs','kernel/phase-admission.mjs','kernel/workflow-configuration.mjs']) {
     assert.ok(identity.includes("'" + name + "'"), name + ' must invalidate advisory snapshots');
     assert.ok(manifest.includes("'src/" + name + "'"), name + ' must be present in staged CLI payloads');
   }
@@ -435,10 +435,13 @@ test('native publication dependencies use the shared compiled worklist and close
 test('workflow compilation and routing simulation use the pure interpreter while native rendering and pending hashes stay outside it', async () => {
   const core = await readFile(path.join(packageRoot, 'src/kernel/workflow-decisions.mjs'), 'utf8');
   assert.doesNotMatch(core, /singularity-flow|createHash|canonicalJson|applicabilityStatus|describeWhen|describeOutcome|parseDecisionAssignments|storyDecisionView/);
-  for (const file of ['config.mjs', 'workflow-route-simulation.mjs', 'phase-retention.mjs']) {
+  for (const file of ['kernel/workflow-configuration.mjs', 'workflow-route-simulation.mjs', 'phase-retention.mjs']) {
     const source = await readFile(path.join(packageRoot, 'src', file), 'utf8');
-    assert.match(source, /from '\.\/kernel\/workflow-decisions\.mjs'/, file);
-    assert.doesNotMatch(source, /from '\.\/workflow-decisions\.mjs'/, file);
+    if (file.startsWith('kernel/')) assert.match(source, /from '\.\/workflow-decisions\.mjs'/, file);
+    else {
+      assert.match(source, /from '\.\/kernel\/workflow-decisions\.mjs'/, file);
+      assert.doesNotMatch(source, /from '\.\/workflow-decisions\.mjs'/, file);
+    }
   }
   const native = ts.createSourceFile('workflow-decisions.mjs', await readFile(path.join(packageRoot, 'src/workflow-decisions.mjs'), 'utf8'), ts.ScriptTarget.Latest, true);
   const functions = new Map(native.statements.filter(ts.isFunctionDeclaration).map(node => [node.name.text, node.getText(native)]));
@@ -541,10 +544,34 @@ test('entry wrappers use the registry; native composition does not decide admiss
 });
 
 test('configuration and SKP validation use pure clarification policy instead of native record I/O',async()=>{
-  for(const file of ['src/config.mjs','src/skp-contract.mjs']) {
+  for(const file of ['src/kernel/workflow-configuration.mjs','src/skp-contract.mjs']) {
     const source=await readFile(path.join(packageRoot,file),'utf8');
-    assert.match(source,/import \{normalizeClarificationPolicy\} from '\.\/kernel\/phase-inputs.mjs'/);
+    assert.match(source,/import \{\s*normalizeClarificationPolicy\s*\} from '\.\/(?:kernel\/)?phase-inputs.mjs'/);
     assert.doesNotMatch(source,/from '\.\/clarifications.mjs'/);
+  }
+});
+
+test('the installed configuration adapter composes one compiler and keeps runtime loading outside the kernel',async()=>{
+  const compiler=await readFile(path.join(packageRoot,'src/kernel/workflow-configuration.mjs'),'utf8');
+  const adapter=await readFile(path.join(packageRoot,'src/config.mjs'),'utf8');
+  assert.match(adapter,/createWorkflowConfigurationCompiler\(\{/);
+  assert.doesNotMatch(adapter,/function (validateDefinition|resolveWorkType|normalizePlannedClaimsPolicy)\(/);
+  assert.match(adapter,/createRequire\(path\.join\(PACKAGE_ROOT/);
+  assert.doesNotMatch(compiler,/createRequire|process\.features|PACKAGE_ROOT|readFile|run\(/);
+  assert.match(compiler,/definition\.git\.commitPolicy = normalizeCommitPolicyRuntime\(/);
+  const consumers=[];
+  for(const file of await sourceFiles('src')) {
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    for(const node of ast.statements.filter(ts.isImportDeclaration)) {
+      const bindings=node.importClause?.namedBindings;
+      if(bindings&&ts.isNamedImports(bindings)&&bindings.elements.some(binding=>(binding.propertyName??binding.name).text==='createWorkflowConfigurationCompiler'))consumers.push(file);
+    }
+  }
+  assert.deepEqual(consumers,['src/config.mjs']);
+  const alias=ts.createSourceFile('phase-overrides.mjs',await readFile(path.join(packageRoot,'src/phase-overrides.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  assert.ok(alias.statements.every(ts.isExportDeclaration));
+  for(const file of ['src/workflow-intent-catalog.mjs','src/workflow-intent-capabilities.mjs']) {
+    assert.match(await readFile(path.join(packageRoot,file),'utf8'),/'kernel\/workflow-configuration\.mjs'/,file);
   }
 });
 

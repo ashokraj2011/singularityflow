@@ -11,8 +11,9 @@ import {
 } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { parseYamlText } from './yaml-parse-cache.mjs';
-import { mergePhaseOverride } from './phase-overrides.mjs';
+
+import { createWorkflowConfigurationCompiler, mergePhaseOverride, STEP_DESCRIPTION_LIMIT, DEFAULT_PLANNING_PROMPT, SEQUENCE_GATE_IDS } from './kernel/workflow-configuration.mjs';
+export { STEP_DESCRIPTION_LIMIT, DEFAULT_PLANNING_PROMPT, SEQUENCE_GATE_IDS } from './kernel/workflow-configuration.mjs';
 import { assertDocumentStoragePolicy } from './document-storage-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
@@ -27,13 +28,13 @@ import { isAgentTemplateReference, parseAgentTemplateReference } from './agent-d
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
-import { normalizeApprovalAuthorities, normalizeApprovalPolicy, normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
+import { normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
-import {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
+
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
-import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './kernel/phase-policy.mjs';
+
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
@@ -47,19 +48,16 @@ import { normalizeHarnessImports } from './harness-import-policy.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
-import { normalizeDecisions } from './kernel/workflow-decisions.mjs';
+
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
-import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './kernel/phase-admission.mjs';
+
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
 import { normalizeTestRuntime } from './test-runtime.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
-import {
-  assertCodeDeliveryConfiguration, compiledSkillStep, deterministicOnlyGeneration, normalizeCodeDeliveryPolicy,
-  phaseRequiresCodeDelivery, pinCodeDeliveryTask, stepOutputKind
-} from './code-delivery-policy.mjs';
+import { assertCodeDeliveryConfiguration, compiledSkillStep, normalizeCodeDeliveryPolicy, pinCodeDeliveryTask, stepOutputKind } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
 import { normalizeIntegrations, normalizeStepActions, pinStepActions } from './step-actions.mjs';
 import {
@@ -72,9 +70,7 @@ import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs'
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { disabledArchitectureIntent, dropRemovedSettings } from './removed-features.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
-import {
-  governedInitializationRoot, INITIALIZATION_MAPPINGS
-} from './initialization-assets.mjs';
+import { INITIALIZATION_MAPPINGS } from './initialization-assets.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import {
   hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
@@ -89,10 +85,118 @@ import { renderClauseNamespaces } from './foundation/traceability-ids.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
-/** A step's description says what it is for. People read it; prompts and Story pins never carry it. */
-export const STEP_DESCRIPTION_LIMIT = 600;
+
+// This installed composition retains every existing policy validator. Operation inputs cannot
+// supply these collaborators or create an approved configuration by returning a readiness flag.
+const {
+  normalizeReferenceRepositoryPolicy,
+  normalizePlannedClaimsPolicy,
+  configuredInputsMode,
+  normalizeSequenceGates,
+  applyWorkflowCompatibility,
+  normalizePhaseInputs,
+  normalizeGenerationPolicy,
+  normalizeDesignSourcePolicy,
+  normalizeVerificationPolicy,
+  normalizeRepositoryReadinessPolicy,
+  normalizePlanning,
+  normalizeModelProviders,
+  validateDefinition,
+  resolveWorkType,
+  assertRelative,
+  declaredCatalogValue
+} = createWorkflowConfigurationCompiler({
+  ARA_PHASE_SEMANTICS_PROFILE,
+  AUTHORING_SKILL_ID,
+  PHASE_SEMANTICS_PROFILE,
+  absolutePath: path.isAbsolute,
+  analysisLimits,
+  assertCodeDeliveryConfiguration,
+  assertDocumentStoragePolicy,
+  assertModelTask,
+  assertNoAutonomousConvergence,
+  assertStoryBranchNaming,
+  authoringSkillCatalog,
+  compileObligationGraph,
+  compiledSkillStep,
+  constitutionPolicy,
+  disabledArchitectureIntent,
+  dropRemovedSettings,
+  isAgentTemplateReference,
+  isSpecificationDefinitionPhase,
+  isTemplateReference,
+  normalizeAdhocPolicy,
+  normalizeApplicationReview,
+  normalizeArtifactSets,
+  normalizeAstPolicy,
+  normalizeAutoPolicy,
+  normalizeAutoWorkTypePolicy,
+  normalizeCodeDeliveryPolicy,
+  normalizeCommitPolicyRuntime,
+  normalizeContextPolicy,
+  normalizeExternalCommand,
+  normalizeFaultRepairPolicy,
+  normalizeHarnessImports,
+  normalizeIntegrations,
+  normalizeLedgerConfig,
+  normalizeLogging,
+  normalizeMarketplaces,
+  normalizeMcpServers,
+  normalizePhaseMcpPolicy,
+  normalizeRepairBudget,
+  normalizeReworkLoops,
+  normalizeSessionPolicy,
+  normalizeSourceBoundary,
+  normalizeSourceRoots,
+  normalizeSpecPolicy,
+  normalizeStepActions,
+  normalizeStorage,
+  normalizeTemplateCatalog,
+  normalizeTestRecoveryPolicy,
+  normalizeTestRuntime,
+  normalizeTokenEconomy,
+  normalizeWorkItemRoot,
+  normalizeWorkTypeIntelligence,
+  parseAgentTemplateReference,
+  parseTemplateReference,
+  pathBasename: path.posix.basename,
+  pinCodeDeliveryTask,
+  pinStepActions,
+  posix,
+  resolveTemplate,
+  skillPhasePrimaryOutputRole,
+  specificationQualityPolicy,
+  stepOutputKind,
+  validateConfiguredSkillPhase,
+  validateInjectionDefinition,
+  validateMcpAgentTools,
+  validateTokenReportingPolicy,
+  worldModelSourceScope,
+  worldModelStateAuthority
+});
+export {
+  normalizeReferenceRepositoryPolicy,
+  normalizePlannedClaimsPolicy,
+  configuredInputsMode,
+  normalizeSequenceGates,
+  applyWorkflowCompatibility,
+  normalizePhaseInputs,
+  normalizeGenerationPolicy,
+  normalizeDesignSourcePolicy,
+  normalizeVerificationPolicy,
+  normalizeRepositoryReadinessPolicy,
+  normalizePlanning,
+  normalizeModelProviders,
+  validateDefinition,
+  resolveWorkType
+};
+
+function normalizeCommitPolicyRuntime(value) {
+  if (!process.features.require_module) throw new SingularityFlowError('Repository commit policy requires the SFlow-managed runtime or Node 22.12 or later.', {code: 'RCP_RUNTIME_UNSUPPORTED'});
+  const policyModule = path.join(PACKAGE_ROOT, 'src/repository-commit-policy/policy.mjs');
+  return createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule).normalizeCommitPolicy(value);
+}
 const LEGACY_CONTROL_ROOT = '.singularity';
-export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
 /**
  * Everything `initializeDefinition` writes, expressed as the paths a caller must stage to commit
  * all of it. Derived from the mappings rather than restated beside them: `.github/agents` was
@@ -102,343 +206,6 @@ export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md'
  * stager automatically.
  */
 export { GOVERNED_ROOTS };
-const INPUT_MODES = new Set(['off', 'record', 'enforce']);
-export const SEQUENCE_GATE_IDS = [
-  'completion', 'currentPhase', 'phaseStatus', 'freshGeneration',
-  'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase', 'binding'
-];
-const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
-const REFERENCE_REPOSITORY_MODES = new Set(['off', 'optional', 'required']);
-const REPOSITORY_READINESS_MODES = new Set(['off', 'when-detected', 'required']);
-const STRUCTURED_TEST_READINESS_MODES = new Set([
-  'off', 'when-detected', 'required-for-code', 'required'
-]);
-// A v2 phase is template-backed. Until SKP has a versioned contract compiler and retained
-// execution binding, producer declarations must never ride through the phase spread in
-// `resolveWorkType` and masquerade as an ordinary template phase. Keep this guard narrow:
-// historical custom phases can still carry their existing non-producer extensions.
-const UNSUPPORTED_PHASE_PRODUCER_FIELDS = new Set([
-  'kind', 'skill', 'skillId', 'skillPackage', 'skillPackageSha256', 'skillBinding',
-  'producer', 'phaseProducer', 'producerKind', 'producerBinding',
-  'contract', 'phaseContract', 'contractSha256',
-  'binding', 'bindingRefs', 'package', 'packageSha256'
-]);
-const LEGACY_GENERATION_PRODUCER_FIELDS = new Set(['producer', 'defaultProducer', 'allowedProducers']);
-
-function assertSupportedPhaseProducer(value, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-  const refuse = (field) => {
-    throw new SingularityFlowError(
-      `${label} contains unsupported phase producer field '${field}'. This build supports template-backed phases only; skill phases require registered SKP lowering and a versioned reader.`,
-      { code: 'SKP_PHASE_PRODUCER_UNSUPPORTED', details: { location: label, field } }
-    );
-  };
-  for (const field of Object.keys(value)) {
-    if (UNSUPPORTED_PHASE_PRODUCER_FIELDS.has(field) || field.startsWith('skp')) refuse(field);
-  }
-  const generation = value.generation;
-  if (!generation || typeof generation !== 'object' || Array.isArray(generation)) return;
-  for (const field of Object.keys(generation)) {
-    if ((UNSUPPORTED_PHASE_PRODUCER_FIELDS.has(field) || field.startsWith('skp'))
-        && !LEGACY_GENERATION_PRODUCER_FIELDS.has(field)) {
-      refuse(`generation.${field}`);
-    }
-  }
-}
-
-/** The form of a step's `authoringSkill`: a direct skill id, or absent for the automatic route. */
-function assertAuthoringSkillValue(value, label) {
-  if (value == null) return;
-  if (typeof value !== 'string' || !AUTHORING_SKILL_ID.test(value)) {
-    const direct = typeof value === 'string' ? value.trim().replace(/^\//, '').replace(/^sflow-/, 'sf-') : null;
-    const hint = direct && AUTHORING_SKILL_ID.test(direct) ? ` Write it as '${direct}'.` : '';
-    throw new SingularityFlowError(`${label} authoringSkill must be a direct skill id such as 'sf-design'.${hint}`, {
-      code: 'PHASE_AUTHORING_SKILL_UNKNOWN', details: { location: label, value }
-    });
-  }
-}
-
-/**
- * Whether a step may be drafted by the skill it names. Runs on every step definition, including one
- * no workflow uses yet, and again on every step of every workflow after its overrides, so the same
- * rules hold in YAML and in Workflow Studio and a step never carries a value it cannot use.
- */
-function assertStepAuthoringSkill(phase, label) {
-  const id = phase.authoringSkill;
-  if (id == null) return;
-  assertAuthoringSkillValue(id, label);
-  const refuse = (code, message) => {
-    throw new SingularityFlowError(`${label} ${message}`, { code, details: { location: label, authoringSkill: id } });
-  };
-  if (compiledSkillStep(phase)) refuse('SKP_PHASE_BINDING_INVALID', 'is a compiled skill phase; its binding decides how it is drafted, so it cannot name an authoring skill.');
-  const output = stepOutputKind(phase);
-  if (output === 'none') refuse('PHASE_AUTHORING_SKILL_NOT_APPLICABLE', 'drafts nothing (sign-off only), so it cannot name an authoring skill.');
-  if (isConvergencePhase(phase)) refuse('PHASE_AUTHORING_SKILL_NOT_APPLICABLE', 'is deterministic convergence, which always uses /sf-converge, so it cannot name an authoring skill.');
-  if (deterministicOnlyGeneration(phase)) refuse('PHASE_AUTHORING_SKILL_NOT_APPLICABLE', 'is generated by the engine (its only producer is deterministic), so it cannot name an authoring skill.');
-  const catalog = authoringSkillCatalog();
-  const entry = catalog.find((candidate) => candidate.id === id);
-  if (!entry) refuse('PHASE_AUTHORING_SKILL_UNKNOWN', `names authoring skill '${id}', which a step cannot choose. Choose one of: ${catalog.map((candidate) => candidate.id).join(', ')}.`);
-  if (!entry.produces.includes(output)) {
-    refuse('PHASE_AUTHORING_SKILL_OUTPUT_MISMATCH', `produces ${output === 'analysis' ? 'an analysis' : output === 'code' ? 'code' : 'a document'}, but authoring skill '${id}' drafts only ${entry.produces.join(' or ')} steps.`);
-  }
-}
-
-function assertConfiguredPhaseProducer(value, label, phaseId, version) {
-  if (version === 3 && value?.kind === 'skill') {
-    validateConfiguredSkillPhase(value, phaseId);
-    return;
-  }
-  assertSupportedPhaseProducer(value, label);
-}
-
-function assertNoSkillPhaseOverride(value, label) {
-  if (value == null || (typeof value === 'object' && !Array.isArray(value)
-      && Object.keys(value).length === 0)) return;
-  throw new SingularityFlowError(
-    `${label} cannot override a compiled skill phase; compile a new reviewed binding.`,
-    { code: 'SKP_PHASE_BINDING_INVALID' }
-  );
-}
-
-function assertKnownKeys(value, allowed, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError(`${label} must be an object.`);
-  }
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
-  }
-}
-
-export function normalizeReferenceRepositoryPolicy(value = null, label = 'Reference repository policy') {
-  const source = typeof value === 'string' ? { mode: value } : value ?? {};
-  if (!source || typeof source !== 'object' || Array.isArray(source)) {
-    throw new SingularityFlowError(`${label} must be off, optional, required, or an object with mode.`);
-  }
-  const unknown = Object.keys(source).filter((key) => key !== 'mode');
-  if (unknown.length) throw new SingularityFlowError(`${label} contains unknown field '${unknown[0]}'.`);
-  const mode = source.mode ?? 'optional';
-  if (!REFERENCE_REPOSITORY_MODES.has(mode)) {
-    throw new SingularityFlowError(`${label}.mode must be off, optional, or required.`);
-  }
-  return { mode };
-}
-
-/**
- * Exact packaged version-2 profiles that predate the planned-claim topology contract.
- *
- * This is deliberately not a generic `record`-mode escape hatch. A newly authored work type with
- * the same unsafe shape must either add a real definition/owner topology or record a reviewed
- * opt-out. Matching both the stable id and its historical phase sequence keeps already-installed
- * configuration readable until refresh writes the explicit policy, without making future custom
- * workflows silently inherit the old omission.
- */
-function definitionArtifactKind(phase) {
-  return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
-}
-
-function currentSpecificationDefinitionPhase(phase) {
-  // `isSpecificationDefinitionPhase` accepts an absent kind only while reading historical Story
-  // snapshots. New workflow configuration is not historical state: without an explicit kind it
-  // cannot prove that a phase defines clauses rather than merely citing them.
-  return definitionArtifactKind(phase) != null && isSpecificationDefinitionPhase(phase);
-}
-
-/**
- * Resolve the specification-definition and planned-claim owner topology for a work type.
- *
- * Public configuration accepts one intentionally small shape:
- *
- *   plannedClaims:
- *     mode: required
- *     clausePhases: [requirements]       # optional; inferred from artifact kinds
- *     owners: { implementation: design } # optional; inferred as the preceding phase
- *
- * The returned form is complete and is pinned into every new Story resolution. The `disabled`
- * (no code step), `omitted` (the work type declares omits for scope) and `retired-opt-out` (an old
- * opt-out the obligation compiler refuses) modes are normalized outcomes configuration cannot request.
- */
-export function normalizePlannedClaimsPolicy(value, {
-  workTypeId = 'work-type', phases = [], spec = {}, scopeOmission = null
-} = {}) {
-  const label = `Work type '${workTypeId}' plannedClaims`;
-  const policy = normalizeSpecPolicy(spec);
-  const codePhases = phases.filter((phase) => phaseRequiresCodeDelivery(phase));
-  const acceptanceEnabled = policy.mode !== 'off' && policy.acceptance !== 'off';
-
-  if (value != null && (!value || typeof value !== 'object' || Array.isArray(value))) {
-    throw new SingularityFlowError(`${label} must be an object.`);
-  }
-  if (value != null) {
-    for (const key of Object.keys(value)) {
-      if (!['mode', 'clausePhases', 'owners', 'reason'].includes(key)) {
-        throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
-      }
-    }
-    if (!['required', 'opt-out'].includes(value.mode)) {
-      throw new SingularityFlowError(`${label}.mode must be required or opt-out.`);
-    }
-    if (value.mode === 'required') {
-      if (value.reason != null) throw new SingularityFlowError(`${label}.reason is only valid with mode opt-out.`);
-      if (value.clausePhases != null
-        && (!Array.isArray(value.clausePhases) || !value.clausePhases.length
-          || value.clausePhases.some((id) => typeof id !== 'string' || !id.trim()))) {
-        throw new SingularityFlowError(`${label}.clausePhases must be a non-empty array of phase IDs.`);
-      }
-      if (Array.isArray(value.clausePhases)
-        && new Set(value.clausePhases.map((id) => id.trim())).size !== value.clausePhases.length) {
-        throw new SingularityFlowError(`${label}.clausePhases must not contain duplicates.`);
-      }
-      if (value.owners != null
-        && (!value.owners || typeof value.owners !== 'object' || Array.isArray(value.owners))) {
-        throw new SingularityFlowError(`${label}.owners must be an object keyed by code-delivery phase ID.`);
-      }
-      if (value.owners && Object.values(value.owners).some((id) => typeof id !== 'string' || !id.trim())) {
-        throw new SingularityFlowError(`${label}.owners values must be non-empty phase IDs.`);
-      }
-    } else if (value.clausePhases != null || value.owners != null) {
-      throw new SingularityFlowError(`${label} opt-out must not declare clausePhases or owners.`);
-    }
-  }
-
-  const authoritative = phases.filter((phase) => currentSpecificationDefinitionPhase(phase));
-  if (!codePhases.length) {
-    return {
-      mode: 'disabled', clausePhases: [], owners: {}, reason: null,
-      disabledBecause: 'no-code-delivery-phases'
-    };
-  }
-
-  // SKP is an explicit forward authoring boundary. Existing template-only opt-outs retain their
-  // historical semantics; a mixed/skill code workflow must pin its reviewed complete topology.
-  if (phases.some((phase) => phase.kind === 'skill')
-      && (value?.mode !== 'required' || !Array.isArray(value.clausePhases)
-        || !value.owners || typeof value.owners !== 'object')) {
-    throw new SingularityFlowError(
-      `${label} for a skill code workflow must explicitly declare mode required, clausePhases, and owners.`,
-      { code: 'SKP_CLAIM_TOPOLOGY_UNRESOLVED' }
-    );
-  }
-
-  // Opting out of planned claims is retired [E2G D18]. The definition stays readable so the rest of
-  // the catalog loads; the obligation compiler reports it and Story start refuses the work type.
-  if (value?.mode === 'opt-out') {
-    return {
-      mode: 'retired-opt-out', clausePhases: [], owners: {},
-      reason: typeof value.reason === 'string' ? value.reason.trim() : null
-    };
-  }
-  // A work type that genuinely defines no requirement clauses declares the omission on its end, and
-  // a Story taking that end needs an applicability decision from the named approval group.
-  if (scopeOmission && value == null && !authoritative.length) {
-    return { mode: 'omitted', clausePhases: [], owners: {}, reason: String(scopeOmission.reason ?? '').trim() || null };
-  }
-
-  if (!acceptanceEnabled) {
-    if (value != null) {
-      throw new SingularityFlowError(
-        `${label} mode required cannot operate while spec acceptance is disabled. Enable acceptance or record a reviewed opt-out.`
-      );
-    }
-    return {
-      mode: 'migration-required', clausePhases: [], owners: {},
-      reason: 'Code delivery has no explicit planned-claim contract and specification acceptance is disabled.'
-    };
-  }
-
-  const explicit = value?.mode === 'required';
-  let clausePhases;
-  if (value?.clausePhases != null) {
-    clausePhases = value.clausePhases.map((id) => id.trim());
-  } else {
-    clausePhases = authoritative.map((phase) => phase.id);
-  }
-
-  const phaseById = new Map(phases.map((phase) => [phase.id, phase]));
-  for (const phaseId of clausePhases) {
-    const phase = phaseById.get(phaseId);
-    if (!phase) throw new SingularityFlowError(`${label}.clausePhases references inactive phase '${phaseId}'.`);
-    if (!currentSpecificationDefinitionPhase(phase)) {
-      throw new SingularityFlowError(
-        `${label}.clausePhases '${phaseId}' is not authoritative: artifact.kind must be requirements or implementation-spec, or an exact compiled skill output must declare criteria. `
-        + `Eligible phases in this workflow: ${authoritative.map((candidate) => candidate.id).join(', ') || 'none'}.`
-      );
-    }
-  }
-
-  const configuredOwners = value?.owners ?? null;
-  const codeIds = new Set(codePhases.map((phase) => phase.id));
-  if (configuredOwners) {
-    for (const codePhaseId of Object.keys(configuredOwners)) {
-      if (!codeIds.has(codePhaseId)) {
-        throw new SingularityFlowError(`${label}.owners references non-code or inactive phase '${codePhaseId}'.`);
-      }
-    }
-  }
-
-  const owners = {};
-  const topologyErrors = [];
-  for (const codePhase of codePhases) {
-    const inferredOwner = phases[codePhase.order - 1]?.id ?? null;
-    const ownerId = configuredOwners ? configuredOwners[codePhase.id] : inferredOwner;
-    if (typeof ownerId !== 'string' || !ownerId.trim()) {
-      topologyErrors.push(`code phase '${codePhase.id}' has no planned-claim owner before it`);
-      continue;
-    }
-    const owner = phaseById.get(ownerId.trim());
-    if (!owner) {
-      topologyErrors.push(`code phase '${codePhase.id}' references inactive owner '${ownerId}'`);
-      continue;
-    }
-    if (owner.order >= codePhase.order) {
-      topologyErrors.push(`owner '${owner.id}' must precede code phase '${codePhase.id}'`);
-      continue;
-    }
-    if (phaseRequiresCodeDelivery(owner)) {
-      topologyErrors.push(`owner '${owner.id}' for code phase '${codePhase.id}' is itself a code-delivery phase`);
-      continue;
-    }
-    if (owner.kind === 'skill' && skillPhasePrimaryOutputRole(owner) !== 'planning') {
-      topologyErrors.push(`skill owner '${owner.id}' for code phase '${codePhase.id}' must declare the primary output role planning`);
-      continue;
-    }
-    if (!clausePhases.some((phaseId) => phaseById.get(phaseId).order <= owner.order)) {
-      topologyErrors.push(`owner '${owner.id}' for code phase '${codePhase.id}' has no authoritative clause phase before it`);
-      continue;
-    }
-    owners[codePhase.id] = owner.id;
-  }
-
-  if (!clausePhases.length) topologyErrors.unshift('no authoritative requirements or implementation-spec phase is active');
-  if (configuredOwners) {
-    for (const codePhase of codePhases) {
-      if (!Object.hasOwn(configuredOwners, codePhase.id)) {
-        topologyErrors.push(`owners is missing code phase '${codePhase.id}'`);
-      }
-    }
-  }
-
-  if (topologyErrors.length) {
-    // A repository may already contain an organization-authored version-2 workflow that predates
-    // this field. Refusing the whole definition here would also make its already-running Stories
-    // unreadable, even though their immutable snapshots correctly retain the old behavior. Keep
-    // the catalog readable, but mark the unresolved workflow as migration-required. Story start,
-    // `workflow validate`, and every supported authoring surface refuse this outcome; it is not an
-    // opt-out and it never disables acceptance gates. The only way forward for a new Story is to
-    // add an explicit required topology or a reviewed opt-out.
-    if (!explicit && value == null) {
-      return {
-        mode: 'migration-required', clausePhases: [], owners: {},
-        reason: `Legacy workflow has no explicit planned-claim contract: ${[...new Set(topologyErrors)].join('; ')}.`
-      };
-    }
-    throw new SingularityFlowError(
-      `${label} is not operational:\n- ${[...new Set(topologyErrors)].join('\n- ')}\n`
-      + 'Declare a resolvable mode required topology. A workflow that defines no requirement clauses declares omits for scope on its end instead.'
-    );
-  }
-
-  return { mode: 'required', clausePhases, owners, reason: null };
-}
 
 /**
  * Refuse starting new work from a work type that cannot start: an unmigrated planned-claim
@@ -536,763 +303,6 @@ export function assertWorkflowReadinessChanges(previousDefinition, candidateDefi
       }
     );
   }
-}
-
-function assertId(value, label) {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
-}
-
-function assertRelative(value, label) {
-  if (!value || path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) throw new SingularityFlowError(`${label} must be a repository-relative path without '..'.`);
-}
-
-/**
- * Three ways to name a template, checked in the order that makes each unambiguous.
- *
- * `template:<id>` is validated for shape here and for existence in `validateDefinition`, where the
- * catalog is in scope — a phase is parsed before the file has necessarily been read whole.
- */
-function assertTemplate(value, label) {
-  if (isTemplateReference(value)) parseTemplateReference(value, label);
-  else if (isAgentTemplateReference(value)) parseAgentTemplateReference(value);
-  else assertRelative(value, label);
-}
-
-export function configuredInputsMode(definition) {
-  const mode = definition.inputsMode ?? 'off';
-  if (!INPUT_MODES.has(mode)) throw new SingularityFlowError(`inputsMode must be off, record, or enforce; got '${mode}'.`);
-  return mode;
-}
-
-export function normalizeSequenceGates(value = {}, overrides = {}) {
-  for (const [label, source] of [['sequenceGates', value], ['work-type sequenceGates', overrides]]) {
-    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError(`${label} must be an object.`);
-    for (const [gate, mode] of Object.entries(source)) {
-      if (gate !== 'default' && !SEQUENCE_GATE_IDS.includes(gate)) throw new SingularityFlowError(`${label} contains unknown gate '${gate}'. Allowed: ${SEQUENCE_GATE_IDS.join(', ')}.`);
-      if (!SEQUENCE_GATE_MODES.has(mode)) throw new SingularityFlowError(`${label}.${gate} must be hard or soft.`);
-    }
-  }
-  const fallback = overrides.default ?? value.default ?? 'hard';
-  return Object.fromEntries([
-    ['default', fallback],
-    ...SEQUENCE_GATE_IDS.map((gate) => [gate, overrides[gate] ?? value[gate] ?? fallback])
-  ]);
-}
-
-const LEGACY_SPLIT_VERIFICATION_HEADING = Object.freeze([
-  'Acceptance and specification results',
-  'Negative',
-  'regression',
-  'security',
-  'and non-functional checks'
-]);
-
-const CANONICAL_VERIFICATION_HEADINGS = Object.freeze([
-  'Acceptance and specification results',
-  'Negative, regression, security, and non-functional checks'
-]);
-
-function exactStrings(left, right) {
-  return Array.isArray(left)
-    && left.length === right.length
-    && left.every((entry, index) => entry === right[index]);
-}
-
-/**
- * Project one exact historical package typo into its intended in-memory configuration.
- *
- * An older packaged `spec-driven-standard` profile wrote a Markdown heading containing commas as
- * an unquoted YAML flow-sequence item. YAML correctly parsed that one heading as four separate
- * values, so the stricter heading-contract validator introduced later refuses otherwise healthy
- * approved `sflow/config` authorities before their Story snapshots can migrate. Repair only the
- * exact shipped producer, consumer, phase sequence, and five-string value. Near matches and custom
- * templates remain visible configuration errors, and the governed YAML bytes are never rewritten
- * by a read.
- */
-export function applyWorkflowCompatibility(definition) {
-  const workType = definition?.workTypes?.['spec-driven-standard'];
-  const phases = workType?.phases;
-  if (!exactStrings(phases, [
-    'specification', 'planning', 'implementation', 'convergence', 'verification', 'release'
-  ])) return definition;
-
-  const verificationTemplate = workType.templateOverrides?.verification
-    ?? definition?.phases?.verification?.defaultTemplate;
-  const releaseTemplate = workType.templateOverrides?.release
-    ?? definition?.phases?.release?.defaultTemplate;
-  if (verificationTemplate !== 'common/verification.md'
-      || releaseTemplate !== 'spec-driven/release.md') return definition;
-
-  const inputs = workType.phaseOverrides?.release?.inputs;
-  if (!Array.isArray(inputs)) return definition;
-  for (const input of inputs) {
-    if (input?.phase !== 'verification'
-        || input.projection !== 'approved-summary'
-        || !exactStrings(input.preserve, LEGACY_SPLIT_VERIFICATION_HEADING)) continue;
-    input.preserve = [...CANONICAL_VERIFICATION_HEADINGS];
-  }
-  return definition;
-}
-
-export function normalizePhaseInputs(value, label = 'Phase inputs') {
-  if (value == null) return [];
-  if (!Array.isArray(value)) throw new SingularityFlowError(`${label} must be an array.`);
-  const seen = new Set();
-  return value.map((entry, index) => {
-    const source = typeof entry === 'string' ? { phase: entry } : entry;
-    const entryLabel = `${label}[${index}]`;
-    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError(`${entryLabel} must be a phase ID or object.`);
-    for (const key of Object.keys(source)) if (![
-      'phase', 'optional', 'maxBytes', 'selector', 'projection', 'preserve',
-      'maximumSummaryBytes', 'expansion', 'fallback'
-    ].includes(key)) throw new SingularityFlowError(`${entryLabel} has unsupported field '${key}'.`);
-    assertId(source.phase, `${entryLabel}.phase`);
-    if (source.optional != null && typeof source.optional !== 'boolean') throw new SingularityFlowError(`${entryLabel}.optional must be boolean.`);
-    if (source.maxBytes != null && (!Number.isInteger(source.maxBytes) || source.maxBytes < 1)) throw new SingularityFlowError(`${entryLabel}.maxBytes must be a positive integer.`);
-    let selector = null;
-    if (source.selector != null) {
-      if (!source.selector || typeof source.selector !== 'object' || Array.isArray(source.selector)) throw new SingularityFlowError(`${entryLabel}.selector must be an object.`);
-      for (const key of Object.keys(source.selector)) if (!['kind', 'ids', 'claims', 'includeDependencies', 'fallback'].includes(key)) throw new SingularityFlowError(`${entryLabel}.selector has unsupported field '${key}'.`);
-      if (source.selector.kind !== 'clauses') throw new SingularityFlowError(`${entryLabel}.selector.kind must be clauses.`);
-      if (source.selector.ids != null && (!Array.isArray(source.selector.ids) || source.selector.ids.some((id) => typeof id !== 'string'))) throw new SingularityFlowError(`${entryLabel}.selector.ids must be an array of clause IDs.`);
-      if (source.selector.claims != null && !['planned', 'observed'].includes(source.selector.claims)) throw new SingularityFlowError(`${entryLabel}.selector.claims must be planned or observed.`);
-      if (source.selector.includeDependencies != null && typeof source.selector.includeDependencies !== 'boolean') throw new SingularityFlowError(`${entryLabel}.selector.includeDependencies must be boolean.`);
-      if (source.selector.fallback != null && !['whole', 'empty'].includes(source.selector.fallback)) throw new SingularityFlowError(`${entryLabel}.selector.fallback must be whole or empty.`);
-      selector = {
-        kind: 'clauses',
-        ids: [...new Set(source.selector.ids ?? [])],
-        claims: source.selector.claims ?? null,
-        includeDependencies: source.selector.includeDependencies !== false,
-        fallback: source.selector.fallback ?? 'whole'
-      };
-    }
-    const projection = source.projection ?? 'full';
-    if (!['full', 'approved-summary'].includes(projection)) throw new SingularityFlowError(`${entryLabel}.projection must be full or approved-summary.`);
-    if (projection === 'full' && ['preserve', 'maximumSummaryBytes', 'expansion', 'fallback'].some((key) => source[key] != null)) {
-      throw new SingularityFlowError(`${entryLabel} summary controls require projection: approved-summary.`);
-    }
-    if (projection === 'approved-summary' && selector) throw new SingularityFlowError(`${entryLabel} cannot combine projection: approved-summary with a clause selector.`);
-    if (projection === 'approved-summary' && source.maxBytes != null) throw new SingularityFlowError(`${entryLabel} uses maximumSummaryBytes instead of maxBytes for an approved summary.`);
-    const preserve = source.preserve ?? [];
-    if (!Array.isArray(preserve) || preserve.some((heading) => typeof heading !== 'string' || !heading.trim())) {
-      throw new SingularityFlowError(`${entryLabel}.preserve must be an array of non-empty Markdown heading names.`);
-    }
-    const preserveByHeading = new Map();
-    for (const heading of preserve) {
-      const display = heading.normalize('NFKC').trim();
-      const key = display.toLocaleLowerCase('en-US');
-      if (!preserveByHeading.has(key)) preserveByHeading.set(key, display);
-    }
-    const normalizedPreserve = [...preserveByHeading.values()];
-    const maximumSummaryBytes = projection === 'approved-summary' ? source.maximumSummaryBytes ?? 8192 : null;
-    if (maximumSummaryBytes != null && (!Number.isInteger(maximumSummaryBytes) || maximumSummaryBytes < 1024 || maximumSummaryBytes > 65536)) {
-      throw new SingularityFlowError(`${entryLabel}.maximumSummaryBytes must be an integer from 1024 through 65536.`);
-    }
-    const expansion = projection === 'approved-summary' ? source.expansion ?? 'hash-bound-reference' : null;
-    if (expansion != null && expansion !== 'hash-bound-reference') throw new SingularityFlowError(`${entryLabel}.expansion must be hash-bound-reference.`);
-    const fallback = projection === 'approved-summary' ? source.fallback ?? 'whole' : null;
-    if (fallback != null && !['whole', 'block'].includes(fallback)) throw new SingularityFlowError(`${entryLabel}.fallback must be whole or block.`);
-    if (seen.has(source.phase)) throw new SingularityFlowError(`${label} references '${source.phase}' more than once.`);
-    seen.add(source.phase);
-    return {
-      phase: source.phase,
-      optional: source.optional ?? false,
-      maxBytes: source.maxBytes ?? null,
-      ...(projection === 'approved-summary' ? {
-        projection,
-        preserve: normalizedPreserve,
-        maximumSummaryBytes,
-        expansion,
-        fallback
-      } : {}),
-      ...(selector ? { selector } : {})
-    };
-  });
-}
-
-export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
-  const source = typeof value === 'string' ? { requirement: value } : (value ?? {});
-  if (!source || typeof source !== 'object' || Array.isArray(source)) {
-    throw new SingularityFlowError(`Phase '${phaseId}' generation must be a mode or an object.`);
-  }
-  const requirement = source.requirement ?? source.mode ?? 'required';
-  const legacyProducer = source.producer ?? null;
-  const mappedProducer = legacyProducer === 'agent' ? 'governed-agent' : legacyProducer === 'manual' ? 'human' : legacyProducer;
-  const defaultProducer = source.defaultProducer ?? mappedProducer ?? 'governed-agent';
-  const allowedProducers = source.allowedProducers ?? (
-    legacyProducer === 'manual' ? ['human']
-      : legacyProducer === 'deterministic' ? ['deterministic']
-        : ['governed-agent', 'human']
-  );
-  if (!['required', 'optional', 'none'].includes(requirement)) {
-    throw new SingularityFlowError(`Phase '${phaseId}' generation requirement must be required, optional, or none.`);
-  }
-  const producers = ['human', 'governed-agent', 'deterministic', 'external-tool'];
-  if (!producers.includes(defaultProducer)) {
-    throw new SingularityFlowError(`Phase '${phaseId}' generation defaultProducer must be ${producers.join(', ')}.`);
-  }
-  if (!Array.isArray(allowedProducers) || !allowedProducers.length || allowedProducers.some((producer) => !producers.includes(producer))) {
-    throw new SingularityFlowError(`Phase '${phaseId}' generation allowedProducers must be a non-empty array containing ${producers.join(', ')}.`);
-  }
-  if (!allowedProducers.includes(defaultProducer)) {
-    throw new SingularityFlowError(`Phase '${phaseId}' generation defaultProducer '${defaultProducer}' must be included in allowedProducers.`);
-  }
-  return {
-    requirement,
-    defaultProducer,
-    allowedProducers: [...new Set(allowedProducers)],
-    /**
-     * The model task this phase's generation performs `[ADP:REQ-012]`.
-     *
-     * Carried explicitly because this normalizer returns a fresh object rather than spreading its
-     * input: a `task` declared in `workflow.yml` and not named here would be dropped before anything
-     * could read it, and every phase would silently route as the default while the configuration
-     * said otherwise. Validated here so a bad task fails at load, next to the line that wrote it.
-     */
-    task: source.task == null ? null : assertModelTask(source.task, `Phase '${phaseId}' generation task`),
-    // Temporary internal compatibility for deterministic preparation paths.
-    producer: defaultProducer === 'deterministic' ? 'deterministic' : defaultProducer === 'human' ? 'manual' : 'agent'
-  };
-}
-
-function assertConvergenceHumanApproval(policy, label = 'The convergence phase') {
-  if (policy.mode === 'required') return policy;
-  throw new SingularityFlowError(
-    `${label} approval must require an explicit human decision; approval modes 'none' and 'policy' cannot waive convergence.`,
-    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED', details: { mode: policy.mode } }
-  );
-}
-
-export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) {
-  if (value == null) return null;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('designSources must be an object.');
-  for (const key of Object.keys(value)) {
-    if (!['capturePhase', 'consumeIn', 'staleness', 'requireApprovedSet', 'inventoryDigest'].includes(key)) {
-      throw new SingularityFlowError(`designSources contains unknown field '${key}'.`);
-    }
-  }
-  const capturePhase = value.capturePhase ?? 'design-intake';
-  assertId(capturePhase, 'designSources.capturePhase');
-  if (!phases.includes(capturePhase)) throw new SingularityFlowError(`designSources.capturePhase '${capturePhase}' is not active in this work type.`);
-  const consumeIn = value.consumeIn ?? phases.filter((phase) => phase !== capturePhase);
-  if (!Array.isArray(consumeIn) || consumeIn.some((phase) => typeof phase !== 'string')) throw new SingularityFlowError('designSources.consumeIn must be an array of phase IDs.');
-  if (new Set(consumeIn).size !== consumeIn.length) throw new SingularityFlowError('designSources.consumeIn must not contain duplicates.');
-  for (const phase of consumeIn) if (!phases.includes(phase)) throw new SingularityFlowError(`designSources.consumeIn references inactive phase '${phase}'.`);
-  const staleness = value.staleness ?? 'warn';
-  if (!['ignore', 'warn', 'fail'].includes(staleness)) throw new SingularityFlowError('designSources.staleness must be ignore, warn, or fail.');
-  if (value.requireApprovedSet != null && typeof value.requireApprovedSet !== 'boolean') throw new SingularityFlowError('designSources.requireApprovedSet must be boolean.');
-  if (value.inventoryDigest != null && !['off', 'optional', 'required'].includes(value.inventoryDigest)) throw new SingularityFlowError('designSources.inventoryDigest must be off, optional, or required.');
-  return {
-    capturePhase,
-    consumeIn,
-    staleness,
-    requireApprovedSet: value.requireApprovedSet !== false,
-    inventoryDigest: value.inventoryDigest ?? 'optional'
-  };
-}
-
-/** `visualStep(id)` says whether a step verifies screens: its artifact kind, never its name [E2G-001]. */
-export function normalizeVerificationPolicy(value = null, { phases = [], visualStep = null } = {}) {
-  const source = value ?? {};
-  if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError('verification must be an object.');
-  for (const key of Object.keys(source)) if (!['coverage', 'profiles', 'comparison'].includes(key)) throw new SingularityFlowError(`verification contains unknown field '${key}'.`);
-  const coverage = source.coverage ?? 'warn';
-  if (!['warn', 'enforce'].includes(coverage)) throw new SingularityFlowError('verification.coverage must be warn or enforce.');
-  const profiles = source.profiles ?? [];
-  if (!Array.isArray(profiles)) throw new SingularityFlowError('verification.profiles must be an array.');
-  const seen = new Set();
-  const normalizedProfiles = profiles.map((profile, index) => {
-    const label = `verification.profiles[${index}]`;
-    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new SingularityFlowError(`${label} must be an object.`);
-    for (const key of Object.keys(profile)) if (!['id', 'label', 'width', 'height', 'deviceScaleFactor'].includes(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
-    assertId(profile.id, `${label}.id`);
-    if (seen.has(profile.id)) throw new SingularityFlowError(`verification.profiles contains duplicate ID '${profile.id}'.`);
-    seen.add(profile.id);
-    if (typeof profile.label !== 'string' || !profile.label.trim()) throw new SingularityFlowError(`${label}.label must be non-empty.`);
-    for (const dimension of ['width', 'height']) if (!Number.isInteger(profile[dimension]) || profile[dimension] < 1 || profile[dimension] > 10000) throw new SingularityFlowError(`${label}.${dimension} must be an integer from 1 to 10000.`);
-    const scale = Number(profile.deviceScaleFactor);
-    if (!Number.isFinite(scale) || scale <= 0 || scale > 8) throw new SingularityFlowError(`${label}.deviceScaleFactor must be greater than 0 and at most 8.`);
-    return { id: profile.id, label: profile.label.trim(), width: profile.width, height: profile.height, deviceScaleFactor: scale };
-  });
-  if (normalizedProfiles.length && !phases.some((id) => (visualStep ? visualStep(id) : false))) {
-    throw new SingularityFlowError('verification.profiles require a visual verification step (an artifact of kind visual-test-evidence).');
-  }
-  if (coverage === 'enforce' && !normalizedProfiles.length) throw new SingularityFlowError('verification.coverage enforce requires at least one profile.');
-  const comparison = source.comparison ?? {};
-  if (!comparison || typeof comparison !== 'object' || Array.isArray(comparison)) throw new SingularityFlowError('verification.comparison must be an object.');
-  for (const key of Object.keys(comparison)) if (!['mode', 'channelTolerance', 'maxDifferingPixelRatio', 'maxDifferingPixels', 'maxPixels'].includes(key)) throw new SingularityFlowError(`verification.comparison contains unknown field '${key}'.`);
-  const mode = comparison.mode ?? 'off';
-  if (!['off', 'warn', 'enforce'].includes(mode)) throw new SingularityFlowError('verification.comparison.mode must be off, warn, or enforce.');
-  const channelTolerance = comparison.channelTolerance ?? 0;
-  if (!Number.isInteger(channelTolerance) || channelTolerance < 0 || channelTolerance > 255) throw new SingularityFlowError('verification.comparison.channelTolerance must be an integer from 0 to 255.');
-  const ratio = comparison.maxDifferingPixelRatio ?? null;
-  if (ratio != null && (!Number.isFinite(ratio) || ratio < 0 || ratio > 1)) throw new SingularityFlowError('verification.comparison.maxDifferingPixelRatio must be null or a number from 0 to 1.');
-  const pixels = comparison.maxDifferingPixels ?? null;
-  if (pixels != null && (!Number.isInteger(pixels) || pixels < 0)) throw new SingularityFlowError('verification.comparison.maxDifferingPixels must be null or a non-negative integer.');
-  // `enforce` has to be able to fail. Both thresholds are optional, and with neither set
-  // `thresholdStatus` can never mark a comparison as exceeded — so every comparison returned `pass`
-  // however different the images were, and the `mode === 'enforce'` branch was unreachable for pixel
-  // differences. A team writing `mode: enforce` believes visual regressions now block the gate; they
-  // never did. This is the same rule `coverage: enforce` already applies to profiles above.
-  if (mode === 'enforce' && ratio == null && pixels == null) {
-    throw new SingularityFlowError(
-      'verification.comparison enforce requires maxDifferingPixels or maxDifferingPixelRatio; '
-      + 'without a threshold no comparison can ever fail.'
-    );
-  }
-  const maxPixels = comparison.maxPixels ?? 40_000_000;
-  if (!Number.isInteger(maxPixels) || maxPixels < 1 || maxPixels > 100_000_000) throw new SingularityFlowError('verification.comparison.maxPixels must be an integer from 1 to 100000000.');
-  return { coverage, profiles: normalizedProfiles, comparison: { mode, channelTolerance, maxDifferingPixelRatio: ratio, maxDifferingPixels: pixels, maxPixels } };
-}
-
-
-export function normalizeRepositoryReadinessPolicy(value = {}) {
-  assertKnownKeys(value, new Set([
-    'requiredBeforeStory', 'dependencyHydration', 'build', 'structuredTests',
-    'applicationStart', 'receiptScope', 'baselinePolicy', 'testRuntime'
-  ]), 'repositoryReadiness');
-
-  if (Object.hasOwn(value, 'requiredBeforeStory')
-      && typeof value.requiredBeforeStory !== 'boolean') {
-    throw new SingularityFlowError('repositoryReadiness.requiredBeforeStory must be boolean.');
-  }
-  for (const field of ['dependencyHydration', 'build', 'applicationStart']) {
-    if (Object.hasOwn(value, field) && !REPOSITORY_READINESS_MODES.has(value[field])) {
-      throw new SingularityFlowError(
-        `repositoryReadiness.${field} must be off, when-detected, or required.`
-      );
-    }
-  }
-  if (Object.hasOwn(value, 'structuredTests')
-      && !STRUCTURED_TEST_READINESS_MODES.has(value.structuredTests)) {
-    throw new SingularityFlowError(
-      'repositoryReadiness.structuredTests must be off, when-detected, required-for-code, or required.'
-    );
-  }
-  if (Object.hasOwn(value, 'receiptScope')
-      && value.receiptScope !== 'git-private-exact-base') {
-    throw new SingularityFlowError(
-      'repositoryReadiness.receiptScope must be git-private-exact-base.'
-    );
-  }
-
-  if (Object.hasOwn(value, 'baselinePolicy') && !['required', 'choice'].includes(value.baselinePolicy)) {
-    throw new SingularityFlowError('repositoryReadiness.baselinePolicy must be required or choice.');
-  }
-  return {
-    requiredBeforeStory: value.requiredBeforeStory ?? false,
-    baselinePolicy: value.baselinePolicy ?? 'choice',
-    testRuntime: normalizeTestRuntime(value.testRuntime),
-    dependencyHydration: value.dependencyHydration ?? 'when-detected',
-    build: value.build ?? 'off',
-    structuredTests: value.structuredTests ?? 'required-for-code',
-    applicationStart: value.applicationStart ?? 'off',
-    receiptScope: value.receiptScope ?? 'git-private-exact-base'
-  };
-}
-
-export function normalizePlanning(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('planning must be an object.');
-  for (const key of Object.keys(value)) if (!['enabled', 'promptSource', 'maxContextBytes'].includes(key)) throw new SingularityFlowError(`planning contains unknown field '${key}'.`);
-  if (value.enabled != null && typeof value.enabled !== 'boolean') throw new SingularityFlowError('planning.enabled must be boolean.');
-  const promptSource = value.promptSource ?? DEFAULT_PLANNING_PROMPT;
-  assertRelative(promptSource, 'planning.promptSource');
-  const maxContextBytes = value.maxContextBytes ?? 1048576;
-  if (!Number.isInteger(maxContextBytes) || maxContextBytes < 16384 || maxContextBytes > 10485760) {
-    throw new SingularityFlowError('planning.maxContextBytes must be an integer from 16384 through 10485760.');
-  }
-  return { enabled: value.enabled !== false, promptSource, maxContextBytes };
-}
-
-export function normalizeModelProviders(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('models must be an object.');
-  for (const key of Object.keys(value)) if (!['defaultProvider', 'providers'].includes(key)) throw new SingularityFlowError(`models contains unknown field '${key}'.`);
-  const providers = value.providers ?? { 'copilot-cli': { type: 'copilot-cli' } };
-  if (!providers || typeof providers !== 'object' || Array.isArray(providers) || !Object.keys(providers).length) {
-    throw new SingularityFlowError('models.providers must contain at least one provider.');
-  }
-  const normalized = {};
-  for (const [id, provider] of Object.entries(providers)) {
-    assertId(id, 'Model provider');
-    if (!provider || typeof provider !== 'object' || Array.isArray(provider)) throw new SingularityFlowError(`models.providers.${id} must be an object.`);
-    for (const key of Object.keys(provider)) if (!['type', 'executable', 'arguments', 'model', 'promptTransport'].includes(key)) throw new SingularityFlowError(`models.providers.${id} contains unknown field '${key}'.`);
-    if (provider.type !== 'copilot-cli') throw new SingularityFlowError(`models.providers.${id}.type '${provider.type}' is not supported.`);
-    if (provider.executable != null && (typeof provider.executable !== 'string' || !provider.executable.trim())) throw new SingularityFlowError(`models.providers.${id}.executable must be a non-empty string.`);
-    if (provider.arguments != null && (!Array.isArray(provider.arguments) || provider.arguments.some((item) => typeof item !== 'string'))) throw new SingularityFlowError(`models.providers.${id}.arguments must be an array of strings.`);
-    if (provider.model != null && (typeof provider.model !== 'string' || !provider.model.trim())) throw new SingularityFlowError(`models.providers.${id}.model must be a non-empty string.`);
-    if (provider.promptTransport != null && !['auto', 'acp-stdio', 'attachment'].includes(provider.promptTransport)) {
-      throw new SingularityFlowError(`models.providers.${id}.promptTransport must be auto, acp-stdio, or attachment.`);
-    }
-    normalized[id] = {
-      type: provider.type,
-      ...(provider.executable ? { executable: provider.executable.trim() } : {}),
-      arguments: [...(provider.arguments ?? [])],
-      ...(provider.model ? { model: provider.model.trim() } : {}),
-      ...(provider.promptTransport ? { promptTransport: provider.promptTransport } : {})
-    };
-  }
-  const defaultProvider = value.defaultProvider ?? Object.keys(normalized)[0];
-  if (!normalized[defaultProvider]) throw new SingularityFlowError(`models.defaultProvider references unknown provider '${defaultProvider}'.`);
-  return { defaultProvider, providers: normalized };
-}
-
-export function validateDefinition(definition, { storyBootstrap = false } = {}) {
-  if (![2, 3].includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.', { details: { nextAction: { executable: 'singularity-flow', argv: ['factory-reset', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
-  if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define Agent Markdown under .github/agents.');
-  if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
-  if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
-  // Settings of removed features (the registered World Model, its views, CALM architecture intent and
-  // projection) load and are ignored; doctor names them.
-  dropRemovedSettings(definition);
-  // Integration targets first: every step's after-step actions are checked against them.
-  definition.integrations = normalizeIntegrations(definition.integrations);
-  for (const [phaseId, phase] of Object.entries(definition.phases)) {
-    assertConfiguredPhaseProducer(phase, `Phase '${phaseId}'`, phaseId, definition.version);
-    if (phase && typeof phase === 'object') assertStepAuthoringSkill({ ...phase, id: phaseId }, `Phase '${phaseId}'`);
-    else assertAuthoringSkillValue(phase?.authoringSkill, `Phase '${phaseId}'`);
-    normalizeStepActions(phase?.afterStep, definition.integrations, `Phase '${phaseId}'`);
-  }
-  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
-    for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
-      assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
-      normalizeStepActions(override?.afterStep, definition.integrations, `Work type '${workTypeId}' phase '${phaseId}' override`);
-      if (definition.version === 3 && definition.phases[phaseId]?.kind === 'skill') {
-        assertNoSkillPhaseOverride(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
-      } else assertSupportedPhaseProducer(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
-    }
-  }
-  definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
-  assertRelative(definition.templatesRoot, 'templatesRoot');
-  assertStoryBranchNaming(definition.git?.branchNaming);
-  if (definition.git?.commitPolicy != null) {
-    // Opt-in policy validation must not add hook/profile compilers to every ordinary read bundle.
-    // This is trusted, packaged code, never executable repository configuration.
-    if (!process.features.require_module) throw new SingularityFlowError('Repository commit policy requires the SFlow-managed runtime or Node 22.12 or later.', {code: 'RCP_RUNTIME_UNSUPPORTED'});
-    const policyModule = path.join(PACKAGE_ROOT, 'src/repository-commit-policy/policy.mjs');
-    definition.git.commitPolicy = createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule).normalizeCommitPolicy(definition.git.commitPolicy);
-  }
-  /**
-   * The catalog, and then every reference against it. Existence is checked here rather than in
-   * `assertTemplate` because a phase is validated before the file is necessarily whole — a
-   * reference to a template declared further down the same document must not fail on ordering.
-   */
-  const templateCatalog = normalizeTemplateCatalog(definition.templates);
-  for (const [phaseId, phase] of Object.entries(definition.phases)) {
-    if (phase?.defaultTemplate) resolveTemplate({ templates: templateCatalog }, phase.defaultTemplate, { label: `Phase '${phaseId}' defaultTemplate` });
-  }
-  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
-    for (const [phaseId, value] of Object.entries(workType?.templateOverrides ?? {})) {
-      resolveTemplate({ templates: templateCatalog }, value, { label: `Work type '${workTypeId}' templateOverrides '${phaseId}'` });
-    }
-  }
-  configuredInputsMode(definition);
-  normalizeSequenceGates(definition.sequenceGates ?? {});
-  normalizeSessionPolicy(definition.session ?? {});
-  definition.repositoryReadiness = normalizeRepositoryReadinessPolicy(
-    definition.repositoryReadiness
-  );
-  if (definition.testRecovery != null) {
-    definition.testRecovery = normalizeTestRecoveryPolicy(definition.testRecovery);
-  }
-  normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
-  definition.tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
-  if (definition.tokenEconomy.mode !== 'off'
-      && definition.tokenEconomy.composer === 'tkr-v1') {
-    throw new SingularityFlowError(
-      "tokenEconomy.composer 'tkr-v1' is an evaluation-only preview and cannot be activated in repository workflow policy until TKR M2 is complete.",
-      {
-        code: 'TKR_CONTRACT_UNSUPPORTED',
-        details: {
-          composer: 'tkr-v1',
-          milestone: 'M2',
-          nextAction: "Set tokenEconomy.composer to 'legacy-v1'. Exercise tkr-v1 only through the pure evaluation API until retained WMP delivery and policy revision are implemented."
-        }
-      }
-    );
-  }
-  normalizePlanning(definition.planning ?? {});
-  definition.models = normalizeModelProviders(definition.models ?? {});
-  definition.auto = normalizeAutoPolicy(definition.auto);
-  definition.adhoc = normalizeAdhocPolicy(definition.adhoc);
-  definition.harnessImports = normalizeHarnessImports(definition.harnessImports);
-  normalizeLogging(definition.logging ?? {});
-  definition.mcpServers = normalizeMcpServers(definition.mcpServers ?? {}, {
-    agents: definition.agentCatalog ?? [],
-    phases: Object.keys(definition.phases)
-  });
-  validateMcpAgentTools(definition);
-  definition.marketplaces = normalizeMarketplaces(definition.marketplaces ?? {});
-  // Preserve the difference between an explicitly configured ledger endpoint and the ledger
-  // normalizer's defaults. Once `normalizeLedgerConfig` stamps `origin`, a later authority join can
-  // no longer tell whether `worldModel.remote` or `git.remote` was supposed to supply the fallback.
-  // Resolve that precedence from the authored document, then stamp the one canonical state target
-  // into the normalized ledger used by publication and every registered-v4 reader.
-  const authoredLedger = definition.ledger ?? {};
-  const stateAuthority = worldModelStateAuthority({ ...definition, ledger: authoredLedger });
-  definition.ledger = normalizeLedgerConfig({
-    ...authoredLedger,
-    branch: stateAuthority.branch,
-    remote: stateAuthority.remote
-  });
-  definition.spec = normalizeSpecPolicy(definition.spec ?? {});
-  definition.faultRepair = normalizeFaultRepairPolicy(definition.faultRepair ?? {});
-  definition.ast = normalizeAstPolicy(definition.ast ?? {});
-  definition.approvalSecurity = normalizeApprovalSecurity(definition.approvalSecurity);
-  definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity);
-  for (const authority of definition.testRecovery?.riskAuthorities ?? []) {
-    if (!Object.hasOwn(definition.approvalAuthorities, authority)) {
-      throw new SingularityFlowError(`testRecovery references unknown approval authority '${authority}'.`);
-    }
-  }
-  // World Model settings still read: the Repository brief (knowledge), the source scope and the
-  // state-branch aliases. Settings of the removed registered World Model were dropped above.
-  for (const [field, label] of [
-    ['stateBranch', 'worldModel.stateBranch'], ['remote', 'worldModel.remote']
-  ]) {
-    const value = definition.worldModel?.[field];
-    if (value != null && (typeof value !== 'string' || !value.trim())) {
-      throw new SingularityFlowError(`${label} must be a non-empty string.`);
-    }
-  }
-  if (definition.worldModel?.knowledge != null) {
-    const knowledge = definition.worldModel.knowledge;
-    if (!knowledge || typeof knowledge !== 'object' || Array.isArray(knowledge)) throw new SingularityFlowError('worldModel.knowledge must be a mapping.');
-    for (const key of Object.keys(knowledge)) {
-      if (!['prompt', 'maxBytes'].includes(key)) throw new SingularityFlowError(`worldModel.knowledge.${key} is not supported. Use prompt (slice or off) and maxBytes.`);
-    }
-    if (knowledge.prompt != null && !['slice', 'off'].includes(knowledge.prompt)) throw new SingularityFlowError("worldModel.knowledge.prompt must be 'slice' or 'off'.");
-    if (knowledge.maxBytes != null && (!Number.isInteger(knowledge.maxBytes) || knowledge.maxBytes < 2048 || knowledge.maxBytes > 32768)) {
-      throw new SingularityFlowError('worldModel.knowledge.maxBytes must be an integer from 2048 through 32768.');
-    }
-  }
-  definition.worldModel ??= {};
-  worldModelSourceScope(definition);
-  normalizeSourceRoots(definition.worldModel.excludedRoots, 'worldModel.excludedRoots');
-  // Story bootstrap intentionally has no live agent catalog. Agent predicates are still parsed
-  // and type-checked here; their IDs are resolved against the verified saved catalog later.
-  validateInjectionDefinition(definition, { deferAgentReferences: storyBootstrap });
-  definition.codeDelivery = normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {});
-  validateTokenReportingPolicy(definition.tokens);
-  for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
-  if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
-  assertDocumentStoragePolicy(definition.documents?.storage);
-  // Optional per-work-item storage providers (OneDrive/SharePoint, Artifactory, S3, …) let the
-  // documents feature fetch governed bytes. Same normalizer as the initiative portfolio, so the
-  // schema never drifts between the two surfaces.
-  if (definition.storage != null) definition.storage = normalizeStorage(definition.storage);
-  if (definition.collaboration != null) {
-    if (!definition.collaboration || typeof definition.collaboration !== 'object' || Array.isArray(definition.collaboration)) throw new SingularityFlowError('collaboration must be an object.');
-    if (definition.collaboration.assignmentMode && !['off', 'suggested', 'required'].includes(definition.collaboration.assignmentMode)) throw new SingularityFlowError('collaboration.assignmentMode must be off, suggested, or required.');
-    if (definition.collaboration.approvalReminderAfterHours != null && (!Number.isFinite(definition.collaboration.approvalReminderAfterHours) || definition.collaboration.approvalReminderAfterHours < 0)) throw new SingularityFlowError('collaboration.approvalReminderAfterHours must be a non-negative number.');
-    for (const channel of definition.collaboration.notifications ?? []) if (!['terminal', 'teams-webhook'].includes(channel)) throw new SingularityFlowError(`Unsupported collaboration notification channel '${channel}'.`);
-  }
-  for (const [id, workType] of Object.entries(definition.workTypes)) {
-    assertId(id, 'Work type');
-    if (!workType.label || !Array.isArray(workType.phases) || !workType.phases.length) throw new SingularityFlowError(`Work type '${id}' requires label and phases.`);
-    normalizeReworkLoops(workType.reworkLoops, { workTypeId: id, phases: workType.phases });
-    for (const phaseId of workType.phases) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Work type '${id}' references unknown phase '${phaseId}'.`);
-    for (const phaseId of Object.keys(workType.templateOverrides ?? {})) {
-      if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
-      if (definition.phases[phaseId]?.kind === 'skill') {
-        throw new SingularityFlowError(`Work type '${id}' cannot give skill phase '${phaseId}' a template override.`,
-          { code: 'SKP_PHASE_BINDING_INVALID' });
-      }
-    }
-    for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
-    for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
-    assertDocumentStoragePolicy(workType.documents?.storage, `workTypes.${id}.documents.storage`);
-    normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
-    // `[SPK:REQ-090]`: one constitution per approved configuration, named by the work type that
-    // is held to it. Validated here so a typo cannot resolve into a policy that governs nothing.
-    constitutionPolicy(workType.constitution);
-    workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
-    workType.verification = normalizeVerificationPolicy(workType.verification, {
-      phases: workType.phases,
-      visualStep: (phaseId) => isVisualVerificationPhase({
-        artifact: { ...(definition.phases?.[phaseId]?.artifact ?? {}), ...(workType.phaseOverrides?.[phaseId]?.artifact ?? {}) }
-      })
-    });
-    workType.intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${id}' intelligence`);
-    workType.auto = normalizeAutoWorkTypePolicy(workType.auto, `Work type '${id}' auto`, workType.phases);
-    workType.references = normalizeReferenceRepositoryPolicy(
-      workType.references, `Work type '${id}' references`
-    );
-    workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
-    workType.sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
-      workTypeId: id, phases: workType.phases
-    });
-    if (!storyBootstrap && definition.agentCatalog?.length) assertSourceReviewerAvailable(workType.sourceReview, definition.agentCatalog, {
-      workTypeId: id
-    });
-  }
-  if (definition.noModel != null) {
-    if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
-    if (!['warn', 'block'].includes(definition.noModel.unknownExternalCommands ?? 'warn')) throw new SingularityFlowError('noModel.unknownExternalCommands must be warn or block.');
-  }
-  analysisLimits(definition.analysisLimits);
-  const sets = normalizeArtifactSets(definition.artifactSets);
-  for (const [id, phase] of Object.entries(definition.phases)) {
-    assertId(id, 'Phase');
-    if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
-    if (phase.description != null && (typeof phase.description !== 'string' || !phase.description.trim() || phase.description.length > STEP_DESCRIPTION_LIMIT)) {
-      throw new SingularityFlowError(`Phase '${id}' description must be text of 1 to ${STEP_DESCRIPTION_LIMIT} characters.`);
-    }
-    assertRelative(phase.artifact.path, `Phase '${id}' artifact.path`);
-    for (const field of ['minimumBytes', 'maximumBytes']) {
-      if (phase.artifact[field] != null
-          && (!Number.isSafeInteger(phase.artifact[field]) || phase.artifact[field] < 1)) {
-        throw new SingularityFlowError(`Phase '${id}' artifact.${field} must be a positive safe integer.`);
-      }
-    }
-    if (phase.artifact.maximumBytes != null && phase.artifact.maximumBytes < (phase.artifact.minimumBytes ?? 1)) {
-      throw new SingularityFlowError(`Phase '${id}' artifact.maximumBytes must be greater than or equal to artifact.minimumBytes.`);
-    }
-    for (const [field, pattern] of [
-      ['allowedExtensions', /^\.[A-Za-z0-9]+$/],
-      ['allowedMediaTypes', /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/]
-    ]) {
-      const values = phase.artifact[field];
-      if (values != null && (!Array.isArray(values) || !values.length || new Set(values).size !== values.length || values.some((value) => typeof value !== 'string' || !pattern.test(value)))) {
-        throw new SingularityFlowError(`Phase '${id}' artifact.${field} must be a non-empty unique array of valid values.`);
-      }
-    }
-    if (phase.artifact.validation != null
-        && (!phase.artifact.validation || typeof phase.artifact.validation !== 'object' || Array.isArray(phase.artifact.validation))) {
-      throw new SingularityFlowError(`Phase '${id}' artifact.validation must be an object.`);
-    }
-    for (const field of ['requiredHeadings', 'forbiddenPlaceholders']) {
-      const values = phase.artifact.validation?.[field];
-      if (values != null
-          && (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !value.trim())
-            || new Set(values.map((value) => value.trim().toLocaleLowerCase('en-US'))).size !== values.length)) {
-        throw new SingularityFlowError(`Phase '${id}' artifact.validation.${field} must be an array of non-empty unique strings.`);
-      }
-    }
-    const template = phase.defaultTemplate;
-    if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
-    for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
-      const override = declaredCatalogValue(workType.templateOverrides, id);
-      if (override) assertTemplate(override, `Work type '${workTypeId}' template override for '${id}'`);
-    }
-    if (phase.kind !== 'skill' && !template
-        && !Object.values(definition.workTypes).some((type) => declaredCatalogValue(type.templateOverrides, id))) {
-      throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
-    }
-    const normalizedApproval = normalizeApprovalPolicy(
-      phase.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity
-    );
-    // Convergence is recognised by its artifact kind, so a renamed copy keeps these rules [E2G-001].
-    if (isConvergencePhase(phase)) assertConvergenceHumanApproval(normalizedApproval, `Phase '${id}'`);
-    normalizeSourceBoundary(phase.sourceBoundary, id);
-    const normalizedGeneration = normalizeGenerationPolicy(phase.generation, id);
-    if (isConvergencePhase(phase)
-        && (normalizedGeneration.requirement !== 'required'
-          || normalizedGeneration.defaultProducer !== 'deterministic'
-          || normalizedGeneration.allowedProducers.length !== 1
-          || normalizedGeneration.allowedProducers[0] !== 'deterministic')) {
-      throw new SingularityFlowError(
-        `Phase '${id}' is a convergence phase, so its generation must be required and allow only deterministic authorship; its reviewed artifact is a kernel-owned projection.`
-      );
-    }
-    const phaseMcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
-    const phaseRepairBudget = normalizeRepairBudget(phase.repairBudget, { phaseId: id, phases: Object.keys(definition.phases) });
-    if (phase.kind !== 'skill') {
-      phase.mcp = phaseMcp;
-      phase.repairBudget = phaseRepairBudget;
-    }
-    for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
-    repositoryTestsPolicy(phase.repositoryTests, `Phase '${id}'`);
-    normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
-    normalizeClarificationPolicy(phase.clarification);
-    // Validated here rather than only where it is consumed. A `specificationQuality` block reached
-    // resolution untouched by the phase spread below, so `mode: enfroce` would have loaded cleanly,
-    // resolved cleanly, and quietly enforced nothing — the exact failure this codebase keeps
-    // producing when a declared policy has no validator standing between it and its consumer.
-    if (phase.specificationQuality !== undefined) specificationQualityPolicy(phase.specificationQuality);
-    // `[SPK:CON-037]`: refused at load, because by the time a self-repeating loop is running there is
-    // no honest place to stop it. Both the phase's own keys and a nested `convergence:` block, since
-    // either would express the same thing.
-    assertNoAutonomousConvergence(phase, `Phase '${id}'`);
-    assertNoAutonomousConvergence(phase.convergence, `Phase '${id}' convergence`);
-    // A phase naming a set that does not exist would catalogue nothing and refuse nothing, so the
-    // reference is resolved at load rather than at the first publication that needed it.
-    if (phase.artifactSet !== undefined && !sets[phase.artifactSet]) {
-      throw new SingularityFlowError(`Phase '${id}' declares unknown artifact set '${phase.artifactSet}'.`);
-    }
-    if (phase.artifactSet !== undefined) {
-      const primary = path.posix.basename(posix(String(phase.artifact?.path ?? '')));
-      if (sets[phase.artifactSet].primary !== primary) {
-        throw new SingularityFlowError(
-          `Phase '${id}' artifact is '${primary}' but artifact set '${phase.artifactSet}' names '${sets[phase.artifactSet].primary}' as its primary member.`
-        );
-      }
-    }
-  }
-  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
-    const resolved = resolveWorkType(definition, workTypeId);
-    for (const consumer of resolved.phases) {
-      if (consumer.kind === 'skill') {
-        for (const input of consumer.skillBinding.bindingRefs.inputs) {
-          const source = resolved.phases.find((phase) => phase.id === input.phase);
-          const outputs = source?.kind === 'skill'
-            ? source.skillBinding.bindingRefs.outputs
-            : source ? [{ id: 'primary', path: source.artifact.path }] : [];
-          if (!outputs.some((output) => output.id === input.output && output.path === input.path)) {
-            throw new SingularityFlowError(
-              `Work type '${workTypeId}' skill phase '${consumer.id}' has a stale binding to '${input.phase}/${input.output}'.`,
-              { code: 'SKP_INPUT_UNKNOWN' }
-            );
-          }
-        }
-      }
-      if (consumer.testEvidenceFrom !== undefined) {
-        const producer = resolved.phases.find((phase) => phase.id === consumer.testEvidenceFrom);
-        if (!producer || producer.order >= consumer.order || !phaseRequiresCodeDelivery(producer)) {
-          throw new SingularityFlowError(
-            `Work type '${workTypeId}' phase '${consumer.id}' testEvidenceFrom must name an earlier code-delivery phase.`
-          );
-        }
-        if (consumer.writeScope !== 'artifact-only' || phaseRequiresCodeDelivery(consumer)
-            || !consumer.inputs.some((input) => input.phase === producer.id)) {
-          throw new SingularityFlowError(
-            `Work type '${workTypeId}' phase '${consumer.id}' must be artifact-only, non-code, and consume '${producer.id}' to review its passing test evidence.`
-          );
-        }
-      }
-      for (const input of consumer.inputs) {
-        const producer = resolved.phases.find((phase) => phase.id === input.phase);
-        if (!producer) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input references inactive phase '${input.phase}'.`);
-        if (producer.order >= consumer.order) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input '${input.phase}' must precede the consumer.`);
-        if (input.projection === 'approved-summary' && input.expansion === 'hash-bound-reference'
-          && definition.harnessImports.mode === 'off') {
-          throw new SingularityFlowError(
-            `Work type '${workTypeId}' phase '${consumer.id}' approved-summary input '${input.phase}' requires harnessImports.mode record or enforce for hash-bound expansion.`
-          );
-        }
-      }
-    }
-    const projectedInputs = resolved.phases.slice(1).map((phase) => ({
-      phase: phase.id,
-      summaries: phase.inputs.filter((input) => input.projection === 'approved-summary').length
-    }));
-    if (resolved.intelligence.agentBriefs === 'required') {
-      const missing = projectedInputs.filter((entry) => entry.summaries === 0).map((entry) => entry.phase);
-      if (missing.length) {
-        throw new SingularityFlowError(
-          `Work type '${workTypeId}' requires approved agent briefs, but phase(s) ${missing.join(', ')} have no approved-summary input.`
-        );
-      }
-    }
-    if (resolved.intelligence.agentBriefs === 'off') {
-      const projected = projectedInputs.filter((entry) => entry.summaries > 0).map((entry) => entry.phase);
-      if (projected.length) {
-        throw new SingularityFlowError(
-          `Work type '${workTypeId}' disables agent briefs, but phase(s) ${projected.join(', ')} use approved-summary inputs.`
-        );
-      }
-    }
-  }
-  return definition;
 }
 
 /**
@@ -1856,10 +866,6 @@ export async function pinnedInitializationStatus(root, pin) {
   };
 }
 
-function declaredCatalogValue(catalog, id) {
-  return catalog != null && Object.hasOwn(catalog, id) ? catalog[id] : undefined;
-}
-
 /**
  * A phase as one work type runs it: the work type's `phaseOverrides` entry laid over the shared
  * definition. Artifact, world-model and comparison settings merge key by key, and so do approval
@@ -1868,220 +874,6 @@ function declaredCatalogValue(catalog, id) {
  * same rule, so the copy runs exactly as the step it replaces.
  */
 export { mergePhaseOverride };
-
-/** `run`: a non-code step's submission also runs the repository's tests (verification/repository-tests.mjs). */
-function repositoryTestsPolicy(value, label) {
-  if (value == null) return 'off';
-  if (value !== 'run' && value !== 'off') throw new SingularityFlowError(`${label} repositoryTests must be run or off.`);
-  return value;
-}
-
-export function resolveWorkType(definition, workTypeId) {
-  const workType = declaredCatalogValue(definition.workTypes, workTypeId);
-  if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
-  // Some callers resolve already-loaded definitions directly. Refuse unsupported declarations
-  // here too, before any copied phase or override can become an effective Story contract.
-  for (const id of workType.phases) {
-    const source = declaredCatalogValue(definition.phases, id);
-    assertConfiguredPhaseProducer(source, `Phase '${id}'`, id, definition.version);
-    if (source?.kind === 'skill') {
-      assertNoSkillPhaseOverride(declaredCatalogValue(workType.phaseOverrides, id),
-        `Work type '${workTypeId}' phase '${id}' override`);
-      if (declaredCatalogValue(workType.templateOverrides, id) != null) {
-        throw new SingularityFlowError(`Work type '${workTypeId}' cannot give skill phase '${id}' a template override.`,
-          { code: 'SKP_PHASE_BINDING_INVALID' });
-      }
-    } else assertSupportedPhaseProducer(declaredCatalogValue(workType.phaseOverrides, id),
-      `Work type '${workTypeId}' phase '${id}' override`);
-  }
-  const reworkLoops = normalizeReworkLoops(workType.reworkLoops, {
-    workTypeId, phases: workType.phases
-  });
-  let phases = workType.phases.map((id, order) => {
-    const phase = structuredClone(declaredCatalogValue(definition.phases, id));
-    const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
-    const merged = mergePhaseOverride(phase, override);
-    // A catalog id resolves to its path here, so every downstream reader — generation, the
-    // designer, the catalog view — receives a path and never has to know which form was written.
-    const declaredTemplate = declaredCatalogValue(workType.templateOverrides, id) ?? phase.defaultTemplate;
-    const resolvedTemplate = phase.kind === 'skill' ? null
-      : resolveTemplate(definition, declaredTemplate, { label: `Work type '${workTypeId}' phase '${id}' template` });
-    const template = phase.kind === 'skill' ? null
-      : resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
-    const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
-    const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
-    const loopTargets = reworkLoops.filter((loop) => loop.from === id).map((loop) => loop.to);
-    if (loopTargets.length && approval.mode === 'none') {
-      throw new SingularityFlowError(`Work type '${workTypeId}' loop source '${id}' requires human approval.`);
-    }
-    if (loopTargets.length) {
-      const rejectTo = new Set([...approval.rejectTo, ...loopTargets]);
-      approval.rejectTo = [
-        ...workType.phases.filter((candidate) => rejectTo.has(candidate)),
-        ...approval.rejectTo.filter((candidate) => !workType.phases.includes(candidate))
-      ];
-    }
-    if (isConvergencePhase(merged)) {
-      assertConvergenceHumanApproval(
-        approval, `Work type '${workTypeId}' phase '${id}'`
-      );
-    }
-    const sourceBoundary = normalizeSourceBoundary(merged.sourceBoundary, id);
-    let generation = normalizeGenerationPolicy(merged.generation, id);
-    if (isConvergencePhase(merged)
-        && (generation.requirement !== 'required'
-          || generation.defaultProducer !== 'deterministic'
-          || generation.allowedProducers.length !== 1
-          || generation.allowedProducers[0] !== 'deterministic')) {
-      throw new SingularityFlowError(
-        `Work type '${workTypeId}' phase '${id}' is a convergence phase, so its generation must be required and allow only deterministic authorship.`
-      );
-    }
-    generation = pinCodeDeliveryTask({ ...merged, generation }, 'generation');
-    const mcp = normalizePhaseMcpPolicy(merged.mcp, { servers: definition.mcpServers, phaseId: id });
-    let repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });
-    const incomingLoop = reworkLoops.find((loop) => loop.to === id);
-    if (incomingLoop) {
-      const declaredBudget = { maxAttempts: incomingLoop.maxAttempts,
-        resetOnPhase: incomingLoop.resetOnPhase ?? null };
-      if (repairBudget && (repairBudget.maxAttempts !== declaredBudget.maxAttempts
-          || repairBudget.resetOnPhase !== declaredBudget.resetOnPhase)) {
-        throw new SingularityFlowError(`Work type '${workTypeId}' loop target '${id}' conflicts with its existing repairBudget.`);
-      }
-      repairBudget = declaredBudget;
-    }
-    const clarification = normalizeClarificationPolicy(merged.clarification);
-    const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
-    const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
-    // Read by people in the Studio and in explanations; a Story's pinned contract and prompts never carry it.
-    delete resolvedPhase.description;
-    assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
-    assertStepAuthoringSkill(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
-    // Pinned with each target's settings, so a running Story keeps the actions it started with. A step
-    // without actions keeps its existing resolved shape, so workflows that use none hash as before.
-    const integrations = normalizeIntegrations(definition.integrations);
-    const afterStep = normalizeStepActions(merged.afterStep, integrations, `Work type '${workTypeId}' phase '${id}'`);
-    if (afterStep.length) resolvedPhase.afterStep = pinStepActions(afterStep, integrations);
-    else delete resolvedPhase.afterStep;
-    // Off resolves to the shape a step always had, so workflows that ask for nothing hash as before.
-    if (repositoryTestsPolicy(merged.repositoryTests, `Work type '${workTypeId}' phase '${id}'`) === 'run') resolvedPhase.repositoryTests = 'run';
-    else delete resolvedPhase.repositoryTests;
-    return resolvedPhase;
-  });
-  const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
-  phases = phases.map((phase) => ({
-    ...phase,
-    defaultAgent: definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase.id))?.id ?? null,
-    inputs: phase.inputs.map((input) => ({ ...input, path: phaseById[input.phase]?.artifact?.path ?? null }))
-  }));
-  const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
-  documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
-  const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
-  const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
-  const tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
-  const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
-  const configuredSpec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
-  const plannedClaims = normalizePlannedClaimsPolicy(workType.plannedClaims, {
-    workTypeId, phases, spec: configuredSpec,
-    scopeOmission: (Array.isArray(workType.omits) ? workType.omits : []).find((entry) => entry?.responsibility === 'scope') ?? null
-  });
-  // An explicit topology opt-out is an acceptance-policy decision, not documentation beside a
-  // still-active gate. Resolve acceptance to off so every existing lifecycle consumer observes
-  // the decision even before it learns about the richer plannedClaims metadata.
-  // A work type with no code step has no plan to name tests in (disabled): enforcing acceptance there
-  // refused every clause at the final check (2026-10-28).
-  const spec = ['omitted', 'retired-opt-out', 'disabled'].includes(plannedClaims.mode)
-    ? { ...configuredSpec, acceptance: 'off' }
-    : configuredSpec;
-  // Validated against the resolved phases: whether a rule may skip or loop depends on each phase's
-  // effective approval mode and inputs, which a per-workflow override can change.
-  const decisions = normalizeDecisions(workType.decisions, {
-    workTypeId, phases, plannedClaims,
-    approvalAuthorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity)
-  });
-  const applicationReview = normalizeApplicationReview(workType.applicationReview);
-  if (applicationReview) {
-    if (applicationReview.mode === 'required' && applicationReview.surface === 'web' && !applicationReview.preview) {
-      throw new SingularityFlowError('A required web review needs its declared static preview entry and output directory before Story creation. Configure applicationReview.preview; no Story was created.', { code: 'ARA_PREVIEW_CONFIGURATION_REQUIRED' });
-    }
-    const registeredAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity);
-    for (const group of applicationReview.authorities ?? []) {
-      if (!Object.hasOwn(registeredAuthorities, group)) throw new SingularityFlowError(`Application review references unknown approval group '${group}'.`, { code: 'ARA_POLICY_INVALID' });
-    }
-    if (applicationReview.mode === 'required' && phases.some(phase => phaseRequiresCodeDelivery(phase) && phase.approval?.mode === 'none')) {
-      throw new SingularityFlowError('Required application review needs a code-phase completion boundary with configured approval authority. Configure that boundary before starting a Story; approval:none is not supported by this required profile.', { code: 'ARA_COMPLETION_ADAPTER_UNAVAILABLE' });
-    }
-    if (applicationReview.mode !== 'off' && !applicationReview.authorities?.length
-        && phases.some(phase => phaseRequiresCodeDelivery(phase) && !phase.approval?.authorities?.length)) {
-      throw new SingularityFlowError('Application review needs configured human authority. Name existing applicationReview.authorities or configure the code phase’s approvers before starting a Story.', { code: 'ARA_AUTHORITY_UNAVAILABLE' });
-    }
-  }
-  // Which responsibilities every route guarantees. Never throws: a work type with error findings
-  // stays readable, and Story start refuses it.
-  const obligationGraph = compileObligationGraph({
-    id: workTypeId, phases, decisions, reworkLoops, plannedClaims, omits: workType.omits
-  }, { authorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity) });
-  // A source review checks a step that defines the scope or plans the claims, whatever it is called.
-  const sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
-    workTypeId, phases: workType.phases,
-    reviewable: (id) => reviewKindForResponsibilities(obligationGraph.nodes?.find((node) => node.id === id)?.responsibilities) != null
-  });
-  if (definition.agentCatalog?.length) assertSourceReviewerAvailable(sourceReview,
-    definition.agentCatalog, { workTypeId });
-  return {
-    id: workTypeId,
-    phaseSemantics: { profile: applicationReview && applicationReview.mode !== 'off' ? ARA_PHASE_SEMANTICS_PROFILE : PHASE_SEMANTICS_PROFILE },
-    obligationGraph,
-    label: workType.label,
-    ...(reworkLoops.length ? { reworkLoops } : {}),
-    ...(decisions.length ? { decisions } : {}),
-    auto: normalizeAutoWorkTypePolicy(workType.auto, `Work type '${workTypeId}' auto`, workType.phases),
-    inputsMode: configuredInputsMode(definition),
-    approvalSecurity: structuredClone(definition.approvalSecurity),
-    approvalAuthorities: structuredClone(definition.approvalAuthorities),
-    sequenceGates,
-    contextPolicy,
-    tokenEconomy,
-    intelligence,
-    referenceRepositoryPolicy: normalizeReferenceRepositoryPolicy(
-      workType.references, `Work type '${workTypeId}' references`
-    ),
-    // The registered World Model was removed; Stories keep pinning its grounding, off.
-    worldModelGrounding: 'off',
-    // Architecture intent was removed; Stories keep pinning it, disabled, so their policy shape is unchanged.
-    architectureIntent: disabledArchitectureIntent(),
-    ledger: normalizeLedgerConfig(definition.ledger ?? {}),
-    // Pinned into the Story's resolution like every other policy `[SPK:REQ-110]`, so a later edit to
-    // the shared set cannot change what an in-flight Story owes.
-    artifactSets: normalizeArtifactSets(definition.artifactSets),
-    // Pinned into the Story's resolution like every other policy `[SPK:CON-039]`, so a Story keeps
-    // the constitution it started under while the configuration branch moves on.
-    constitution: constitutionPolicy(workType.constitution),
-    // `[SPK:REQ-130]`: the right bound for a small service is wrong for a monorepo, so it is
-    // configuration rather than a constant, and pinned per Story like every other policy.
-    analysisLimits: analysisLimits(definition.analysisLimits),
-    // A workflow can opt into stricter clause continuity without turning it on for legacy work
-    // types. In particular, a zero-clause spec-driven specification must not silently disable
-    // every downstream traceability and active-clause safeguard.
-    spec,
-    sourceReview,
-    plannedClaims,
-    ...(applicationReview ? { applicationReview } : {}),
-    codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
-    testRuntime: normalizeTestRuntime(definition.repositoryReadiness?.testRuntime),
-    ...(definition.testRecovery ? { testRecovery: normalizeTestRecoveryPolicy(definition.testRecovery) } : {}),
-    // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
-    // acquire more authority merely because shared configuration changed later.
-    faultRepair: normalizeFaultRepairPolicy(definition.faultRepair ?? {}),
-    harnessImports: normalizeHarnessImports(definition.harnessImports),
-    documents,
-    designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),
-    verification: normalizeVerificationPolicy(workType.verification, {
-      phases: workType.phases, visualStep: (phaseId) => isVisualVerificationPhase(phases.find((phase) => phase.id === phaseId))
-    }),
-    phases
-  };
-}
 
 export async function snapshotResolution(root, definition, resolved) {
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {

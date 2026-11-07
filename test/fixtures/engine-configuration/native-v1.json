@@ -1,0 +1,549 @@
+{
+  "baseline": "4316ab52f",
+  "functions": {
+    "validateDefinition": "1a78319f51d7ed9eba882ef117fee9c1e6f52297a43e1fd38d2aeda71d05c5c5",
+    "resolveWorkType": "5ce34412e51f82c7bfa0f3587b622c2d496492e66ed0553f254d3b753c6ef1a8"
+  },
+  "results": [
+    {
+      "name": "packaged-v2",
+      "status": "compiled",
+      "definition": "8c4c57e6e69a3d5e2b0bdaf3ae4364210fbd1238be9fc4c5d4f57c9bc5590f9b",
+      "resolution": "d6814be270fd5cee1291af6ac2627b1d54cfd6ed603e18b24efdf40cc1fea744",
+      "workTypes": 18
+    },
+    {
+      "name": "template-v3",
+      "status": "compiled",
+      "definition": "c1d0345cf83f62373a20c047096c4154d3a1d9ed6c691d0dd77135aaa182e298",
+      "resolution": "d6814be270fd5cee1291af6ac2627b1d54cfd6ed603e18b24efdf40cc1fea744",
+      "workTypes": 18
+    },
+    {
+      "name": "bootstrap-catalog",
+      "status": "refused",
+      "definition": "6f7036cba7168e301cf8cecd32a5160500f99fdc2a5fd8053eb78f84bae23534",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'figma' references unknown agent 'product-designer'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "retired-settings",
+      "status": "compiled",
+      "definition": "8c4c57e6e69a3d5e2b0bdaf3ae4364210fbd1238be9fc4c5d4f57c9bc5590f9b",
+      "resolution": "d6814be270fd5cee1291af6ac2627b1d54cfd6ed603e18b24efdf40cc1fea744",
+      "workTypes": 18
+    },
+    {
+      "name": "unknown-version",
+      "status": "refused",
+      "definition": "cc79ba2f00b81d635c7efc49e7d1a83f37c84bf88fa9fe7552bcd555ae6a1c74",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.",
+        "code": null,
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "executable": "singularity-flow",
+            "argv": [
+              "factory-reset",
+              "--dry-run"
+            ],
+            "label": "Inspect or continue the retained operation; recheck before retrying."
+          }
+        }
+      }
+    },
+    {
+      "name": "retired-personas",
+      "status": "refused",
+      "definition": "3288e7194b7ff9759a77406d7da90f54ebfedafd603a90ed550f0219ce09c49e",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Legacy role-prompt configuration is no longer supported. Define Agent Markdown under .github/agents.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "empty-workflows",
+      "status": "refused",
+      "definition": "71a4ed13c74ea4c5542f48cd44525d924a6792a252b9278b4955f85715edddcd",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "workflow.yml must define at least one work type.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "empty-phases",
+      "status": "refused",
+      "definition": "1ec49bf85508793bf9fc91af237297f381ce8a87fa2a9dadcf14cb692d83e3fd",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "workflow.yml must define phases.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "unsupported-producer",
+      "status": "refused",
+      "definition": "3036b427b07f3a76bc87e38693e15dc060d5ec6d2d85c68da929e919490a41ba",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' contains unsupported phase producer field 'kind'. This build supports template-backed phases only; skill phases require registered SKP lowering and a versioned reader.",
+        "code": "SKP_PHASE_PRODUCER_UNSUPPORTED",
+        "exitCode": 1,
+        "details": {
+          "location": "Phase 'specification'",
+          "field": "kind"
+        }
+      }
+    },
+    {
+      "name": "unknown-authoring-skill",
+      "status": "refused",
+      "definition": "6cec7647fd10b71e9c350a1023b4a73f6d6d335a2a4ae30f033982f9d8319f2b",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' names authoring skill 'sf-does-not-exist', which a step cannot choose. Choose one of: sf-phase, sf-code, sf-requirements, sf-design, sf-release, sf-document-intake, sf-scenario-check.",
+        "code": "PHASE_AUTHORING_SKILL_UNKNOWN",
+        "exitCode": 1,
+        "details": {
+          "location": "Phase 'specification'",
+          "authoringSkill": "sf-does-not-exist"
+        }
+      }
+    },
+    {
+      "name": "producer-authoring-conflict",
+      "status": "refused",
+      "definition": "80f3a604421aefd05f3735aac35e6f4706539c38139a26370a6e5ea333afded4",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'convergence' is deterministic convergence, which always uses /sf-converge, so it cannot name an authoring skill.",
+        "code": "PHASE_AUTHORING_SKILL_NOT_APPLICABLE",
+        "exitCode": 1,
+        "details": {
+          "location": "Phase 'convergence'",
+          "authoringSkill": "sf-phase"
+        }
+      }
+    },
+    {
+      "name": "unknown-commit-policy",
+      "status": "refused",
+      "definition": "f0b7e05b84982dd7ac8c924ea5aee71ca83d4ddafc2526da718b503d58816ee1",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "git.commitPolicy has unsupported fields: unknown.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        }
+      }
+    },
+    {
+      "name": "escaping-templates-root",
+      "status": "refused",
+      "definition": "37314ade92494e34fb05a3f6a8ed2334626c5c3ece89db9f1a8ef6b0aa12d5de",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "templatesRoot must be a repository-relative path without '..'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "catalog-template",
+      "status": "compiled",
+      "definition": "67d157f7a88f027488a2db1fd0cf41d1736b36a7920de93dfa40877ac1c018e6",
+      "resolution": "e13f5f5fd8d470abe62334bf0ca658bbf259851f4fe1f40c73d98cadb9be1138",
+      "workTypes": 18
+    },
+    {
+      "name": "missing-template",
+      "status": "refused",
+      "definition": "3004df874e2b0696868c5e45d6dcecc75a37e3d1bf4cb5ed12203f8ab2cf3f1a",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' defaultTemplate references template 'absent', which the catalog does not declare. No templates are declared.",
+        "code": "TEMPLATE_UNKNOWN",
+        "exitCode": 1,
+        "details": {
+          "id": "absent",
+          "known": []
+        }
+      }
+    },
+    {
+      "name": "unknown-sequence-gate",
+      "status": "refused",
+      "definition": "fa654033b4f8f9250563b1802ba0eab33fb7961863b0db7bd78115535f5a80a0",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "sequenceGates contains unknown gate 'unknown'. Allowed: completion, currentPhase, phaseStatus, freshGeneration, generationCommit, remoteGeneration, publicationPending, documentPhase, binding.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "soft-sequence",
+      "status": "compiled",
+      "definition": "bfe210e9df0d0edb6e7a6fa8e59839d1b40724452f0cbe2699db325c3d4de37b",
+      "resolution": "de26f03606e0c479f9bfb291c1db8a3b35dcdc4e58737f698a344995d7cddae8",
+      "workTypes": 18
+    },
+    {
+      "name": "invalid-readiness",
+      "status": "refused",
+      "definition": "c7f58bd0fa3b0b613191d1e90639c109f1efe29db32f2e40ade4e8fa3c3e822a",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "repositoryReadiness.structuredTests must be off, when-detected, required-for-code, or required.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-test-runtime",
+      "status": "refused",
+      "definition": "0428d37e10cccea3529ce4cc2b41c915023438c090ff000cdadfa3455931bb11",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "repositoryReadiness.testRuntime supports only nodeOptions: [--no-experimental-webstorage].",
+        "code": "TEST_RUNTIME_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "preview-composer",
+      "status": "refused",
+      "definition": "a83fbc6daf80620b3706fa36ecad24ac3c91f886718ecef6441446802d384b9d",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "tokenEconomy.mode must be off, observe, assist, enforce; got 'record'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "unknown-model",
+      "status": "refused",
+      "definition": "4a136334d6f2fd1d309032554b97b566a09e674bcd01fabb6428f255ef2c04de",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "models.providers.example.type 'unknown' is not supported.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "unknown-document-phase",
+      "status": "refused",
+      "definition": "686390eb7409972099b2b70fa46ca4b43ab635f541ca42a60148120e7011f984",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Document policy references unknown phase 'absent'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "unknown-workflow-phase",
+      "status": "refused",
+      "definition": "fb5272adaae5bae0e85dcd544c471ea74c8d650316e9070da4f13a5e9e7da77f",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Work type 'feature' references unknown phase 'absent'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "inactive-override",
+      "status": "refused",
+      "definition": "b7e8f261ef6f15525cc4534ee65d945b91fa4a36b6865813226ace2f5f9d8d73",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Work type 'feature' has an override for inactive phase 'absent'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-approval-authority",
+      "status": "refused",
+      "definition": "b9eef1a34d485909fe61bf09e24a795be839296bdfaa5835b9588729bc797e53",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' approval references unknown authority 'absent'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "convergence-cannot-waive",
+      "status": "refused",
+      "definition": "15ede9f926ad699a5bee918b91c6ed13a001b7c39d6b09ebdca609b1648a21da",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'convergence' approval must require an explicit human decision; approval modes 'none' and 'policy' cannot waive convergence.",
+        "code": "CONVERGENCE_HUMAN_APPROVAL_REQUIRED",
+        "exitCode": 1,
+        "details": {
+          "mode": "none"
+        }
+      }
+    },
+    {
+      "name": "convergence-cannot-author",
+      "status": "refused",
+      "definition": "484c5949b7db6432ad5f3e381e13c07f32481f3cb352235a7fcaaa7170964c8e",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'convergence' is a convergence phase, so its generation must be required and allow only deterministic authorship; its reviewed artifact is a kernel-owned projection.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-size",
+      "status": "refused",
+      "definition": "84e4ccb734764288bbb5a8f0f3b1aa6bd9821c4fb52d3e2a704283f70b39e955",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' artifact.maximumBytes must be a positive safe integer.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-heading",
+      "status": "refused",
+      "definition": "32ad4c23f75be518dd5a2fc68167c1330f5f93c67cb9286a23d938ab429260f6",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' artifact.validation.requiredHeadings must be an array of non-empty unique strings.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "description-only",
+      "status": "compiled",
+      "definition": "992832373c4c975fbdf6dd2eacb1342c471af3e6e5390cb1f1b4d31cf014730f",
+      "resolution": "d6814be270fd5cee1291af6ac2627b1d54cfd6ed603e18b24efdf40cc1fea744",
+      "workTypes": 18
+    },
+    {
+      "name": "unknown-artifact-set",
+      "status": "refused",
+      "definition": "0dc6f747d429c8057749ef4a94009d8a60bd999257b9d13227f2edb5cc112f8a",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'specification' declares unknown artifact set 'absent'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "duplicate-input",
+      "status": "refused",
+      "definition": "a7b7a3e75fa2d2ee0878690ba86ddd296559eac6dd547f09e28aa76eaa346f67",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'planning' inputs references 'specification' more than once.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "input-not-preceding",
+      "status": "refused",
+      "definition": "3b93161be7bc9748937dd7cc2fa259eb504fb399803c7aed0976bfe44a662ccf",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Work type 'spec-driven-standard' phase 'planning' input 'implementation' must precede the consumer.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "summary-projection",
+      "status": "compiled",
+      "definition": "7760731de82d0525a915fd22675559bec7b0e7fc21cd9dc6d0a9b5f2228ee68b",
+      "resolution": "41d60b0959bbc158af8e2501e4ab353f9f3579abfeb311a629237dc56c54d4fe",
+      "workTypes": 18
+    },
+    {
+      "name": "invalid-rework-direction",
+      "status": "refused",
+      "definition": "e9d5e4ac0cab3c3d98cc038bb7b3bb2e64ddc18dd2a05b99bd80d4c3589cfba5",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Work type 'feature' reworkLoops[0] must return from a later phase to an earlier phase.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-decision",
+      "status": "refused",
+      "definition": "f7190eb298584b030a0ce77638619fc017f5a746a9187d93469993877a54deef",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Work type 'feature' decisions[0].id must be a lowercase kebab-case id.",
+        "code": "WORKFLOW_DECISION_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "required-web-review-no-preview",
+      "status": "refused",
+      "definition": "0c371a9c1b3adc94739b78f941ad47efa85e8a5278ab6b062c61c77fefdb8fc2",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "A required web review needs its declared static preview entry and output directory before Story creation. Configure applicationReview.preview; no Story was created.",
+        "code": "ARA_PREVIEW_CONFIGURATION_REQUIRED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "unknown-workflow",
+      "status": "refused",
+      "definition": "8c4c57e6e69a3d5e2b0bdaf3ae4364210fbd1238be9fc4c5d4f57c9bc5590f9b",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Unknown work type 'absent'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "inherited-workflow",
+      "status": "refused",
+      "definition": "8c4c57e6e69a3d5e2b0bdaf3ae4364210fbd1238be9fc4c5d4f57c9bc5590f9b",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Unknown work type 'constructor'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "missing-reviewer",
+      "status": "refused",
+      "definition": "6f7036cba7168e301cf8cecd32a5160500f99fdc2a5fd8053eb78f84bae23534",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'figma' references unknown agent 'product-designer'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-visual-threshold",
+      "status": "refused",
+      "definition": "473a5c4596ceb125292c3f33ff24533b46f965eab200151bbdf13e87c8167b9a",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "verification.comparison enforce requires maxDifferingPixels or maxDifferingPixelRatio; without a threshold no comparison can ever fail.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-skill-phase",
+      "status": "refused",
+      "definition": "73825dee629ca55f3fb7cf762e2370453556927f675cd623e6c625c4162decd8",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'specification' contains uncompiled field 'defaultTemplate'.",
+        "code": "SKP_PHASE_BINDING_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "name": "unbound-template-resolution",
+      "status": "compiled",
+      "definition": "f00b33cfb896e0255383ab584037132df439eccda4a4c026f9701979e4f3e931",
+      "resolution": "04588bab5d71ea77ea106f0ece6f11c620e2fa2ff6421515161cc3a54e1b99a9",
+      "workTypes": 1
+    }
+  ],
+  "syntax": {
+    "assertSupportedPhaseProducer": "7c88327e4221940aaade6d6dfd59510284653af00df1b50cad6109f2821a2a40",
+    "assertAuthoringSkillValue": "d1f6c77abdf19a2982eac139d11248333ee0b6d9a0d591473ca92fb10a973bb2",
+    "assertStepAuthoringSkill": "d1bc958ca504de775e030c345e97989666d77c1b982daabb1f8f713881dffe67",
+    "assertConfiguredPhaseProducer": "110eb2baae6b837fe8595f34ae892925540f51727007834110fb3b73622ac817",
+    "assertNoSkillPhaseOverride": "0fe5ebdcfc357a35a9d052945ab18ec69a8b0a742947807f0191a36a8ffe671a",
+    "assertKnownKeys": "82d1736031621ccae9e67dd7784d07bebbdcc625a8c7c3464899cc602e4f162f",
+    "normalizeReferenceRepositoryPolicy": "4a4461ad0670f5add79cd579a4753e4667455b049ee12447efb4ef5055c038cf",
+    "definitionArtifactKind": "9326b70a9fe293fd86d69b8c5e9b4c1b8eb63ffd11113de869e15bbf277beb50",
+    "currentSpecificationDefinitionPhase": "03e2bea72b8f9c8b320bf10d891efe31a1bae391b440607b3146f07b3e1b0463",
+    "normalizePlannedClaimsPolicy": "5180de7f98f86374f4a8d307b7d0f320d56447ff9628d4f8872334b946823384",
+    "assertId": "248ceed4d8408eb7d0fce2c786d46f467c4bbe92bb2d3013cd7b2f530d80c2c5",
+    "assertRelative": "525debc641013cf6966e1b70bf79d7d0ab31c46122bf674f7b7e0e5cd926f818",
+    "assertTemplate": "f298da1bb60f3cb4be0b9d52f4e5a638a9ecc17110fb0e2d595d58547d0bb6d0",
+    "configuredInputsMode": "a1166a8cdc775065ccbb3f0bce9d140176871e84e06e4f76dfd5efe73fb12c30",
+    "normalizeSequenceGates": "6bc5f59281431a420269e852efe3c21df95a60317afb31846e097d0ca77d8bc2",
+    "exactStrings": "ba5107a34d434260a2c38c6cd00288fca7fbf2038c32f405436907ec04e2a6e4",
+    "applyWorkflowCompatibility": "00a5073a21f62a2227bbba41da2a73d82b5024a13bafb84bdfca2f08d33893d3",
+    "normalizePhaseInputs": "e2e7a3fd9709cae0c11b66a876f1e8bb96fdc73df5b548be17c66aa84172a52b",
+    "normalizeGenerationPolicy": "e4cf7dc4de4c0b82827f13a3d530715d0b89f00cd75251776e54edcab07e1473",
+    "assertConvergenceHumanApproval": "789f1e7e08e4de8c0d71fa44901a9b55ca4d81b2dfab6c0470e18ff6150ec79b",
+    "normalizeDesignSourcePolicy": "dd77ae5a0b3a15259709ffd7ed2340cce0ec68ce5bf3ac6276d39f19999acc5c",
+    "normalizeVerificationPolicy": "a448c74873ac3e418c51a10747aac4f65670567f2450f9abd321fb2f572c83d5",
+    "normalizeRepositoryReadinessPolicy": "1ed4f8c6591b424ab400c2b2b4a418b6dabd0bfc72f134772d77dbaa0f9301ac",
+    "normalizePlanning": "ff4b7493290c94d481c94bdf303af961dfdf83dc716ba574496d135b4e731d4f",
+    "normalizeModelProviders": "28921b2dc654dc307eb7771ca1bef47a52fae7c61e260a17fb600eef9a44909e",
+    "validateDefinition": "2af7c91fb1e4a3b50e03c1b6e6a40651e93c5bd8682754bba82b62b901b30698",
+    "declaredCatalogValue": "ba8072485f0f5a31c9aa7a6709a21975f12896861ee9bd98770ee8b454291a41",
+    "repositoryTestsPolicy": "ef696eb36d72be2ad2b804256aed58a0f4f2388f193984a54f8b34d25491de7d",
+    "resolveWorkType": "fd7ead968863afd120f8e13e5a794633a61349dc9859fec8f0367e04400abd16"
+  },
+  "runtimeBoundary": "    // Opt-in policy validation must not add hook/profile compilers to every ordinary read bundle.\n    // This is trusted, packaged code, never executable repository configuration.\n    if (!process.features.require_module) throw new SingularityFlowError('Repository commit policy requires the SFlow-managed runtime or Node 22.12 or later.', {code: 'RCP_RUNTIME_UNSUPPORTED'});\n    const policyModule = path.join(PACKAGE_ROOT, 'src/repository-commit-policy/policy.mjs');\n    definition.git.commitPolicy = createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule).normalizeCommitPolicy(definition.git.commitPolicy);"
+}

@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, draft and prepublication inspection, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Public embedding and installed authority cutover remain later gates |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port and native SQLite adapter implemented and Mac-qualified; public package, namespace-backed domain operations and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter and installable explicit-port SDK preview implemented; namespace-backed domain operations and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -129,6 +129,11 @@ The [application/database boundary](APPLICATION-NAMESPACE-ADAPTER.md) now uses t
 one shared protocol coordinator. A versioned host journal port supports application persistence;
 the SQLite implementation provides actual atomic commits, durable project heads, native crash
 recovery and original-receipt reconciliation. It introduces no installed-authority selection.
+
+The [installable SDK preview](ENGINE-SDK-PACKAGE.md) packages that boundary with the pure engine,
+explicit storage entries and registry-derived declarations. Its packed artifact is qualified in
+an external Node consumer. Namespace-backed lifecycle ports and complete cross-agent Story
+execution remain distinct Phase 7 gates; no installed Git project is migrated by the package.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.

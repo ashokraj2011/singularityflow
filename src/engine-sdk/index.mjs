@@ -20,6 +20,13 @@ import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelectio
 import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phase-preparation.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
+/** Convenience names are aliases for the registry, never independent execution paths. */
+export const ENGINE_HELPERS = Object.freeze({
+  publishPhase: 'phase.publish', beginPhase: 'phase.begin', preparePhase: 'phase.prepare',
+  rolloverPhase: 'phase.rollover', prepublishPhase: 'phase.prepublish', draftCheckPhase: 'phase.draft-check',
+  submitPhase: 'phase.submit', submitConvergence: 'convergence.submit', approvePhase: 'phase.approve',
+  recordDecisions: 'decisions.record', advanceConvergence: 'convergence.advance'
+});
 const PUBLISH_FIELDS = Object.freeze([
   'workId', 'phaseId', 'authored', 'channel', 'from', 'usageFile', 'usage', 'externalAiUse', 'changeOrigins'
 ]);
@@ -1058,16 +1065,7 @@ export function createEngine({ ports } = {}) {
     });
     return invoke(() => definition.execute(port, input, signal, definition, {executeOperation:execute}));
   };
-  return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
-    run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
-    beginPhase: (inputs, options) => execute('phase.begin', inputs, options),
-    preparePhase: (inputs, options) => execute('phase.prepare', inputs, options),
-    rolloverPhase: (inputs, options) => execute('phase.rollover', inputs, options),
-    prepublishPhase: (inputs, options) => execute('phase.prepublish', inputs, options),
-    draftCheckPhase: (inputs, options) => execute('phase.draft-check', inputs, options),
-    submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
-    submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options),
-    approvePhase:(inputs,options)=>execute('phase.approve',inputs,options),
-    recordDecisions:(inputs,options)=>execute('decisions.record',inputs,options),
-    advanceConvergence:(inputs,options)=>execute('convergence.advance',inputs,options) });
+  return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS, run: execute,
+    ...Object.fromEntries(Object.entries(ENGINE_HELPERS).map(([helper, operation]) =>
+      [helper, (inputs, options) => execute(operation, inputs, options)])) });
 }

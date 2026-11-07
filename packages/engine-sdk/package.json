@@ -1,0 +1,20 @@
+{
+  "name": "@singularity-flow/engine-sdk",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "description": "Explicit-port SFlow engine and opt-in namespace storage for Node hosts.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "license": "UNLICENSED",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" },
+    "./errors": { "types": "./dist/errors.d.mts", "import": "./dist/errors.mjs" },
+    "./namespace": { "types": "./dist/namespace.d.mts", "import": "./dist/namespace.mjs" },
+    "./storage/filesystem": { "types": "./dist/storage/filesystem.d.mts", "import": "./dist/storage/filesystem.mjs" },
+    "./storage/sqlite": { "types": "./dist/storage/sqlite.d.mts", "import": "./dist/storage/sqlite.mjs" },
+    "./storage/application": { "types": "./dist/storage/application.d.mts", "import": "./dist/storage/application.mjs" },
+    "./storage/journal": { "types": "./dist/storage/journal.d.mts", "import": "./dist/storage/journal.mjs" },
+    "./package.json": "./package.json"
+  }
+}

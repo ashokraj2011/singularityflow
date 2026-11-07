@@ -44,6 +44,15 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
   }
 });
 
+test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
+  const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
+  const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace');
+  const entries = ['index', 'errors', 'namespace', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const report = await inspectPureModuleGraph({ root: packageRoot, entries,
+    allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...entries] });
+  assert.deepEqual(report.problems, []);
+});
+
 test('only explicit storage adapters consume namespace contracts outside their pure directory', async () => {
   const directory = path.join(packageRoot, 'src/sda/namespace') + path.sep;
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK

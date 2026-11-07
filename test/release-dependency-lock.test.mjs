@@ -237,14 +237,16 @@ test('source lock resolves workspace-local and nested dependencies and checks ex
 test('committed source lock passes npm clean-install validation offline in a fresh directory', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-lock-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  await mkdir(path.join(directory, 'apps', 'vscode'), { recursive: true });
-  for (const relative of ['package.json', 'package-lock.json', '.npmrc', 'apps/vscode/package.json']) {
+  const sourceManifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  for (const relative of ['package.json', 'package-lock.json', '.npmrc', ...sourceManifest.workspaces.map(workspace => `${workspace}/package.json`)]) {
+    await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
     await copyFile(path.join(root, relative), path.join(directory, relative));
   }
   const before = await readFile(path.join(directory, 'package-lock.json'), 'utf8');
   const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'));
-  const workspace = JSON.parse(await readFile(path.join(directory, 'apps/vscode/package.json'), 'utf8'));
-  assert.deepEqual(workspaceDependencyLockProblems(manifest, JSON.parse(before), { 'apps/vscode': workspace }), []);
+  const workspaces = Object.fromEntries(await Promise.all(manifest.workspaces.map(async location =>
+    [location, JSON.parse(await readFile(path.join(directory, location, 'package.json'), 'utf8'))])));
+  assert.deepEqual(workspaceDependencyLockProblems(manifest, JSON.parse(before), workspaces), []);
   const launch = resolvePlatformProcess('npm', [
     'ci', '--dry-run', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'
   ]);

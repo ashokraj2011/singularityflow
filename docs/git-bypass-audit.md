@@ -319,3 +319,9 @@ Engine approval extraction moves two existing local Git observations from `state
 exact submitted commit's retained receipt read. Their fixed arguments, environments, bounds and
 refusals are unchanged. The aggregate loses exactly those two sites; the extracted native owner
 gains them. Only those baseline entries change, and no process owner is exempted or permission added.
+
+The SDK workspace adds one fixed `engine-sdk:build` package script. It enters the local
+`scripts/build-engine-sdk.mjs` bundler, which has no Git, process-launch, provider or installation
+operation. Its inputs are restricted to the owned SDK/kernel/contracts and explicit storage
+adapters. The root package-script baseline changes from 67 to 68 for this reviewed build entry;
+no production Git call or exempted process owner is added.

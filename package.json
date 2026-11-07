@@ -37,6 +37,7 @@
     "distribution/",
     "runtime/",
     "docs/",
+    "packages/engine-sdk/README.md",
     "README.md",
     "README-AD-HOC-WORK.md",
     "HELP.md",
@@ -73,7 +74,8 @@
     "benchmarks/fos/"
   ],
   "workspaces": [
-    "apps/vscode"
+    "apps/vscode",
+    "packages/engine-sdk"
   ],
   "scripts": {
     "test": "npm run test:all",
@@ -95,6 +97,7 @@
     "test:no-model": "node --test test/model-boundary.test.mjs test/no-model-operations.test.mjs test/no-model-lifecycle.test.mjs",
     "test:manual-authorship": "node --test test/manual-authorship.test.mjs test/manual-import.test.mjs",
     "check": "node scripts/check.mjs",
+    "engine-sdk:build": "node scripts/build-engine-sdk.mjs",
     "audit:skills": "node scripts/audit-skills.mjs",
     "audit:prompt-sizes": "node scripts/prompt-size-audit.mjs",
     "audit:copilot": "node scripts/native-copilot-audit.mjs",

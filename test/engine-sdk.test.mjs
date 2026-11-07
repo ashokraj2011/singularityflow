@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEngine, ENGINE_CONTRACT, ENGINE_OPERATIONS } from '../src/engine-sdk/index.mjs';
+import { createEngine, ENGINE_CONTRACT, ENGINE_OPERATIONS, ENGINE_HELPERS } from '../src/engine-sdk/index.mjs';
 import { SingularityFlowError } from '../src/foundation/failures.mjs';
 
 function fixture({ retained = null, phase = null, hook = () => {} } = {}) {
@@ -21,6 +21,20 @@ function fixture({ retained = null, phase = null, hook = () => {} } = {}) {
   publication.notice = event => { calls.push(event.code); };
   return {engine:createEngine({ports:{publication}}), publication, calls, published};
 }
+
+test('every convenience helper enters the same registered port as run', async () => {
+  assert.equal(Object.isFrozen(ENGINE_HELPERS), true);
+  for (const [helper, id] of Object.entries(ENGINE_HELPERS)) {
+    const definition = ENGINE_OPERATIONS.find(operation => operation.id === id);
+    assert.ok(definition, `${helper} names a registered operation`);
+    const seen = [], sentinel = new Error(id);
+    const port = Object.fromEntries(definition.stages.map(stage => [stage, async () => { seen.push(stage); throw sentinel; }]));
+    const engine = createEngine({ ports: { [definition.port]: port } });
+    await assert.rejects(engine[helper]({}), error => error === sentinel);
+    await assert.rejects(engine.run(id, {}), error => error === sentinel);
+    assert.deepEqual(seen, [definition.stages[0], definition.stages[0]], `${helper} has no second coordinator`);
+  }
+});
 
 test('the versioned registry and typed helper execute exactly one publication stage sequence', async () => {
   const a=fixture(), b=fixture();

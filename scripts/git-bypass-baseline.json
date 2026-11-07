@@ -1762,9 +1762,9 @@
     },
     "package.json": {
       "counts": {
-        "package-script": 67
+        "package-script": 68
       },
-      "digest": "57ab2d4ee522a49fc053a1f43507502c085f09f11a078466554fcd7006a0af9c"
+      "digest": "e66fecfdcfb620562e30e77a72980d535e96486d4d69b5e98a2fa217a6cfc9dd"
     },
     "apps/vscode/package.json": {
       "counts": {

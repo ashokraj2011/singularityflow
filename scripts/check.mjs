@@ -102,6 +102,7 @@ function parseFrontmatter(text, file) {
 
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
 const vscodeJson = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
+const engineSdkJson = JSON.parse(await readFile(path.join(root, 'packages', 'engine-sdk', 'package.json'), 'utf8'));
 const pluginJson = JSON.parse(await readFile(path.join(root, 'plugin', 'plugin.json'), 'utf8'));
 const marketplaceJson = JSON.parse(await readFile(path.join(root, '.github', 'plugin', 'marketplace.json'), 'utf8'));
 const lockJson = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
@@ -148,10 +149,11 @@ for (const [name, version] of Object.entries({
     label: 'root release package',
     requireBundled: true,
     registryEntries: 'all',
-    allowedLinks: ['node_modules/singularity-flow-vscode']
+    allowedLinks: ['node_modules/singularity-flow-vscode', 'node_modules/@singularity-flow/engine-sdk']
   })) fail(problem);
   for (const problem of workspaceDependencyLockProblems(packageJson, lockJson, {
-    'apps/vscode': vscodeJson
+    'apps/vscode': vscodeJson,
+    'packages/engine-sdk': engineSdkJson
   })) fail(problem);
   for (const problem of releaseDependencyLockProblems(npmPackPackageJson, npmPackLockJson, {
     label: 'npm-pack toolchain',

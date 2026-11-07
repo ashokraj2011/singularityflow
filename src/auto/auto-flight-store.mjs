@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
-import { automaticApprovalDisposition } from '../lifecycle-transitions.mjs';
+import { automaticApprovalDisposition } from '../kernel/lifecycle-transitions.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { subjectLockPath, withSubjectLock } from '../subject-lock.mjs';
 import { nowIso, run, SingularityFlowError } from '../util.mjs';

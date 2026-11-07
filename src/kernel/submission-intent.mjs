@@ -1,18 +1,12 @@
 /** Submission preflight policy. No host discovery, I/O, provider or command renderer. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { isConvergencePhase } from './phase-policy.mjs';
-import { decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, recordedDecisionValues } from './decision-inputs.mjs';
+import { submittedDecisionInputPlan } from './lifecycle-transitions.mjs';
 
 export function submissionDecisionIntent(workflow, phase, values = {}) {
   const supplied = Object.keys(values).length > 0;
-  const decision = decisionFedBy(workflow, phase.id);
   if (phase.status === 'awaiting_approval') return { ignoredDecisionValues: supplied };
-  if (!decision && supplied) throw new SingularityFlowError(
-    `Phase '${phase.id}' feeds no decision that records values; submit it without --decision.`, { code: 'DECISION_INPUT_UNKNOWN' });
-  if (decision && supplied) normalizeDecisionInputValues(decision, values);
-  else if (decision && !recordedDecisionValues(phase, decision)) throw new SingularityFlowError(
-    `Decision '${decision.label}' after '${phase.id}' reads values this submission must record. Submit with ${decisionInputsHint(decision)}.`,
-    { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id, inputs: decision.inputs } });
+  submittedDecisionInputPlan(workflow,phase,values);
   return { ignoredDecisionValues: false };
 }
 

@@ -15,7 +15,7 @@
  */
 import path from 'node:path';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
-import { completionPhaseOf } from '../lifecycle-transitions.mjs';
+import { completionPhaseOf } from '../kernel/lifecycle-transitions.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from '../specifications.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { obligationId } from './vocabulary.mjs';

@@ -773,7 +773,7 @@ export async function startStory(root, {
       );
     }
     const resumedAgent = agent || resumedWorkflow.phases?.[resumedWorkflow.currentPhase]?.defaultAgent;
-    if (resumedWorkflow.status === 'cancelled') throw (await import('./lifecycle-transitions.mjs')).cancelledStoryRefusal(resumedWorkflow);
+    if (resumedWorkflow.status === 'cancelled') throw (await import('./phase-transition-routes.mjs')).cancelledStoryRefusal(resumedWorkflow);
     if (!definition.agents?.[resumedAgent]) {
       throw new SingularityFlowError(`Story phase '${resumedWorkflow.currentPhase}' has no valid agent.`);
     }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { completionPhaseOf } from './lifecycle-transitions.mjs';
+import { completionPhaseOf } from './kernel/lifecycle-transitions.mjs';
 
 import { canonicalJson } from './records.mjs';
 import { raiseUpstreamIssueRoute, reopenAuthorityStep } from './upstream-routes.mjs';

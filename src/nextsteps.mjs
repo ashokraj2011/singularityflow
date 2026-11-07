@@ -10,7 +10,7 @@ import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
 import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { modelOffCause, operationContext } from './operation-context.mjs';
 import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
-import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
+import { nextPhaseAfterSkillAmendment } from './kernel/lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';

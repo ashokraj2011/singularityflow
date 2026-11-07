@@ -13,7 +13,8 @@ import { gitDir } from './git.mjs';
 import { effectivePhasePublicationProducer, phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { operationContext } from './operation-context.mjs';
-import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
+import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './kernel/lifecycle-transitions.mjs';
+import { cancelledStoryRefusal } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 
 export { phaseNeedsGeneration };

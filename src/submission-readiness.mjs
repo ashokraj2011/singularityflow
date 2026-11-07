@@ -8,7 +8,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
 import { storyRequiresStepActions } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
-import { completionPhaseOf } from './lifecycle-transitions.mjs';
+import { completionPhaseOf } from './kernel/lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { approvalCheckLines, blockingCommitLines, owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
 import { blockingHolds, sheetRoute } from './step-sheet-route.mjs';

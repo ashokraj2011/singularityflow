@@ -1,0 +1,19 @@
+{
+  "baseline": "80324fbe1",
+  "functions": {
+    "phaseIndex": "dec601c5ef6982168f126d80e8c4aafb899dda14668445eb93df5db9c9ec8dfc",
+    "nextPhaseAfterSkillAmendment": "38ef92143cc18dea95e152935fcc9321d276cdd9cbc6aacb40d2a7882457a6f4",
+    "advanceCompletedPhase": "846d45ca1e14f63b35ccbfbda8d53d043974adf62e3f3929ced15ed31e0f9b07",
+    "skipPhaseRange": "f90618f69e2a6334038cb95499326867004787ae9716d87c9776e4be0fa59a40",
+    "resetPhaseForRework": "cc59c5677a9ee02b1b9e699d75fa5285d1a78e0b2f771ce9dc709720c316d630",
+    "resetPhaseRangeForRework": "72d7cb1e3cc564d127ddcb13433dbe175cc32b8999b47152411666eca37c6bfb",
+    "reopenPhaseRange": "5f1d96cba901ab2b789af618c72eaba54d2466f7b59af776132142dbf19f160f",
+    "resetDecisionRounds": "91e1bb713408bb66a8fc583b90c7f3fffb81b7aca93d3d5a281ca86187fbeade",
+    "clearDecisionState": "62238ff91241418768a4bca79ec9f85cc456cb85cc38c53c9ad7f9e23a1d41d7",
+    "clearApprovalDisposition": "fe113dedd3c0d11f14f64dab76cbfb5d3cc27a9127dd02ae820966528d212508",
+    "automaticApprovalDisposition": "a380646cabf17a9a972189707f62e6f7e46c594d99b846753cc8941dcb7f0709",
+    "completionPhaseOf": "9b9f1cc9e74a6494706e9e0439246d8fb0d082697e27ba9488a2cd353df722b2",
+    "upcomingAfterOutcome": "3429ac27b6af4d47bb5d6616f9bb920bff3847867dddbabc0952424e9c818069",
+    "resolvePhaseChangeRequests": "5b4619cc9335b47f119037f7e9eefaa4b70d946ccdb8fe47f11895fb9b04096e"
+  }
+}

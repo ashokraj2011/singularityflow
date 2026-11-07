@@ -8,7 +8,7 @@ import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, run, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
-import { resetPhaseRangeForRework } from './lifecycle-transitions.mjs';
+import { resetPhaseRangeForRework } from './kernel/lifecycle-transitions.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { downloadJiraAttachment } from './jira.mjs';
 import { epicSourceById, pinnedStorySource, readStoryEpicSource, storyEpicSources } from './story-epic-sources.mjs';

@@ -6,7 +6,7 @@ import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequ
 import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
   remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeReworkLoops, normalizeRepairBudget, repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';
-import { advanceCompletedPhase, reopenPhaseRange } from './lifecycle-transitions.mjs';
+import { advanceCompletedPhase, reopenPhaseRange } from './kernel/lifecycle-transitions.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import path from 'node:path';

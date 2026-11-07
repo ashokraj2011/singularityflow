@@ -930,7 +930,7 @@ async function presenceRefusals(root, workflow, phase, actor, gateHolds, depende
  * terminalReadinessOnce). An approval that does not reach the step's minimum ends nothing yet.
  */
 async function endingRefusals(root, workflow, phase, checked, readEnding) {
-  const { completionPhaseOf } = await import('./lifecycle-transitions.mjs');
+  const { completionPhaseOf } = await import('./kernel/lifecycle-transitions.mjs');
   if (completionPhaseOf(workflow)?.id !== phase.id || (checked.decision && !checked.reached)) return [];
   try {
     const { terminalReadinessOnce, terminalRefusalMessage } = await import('./evidence/terminal.mjs');

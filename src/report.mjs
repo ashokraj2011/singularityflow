@@ -1,5 +1,5 @@
 import { nowIso } from './util.mjs';
-import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
+import { automaticApprovalDisposition } from './kernel/lifecycle-transitions.mjs';
 import { estimatePremiumRequests } from './copilot-activity.mjs';
 
 const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected', 'phase-approval-waived']);

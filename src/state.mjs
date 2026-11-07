@@ -125,9 +125,11 @@ import { evaluateExternalCommandForModelMode, externalCommandText, normalizeExte
 import { assertProducerAllowed, normalizeAuthorshipOptions } from './kernel/phase-policy.mjs';
 import { buildGenerationAuthorship } from './kernel/phase-policy.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
-import { advanceCompletedPhase, cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange, resetDecisionRounds, resetPhaseRangeForRework } from './lifecycle-transitions.mjs';
-import { assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, describeOutcome, normalizeDecisionInputValues, pendingDecisionRecord, recordedDecisionValues, resolveDecisionChoice } from './workflow-decisions.mjs';
-export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
+import { advanceCompletedPhase, clearApprovalDisposition, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange, resetDecisionRounds, resetPhaseRangeForRework, upcomingAfterOutcome, resolvePhaseChangeRequests } from './kernel/lifecycle-transitions.mjs';
+import { cancelledStoryRefusal } from './phase-transition-routes.mjs';
+import { submittedDecisionInputPlan, applySubmittedDecisionInput } from './kernel/lifecycle-transitions.mjs';
+import { assertChoiceKeepsDependencies, describeOutcome, pendingDecisionRecord, resolveDecisionChoice } from './workflow-decisions.mjs';
+export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './kernel/lifecycle-transitions.mjs';
 
 export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs';
@@ -5312,55 +5314,9 @@ export async function previewTestingRepair(root, config, workflow) {
  * phase that is reopened records them again, because `resetPhaseForRework` clears them.
  */
 function recordSubmittedDecisionInputs(workflow, phase, supplied, actor) {
-  const decision = decisionFedBy(workflow, phase.id);
-  const given = supplied && Object.keys(supplied).length ? supplied : null;
-  if (!decision) {
-    if (given) {
-      throw new SingularityFlowError(`Phase '${phase.id}' feeds no decision that records values; submit it without --decision.`,
-        { code: 'DECISION_INPUT_UNKNOWN' });
-    }
-    return null;
-  }
-  if (!given) {
-    if (recordedDecisionValues(phase, decision)) return phase.decisionInputs;
-    throw new SingularityFlowError(
-      `Decision '${decision.label}' after '${phase.id}' reads values this submission must record. Submit with ${decisionInputsHint(decision)}.`,
-      { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id, inputs: decision.inputs } }
-    );
-  }
-  phase.decisionInputs = {
-    schemaVersion: 1,
-    decision: decision.id,
-    values: normalizeDecisionInputValues(decision, given),
-    recordedAt: nowIso(),
-    recordedBy: actorKey(actor)
-  };
-  return phase.decisionInputs;
-}
-
-/** The phase a completion will start: the decision's target, or the linear successor. */
-function upcomingAfterOutcome(workflow, phase, outcome) {
-  if (!outcome || outcome.kind === 'next') return nextPhaseAfterSkillAmendment(workflow, phase);
-  return outcome.kind === 'forward' ? workflow.phases[outcome.target] ?? null : null;
-}
-
-function resolvePhaseChangeRequests(workflow, phase, { at, actor, completionDisposition = null }) {
-  const resolved = (workflow.changeRequests ?? []).filter((request) =>
-    request.status === 'open' && request.targetPhase === phase.id);
-  for (const request of resolved) {
-    request.status = 'resolved';
-    request.resolvedAt = at;
-    request.resolvedBy = actor;
-    request.resolution = {
-      phase: phase.id,
-      generation: phase.generation,
-      artifactSha256: (phase.artifacts ?? []).map((artifact) => ({
-        path: artifact.path, sha256: artifact.sha256 ?? null
-      })),
-      ...(completionDisposition ? { completedAt: at, completionDisposition } : { approvalDecisionAt: at })
-    };
-  }
-  return resolved.map((request) => request.id);
+  const plan = submittedDecisionInputPlan(workflow, phase, supplied);
+  if (plan.kind !== 'record') return plan.record;
+  return applySubmittedDecisionInput(phase, plan, { at: nowIso(), actorId: actorKey(actor) });
 }
 
 /** What rework retained after a completion, or which phase runs again and why [E2G-021]. */

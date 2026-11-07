@@ -41,7 +41,7 @@ import { evaluateWitnessMappingReview } from '../wel-review.mjs';
 import { reviewBindings } from '../implementation-bindings.mjs';
 import { phaseUpstream } from '../phase-upstream.mjs';
 import { decisionOutcome, describeOutcome } from '../workflow-decisions.mjs';
-import { clearApprovalDisposition } from '../lifecycle-transitions.mjs';
+import { recordPhaseApprovalState } from '../kernel/lifecycle-transitions.mjs';
 import { retainUnchangedPhases } from '../phase-retention.mjs';
 import { saveWorkflow } from '../story-state-write.mjs';
 import { contextBoundaryHandoff } from '../context-policy.mjs';
@@ -799,14 +799,10 @@ export async function approveNativePhase(root, config, workflow, options = {}, c
   const checked = await evaluateNativeApproval(root, config, workflow, { ...options, preview: false }, collaborators);
   const { phase, session, key, decision, reached, approvalOutcome } = checked;
   config = checked.config;
-  phase.approvals.push(decision);
-  // A person decides this phase now, so an automatic completion recorded before (by a build that
-  // kept it across a reopen) no longer describes it.
-  clearApprovalDisposition(phase);
+  recordPhaseApprovalState(phase,decision,{key,reached});
   let approvalPending = null;
   let retention = null;
   if (reached) {
-    phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
     closeWorkInterval(workflow, {
       phaseId: phase.id,
       at: decision.at,

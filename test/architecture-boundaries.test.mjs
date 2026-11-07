@@ -150,7 +150,7 @@ test('Git compatibility composes existing owners without introducing another per
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
-    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs','src/commands/status-read.mjs',
+    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs','src/commands/status-read.mjs','src/lifecycle-transitions.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
     'src/commands/shared/story-draft-transaction.mjs','src/commands/shared/convergence-preparation-state.mjs'].map(file=>path.join(packageRoot,file)));
@@ -251,6 +251,23 @@ test('guide and handoff hosts render shared kernel decisions and the CLI uses th
   const transition=presentation.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='convergenceTransitionRoute');
   assert.match(transition.getText(presentation),/convergenceTransitionPlan\(/);
   assert.doesNotMatch(transition.getText(presentation),/generationPublications|record\.sha256|recorded =/);
+});
+
+test('native submission and approval keep admission outside shared kernel state mutations',async()=>{
+  const read=relative=>readFile(path.join(packageRoot,relative),'utf8');
+  const submission=await read('src/engine-compatibility/submission-transition.mjs');
+  assert.match(submission,/beginPhaseSubmission\(phase, nowIso\(\)\)/);
+  assert.match(submission,/applyPhaseSubmissionDisposition\(phase, \{reviewableFailure,applicationReviewPending,waiver\}\)/);
+  assert.doesNotMatch(submission,/phase\.status\s*=(?!=)|phase\.approvalWaiver\s*=/);
+  const approvalSource=await read('src/engine-compatibility/approval-transition.mjs');
+  const ast=ts.createSourceFile('approval-transition.mjs',approvalSource,ts.ScriptTarget.Latest,true);
+  const approval=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='approveNativePhase');
+  assert.match(approval.getText(ast),/recordPhaseApprovalState\(phase,decision,\{key,reached\}\)/);
+  assert.doesNotMatch(approval.getText(ast),/phase\.approvals\.push\(|phase\.status\s*=(?!=)/);
+  const shim=ts.createSourceFile('lifecycle-transitions.mjs',await read('src/lifecycle-transitions.mjs'),ts.ScriptTarget.Latest,true);
+  assert.ok(shim.statements.every(node=>ts.isExportDeclaration(node)));
+  const core=await read('src/kernel/lifecycle-transitions.mjs');
+  assert.doesNotMatch(core,/singularity-flow|copilot|readFile|saveWorkflow/);
 });
 
 test('rejection host uses the registry and only the compatibility aggregate calls its native transition', async () => {

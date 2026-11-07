@@ -42,7 +42,7 @@ import { qualityValidationVerdict } from '../lifecycle-evidence-policy.mjs';
 import path from 'node:path';
 import { witnessResult, describeWitnessResult } from '../verification/witness-results.mjs';
 import { decisionOutcome } from '../workflow-decisions.mjs';
-import { completionPhaseOf, clearApprovalDisposition } from '../lifecycle-transitions.mjs';
+import { completionPhaseOf, beginPhaseSubmission, applyPhaseSubmissionDisposition } from '../kernel/lifecycle-transitions.mjs';
 import { supportedWaiverPolicy, evaluateQuickFixWaiver, waiverNotAppliedMessage } from '../quick-fix-policy.mjs';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from '../package-root.mjs';
@@ -776,8 +776,7 @@ export async function submitNativePhase(root, config, workflow, {
     const { assertTerminalReadiness } = await import('../evidence/terminal.mjs');
     await assertTerminalReadiness(root, config, workflow);
   }
-  phase.submissionArchitectureDecision = null;
-  phase.submittedAt = nowIso();
+  beginPhaseSubmission(phase, nowIso());
   // Waive only under a policy the gate can replay; any other policy leaves the phase to people.
   const waiverPolicy = supportedWaiverPolicy(phase.approvalPolicy);
   if (phase.approvalPolicy.mode === 'policy' && !waiverPolicy) {
@@ -795,19 +794,7 @@ export async function submitNativePhase(root, config, workflow, {
       applicationReviewPending = true;
     }
   }
-  if (!reviewableFailure && !applicationReviewPending && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
-    phase.status = 'approved';
-    phase.approvedAt = phase.submittedAt;
-    phase.approvedBy = null;
-    phase.approvalDisposition = waiver?.eligible ? 'policy_waived' : 'not_required';
-    phase.approvalWaiver = waiver?.eligible ? {
-      policyId: waiver.policyId,
-      policySha256: waiver.policyHash,
-      sourceCommit: waiver.sourceCommit,
-      reconciliationSha256: phase.workIntervalReconciliation?.reconciliationSha256 ?? null,
-      predicates: waiver.predicates,
-      waivedAt: phase.submittedAt
-    } : null;
+  if (applyPhaseSubmissionDisposition(phase, {reviewableFailure,applicationReviewPending,waiver})) {
     closeWorkInterval(workflow, {
       phaseId: phase.id,
       at: phase.submittedAt,
@@ -848,9 +835,6 @@ export async function submitNativePhase(root, config, workflow, {
       detail: `deterministic policy waiver${retentionDetail(automaticRetention)}${advanceDetail(workflow, automaticPending)}`
     } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${retentionDetail(automaticRetention)}${advanceDetail(workflow, automaticPending)}` });
   } else {
-    phase.status = 'awaiting_approval';
-    // People review this generation; a waiver recorded for an earlier one does not authorize it.
-    clearApprovalDisposition(phase);
     workflow.history.push({
       at: phase.submittedAt,
       actor: actorKey(session.actor),

@@ -1,5 +1,4 @@
 import { SingularityFlowError } from './util.mjs';
-import { sourceReviewKind } from './kernel/phase-policy.mjs';
 
 /** A pinned, opt-in gate. Older Story resolutions without this field stay unchanged. */
 /**
@@ -36,22 +35,7 @@ export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workfl
   return { mode, phases: selected, reviewerAgent };
 }
 
-/**
- * One predicate for guidance, the submit gate and `review-source`: the step is listed by the
- * pinned policy and still defines the scope or plans the claims. An older pin listing a step that
- * no longer does would otherwise get review routes that refuse and a submit gate that never clears.
- */
-export function sourceReviewRequired(workflow, phaseId) {
-  const policy = workflow?.resolution?.sourceReview;
-  return policy?.mode === 'enforce' && Array.isArray(policy.phases)
-    && policy.phases.includes(phaseId) && sourceReviewKind(workflow, phaseId) != null;
-}
-
-/** A generation authored by its required reviewer needs an honestly attributed successor. */
-export function sourceReviewAuthorConflict(workflow, phase) {
-  return Boolean(phase?.generation > 0 && sourceReviewRequired(workflow, phase.id)
-    && phase.generatedAgent === workflow.resolution.sourceReview.reviewerAgent);
-}
+export { sourceReviewRequired, sourceReviewAuthorConflict } from './kernel/phase-policy.mjs';
 
 export function pendingIntentAmendmentAcknowledgement(workflow) {
   return [...(workflow?.intentAmendments ?? [])].reverse()

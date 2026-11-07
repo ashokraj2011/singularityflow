@@ -94,6 +94,7 @@ test('Git compatibility composes existing owners without introducing another per
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
+    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
     'src/commands/shared/story-draft-transaction.mjs'].map(file=>path.join(packageRoot,file)));
@@ -241,6 +242,18 @@ test('generation begin uses registry coordination and a native transaction, with
   const legacy=parsed.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='beginPhaseGeneration');
   assert.ok(legacy);assert.match(legacy.body.getText(parsed),/beginNativePhaseGeneration/u);
   assert.doesNotMatch(legacy.body.getText(parsed),/\bbeginCodeGeneration\s*\(/u);
+});
+
+test('prepublish host delegates one inspection and the native checker shares its pure readiness rule',async()=>{
+  const host=await readFile(path.join(packageRoot,'src/commands/phase-lifecycle.mjs'),'utf8');
+  const source=ts.createSourceFile('phase-lifecycle.mjs',host,ts.ScriptTarget.Latest,true);
+  const check=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='phasePrepublishCommand');
+  assert.ok(check);assert.match(check.getText(source),/\.engine\.run\('phase\.prepublish'/u);
+  assert.doesNotMatch(check.getText(source),/\b(phasePrepublish|loadSession|loadAcceptedStoryExecution|readWorkflowTaskResume)\s*\(/u);
+  const native=await readFile(path.join(packageRoot,'src/phase-prepublish.mjs'),'utf8');
+  assert.match(native,/const ready = phasePrepublishReady\(/u);
+  const compatibility=await readFile(path.join(packageRoot,'src/phase-finding-policy.mjs'),'utf8');
+  assert.match(compatibility,/export \{phaseFindingCode,phaseFindingIdentity,phaseFindingPolicy,isArtifactQualityFinding\} from '\.\/kernel\/phase-findings\.mjs'/u);
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

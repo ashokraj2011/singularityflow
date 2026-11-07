@@ -14,7 +14,7 @@ import { effectivePhasePublicationProducer, phaseUsesDeterministicGeneration } f
 import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { operationContext } from './operation-context.mjs';
 import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
-import { phaseNeedsGeneration } from './phase-generation-need.mjs';
+import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 
 export { phaseNeedsGeneration };
 

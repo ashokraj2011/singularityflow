@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { findingOwnedByPhase } from './phase-finding-policy.mjs';
+import {phasePrepublishReady} from './kernel/phase-prepublish.mjs';
 
 import {
   catalogArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
@@ -556,8 +557,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     };
     findings.set(findingKey(finding), finding);
   }
-  const ready = lifecycleReady && draft.status === 'ready'
-    && blockers.length === 0 && recovery.blockers.length === 0;
+  const ready = phasePrepublishReady({lifecycle:lifecycleReady,authoring:draft.status==='ready',
+    knownRecoveryBlockers:blockers.length===0&&recovery.blockers.length===0});
   // A draft blocker that names its own route (the stale-Code repair, a convergence decision) keeps
   // it here, so prepublish and draft-check never offer two different next commands.
   const draftRoute = draft.commands.next ? {

@@ -14,7 +14,7 @@ import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../kernel/phase-policy.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
-import { requiresProspectivePhaseInspection } from '../phase-inspection-generation.mjs';
+import { requiresProspectivePhaseInspection } from '../kernel/phase-policy.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';

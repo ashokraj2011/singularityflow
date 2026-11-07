@@ -451,7 +451,17 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await phaseBeginOwner)[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, invocation: {
+  let phasePrepublishOwner;
+  const phasePrepublish={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='phasePrepublish').stages) {
+    phasePrepublish[stage]=async(...args)=>{
+      phasePrepublishOwner??=import('./git-phase-entry.mjs')
+        .then(({createGitPhasePrepublishPort})=>createGitPhasePrepublishPort({root,onContext:value=>{presentation=value;}}))
+        .catch(error=>{phasePrepublishOwner=undefined;throw error;});
+      return (await phasePrepublishOwner)[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

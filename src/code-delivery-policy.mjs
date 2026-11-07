@@ -3,7 +3,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
 import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
-import { phaseNeedsGeneration } from './phase-generation-need.mjs';
+import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 

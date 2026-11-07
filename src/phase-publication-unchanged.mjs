@@ -12,7 +12,7 @@ import { authoredArtifactFingerprint } from './artifact-review-read.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { changedFiles, committedChangedPaths, exactFileAtObject } from './git.mjs';
-import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './phase-inspection-generation.mjs';
+import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './kernel/phase-policy.mjs';
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
 
 export async function documentUnchangedSincePublication(root, config, workflow, phase) {

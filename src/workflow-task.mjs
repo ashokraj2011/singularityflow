@@ -2,7 +2,7 @@
 import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { hasPublishedPhaseGeneration, phaseInspectionGeneration } from './kernel/phase-policy.mjs';
 import { readRecord, currentSchemaVersion } from './schema-migrations.mjs';
 
 const ROLES = new Set(['author', 'source-reviewer']);

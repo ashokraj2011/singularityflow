@@ -6,7 +6,7 @@ import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-deliv
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { phaseNeedsGeneration } from './phase-generation-need.mjs';
+import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 import { sourceReviewKind } from './kernel/phase-policy.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';

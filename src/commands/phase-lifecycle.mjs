@@ -12,7 +12,7 @@ import { verifyOpenGenerationIntent } from '../generation-boundary.mjs';
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 import { loadSession } from '../session.mjs';
-import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepublish.mjs';
+import { prepublishTestExecutionLines } from '../phase-prepublish.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { applicationReviewOffer, codeOutcomeReviewOffer } from '../code-delivery-policy.mjs';
@@ -69,6 +69,7 @@ export async function phaseCommand(positionals, options) {
   const root = repoRoot();
   if (subcommand === 'publish') return phasePublishCommand(root, positionals, options);
   if (subcommand === 'begin') return phaseBeginCommand(root, positionals, options);
+  if (subcommand === 'prepublish') return phasePrepublishCommand(root, positionals, options);
   const accepted = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? null);
   const config = accepted.definition;
   const workflow = accepted.workflow;
@@ -149,7 +150,7 @@ export async function phaseCommand(positionals, options) {
     else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
     return;
   }
-  if (subcommand === 'draft-check' || subcommand === 'prepublish') {
+  if (subcommand === 'draft-check') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
@@ -160,49 +161,60 @@ export async function phaseCommand(positionals, options) {
       );
     }
     const session = await loadSession(root, { required: false });
-    const check = subcommand === 'prepublish' ? phasePrepublish : phaseDraftCheck;
     // An agent's read names its own authorship, never a person's: see agentPublicationProducer.
-    const result = await check(root, config, workflow, phase, {
+    const result = await phaseDraftCheck(root, config, workflow, phase, {
       modelEnabled: operationContext()?.modelMode.enabled !== false, session,
       requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
     });
     const { observeWorkflowTaskCheck, readWorkflowTaskResume } = await import('../workflow-task-store.mjs');
-    if (subcommand === 'draft-check') await observeWorkflowTaskCheck(root, workflow, phase, result);
+    await observeWorkflowTaskCheck(root, workflow, phase, result);
     const taskResume = await readWorkflowTaskResume(root, workflow, phase, { generation: result.generation,
       progress: { state: result.status === 'ready' ? 'publish-ready' : result.correction?.sameTurn ? 'repair-draft' : 'blocked',
         nextAction: result.commandGuidance?.next ?? result.commandGuidance?.publish } });
-    if (optionBoolean(options, 'for-agent')) {
-      await (await import('../copilot-mutation-guard.mjs')).recordPhaseTaskCheck(root, result).catch(() => {});
-      const { phaseAgentResult } = await import('../phase-agent-result.mjs');
-      return console.log(JSON.stringify(phaseAgentResult({ ...result, taskResume })));
-    }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, taskResume }, null, 2));
-    const pendingTests = subcommand === 'prepublish'
-      && result.testExecution?.status === 'not-run';
-    console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
-    if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
-    if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
-    if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
-    for (const finding of result.findings) console.log(`  - ${finding.message}`);
-    for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
-    if (result.finalGate?.status === 'blocked') {
-      console.log(`Before ${result.finalGate.submission} can be submitted (publishing is not blocked):`);
-      for (const blocker of result.finalGate.blockers) console.log(`  - ${blocker}`);
-      if (result.finalGate.more) console.log(`  - …and ${result.finalGate.more} more: singularity-flow evidence matrix`);
-      for (const command of result.finalGate.recovery) console.log(`  Run: ${command}`);
-    }
-    for (const line of prepublishAdvisoryLines(result)) console.log(line);
-    if (result.status === 'correction-required') {
-      console.log(`Correction: ${result.correction.guidance}`);
-      for (const [id, label] of [['next', 'Next'], ['recover', 'Recover'], ['recheck', 'Recheck']]) {
-        for (const line of commandGuidanceLines(result.commandGuidance[id], label)) console.log(line);
-      }
-    } else {
-      for (const line of commandGuidanceLines(result.commandGuidance.publish, 'Publish')) console.log(line);
-    }
-    return;
+    return renderPhaseCheckResult(root,phase,result,taskResume,subcommand,options);
   }
   throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
+}
+
+async function phasePrepublishCommand(root,positionals,options) {
+  const {createGitPhasePrepublishEngine}=await import('../engine-compatibility/git-phase-entry.mjs');
+  const binding=createGitPhasePrepublishEngine({root,authoringAgent:optionBoolean(options,'for-agent')});
+  await binding.engine.run('phase.prepublish',{workId:optionString(options,'work-id')??null,phaseId:positionals[2]??null});
+  const {phase,result,taskResume}=binding.presentation();
+  return renderPhaseCheckResult(root,phase,result,taskResume,'prepublish',options);
+}
+
+async function renderPhaseCheckResult(root,phase,result,taskResume,subcommand,options) {
+  if (optionBoolean(options, 'for-agent')) {
+    await (await import('../copilot-mutation-guard.mjs')).recordPhaseTaskCheck(root, result).catch(() => {});
+    const { phaseAgentResult } = await import('../phase-agent-result.mjs');
+    return console.log(JSON.stringify(phaseAgentResult({ ...result, taskResume })));
+  }
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, taskResume }, null, 2));
+  const pendingTests = subcommand === 'prepublish'
+    && result.testExecution?.status === 'not-run';
+  console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
+  if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
+  if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
+  if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
+  for (const finding of result.findings) console.log(`  - ${finding.message}`);
+  for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
+  if (result.finalGate?.status === 'blocked') {
+    console.log(`Before ${result.finalGate.submission} can be submitted (publishing is not blocked):`);
+    for (const blocker of result.finalGate.blockers) console.log(`  - ${blocker}`);
+    if (result.finalGate.more) console.log(`  - …and ${result.finalGate.more} more: singularity-flow evidence matrix`);
+    for (const command of result.finalGate.recovery) console.log(`  Run: ${command}`);
+  }
+  for (const line of prepublishAdvisoryLines(result)) console.log(line);
+  if (result.status === 'correction-required') {
+    console.log(`Correction: ${result.correction.guidance}`);
+    for (const [id, label] of [['next', 'Next'], ['recover', 'Recover'], ['recheck', 'Recheck']]) {
+      for (const line of commandGuidanceLines(result.commandGuidance[id], label)) console.log(line);
+    }
+  } else {
+    for (const line of commandGuidanceLines(result.commandGuidance.publish, 'Publish')) console.log(line);
+  }
+  return;
 }
 
 async function phaseBeginCommand(root,positionals,options) {

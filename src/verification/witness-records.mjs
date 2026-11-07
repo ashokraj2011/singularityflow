@@ -11,7 +11,7 @@
  */
 import { SingularityFlowError } from '../util.mjs';
 import { recordSha256 } from '../records.mjs';
-import { phaseNeedsGeneration } from '../phase-generation-need.mjs';
+import { phaseNeedsGeneration } from '../kernel/phase-policy.mjs';
 import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import { phaseCorrectionTargets } from '../phase-finding-policy.mjs';
 import path from 'node:path';

@@ -49,6 +49,8 @@ const DECIDING_MODULES = Object.freeze([
   'clarifications.mjs', 'clarification-markers.mjs', 'skp-contract.mjs',
   'kernel/phase-inputs.mjs', 'inputs.mjs', 'verification/witness-decisions.mjs',
   'kernel/phase-admission.mjs', 'kernel/phase-entry.mjs', 'phase-entry.mjs', 'phase-entry-context.mjs',
+  'kernel/phase-prepublish.mjs', 'kernel/phase-findings.mjs', 'phase-prepublish.mjs', 'phase-finding-policy.mjs',
+  'source-review-policy.mjs', 'phase-inspection-generation.mjs', 'phase-generation-need.mjs',
   'phase-entry-admission.mjs', 'phase-entry-authoring.mjs', 'phase-input-policy.mjs', 'document-runtime.mjs',
   'engine-compatibility/git-phase-entry.mjs', 'engine-compatibility/native-phase-entry.mjs',
   'kernel/document-read.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs',

@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { phaseInspectionGeneration } from './kernel/phase-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { branch, head, repoRoot } from './git-execution.mjs';
 import { agentSessionStatus } from './session.mjs';

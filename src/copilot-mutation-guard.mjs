@@ -202,7 +202,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const taskOperation = previous?.taskOperation && previous.contract?.workId === contract.workId
     && previous.contract?.phaseId === contract.phaseId ? { ...previous.taskOperation } : null;
   if (taskOperation && Number(phase?.generation) >= taskOperation.generation
-      && !contract.policy.editable && (await import('./phase-inspection-generation.mjs')).hasPublishedPhaseGeneration(phase)) {
+      && !contract.policy.editable && (await import('./kernel/phase-policy.mjs')).hasPublishedPhaseGeneration(phase)) {
     taskOperation.complete = true;
     taskOperation.publicationVerified = true;
     taskOperation.state = 'complete';

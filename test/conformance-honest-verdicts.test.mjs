@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { completeAgentResult } from '../src/agent-output.mjs';
+import {createSflow} from '../src/api.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -214,6 +215,12 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
 
   cli('upstream-issue', 'raise', '--phase', 'implementation', '--about', AC1,
     '--problem', 'The Testing step cites a 15-test run that SFlow never recorded for this clause.');
+  const beforeInspection=await readFile(path.join(item,'workflow.json'));
+  const inspected=await createSflow({root:await realpath(root)}).prepublishPhase({workId:W,phaseId:'conformance'});
+  const owed=inspected.manifest.advisories.find(entry=>entry.code==='conformance.verdict-incomplete'&&entry.clauseId===AC1);
+  assert.ok(owed);assert.equal(owed.requiredBefore,'approve');assert.equal(owed.ownerPhase,'implementation');
+  assert.deepEqual(owed.issueRefs,['UPI-001']);assert.equal(inspected.manifest.approvalRecorded,false);
+  assert.deepEqual(await readFile(path.join(item,'workflow.json')),beforeInspection,'SDK inspection preserves the submitted generation and its unresolved decision');
   const undecided = attempt('approve', 'conformance', '--yes');
   assert.notEqual(undecided.status, 0);
   assert.match(undecided.stdout + undecided.stderr, new RegExp(`${AC1} remains partial: UPI-001 awaits implementation's approvers`, 'u'));

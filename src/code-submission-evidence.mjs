@@ -9,7 +9,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
-export { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection, phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+export { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection, phaseInspectionGeneration } from './kernel/phase-policy.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 

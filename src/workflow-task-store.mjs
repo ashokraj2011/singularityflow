@@ -14,7 +14,7 @@ import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
+import { phaseInspectionGeneration } from './kernel/phase-policy.mjs';
 
 const directory = root => path.join(gitCommonDir(root), 'singularity-flow', 'workflow-tasks');
 const fileFor = (root, id, base = directory(root)) => path.join(base, `${id}.json`);

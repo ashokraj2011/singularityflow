@@ -127,3 +127,68 @@ export function createGitPhaseBeginEngine({root}={}) {
   }}});
   return Object.freeze({engine,presentation:()=>context});
 }
+
+/** Native prepublication observation. CLI-only authorship presentation is trusted host context. */
+export function createGitPhasePrepublishPort({root,authoringAgent=false,onContext=()=>{}}) {
+  return {
+    async load(inputs) {
+      const {loadAcceptedStoryExecution}=await import('../accepted-story-execution.mjs');
+      const accepted=await loadAcceptedStoryExecution(root,inputs.workId??null);
+      const context={root,config:accepted.definition,workflow:accepted.workflow};onContext(context);return context;
+    },
+    async inspect(context,binding) {
+      const {loadSession}=await import('../session.mjs');
+      const {phasePrepublish}=await import('../phase-prepublish.mjs');
+      const {operationContext}=await import('../operation-context.mjs');
+      const {agentPublicationProducer}=await import('../kernel/phase-policy.mjs');
+      const phase=context.workflow.phases[binding.phase];context.phase=phase;
+      const session=await loadSession(root,{required:false});
+      const result=await phasePrepublish(root,context.config,context.workflow,phase,{
+        modelEnabled:operationContext()?.modelMode.enabled!==false,session,
+        requestedProducer:authoringAgent?agentPublicationProducer(phase):null
+      });
+      const {readWorkflowTaskResume}=await import('../workflow-task-store.mjs');
+      const task=await readWorkflowTaskResume(root,context.workflow,phase,{generation:result.generation,
+        progress:{state:result.status==='ready'?'publish-ready':result.correction?.sameTurn?'repair-draft':'blocked',
+          nextAction:result.commandGuidance?.next??result.commandGuidance?.publish}});
+      context.result=result;context.taskResume=task;
+      return {workId:result.workId,phase:result.phase,generation:result.generation,phaseStatus:result.phaseStatus,
+        inspectionStage:result.inspectionStage,readiness:result.readiness,producer:result.producer??null,
+        qualityDisposition:result.qualityDisposition,draftFingerprint:result.draftFingerprint??null,
+        findings:result.findings.map(finding=>{
+          const details=finding.details??{},coverage=details.coverage;
+          return {code:String(finding.code??'UNKNOWN_PHASE_FINDING'),sourceCode:details.sourceCode?String(details.sourceCode):null,
+            category:finding.category||null,message:String(finding.message??details.message??finding.code??''),
+            phaseId:finding.phaseId||finding.phase||details.upstreamPhase||details.ownerPhase||null,path:finding.path??null,
+            line:Number.isSafeInteger(finding.line)&&finding.line>=0?finding.line:null,clauseId:details.clauseId||finding.clauseId||null,
+            upstreamDecisionComplete:details.upstreamDecision?.complete===true,
+            coverageReviewRequired:Boolean(coverage?.invalidEvidence?.length||coverage?.unclaimedChangedPaths?.length||coverage?.withdrawnButClaimed?.length),
+            riskEligible:details.riskEligible===true||details.qualityRisk?.eligible===true};
+        }),advisories:(result.advisories??[]).map((item,index)=>{
+          const projected=result.resolution?.advisories?.[index],details=item.details??{};
+          const owner=details.owner??details.ownerPhase??details.upstreamPhase,clause=details.clauseId??item.clauseId;
+          const issueRefs=Array.isArray(details.issueRefs)?details.issueRefs
+            :/^UPI-\d{3,}$/u.test(details.issue??'')?[details.issue]:[];
+          return {code:item.code||null,category:item.category||null,message:String(item.message??''),
+            requiredBefore:projected?.code===item.code?projected.requiredBefore??null:item.requiredBefore??null,
+            ownerPhase:typeof owner==='string'&&owner?owner:null,
+            clauseId:typeof clause==='string'&&clause?clause:null,issueRefs,
+            status:typeof details.status==='string'&&details.status?details.status:null};
+        }),
+        warningCount:(result.warnings??[]).length,correction:{class:result.correction?.class??null,
+          sameTurn:result.correction?.sameTurn===true,requiresNewGeneration:result.correction?.requiresNewGeneration===true},
+        task:task?{operationId:task.operationId,state:task.state,continuationBudget:task.continuationBudget}:null};
+    }
+  };
+}
+
+export function createGitPhasePrepublishEngine({root,authoringAgent=false}={}) {
+  if(typeof root!=='string'||!path.isAbsolute(root)||typeof authoringAgent!=='boolean')throw new SingularityFlowError(
+    'Git prepublication inspection requires an absolute checkout and a host presentation mode.',{code:'ENGINE_INPUT_INVALID'});
+  let context;
+  const phasePrepublish=createGitPhasePrepublishPort({root,authoringAgent,onContext:value=>{context=value;}});
+  const engine=createEngine({ports:{phasePrepublish,invocation:{
+    run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
+  }}});
+  return Object.freeze({engine,presentation:()=>context});
+}

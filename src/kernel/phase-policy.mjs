@@ -1,6 +1,59 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
+/**
+ * One predicate for guidance, the submit gate and `review-source`: the step is listed by the
+ * pinned policy and still defines the scope or plans the claims. An older pin listing a step that
+ * no longer does would otherwise get review routes that refuse and a submit gate that never clears.
+ */
+export function sourceReviewRequired(workflow, phaseId) {
+  const policy = workflow?.resolution?.sourceReview;
+  return policy?.mode === 'enforce' && Array.isArray(policy.phases)
+    && policy.phases.includes(phaseId) && sourceReviewKind(workflow, phaseId) != null;
+}
+
+/** A generation authored by its required reviewer needs an honestly attributed successor. */
+export function sourceReviewAuthorConflict(workflow, phase) {
+  return Boolean(phase?.generation > 0 && sourceReviewRequired(workflow, phase.id)
+    && phase.generatedAgent === workflow.resolution.sourceReview.reviewerAgent);
+}
+
+export function phaseNeedsGeneration(workflow, phase) {
+  if (sourceReviewAuthorConflict(workflow, phase)) return true;
+  // A reviewed skill-version amendment invalidates only its affected phases. Their earlier
+  // publication remains in the audit trail but is not fresh evidence under the new WFA pin.
+  const amendment = phase?.skillAmendmentRevalidation;
+  if (amendment?.state === 'affected') {
+    const baseline = amendment.generationAtAdoption;
+    if (!Number.isSafeInteger(baseline) || baseline < 0
+        || !Number.isSafeInteger(phase.generation) || phase.generation <= baseline) return true;
+  }
+  if (phase?.generationPolicy?.requirement === 'none') return false;
+  if (!phase || phase.generation < 1) return true;
+  if (phase.reworkRevalidation
+      && phase.generation <= phase.reworkRevalidation.generation) return true;
+  if (!phase.rejectedAt) return false;
+  return !(workflow.history ?? []).some((event) =>
+    event.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt);
+}
+
+export function hasPublishedPhaseGeneration(phase) {
+  const generation = Number(phase?.generation);
+  if (!Number.isSafeInteger(generation) || generation < 1 || phase.generationIntent?.status === 'open') return false;
+  return (phase.generationIntent?.status === 'consumed' && Number(phase.generationIntent.generation) === generation)
+    || (phase.generationPublications ?? []).some(entry => Number(entry.generation) === generation && entry.record?.path);
+}
+
+export function requiresProspectivePhaseInspection(workflow, phase) {
+  return phase.status === 'in_progress'
+    && (!hasPublishedPhaseGeneration(phase) || phaseNeedsGeneration(workflow, phase));
+}
+
+export function phaseInspectionGeneration(workflow, phase) {
+  return requiresProspectivePhaseInspection(workflow, phase)
+    ? nextPhaseGeneration(phase) : Number(phase.generation ?? 0);
+}
+
 /** Capture the local generation boundary before an asynchronous native admission/write. */
 export function phaseBeginSelection(workflow,inputs) {
   const id=inputs.phaseId??workflow?.currentPhase;

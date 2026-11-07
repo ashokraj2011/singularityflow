@@ -47,7 +47,7 @@ import { normalizeHarnessImports } from './harness-import-policy.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
-import { normalizeDecisions } from './workflow-decisions.mjs';
+import { normalizeDecisions } from './kernel/workflow-decisions.mjs';
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';

@@ -14,7 +14,7 @@
  * a candidate error, `person` for a missing fact).
  */
 import { readRecord } from '../schema-migrations.mjs';
-import { DECISION_FIELDS } from '../workflow-decisions.mjs';
+import { DECISION_FIELDS } from '../kernel/workflow-decisions.mjs';
 import { CHECK_KINDS, classifyCommand } from '../guidance-scan.mjs';
 
 export const CANDIDATE_KIND = 'team-import-candidate';

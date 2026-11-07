@@ -270,6 +270,25 @@ test('native submission and approval keep admission outside shared kernel state 
   assert.doesNotMatch(core,/singularity-flow|copilot|readFile|saveWorkflow/);
 });
 
+test('workflow compilation and routing simulation use the pure interpreter while native rendering and pending hashes stay outside it', async () => {
+  const core = await readFile(path.join(packageRoot, 'src/kernel/workflow-decisions.mjs'), 'utf8');
+  assert.doesNotMatch(core, /singularity-flow|createHash|canonicalJson|applicabilityStatus|describeWhen|describeOutcome|parseDecisionAssignments|storyDecisionView/);
+  for (const file of ['config.mjs', 'workflow-route-simulation.mjs', 'phase-retention.mjs']) {
+    const source = await readFile(path.join(packageRoot, 'src', file), 'utf8');
+    assert.match(source, /from '\.\/kernel\/workflow-decisions\.mjs'/, file);
+    assert.doesNotMatch(source, /from '\.\/workflow-decisions\.mjs'/, file);
+  }
+  const native = ts.createSourceFile('workflow-decisions.mjs', await readFile(path.join(packageRoot, 'src/workflow-decisions.mjs'), 'utf8'), ts.ScriptTarget.Latest, true);
+  const functions = new Map(native.statements.filter(ts.isFunctionDeclaration).map(node => [node.name.text, node.getText(native)]));
+  assert.equal(functions.has('normalizeDecisions'), false);
+  assert.equal(functions.has('chooseRoute'), false);
+  assert.match(functions.get('decisionOutcome'), /decisionOutcomeFacts\(workflow, phase\)/);
+  assert.match(functions.get('pendingDecisionRecord'), /pendingDecisionPayload\(workflow, phase, outcome, \{ at \}\)/);
+  assert.match(functions.get('resolveDecisionChoice'), /resolveDecisionChoicePlan\(workflow, pending/);
+  const alias = ts.createSourceFile('decision-inputs.mjs', await readFile(path.join(packageRoot, 'src/kernel/decision-inputs.mjs'), 'utf8'), ts.ScriptTarget.Latest, true);
+  assert.ok(alias.statements.every(ts.isExportDeclaration));
+});
+
 test('rejection host uses the registry and only the compatibility aggregate calls its native transition', async () => {
   const cli = ts.createSourceFile('cli.mjs', await readFile(path.join(packageRoot, 'src/cli.mjs'), 'utf8'), ts.ScriptTarget.Latest, true);
   const command = cli.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'rejectCommand');

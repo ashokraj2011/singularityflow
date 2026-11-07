@@ -1,0 +1,171 @@
+{
+  "baseline": "53c343157",
+  "functions": {
+    "invalid": "efde0522623ad23411213fd637a0f1b72a85b2f5545a6be4f5044f5c98faf8a8",
+    "list": "c884963a2e1e7185502db9c3fbadc73321fc44c72eb72cf03d676d2666e4970c",
+    "text": "ee732f0ce7b6daee1f65c41fb626b209564e22d99d170c219bd649becfb849dd",
+    "routeReach": "8f0a6db4e9ac2fa9f411ae703971b60284f4b22eb9efc80a1f55abc54e09ac0c",
+    "normalizeInputs": "d31a6a47d06eec55b22c2353820fece4595e5589b643d3a367c1ce83a8da1b7c",
+    "normalizeTest": "3026c6944e6666c0a74814f1f0878e36b295e0e58c4d3c7161726af8de3f38da",
+    "normalizeWhen": "894d4edb6611cbeefd4ae0017af02a29745100a434854c04fc293bfb40ca7a7b",
+    "normalizeRoutes": "635243fbdc8600c52b0de54207eeb37cc38afbf9c0c6422c6dbefdcf7d618d9b",
+    "normalizeBy": "e6abd2a97193301c7c870a01a379522553f52cff9f9ae0a2d615fab1d46a2020",
+    "assertRouteKeepsDependencies": "9977dd832b56f0bd1d81a270e82f51f25cdd6718ca006c50551814f0c77735d6",
+    "normalizeDecisions": "eec2442cc8ebb6eca5c76cb0994fecb4e5b83a05f37be5dfe9723dbe232fc7a6",
+    "reusedInput": "07a5d792f2192abf61bbe9e552ffbbfbca7a1b30fc510c39efadcc7084a2537c",
+    "decisionReads": "1b87f49ffdbca3e12072605716c55b317483496b87cb548a24e7729ab9deeef0",
+    "testHolds": "791c36465af452d6de08701cd976e918595b82e83650da3f13b1eb1f0f8a443b",
+    "whenHolds": "c2bbecccacb2ff325ab967612846e3bd5d1af98abfa315765373307b4f50f692",
+    "chooseRoute": "5eeaca9ab2bb1243618585046f4854ac0981c56db137839148a94621ecf1e6b7",
+    "decisionValues": "23ccd96855a5c8aa34b6e67b45f7b94cc5181088fb47989cd69527b16706ca89",
+    "reopenableSteps": "bbfc1d44b9195d06d0c46e2434b8942bddd5f50d1cee97c69567363aa55d11fd",
+    "assertChoiceKeepsDependencies": "3eb87b01af1b11b006264a60810691fda12e7a73c7f50a182e2d558166a0c80c",
+    "decisionAfter": "6a6357c909d5a69a3daa99715ac174404daf6e3f8412e6e4be9311421a08e44f",
+    "decisionFedBy": "9e1405b59ac640ee0643f9624ad0c586f432958dcba973ade12d177dffbeadc1",
+    "decisionInputsHint": "4bfaf309d5635e240d94018375287a9d640f6f9617e75dd7dab0c6de20446a8a",
+    "normalizeDecisionInputValues": "22a1d5e64fe15fe7d880447e2bf0e904d3306aa89342aeed8eb1975b1081100d",
+    "recordedDecisionValues": "779fa6754d55870ab4152670483bd65da5382df8da75705fa34e01679fda4231"
+  },
+  "cases": [
+    {
+      "name": "compiled-program",
+      "sha256": "42c206ca5434462202e3a8e81ec1980bb21896ddd51d9f53a42129b551c88be5"
+    },
+    {
+      "name": "no-decisions",
+      "sha256": "a6bd2b6bb91722ad5beff42c856c3388c888129e488342788e4f8180563e6a65"
+    },
+    {
+      "name": "unknown-field",
+      "sha256": "7657c81b94dba87cf565681c0ca9a3d9f732dd00e9dfe1af6c0fd3fce1f00694"
+    },
+    {
+      "name": "duplicate-after",
+      "sha256": "670d3514adc25ef5b649dd173b74ea0570c254b6bacf21b2970b338012978866"
+    },
+    {
+      "name": "invalid-choice",
+      "sha256": "4bcbde900e8d6c22e1c661a95b5cac8a7687772c33e097da3c2fff353ea859bb"
+    },
+    {
+      "name": "unreviewed-skip",
+      "sha256": "56aa80918f1de33866073fcda19279ac4b3abf46dc8ff08b20720f921ae899fc"
+    },
+    {
+      "name": "unknown-authority",
+      "sha256": "87366d35fe40a59be498b7b0f9dec622946bedfd12a7cecb29ee26085729fbc8"
+    },
+    {
+      "name": "required-dependency-skip",
+      "sha256": "774142919681796fc0bd1931e25ab9b3b332d3a4a259dd439de05c83d30ce22b"
+    },
+    {
+      "name": "test-evidence-skip",
+      "sha256": "7027dc5e4027c65c45812ee0dc892d526d1df6183df445ff73142a4d7a79e109"
+    },
+    {
+      "name": "unknown-reuse",
+      "sha256": "c71b15b56ce8df86c947d8126bf999dc2bc7cf39108a4a9a8cc5b892ca39b67f"
+    },
+    {
+      "name": "convergence-conflict",
+      "sha256": "365f23f9402d6dd8a3b326f7561686390263818c5fb13831c7221a5dde44b94e"
+    },
+    {
+      "name": "invalid-round-limit",
+      "sha256": "e70d2fd5d4172eddc3d61455ac963684664946ea27ba25c3604136d4d90d31bd"
+    },
+    {
+      "name": "web-next",
+      "sha256": "7c2b33e6dcce374b29150346e68e136922d9a9e242b8c8b97f9e1408a16a4ab7"
+    },
+    {
+      "name": "mobile-forward",
+      "sha256": "6066d13c88d4e7fdab4e040e29bb7ad7ed221747ded105a4f9057b4a83e5d58d"
+    },
+    {
+      "name": "other-end",
+      "sha256": "9f3bcffa0559a0d35241e92bf1ebf2fae3da33257ad567e43ab2732649ee2971"
+    },
+    {
+      "name": "ask-pause",
+      "sha256": "0dddddb11c0896dd81bf687b27822a0e7993cb638162f30de96e3132836e6e28"
+    },
+    {
+      "name": "loop-first",
+      "sha256": "f97b03024ff638a60e54936053ce7f5527bcbc9aa9f63f87c9f97941d12b0d2b"
+    },
+    {
+      "name": "loop-second",
+      "sha256": "cbeaa85cbcbe6978c14e4d0a65eb1555861c6f10d5e87691110ce8013f8b6616"
+    },
+    {
+      "name": "loop-limit",
+      "sha256": "0112f3b363aa501ceb7675fc57cd21cd39c4bf3b314a2a5ffbef0a652f3a2da9"
+    },
+    {
+      "name": "goal-met",
+      "sha256": "a2b8a10ed8a31cb8ae4c14aef16b38086dc83c3b556eb54b381b5f9de39ed858"
+    },
+    {
+      "name": "missing-inputs",
+      "sha256": "cd0c81009db0c048db9e099b647b8fff8a055609c9615e08d926475ecc14af75"
+    },
+    {
+      "name": "reused-channel-false",
+      "sha256": "51c05c272cb0b5ace473f15391aa217c1b18b06da9c8c0796f7825a75bd06319"
+    },
+    {
+      "name": "reused-channel-true",
+      "sha256": "e75a39f1e09f81f840f001fd2b279c99d29bf837c57122bc7e624d34fb064979"
+    },
+    {
+      "name": "choice-none",
+      "sha256": "3151f7270f746fa801ae9a40d4eb6727f63ec471e5625f9f0b6c3dacc152c113"
+    },
+    {
+      "name": "choice-both",
+      "sha256": "c85663ccbe988ceeea44268d8f72b0615e7524a8642c1fa9afc271dba8d382c8"
+    },
+    {
+      "name": "choice-unknown",
+      "sha256": "f47f404513a33386164cfff9d195213c192d17341667871fefe90a1d181988d1"
+    },
+    {
+      "name": "choice-step-denied",
+      "sha256": "2443bc8f9facdb8464f9380f1f94c1b008652dc9e5cc5ed19256e24e5c54371e"
+    },
+    {
+      "name": "choice-reopen",
+      "sha256": "d6497072cef6c94ac272bdcb668f849730ee69ee5c36fed5af3194911b3d4ec6"
+    },
+    {
+      "name": "choice-recorded-route",
+      "sha256": "421355eada11fb9c308040b15614e275a34f31956c434ed0fb11087345dd5ec3"
+    },
+    {
+      "name": "choice-forged-pass",
+      "sha256": "8f94a6661b29789aa14610eef69c1b3424bbdf858510fd59413814e1ff95364e"
+    },
+    {
+      "name": "choice-not-pending",
+      "sha256": "260ad4768cf7f209fffe288f844f268fade1fe87aa666049be421135aa79d666"
+    },
+    {
+      "name": "input-{\"channel\":\"mobile\"}",
+      "sha256": "077a9e4d01e049d7d280874fb38abacaf744702ef685b1adead7aa9944e0b0cb"
+    },
+    {
+      "name": "input-{\"channel\":\"\"}",
+      "sha256": "82bd280f58833d04d22459626bb497a00be7e02bb412fd608d01666ee5e20f23"
+    },
+    {
+      "name": "input-{\"channel\":\"missing\"}",
+      "sha256": "0682f48426493a0b5a0704c84eb1854674eca2eec33c59d0b007d1e4fc94916d"
+    },
+    {
+      "name": "input-{\"other\":\"Web\"}",
+      "sha256": "29180eb6d0ca713bff960d28a714efc793a16843da0776b2d20a09b5ce0a26bb"
+    }
+  ]
+}

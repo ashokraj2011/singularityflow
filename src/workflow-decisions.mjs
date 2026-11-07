@@ -1,491 +1,22 @@
-/**
- * Decision nodes: what a Story does after a phase, chosen by facts a person approved or by a person.
- *
- * A Story workflow is an ordered list of phases, and until now the only way off that line was a
- * reviewer sending work back. A decision sits after one phase and chooses what comes next:
- *
- * - `branch` — ordered rules read values the phase recorded when it was submitted ("risk: high")
- *   and choose the next phase, skipping the ones in between, or finish the Story. The last route has
- *   no rule and takes everything the others did not.
- * - `loop` — go back to an earlier phase until a goal holds, at most `maxRounds` times.
- * - `ask` — the Story pauses and a person from `by` chooses the next phase.
- *
- * None of these removes the person the kernel insists on `[SPK:CON-037]`. A route that goes back,
- * or that skips a phase a person signs off, is taken automatically only after a phase a person signs
- * off — so every round passes someone who saw what approving would do — and a loop that reaches its
- * limit stops and asks instead of carrying on. Everything here is pure: it validates configuration
- * and computes outcomes. The lifecycle owner applies them, inside its own transaction.
+/** Native decision presentation and record compatibility.
+ * The pure compiler/interpreter lives in kernel/workflow-decisions.mjs. CLI assignments, display
+ * text, canonical pending hashes and evaluated applicability retain their native ownership here.
  */
-import { decisionAfter, decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, recordedDecisionValues } from './kernel/decision-inputs.mjs';
-export { decisionAfter, decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, recordedDecisionValues } from './kernel/decision-inputs.mjs';
-import { isConvergencePhase } from './kernel/phase-policy.mjs';
+import {
+  decisionAfter, decisionFedBy, decisionInputsHint, routeReach, decisionReads, decisionValues,
+  reopenableSteps, decisionOutcomeFacts, pendingDecisionPayload, resolveDecisionChoicePlan,
+  skippedDeliveryObligations, DECISION_END, DECISION_NEXT
+} from './kernel/workflow-decisions.mjs';
+export {
+  DECISION_KINDS, DECISION_NEXT, DECISION_END, DEFAULT_DECISION_ROUNDS, DECISION_FIELDS, routeReach,
+  normalizeDecisions, decisionReads, decisionAfter, decisionFedBy, decisionInputsHint,
+  normalizeDecisionInputValues, recordedDecisionValues, testHolds, whenHolds, chooseRoute,
+  decisionValues, reopenableSteps, assertChoiceKeepsDependencies
+} from './kernel/workflow-decisions.mjs';
 import { createHash } from 'node:crypto';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
-
-export const DECISION_KINDS = Object.freeze(['branch', 'loop', 'ask']);
-/** Route targets that are not phase IDs: the phase after the deciding one, or finishing the Story. */
-export const DECISION_NEXT = 'next';
-export const DECISION_END = 'end';
-export const DEFAULT_DECISION_ROUNDS = 3;
-
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const INPUT_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/;
-const LIMITS = Object.freeze({ routes: 10, inputs: 10, values: 20, label: 120, value: 60, rounds: 20 });
-const NUMBER_TESTS = Object.freeze(['atLeast', 'atMost', 'above', 'below']);
-const ENTRY_KEYS = Object.freeze(['id', 'after', 'kind', 'label', 'inputs', 'routes', 'goal', 'back', 'maxRounds', 'by', 'anyStep', 'enforceConditions']);
-const INPUT_KEYS = Object.freeze(['name', 'label', 'type', 'values', 'minimum', 'maximum', 'from']);
-const ROUTE_KEYS = Object.freeze(['id', 'label', 'when', 'to', 'omits']);
-/** The closed field sets of a decision, its inputs and its routes, for callers that check drafts. */
-export const DECISION_FIELDS = Object.freeze({ entry: ENTRY_KEYS, input: INPUT_KEYS, route: ROUTE_KEYS });
-
-function invalid(message) {
-  return new SingularityFlowError(message, { code: 'WORKFLOW_DECISION_INVALID' });
-}
-
-function list(values) {
-  const quoted = values.map((value) => `'${value}'`);
-  return quoted.length < 2 ? quoted.join('') : `${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)}`;
-}
-
-function text(value, label, { required = true, limit = LIMITS.label } = {}) {
-  if (value == null && !required) return null;
-  if (typeof value !== 'string' || !value.trim()) throw invalid(`${label} must be non-empty text.`);
-  const trimmed = value.trim();
-  if (trimmed.length > limit || /[\u0000-\u001f\u007f]/.test(trimmed)) {
-    throw invalid(`${label} must be at most ${limit} characters on one line.`);
-  }
-  return trimmed;
-}
-
-/**
- * Where a route leads from the deciding phase: the next phase, a later one (skipping those between),
- * the end of the Story (skipping the rest), or back to the deciding phase or an earlier one.
- */
-export function routeReach(order, afterId, to) {
-  const from = order.indexOf(afterId);
-  if (to === DECISION_NEXT) {
-    return from + 1 < order.length
-      ? { kind: 'next', target: order[from + 1], skipped: [] }
-      : { kind: 'end', target: null, skipped: [] };
-  }
-  if (to === DECISION_END) return { kind: 'end', target: null, skipped: order.slice(from + 1) };
-  const at = order.indexOf(to);
-  if (at < 0) return { kind: 'unknown', target: to, skipped: [] };
-  if (at <= from) return { kind: 'backward', target: to, skipped: [] };
-  return { kind: at === from + 1 ? 'next' : 'forward', target: to, skipped: order.slice(from + 1, at) };
-}
-
-function normalizeInputs(value, where) {
-  if (value == null) return [];
-  if (!Array.isArray(value) || value.length > LIMITS.inputs) {
-    throw invalid(`${where}.inputs must be a list of at most ${LIMITS.inputs} values the phase records.`);
-  }
-  const names = new Set();
-  return value.map((input, index) => {
-    const label = `${where}.inputs[${index}]`;
-    if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid(`${label} must be an object.`);
-    for (const key of Object.keys(input)) if (!INPUT_KEYS.includes(key)) throw invalid(`${label} contains unknown field '${key}'.`);
-    if (!INPUT_NAME.test(input.name ?? '') || input.name.length > 40) {
-      throw invalid(`${label}.name must start with a letter and use letters, digits and hyphens (at most 40).`);
-    }
-    if (names.has(input.name)) throw invalid(`${where} records '${input.name}' twice.`);
-    names.add(input.name);
-    const display = text(input.label, `${label}.label`, { required: false }) ?? input.name;
-    if (input.from !== undefined) {
-      // Reused from an earlier decision of the workflow: resolved against it by normalizeDecisions.
-      if (!ID.test(input.from ?? '')) throw invalid(`${label}.from must name an earlier decision of this workflow.`);
-      if (input.type !== undefined || input.minimum !== undefined || input.maximum !== undefined) throw invalid(`${label} reuses '${input.name}', so it takes its type from '${input.from}'.`);
-      return { name: input.name, label: input.label == null ? null : display, from: input.from, values: input.values };
-    }
-    if (input.type === 'number') {
-      if (input.values !== undefined) throw invalid(`${label} is a number, so it takes minimum and maximum instead of values.`);
-      for (const key of ['minimum', 'maximum']) {
-        if (input[key] != null && !Number.isFinite(input[key])) throw invalid(`${label}.${key} must be a number.`);
-      }
-      if (input.minimum != null && input.maximum != null && input.minimum > input.maximum) {
-        throw invalid(`${label}.minimum must not be greater than its maximum.`);
-      }
-      return { name: input.name, label: display, type: 'number', minimum: input.minimum ?? null, maximum: input.maximum ?? null };
-    }
-    if (input.type !== undefined && input.type !== 'choice') throw invalid(`${label}.type must be choice or number.`);
-    if (input.minimum !== undefined || input.maximum !== undefined) throw invalid(`${label} is a choice, so it takes values instead of minimum and maximum.`);
-    if (!Array.isArray(input.values) || !input.values.length || input.values.length > LIMITS.values) {
-      throw invalid(`${label}.values must list 1 to ${LIMITS.values} choices.`);
-    }
-    const values = input.values.map((choice, valueIndex) => text(choice, `${label}.values[${valueIndex}]`, { limit: LIMITS.value }));
-    if (new Set(values.map((choice) => choice.toLowerCase())).size !== values.length) throw invalid(`${label}.values must not repeat a choice.`);
-    return { name: input.name, label: display, type: 'choice', values };
-  });
-}
-
-/** One canonical test per input, so evaluation and display never re-interpret the YAML shorthand. */
-function normalizeTest(value, input, label) {
-  if (input.type === 'number') {
-    if (typeof value === 'number') {
-      if (!Number.isFinite(value)) throw invalid(`${label} must be a number.`);
-      return { equals: value };
-    }
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw invalid(`${label} must be a number, { not: N }, or bounds such as { atLeast: N }.`);
-    }
-    const keys = Object.keys(value);
-    if (keys.length === 1 && keys[0] === 'not') {
-      if (!Number.isFinite(value.not)) throw invalid(`${label}.not must be a number.`);
-      return { notEquals: value.not };
-    }
-    if (!keys.length || keys.some((key) => !NUMBER_TESTS.includes(key))) {
-      throw invalid(`${label} may use atLeast, atMost, above and below.`);
-    }
-    const test = {};
-    for (const key of NUMBER_TESTS) {
-      if (value[key] === undefined) continue;
-      if (!Number.isFinite(value[key])) throw invalid(`${label}.${key} must be a number.`);
-      test[key] = value[key];
-    }
-    return test;
-  }
-  const choose = (choices, at) => {
-    const array = Array.isArray(choices) ? choices : [choices];
-    if (!array.length) throw invalid(`${at} must name at least one choice.`);
-    return [...new Set(array.map((choice) => {
-      const found = typeof choice === 'string'
-        ? input.values.find((declared) => declared.toLowerCase() === choice.trim().toLowerCase())
-        : undefined;
-      if (!found) throw invalid(`${at} uses '${choice}', which is not one of ${input.label}'s choices (${input.values.join(', ')}).`);
-      return found;
-    }))];
-  };
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const keys = Object.keys(value);
-    if (keys.length !== 1 || keys[0] !== 'not') throw invalid(`${label} must be a choice, a list of choices, or { not: ... }.`);
-    return { notIn: choose(value.not, `${label}.not`) };
-  }
-  return { in: choose(value, label) };
-}
-
-function normalizeWhen(value, inputs, label, { required = false } = {}) {
-  if (value == null) {
-    if (required) throw invalid(`${label} must say which recorded values meet it.`);
-    return null;
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.keys(value).length) {
-    throw invalid(`${label} must map recorded values to what they must be, for example { risk: high }.`);
-  }
-  const when = {};
-  for (const [name, test] of Object.entries(value)) {
-    const input = inputs.find((candidate) => candidate.name === name);
-    if (!input) {
-      throw invalid(`${label} refers to '${name}', which is not one of this decision's inputs${inputs.length ? ` (${inputs.map((entry) => entry.name).join(', ')})` : ''}.`);
-    }
-    when[name] = normalizeTest(test, input, `${label}.${name}`);
-  }
-  return when;
-}
-
-function normalizeRoutes(value, { where, kind, inputs, order }) {
-  const minimum = 2;
-  if (!Array.isArray(value) || value.length < minimum || value.length > LIMITS.routes) {
-    throw invalid(`${where}.routes must list ${minimum} to ${LIMITS.routes} ${kind === 'ask' ? 'options' : 'routes'}.`);
-  }
-  const ids = new Set();
-  return value.map((route, index) => {
-    const label = `${where}.routes[${index}]`;
-    if (!route || typeof route !== 'object' || Array.isArray(route)) throw invalid(`${label} must be an object.`);
-    for (const key of Object.keys(route)) if (!ROUTE_KEYS.includes(key)) throw invalid(`${label} contains unknown field '${key}'.`);
-    if (!ID.test(route.id ?? '')) throw invalid(`${label}.id must be a lowercase kebab-case id.`);
-    if (ids.has(route.id)) throw invalid(`${where} has two routes named '${route.id}'.`);
-    ids.add(route.id);
-    const display = text(route.label, `${label}.label`);
-    if (typeof route.to !== 'string' || !(route.to === DECISION_NEXT || route.to === DECISION_END || order.includes(route.to))) {
-      throw invalid(`${label}.to must be a phase in this workflow, next, or end.`);
-    }
-    const last = index === value.length - 1;
-    let when = null;
-    if (kind === 'ask') {
-      if (route.when !== undefined) throw invalid(`${label}: an ask decision's options are chosen by a person, so they take no when.`);
-    } else if (last) {
-      if (route.when !== undefined) throw invalid(`${label} is the last route, so it takes everything else and needs no when.`);
-    } else {
-      when = normalizeWhen(route.when, inputs, `${label}.when`, { required: true });
-    }
-    // A route may declare the responsibilities it leaves undone; the obligation compiler checks each
-    // one and a Story taking the route needs an applicability decision for it.
-    if (route.omits !== undefined && !Array.isArray(route.omits)) throw invalid(`${label}.omits must be a list.`);
-    return { id: route.id, label: display, when, to: route.to, ...(route.omits !== undefined ? { omits: structuredClone(route.omits) } : {}) };
-  });
-}
-
-function normalizeBy(value, after, authorities, where) {
-  const configured = value == null ? null : Array.isArray(value) ? value : [value];
-  if (configured && (!configured.length || configured.some((id) => typeof id !== 'string' || !id.trim()))) {
-    throw invalid(`${where}.by must name one or more approval groups.`);
-  }
-  const by = configured
-    ? [...new Set(configured.map((id) => id.trim()))]
-    : after.approval?.mode && after.approval.mode !== 'none' ? [...(after.approval.authorities ?? [])] : [];
-  for (const id of by) {
-    if (!Object.hasOwn(authorities ?? {}, id)) throw invalid(`${where}.by names unknown approval group '${id}'.`);
-  }
-  return by;
-}
-
-/**
- * A route that skips phases must not strand a phase it still reaches: a skipped phase that a later
- * phase reads, takes test evidence from, or that plans the claims a code phase must meet would make
- * the Story fail at that later phase instead of here, where the cause is visible.
- */
-function assertRouteKeepsDependencies(where, route, reach, { order, byId, plannedClaims }) {
-  if (!reach.skipped.length) return;
-  const skipped = new Set(reach.skipped);
-  const reached = reach.target ? order.slice(order.indexOf(reach.target)) : [];
-  for (const phaseId of reached) {
-    const phase = byId.get(phaseId);
-    for (const input of phase.inputs ?? []) {
-      if (skipped.has(input.phase) && !input.optional) {
-        throw invalid(`${where} route '${route.id}' skips '${input.phase}', which '${phaseId}' reads. Mark that input optional in this workflow, or do not skip '${input.phase}'.`);
-      }
-    }
-    if (phase.testEvidenceFrom && skipped.has(phase.testEvidenceFrom)) {
-      throw invalid(`${where} route '${route.id}' skips '${phase.testEvidenceFrom}', whose test evidence '${phaseId}' reviews.`);
-    }
-  }
-  if (plannedClaims?.mode === 'required') {
-    const planners = new Set([...(plannedClaims.clausePhases ?? []), ...Object.values(plannedClaims.owners ?? {})]);
-    const skippedPlanners = reach.skipped.filter((phaseId) => planners.has(phaseId));
-    const reachedCode = reached.filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)));
-    if (skippedPlanners.length && reachedCode.length) {
-      throw invalid(`${where} route '${route.id}' skips ${list(skippedPlanners)}, which plan the claims '${reachedCode[0]}' must meet.`);
-    }
-    // The other direction: a route must not leave requirements a person already accepted, or claims
-    // already planned, with no code phase to meet them. An `end` route reaches nothing, so without
-    // this it could finish a Story whose requirements were never implemented. A route that declares
-    // it omits implementation says so explicitly; the obligation compiler checks that declaration
-    // and the Story needs an applicability decision before it can finish that way.
-    const omitsImplementation = Array.isArray(route.omits) && route.omits.some((entry) => entry?.responsibility === 'implement');
-    for (const codeId of omitsImplementation ? [] : reach.skipped.filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)))) {
-      const owner = plannedClaims.owners?.[codeId];
-      if (owner && !skipped.has(owner)) {
-        throw invalid(`${where} route '${route.id}' skips '${codeId}', which must meet the claims '${owner}' plans. A Story taking this route would finish with those claims unimplemented: route to '${codeId}' or an earlier phase instead.`);
-      }
-    }
-    for (const clausePhase of omitsImplementation ? [] : plannedClaims.clausePhases ?? []) {
-      if (skipped.has(clausePhase) || !order.includes(clausePhase)) continue;
-      const laterCode = order.slice(order.indexOf(clausePhase) + 1).filter((phaseId) => phaseRequiresCodeDelivery(byId.get(phaseId)));
-      if (laterCode.length && laterCode.every((phaseId) => skipped.has(phaseId))) {
-        throw invalid(`${where} route '${route.id}' skips every code phase after '${clausePhase}' (${list(laterCode)}), so the requirements '${clausePhase}' defines would never be implemented. Route to one of those phases, or decide before '${clausePhase}' runs.`);
-      }
-    }
-  }
-}
-
-/**
- * Validate and normalize a work type's decisions against its resolved phases.
- *
- * `phases` are resolved phase objects (id, approval, inputs, testEvidenceFrom, ...) in workflow
- * order; the rules above about people need the resolved approval mode, which an override may change.
- */
-export function normalizeDecisions(value, {
-  workTypeId = 'work type', phases = [], approvalAuthorities = {}, plannedClaims = null
-} = {}) {
-  if (value == null) return [];
-  const prefix = `Work type '${workTypeId}' decisions`;
-  if (!Array.isArray(value)) throw invalid(`${prefix} must be a list.`);
-  const order = phases.map((phase) => phase.id);
-  const byId = new Map(phases.map((phase) => [phase.id, phase]));
-  const ids = new Set();
-  const afters = new Set();
-  const written = new Map(value.filter((entry) => entry && typeof entry === 'object').map((entry) => [entry.id, entry]));
-  return value.map((entry, index) => {
-    const label = `${prefix}[${index}]`;
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw invalid(`${label} must be an object.`);
-    for (const key of Object.keys(entry)) if (!ENTRY_KEYS.includes(key)) throw invalid(`${label} contains unknown field '${key}'.`);
-    if (!ID.test(entry.id ?? '')) throw invalid(`${label}.id must be a lowercase kebab-case id.`);
-    if (ids.has(entry.id)) throw invalid(`${prefix} name '${entry.id}' twice.`);
-    ids.add(entry.id);
-    const where = `${prefix} '${entry.id}'`;
-    if (!order.includes(entry.after)) throw invalid(`${where}.after must name a phase in this workflow.`);
-    if (afters.has(entry.after)) throw invalid(`${where}: phase '${entry.after}' already has a decision after it.`);
-    afters.add(entry.after);
-    const after = byId.get(entry.after);
-    if (isConvergencePhase(after) || after.convergence != null) {
-      throw invalid(`${where} cannot follow convergence phase '${after.id}'; convergence already ends in a person's disposition.`);
-    }
-    if (!DECISION_KINDS.includes(entry.kind)) throw invalid(`${where}.kind must be branch, loop, or ask.`);
-    const kind = entry.kind;
-    if (entry.enforceConditions !== undefined && (kind === 'ask' || typeof entry.enforceConditions !== 'boolean')) {
-      throw invalid(`${where}.enforceConditions is true or false, and only on branch or loop decisions.`);
-    }
-    const display = text(entry.label, `${where}.label`);
-    if (kind === 'ask' && entry.inputs !== undefined) {
-      throw invalid(`${where} is an ask decision: a person chooses, so it records no inputs.`);
-    }
-    const declared = normalizeInputs(entry.inputs, where);
-    // What the phase records at submit, and what the decision reuses from an earlier one: a value
-    // such as a channel is chosen once, and every later decision on it reads that same answer.
-    const inputs = declared.filter((input) => !input.from);
-    const reuses = declared.filter((input) => input.from).map((input) => reusedInput(input, { where, after: entry.after, written, order }));
-    const reads = [...inputs, ...reuses];
-    if (kind !== 'ask' && !reads.length) throw invalid(`${where} must declare the inputs its rules read.`);
-    let routes;
-    let goal = null;
-    let back = null;
-    if (kind === 'loop') {
-      if (entry.routes !== undefined) throw invalid(`${where} is a loop: give goal, back and maxRounds instead of routes.`);
-      goal = normalizeWhen(entry.goal, reads, `${where}.goal`, { required: true });
-      if (!order.includes(entry.back) || order.indexOf(entry.back) > order.indexOf(after.id)) {
-        throw invalid(`${where}.back must name '${after.id}' or an earlier phase in this workflow.`);
-      }
-      back = entry.back;
-      routes = [
-        { id: 'goal-met', label: 'Goal met', when: goal, to: DECISION_NEXT },
-        { id: 'again', label: `Back to ${byId.get(back).label ?? back}`, when: null, to: back }
-      ];
-    } else {
-      if (entry.goal !== undefined || entry.back !== undefined) throw invalid(`${where}: goal and back belong to loop decisions.`);
-      routes = normalizeRoutes(entry.routes, { where, kind, inputs: reads, order });
-    }
-    const reaches = routes.map((route) => routeReach(order, after.id, route.to));
-    const goesBack = reaches.some((reach) => reach.kind === 'backward');
-    let maxRounds = null;
-    if (kind === 'ask') {
-      if (entry.maxRounds !== undefined) throw invalid(`${where}.maxRounds applies to branch and loop decisions; a person chooses every round of an ask.`);
-    } else if (goesBack) {
-      maxRounds = entry.maxRounds ?? DEFAULT_DECISION_ROUNDS;
-      if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > LIMITS.rounds) {
-        throw invalid(`${where}.maxRounds must be a whole number from 1 to ${LIMITS.rounds}.`);
-      }
-    } else if (entry.maxRounds !== undefined) {
-      throw invalid(`${where}.maxRounds needs a route that goes back.`);
-    }
-    if (entry.anyStep !== undefined && (kind !== 'ask' || typeof entry.anyStep !== 'boolean')) {
-      throw invalid(`${where}.anyStep is true or false, and only on ask decisions.`);
-    }
-    if (kind !== 'ask') {
-      // `[SPK:CON-037]`: a rule never moves work back, or past a person's checkpoint, on facts no
-      // person approved. Approval `policy` can be waived by a predicate, so only `required` counts.
-      const signedOff = after.approval?.mode === 'required';
-      routes.forEach((route, routeIndex) => {
-        const reach = reaches[routeIndex];
-        if (reach.kind === 'backward' && !signedOff) {
-          throw invalid(`${where} route '${route.id}' goes back to '${route.to}'. A rule may send work back only after a phase a person signs off: require approval on '${after.id}', or make this an ask decision.`);
-        }
-        const gated = reach.skipped.filter((phaseId) => (byId.get(phaseId).approval?.mode ?? 'required') !== 'none');
-        if (gated.length && !signedOff) {
-          throw invalid(`${where} route '${route.id}' skips ${list(gated)}, which people sign off. Only a phase a person signs off can decide to skip them: require approval on '${after.id}', or make this an ask decision.`);
-        }
-      });
-    }
-    const by = normalizeBy(entry.by, after, approvalAuthorities, where);
-    if ((kind === 'ask' || goesBack) && !by.length) {
-      throw invalid(`${where} needs by: the approval groups whose members ${kind === 'ask' ? 'choose' : 'decide when the rounds run out'}. '${after.id}' has no approvers to default to.`);
-    }
-    routes.forEach((route, routeIndex) => assertRouteKeepsDependencies(where, route, reaches[routeIndex], { order, byId, plannedClaims }));
-    return {
-      id: entry.id,
-      after: after.id,
-      kind,
-      label: display,
-      mode: kind === 'ask' ? 'ask' : 'auto',
-      inputs,
-      ...(reuses.length ? { reuses } : {}),
-      routes,
-      ...(kind === 'loop' ? { goal, back } : {}),
-      maxRounds,
-      by,
-      anyStep: kind === 'ask' ? entry.anyStep === true : false,
-      ...(entry.enforceConditions === true ? { enforceConditions: true } : {})
-    };
-  });
-}
-
-/** An input reused from an earlier decision, with that decision's label and choices. */
-function reusedInput(input, { where, after, written, order }) {
-  const source = written.get(input.from);
-  if (!source || source.id === undefined) throw invalid(`${where} reuses '${input.name}' from '${input.from}', which is not a decision of this workflow.`);
-  if (!order.includes(source.after) || order.indexOf(source.after) >= order.indexOf(after)) {
-    throw invalid(`${where} reuses '${input.name}' from '${input.from}', which must decide before it.`);
-  }
-  const own = Array.isArray(source.inputs) ? source.inputs.find((entry) => entry?.name === input.name && entry.from === undefined) : null;
-  if (!own || source.kind === 'ask' || (own.type ?? 'choice') !== 'choice' || !Array.isArray(own.values)) {
-    throw invalid(`${where} reuses '${input.name}' from '${input.from}', which records no choice called '${input.name}'.`);
-  }
-  const values = own.values.map((choice) => String(choice).trim());
-  if (input.values !== undefined && (!Array.isArray(input.values) || input.values.length !== values.length || input.values.some((choice, index) => String(choice).trim() !== values[index]))) {
-    throw invalid(`${where} reuses '${input.name}' from '${input.from}', so its choices are that decision's: ${values.join(', ')}.`);
-  }
-  return { name: input.name, label: input.label ?? (typeof own.label === 'string' && own.label.trim() ? own.label.trim() : input.name), type: 'choice', values, from: source.id };
-}
-
-/** Everything a decision's rules read: what its phase records, then what it reuses. */
-export function decisionReads(decision) {
-  return [...(decision?.inputs ?? []), ...(decision?.reuses ?? [])];
-}
-
-/**
- * What a Story's skipped phases left undone: planned claims whose code phase was skipped while
- * their planner ran, and accepted requirements whose every later code phase was skipped.
- * Validation refuses routes that would do this; the terminal gate uses this to catch a Story that
- * took such a route anyway, instead of counting the skipped phase as settled.
- */
-export function obligationsDroppedBySkips(workflow) {
-  const plannedClaims = workflow?.resolution?.plannedClaims;
-  if (plannedClaims?.mode !== 'required') return [];
-  // A declared no-change endpoint is settled only by its named human authority. It omits building,
-  // not the approved scope or verification evidence, which remain terminal obligations.
-  if (applicabilityStatus(workflow).some((entry) => entry.responsibility === 'implement' && entry.satisfied)) return [];
-  const order = workflow.phaseOrder ?? [];
-  const phaseOf = (id) => workflow.phases?.[id];
-  const skipped = (id) => phaseOf(id)?.status === 'skipped';
-  // A repair loop's final pass skips a code phase that already ran: its delivered generation
-  // implemented the claims, and the passing recheck tested that code. Only one that never
-  // delivered dropped them.
-  const delivered = (id) => (phaseOf(id)?.generation ?? 0) >= 1 && phaseOf(id)?.deliveryEvidence?.status === 'ready';
-  const dropped = new Map();
-  for (const id of order) {
-    if (!skipped(id) || !phaseRequiresCodeDelivery(phaseOf(id)) || delivered(id)) continue;
-    const owner = plannedClaims.owners?.[id];
-    if (owner && phaseOf(owner) && !skipped(owner)) dropped.set(id, `the claims '${owner}' planned for it were never implemented`);
-  }
-  for (const clausePhase of plannedClaims.clausePhases ?? []) {
-    if (!phaseOf(clausePhase) || skipped(clausePhase)) continue;
-    const laterCode = order.slice(order.indexOf(clausePhase) + 1).filter((id) => phaseRequiresCodeDelivery(phaseOf(id)));
-    if (!laterCode.length || !laterCode.every((id) => skipped(id) && !delivered(id))) continue;
-    for (const id of laterCode) if (!dropped.has(id)) dropped.set(id, `the requirements '${clausePhase}' defines were never implemented`);
-  }
-  return [...dropped].map(([phase, reason]) => ({ phase, reason }));
-}
-
-export function testHolds(test, value, input) {
-  if (value == null) return false;
-  if (input.type === 'number') {
-    const number = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(number)) return false;
-    if (Object.hasOwn(test, 'equals')) return number === test.equals;
-    if (Object.hasOwn(test, 'notEquals')) return number !== test.notEquals;
-    return (test.atLeast == null || number >= test.atLeast)
-      && (test.atMost == null || number <= test.atMost)
-      && (test.above == null || number > test.above)
-      && (test.below == null || number < test.below);
-  }
-  if (test.in) return test.in.includes(value);
-  if (test.notIn) return !test.notIn.includes(value);
-  return false;
-}
-
-export function whenHolds(when, values, inputs) {
-  return Object.entries(when ?? {}).every(([name, test]) => {
-    const input = inputs.find((candidate) => candidate.name === name);
-    return Boolean(input) && testHolds(test, values?.[name], input);
-  });
-}
-
-/** The first route whose rule holds; the last route has none, so a branch or loop always chooses. */
-export function chooseRoute(decision, values) {
-  return decision.routes.find((route) => !route.when || whenHolds(route.when, values, decisionReads(decision))) ?? null;
-}
 
 /** Plain words for a rule, for prompts, receipts and refusals. */
 export function describeWhen(when, inputs) {
@@ -522,56 +53,16 @@ export function parseDecisionAssignments(assignments = []) {
   return values;
 }
 
-/**
- * Everything a decision decides on in this Story: what its phase recorded this round, and what it
- * reuses from the earlier decision that recorded it. Null while any of it is not recorded.
- */
-export function decisionValues(workflow, phase, decision) {
-  const own = decision.inputs.length ? recordedDecisionValues(phase, decision) : {};
-  if (!own) return null;
-  const reused = {};
-  for (const input of decision.reuses ?? []) {
-    const source = (workflow?.resolution?.decisions ?? []).find((entry) => entry.id === input.from);
-    const recorded = source ? recordedDecisionValues(workflow.phases?.[source.after], source) : null;
-    if (recorded?.[input.name] == null) return null;
-    reused[input.name] = recorded[input.name];
-  }
-  return { ...reused, ...own };
-}
-
-/**
- * What completing `phase` does under its decision, without changing anything.
- *
- * `{ kind: 'next' | 'forward' | 'end', target, skipped }` move on; `{ kind: 'loop', target, round }`
- * goes back; `{ kind: 'pause', reason: 'ask' | 'limit' }` waits for a person. Null when no decision
- * follows the phase, which keeps every existing workflow on its linear path.
- */
+/** Preserve durable native rationale strings; kernel predicates stay structured data. */
 export function decisionOutcome(workflow, phase) {
+  const facts = decisionOutcomeFacts(workflow, phase);
+  if (!facts) return null;
   const decision = decisionAfter(workflow, phase.id);
-  if (!decision) return null;
-  const base = { decision: decision.id, label: decision.label, after: phase.id };
-  if (decision.mode === 'ask') return { ...base, kind: 'pause', reason: 'ask', by: 'person' };
-  const values = decisionValues(workflow, phase, decision);
-  if (!values) {
-    throw new SingularityFlowError(decision.inputs.length && !recordedDecisionValues(phase, decision)
-      ? `Decision '${decision.label}' after '${phase.id}' has no recorded inputs. Submit '${phase.id}' with ${decisionInputsHint(decision)}.`
-      : `Decision '${decision.label}' after '${phase.id}' reuses ${(decision.reuses ?? []).map((input) => `'${input.name}'`).join(', ')}, which this Story has not recorded.`,
-      { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id } }
-    );
-  }
-  const route = chooseRoute(decision, values);
-  const reach = routeReach(workflow.phaseOrder, phase.id, route.to);
-  const because = route.when ? describeWhen(route.when, decisionReads(decision)) : null;
-  // A loop goes back on its fallback route, which has no rule of its own; say which goal is unmet.
-  const goal = decision.kind === 'loop' ? describeWhen(decision.goal, decisionReads(decision)) : null;
-  if (reach.kind === 'backward') {
-    const used = workflow.decisionRounds?.[decision.id]?.count ?? 0;
-    if (used >= decision.maxRounds) {
-      return { ...base, kind: 'pause', reason: 'limit', route: route.id, routeLabel: route.label, round: used, maxRounds: decision.maxRounds, values, because, goal, by: 'rule' };
-    }
-    return { ...base, kind: 'loop', route: route.id, routeLabel: route.label, target: reach.target, round: used + 1, maxRounds: decision.maxRounds, values, because, goal, by: 'rule' };
-  }
-  return { ...base, kind: reach.kind, route: route.id, routeLabel: route.label, target: reach.target, skipped: reach.skipped, values, because, by: 'rule' };
+  const inputs = decisionReads(decision);
+  return { ...facts,
+    ...(Object.hasOwn(facts, 'because') ? { because: facts.because ? describeWhen(facts.because, inputs) : null } : {}),
+    ...(Object.hasOwn(facts, 'goal') ? { goal: facts.goal ? describeWhen(facts.goal, inputs) : null } : {})
+  };
 }
 
 /** One sentence for what an outcome does, shown before and after it happens. */
@@ -603,110 +94,48 @@ export function describeOutcome(workflow, outcome) {
   }
 }
 
-/**
- * The record of a Story waiting for a person. Its key binds a choice to exactly this question, so a
- * stale screen or a second person cannot answer a decision that has since changed.
- */
+/** Hash only the original payload, at the existing native canonical-record boundary. */
 export function pendingDecisionRecord(workflow, phase, outcome, { at }) {
-  const decision = decisionAfter(workflow, phase.id);
-  const values = decisionValues(workflow, phase, decision);
-  const matched = decision.enforceConditions && values ? chooseRoute(decision, values) : null;
-  const record = {
-    schemaVersion: 1,
-    decision: decision.id,
-    label: decision.label,
-    after: phase.id,
-    reason: outcome.reason,
-    askedAt: at,
-    round: outcome.round ?? null,
-    maxRounds: decision.maxRounds,
-    by: [...decision.by],
-    anyStep: decision.anyStep,
-    values,
-    options: decision.routes.filter((route) => !decision.enforceConditions || route.id === matched?.id)
-      .map((route) => ({ id: route.id, label: route.label, to: route.to }))
-  };
+  const record = pendingDecisionPayload(workflow, phase, outcome, { at });
   record.key = createHash('sha256').update(canonicalJson(record)).digest('hex').slice(0, 16);
   return record;
 }
 
-/**
- * The earlier steps a person may reopen from a decision that enforces its recorded conditions. Going
- * back never manufactures a passing result, and it is the "return to intake" such workflows promise
- * once their rounds are used; going forward stays bound to the recorded verdict.
- */
-export function reopenableSteps(workflow, pending) {
-  if (!pending || pending.anyStep || !decisionAfter(workflow, pending.after)?.enforceConditions) return [];
-  const order = workflow?.phaseOrder ?? [];
-  return order.slice(0, Math.max(0, order.indexOf(pending.after)));
-}
-
-/**
- * Resolve a person's choice for a pending decision: one of its options, or — when the decision
- * allows any step, or enforces its conditions and the step is an earlier one — a phase named
- * directly. Returns where it leads, never applies it.
- */
+/** Existing CLI diagnostic ABI over the kernel's structured choice refusals. */
 export function resolveDecisionChoice(workflow, pending, { option = null, to = null } = {}) {
-  if (!pending) throw new SingularityFlowError('This Story is not waiting for a decision.', { code: 'DECISION_NOT_PENDING' });
-  if (Boolean(option) === Boolean(to)) {
-    throw new SingularityFlowError(
-      `Choose one option with --option (${pending.options.map((entry) => entry.id).join(', ')})${pending.anyStep ? ', or a step with --to' : ''}.`,
-      { code: 'DECISION_CHOICE_REQUIRED' }
-    );
+  try { return resolveDecisionChoicePlan(workflow, pending, { option, to }); }
+  catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    let message;
+    switch (error.code) {
+      case 'DECISION_CHOICE_REQUIRED':
+        message = `Choose one option with --option (${pending.options.map((entry) => entry.id).join(', ')})${pending.anyStep ? ', or a step with --to' : ''}.`; break;
+      case 'DECISION_OPTION_UNKNOWN':
+        message = `'${option}' is not an option of '${pending.label}'. Options: ${pending.options.map((entry) => `${entry.id} (${entry.label})`).join(', ')}.`; break;
+      case 'DECISION_STEP_NOT_ALLOWED': {
+        const reopen = reopenableSteps(workflow, pending);
+        message = error.details?.reason === 'fixed-options'
+          ? `'${pending.label}' offers fixed options; choose one with --option${reopen.length ? `, or reopen an earlier step with --to ${reopen.join('|')}` : ''}.`
+          : '--to must name a phase of this Story or end.';
+        break;
+      }
+      case 'DECISION_CONDITION_REQUIRED': {
+        const decision = decisionAfter(workflow, pending.after);
+        message = `Decision '${decision.label}' requires its recorded conditions. This verdict does not allow '${error.details.routeLabel}'. Repair or recheck the evidence, reopen an earlier step with singularity-flow decision choose ${workflow.workItem?.id ?? '<WORK-ID>'} --to ${reopenableSteps(workflow, pending)[0] ?? '<PHASE>'} --reason "<why>" --expected ${pending.key}, or cancel the Story; a human choice cannot manufacture a passing result.`;
+        throw new SingularityFlowError(message, { code: error.code,
+          details: { decision: error.details.decision, allowedOption: error.details.allowedOption } });
+      }
+      default: throw error;
+    }
+    throw new SingularityFlowError(message, { code: error.code });
   }
-  let route;
-  if (option) {
-    route = pending.options.find((entry) => entry.id === option);
-    if (!route) {
-      throw new SingularityFlowError(`'${option}' is not an option of '${pending.label}'. Options: ${pending.options.map((entry) => `${entry.id} (${entry.label})`).join(', ')}.`,
-        { code: 'DECISION_OPTION_UNKNOWN' });
-    }
-  } else {
-    const reopen = reopenableSteps(workflow, pending);
-    if (!pending.anyStep && !reopen.includes(to)) {
-      throw new SingularityFlowError(`'${pending.label}' offers fixed options; choose one with --option${reopen.length ? `, or reopen an earlier step with --to ${reopen.join('|')}` : ''}.`, { code: 'DECISION_STEP_NOT_ALLOWED' });
-    }
-    if (!(to === DECISION_END || workflow.phaseOrder.includes(to))) {
-      throw new SingularityFlowError(`--to must name a phase of this Story or end.`, { code: 'DECISION_STEP_NOT_ALLOWED' });
-    }
-    route = { id: 'step', label: to === DECISION_END ? 'Finish the Story' : `Go to ${workflow.phases[to]?.label ?? to}`, to };
-  }
-  const reach = routeReach(workflow.phaseOrder, pending.after, route.to);
-  // An acceptance workflow must not turn an unmet agent verdict into a pass when a loop pauses.
-  // Read the pinned rule and submitted values, not the options/values echoed by a client.
-  const decision = decisionAfter(workflow, pending.after);
-  if (decision?.enforceConditions && !(to && reopenableSteps(workflow, pending).includes(to))) {
-    const values = decisionValues(workflow, workflow.phases?.[pending.after], decision);
-    const matched = values ? chooseRoute(decision, values) : null;
-    if (!option || matched?.id !== route.id || matched?.to !== route.to) {
-      throw new SingularityFlowError(
-        `Decision '${decision.label}' requires its recorded conditions. This verdict does not allow '${route.label}'. Repair or recheck the evidence, reopen an earlier step with singularity-flow decision choose ${workflow.workItem?.id ?? '<WORK-ID>'} --to ${reopenableSteps(workflow, pending)[0] ?? '<PHASE>'} --reason "<why>" --expected ${pending.key}, or cancel the Story; a human choice cannot manufacture a passing result.`,
-        { code: 'DECISION_CONDITION_REQUIRED', details: { decision: decision.id, allowedOption: matched?.id ?? null } }
-      );
-    }
-    route = matched;
-  }
-  return { route, reach };
 }
 
-/**
- * The same dependency rule the configuration enforces, for a step a person names at run time: a
- * choice must not skip a phase that a phase it still reaches reads.
- */
-export function assertChoiceKeepsDependencies(workflow, pending, reach, plannedClaims = workflow?.resolution?.plannedClaims) {
-  const order = workflow.phaseOrder;
-  const byId = new Map(order.map((id) => [id, {
-    ...workflow.phases[id],
-    inputs: workflow.phases[id]?.inputs ?? [],
-    testEvidenceFrom: workflow.resolution?.phases?.find((phase) => phase.id === id)?.testEvidenceFrom,
-    artifact: workflow.resolution?.phases?.find((phase) => phase.id === id)?.artifact,
-    generation: workflow.resolution?.phases?.find((phase) => phase.id === id)?.generation
-  }]));
-  try {
-    assertRouteKeepsDependencies(`Decision '${pending.label}'`, { id: 'chosen' }, reach, { order, byId, plannedClaims });
-  } catch (error) {
-    throw new SingularityFlowError(error.message.replace(" route 'chosen'", ''), { code: 'DECISION_STEP_NOT_ALLOWED' });
-  }
+/** Evaluated no-change authority stays native; absent that proof, analyze every skipped delivery. */
+export function obligationsDroppedBySkips(workflow) {
+  if (workflow?.resolution?.plannedClaims?.mode !== 'required') return [];
+  if (applicabilityStatus(workflow).some((entry) => entry.responsibility === 'implement' && entry.satisfied)) return [];
+  return skippedDeliveryObligations(workflow);
 }
 
 /**

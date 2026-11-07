@@ -21,7 +21,7 @@ import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { authoredInputsUnchanged, verifyInputsIntegrity } from './inputs.mjs';
 import { authoredEquivalence, changedUpstream, phaseUpstream } from './phase-upstream.mjs';
 import { snapshot } from './util.mjs';
-import { decisionAfter, decisionFedBy } from './workflow-decisions.mjs';
+import { decisionAfter, decisionFedBy } from './kernel/workflow-decisions.mjs';
 
 const actorKey = (actor) => actor?.login ?? actor?.email ?? actor?.name ?? null;
 

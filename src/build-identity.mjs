@@ -59,7 +59,7 @@ const DECIDING_MODULES = Object.freeze([
   'commands/shared/document-options.mjs', 'commands/shared/document-presentation.mjs',
   'engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/publication-intent.mjs',
   'kernel/workflow-assets.mjs', 'engine-compatibility/git-workflow-assets.mjs', 'workflow-transfer.mjs',
-  'kernel/decision-inputs.mjs', 'kernel/submission-intent.mjs',
+  'kernel/decision-inputs.mjs', 'kernel/workflow-decisions.mjs', 'kernel/submission-intent.mjs',
   'kernel/approval-policy.mjs', 'kernel/approval-fallback.mjs',
   'engine-compatibility/post-transition.mjs', 'phase-post-transition-guidance.mjs',
   'engine-compatibility/git-publication.mjs', 'engine-compatibility/generation-publication.mjs',

@@ -4,7 +4,7 @@
  * lifecycle changes; input normalization may run earlier without changing the aggregate.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {decisionFedBy,decisionInputsHint,normalizeDecisionInputValues,recordedDecisionValues} from './decision-inputs.mjs';
+import {decisionFedBy,decisionInputsHint,normalizeDecisionInputValues,recordedDecisionValues} from './workflow-decisions.mjs';
 
 function phaseIndex(workflow, phaseId) {
   const order = workflow.phaseOrder;

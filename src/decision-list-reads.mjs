@@ -137,7 +137,7 @@ async function failedUploads(root) {
 
 /** The pending routing decision, with the earlier steps it lets a person reopen. */
 async function routingFacts(workflow) {
-  const { reopenableSteps } = await import('./workflow-decisions.mjs');
+  const { reopenableSteps } = await import('./kernel/workflow-decisions.mjs');
   return { ...workflow.pendingDecision, reopen: reopenableSteps(workflow, workflow.pendingDecision) };
 }
 

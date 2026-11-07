@@ -90,6 +90,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/story-epic-sources.mjs',
   'src/workflow-studio.mjs',
   'src/workflow-decisions.mjs',
+  'src/kernel/workflow-decisions.mjs',
   'src/remote-fetch.mjs',
   'src/asset-import.mjs',
   'src/marketplace.mjs',

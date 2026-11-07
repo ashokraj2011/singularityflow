@@ -19,7 +19,7 @@
  * Every route is also checked for reachability: values for the decision's inputs that make the
  * engine choose it (the first route whose rule holds wins, so a later route can be shadowed).
  */
-import { DECISION_END, chooseRoute, routeReach } from './workflow-decisions.mjs';
+import { DECISION_END, chooseRoute, routeReach } from './kernel/workflow-decisions.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 
 const MAX_VALUE_COMBINATIONS = 4096;

@@ -27,6 +27,15 @@ const SINGLE_DECISIONS = Object.freeze([
   ['decision.risk','obligation-risk',['obligationId','revoke','category','transitions','expires','reason']],
   ['decision.choose','routing',['option','to','expected','reason']]
 ].map(([id,recordKind,fields])=>Object.freeze({id,recordKind,requestFields:Object.freeze(fields)})));
+const TEST_DECISIONS = Object.freeze([
+  ['decision.evidence-reuse','evidence-reuse',['phaseId','attemptId','revoke','reason','expires'],['phaseId','attemptId','revoke','reason','expires']],
+  ['decision.visual-profile','visual-profile',['phaseId','profileId','notApplicable','revoke','reason'],['phaseId','profileId','revoke','reason']],
+  ['decision.test-narrowing','test-narrowing',['phaseId','commandId','revoke','reason','expires'],['phaseId','commandId','revoke','reason','expires']],
+  ['decision.test-risk','test-run-risk',['phaseId','commandId','argvSha256','causeClass','cause','revoke','reason','expires'],['phaseId','commandId','argvSha256','causeClass','cause','revoke','reason','expires']],
+  ['test-command.request','test-command-request',['phaseId','command','suggestionId','sourceRoots','repinId','reason'],['phaseId','command','repin','reason']],
+  ['test-command.decide','test-command-decision',['accept','revoke','reason'],['phaseId','accept','revoke','reason']]
+].map(([id,recordKind,fields,intentFields])=>Object.freeze({id,recordKind,
+  requestFields:Object.freeze(fields),intentFields:Object.freeze(intentFields)})));
 const definitions = [
   { id: 'phase.publish', version: 1, effect: 'publication',
     inputFields: PUBLISH_FIELDS, port: 'publication',
@@ -47,7 +56,12 @@ const definitions = [
     stages:Object.freeze(['withReview']),validate:submissionInput,execute:advanceConvergence},
   ...SINGLE_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',humanDecision:true,
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'decisionRecord',
-    stages:Object.freeze(['load','prepare','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision}))
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
+  ...TEST_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',
+    humanDecision:operation.id!=='test-command.request',authority:operation.id==='test-command.request'?'requester':'reviewer',
+    allowRetained:operation.id==='test-command.request',phaseBinding:'resolved-target',
+    inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
+    stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision}))
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -156,17 +170,19 @@ function decisionInput(value) {
   return input;
 }
 
-function singleDecisionInput(value, operation, {requestOnly=false}={}) {
-  const input=data(value), fields=requestOnly ? operation.requestFields : operation.inputFields;
+function singleDecisionInput(value, operation, {requestOnly=false,intent=false}={}) {
+  const input=data(value), fields=intent ? operation.intentFields : requestOnly ? operation.requestFields : operation.inputFields;
   if (!input || typeof input!=='object' || Array.isArray(input)
     || Object.keys(input).some(key=>!fields.includes(key))) invalid('Unknown standalone decision input field.');
   for (const [key,value] of Object.entries(input)) {
     if (value==null) continue;
-    if (key==='fetch') {if(typeof value!=='boolean')invalid('Decision fetch must be a boolean.');}
-    else if (['clauseIds','transitions'].includes(key)) {
+    if (['fetch','notApplicable'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
+    else if (['clauseIds','transitions','sourceRoots'].includes(key)) {
       if(!Array.isArray(value)||value.some(item=>typeof item!=='string'))invalid(`Decision ${key} must be an array of strings.`);
     } else if (key==='checklist') {
       if(!Array.isArray(value))invalid('Decision checklist must be an array.');
+    } else if (['command','repin'].includes(key)) {
+      if(typeof value!=='object'||Array.isArray(value))invalid(`Decision ${key} must be a JSON record.`);
     } else if(typeof value!=='string')invalid(`Decision ${key} must be a string or null.`);
   }
   return input;
@@ -383,18 +399,24 @@ function singleDecisionResult(binding, facts, operation) {
   let result;
   try {result=data(facts);}
   catch(cause) {throw new SingularityFlowError('The decision writer returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
-  const fields=['workId','phase','recordKind','record','revision','pushed','actorId','authorityGroup','currentPhase'];
+  const fields=['workId','phase','recordKind','record','revision','pushed','actorId','authorityGroup','currentPhase',
+    ...(operation.allowRetained?['retained']:[])];
   const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
+  const retained=operation.allowRetained===true&&result?.retained===true;
   if(!result || Object.keys(result).some(key=>!fields.includes(key))
     || result.workId!==binding.workId || result.phase!==binding.phase || result.recordKind!==operation.recordKind
     || !result.record || typeof result.record!=='object' || Array.isArray(result.record)
-    || !text(result.revision) || typeof result.pushed!=='boolean' || !text(result.actorId) || !text(result.authorityGroup)
-    || result.currentPhase!==null && !text(result.currentPhase)) {
+    || operation.phaseBinding==='resolved-target'&&result.record.phase!==binding.phase
+    || (retained?result.revision!==null:!text(result.revision)) || typeof result.pushed!=='boolean'
+    || retained&&result.pushed || operation.allowRetained&&typeof result.retained!=='boolean'
+    || !text(result.actorId) || (operation.authority==='requester' ? result.authorityGroup!==null : !text(result.authorityGroup))
+    || result.currentPhase!==null && !text(result.currentPhase)
+    || operation.phaseBinding==='resolved-target'&&result.currentPhase!==binding.currentPhase) {
     throw new SingularityFlowError('The decision writer returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
-  return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:'recorded',
+  return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:retained?'retained':'recorded',
     subject:Object.freeze({kind:'story',id:binding.workId}),phase:binding.phase,revision:result.revision,
-    effects:Object.freeze({committed:true,pushed:result.pushed}),recordKind:result.recordKind,record:result.record,
+    effects:Object.freeze({committed:!retained,pushed:result.pushed}),recordKind:result.recordKind,record:result.record,
     actorId:result.actorId,authorityGroup:result.authorityGroup,currentPhase:result.currentPhase});
 }
 
@@ -415,9 +437,23 @@ async function recordSingleDecision(port, inputs, signal, operation) {
   const prepared=await port.prepare(context,supplied,{signal,operation:descriptor});
   const request=data(standaloneDecisionRequest(operation.id,singleDecisionInput(prepared,operation,{requestOnly:true})));
   notCancelled(signal);
-  const committed=await port.commit(context,request,{signal,operation:descriptor});
+  let intent=request;
+  let resultBinding=binding;
+  if(port.resolve) {
+    const resolved=await port.resolve(context,request,{signal,operation:descriptor});
+    try {intent=singleDecisionInput(resolved,operation,{intent:true});}
+    catch(cause) {throw new SingularityFlowError('The decision resolver returned an invalid intent.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+    if(operation.phaseBinding==='resolved-target') {
+      if(typeof intent.phaseId!=='string'||!intent.phaseId||!context.workflow.phases?.[intent.phaseId]
+        || request.phaseId!=null&&intent.phaseId!==request.phaseId)throw new SingularityFlowError(
+        'The decision resolver did not bind the requested target phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+      resultBinding=data({...binding,phase:intent.phaseId,currentPhase:binding.phase});
+    }
+    notCancelled(signal);
+  }
+  const committed=await port.commit(context,intent,{signal,operation:descriptor});
   try {
-    return singleDecisionResult(binding,await port.finish(context,request,committed,{operation:descriptor}),operation);
+    return singleDecisionResult(resultBinding,await port.finish(context,intent,committed,{operation:descriptor}),operation);
   } catch(error) {
     if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePublication=committed;
     throw error;

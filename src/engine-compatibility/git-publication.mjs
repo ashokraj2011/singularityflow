@@ -378,7 +378,18 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await decisionRecordOwner)[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, invocation: {
+  let testDecisionRecordOwner;
+  const testDecisionRecord={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='testDecisionRecord').stages) {
+    testDecisionRecord[stage]=async(...args)=>{
+      testDecisionRecordOwner ??= import('./git-test-decision-record.mjs')
+        .then(({createGitTestDecisionRecordPort})=>createGitTestDecisionRecordPort({root,interaction:recordInteraction,
+          onContext:context=>{presentation=context;}}))
+        .catch(error=>{testDecisionRecordOwner=undefined;throw error;});
+      return (await testDecisionRecordOwner)[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, testDecisionRecord, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

@@ -74,11 +74,32 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, five standalone decision routes, convergence advancement and shared post-transition effects extracted; remaining standalone families, corrections/amendments, manifests/queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence decisions, convergence advancement and shared post-transition effects extracted; witness/exception decisions, corrections/amendments, manifests/queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
+
+The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
+`decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
+The first four use the installed phase approvers; command requests remain distinct from human
+acceptance or revocation. See [the decision boundary](ENGINE-SDK-DECISION-RECORDS.md#test-and-evidence-decisions)
+for its request fields, target/current-phase binding and retained-request effect semantics.
+
+Mac qualification for that extension on Node 26.12.0 passed 50 SDK/protocol/boundary checks,
+9 native test/evidence journey checks, the Story-only command and configuration test-setup flows,
+and 78 broader regression checks. All passed without skips or cancellations. The broader run
+includes shared boundary rechecks, real source/bundled CLI parity, original standalone decisions,
+combined decisions and a complete specification-through-release Story (111.7 seconds for that
+journey). Test repositories and remotes are isolated; no real Story was changed.
+
+`npm run check` passed 3,581 checks; VS Code typechecking, all 13 unchanged runtime bundle budgets,
+Git ownership audit, npm dry-run packaging and whitespace checks passed. Five CLI rendering tails
+are token-identical to the preceding commit and the five native record-writer files are unchanged.
+The pure SDK closure is 11 modules / 118,681 input bytes with zero external imports. The gateway
+remains at 852 modules within its existing limit. No Windows, hosted CI or provider runs were used.
+This completes the test/evidence decision slice, not the remaining Phase 5 operations or storage
+and embedding phases.
 
 Each extraction includes relevant regression tests, typed results, error preservation and a smaller
 legacy dependency boundary. Static and literal dynamic imports, re-exports, computed imports and

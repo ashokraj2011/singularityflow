@@ -103,6 +103,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const decisionPort=path.join(packageRoot,'src/engine-compatibility/git-decisions.mjs');
   const advancementPort=path.join(packageRoot,'src/engine-compatibility/git-advancement.mjs');
   const singleDecisionPort=path.join(packageRoot,'src/engine-compatibility/git-decision-record.mjs');
+  const testDecisionPort=path.join(packageRoot,'src/engine-compatibility/git-test-decision-record.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -118,6 +119,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===decisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===advancementPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===singleDecisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===testDecisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -129,7 +131,8 @@ test('extracted native decision writers do not import command handlers or host p
   const owners=['native-story-decisions.mjs','native-plan-decisions.mjs','native-obligation-risk.mjs',
     'native-evidence-decisions.mjs','native-visual-decisions.mjs','native-test-command-decisions.mjs',
     'native-test-narrowing-decisions.mjs','native-test-risk-decisions.mjs','native-upstream-decisions.mjs',
-    'git-decisions.mjs','git-decision-record.mjs','git-advancement.mjs','convergence-projection-read.mjs'];
+    'git-decisions.mjs','git-decision-record.mjs','git-test-decision-record.mjs','record-decision-context.mjs',
+    'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);
@@ -171,6 +174,18 @@ test('standalone decision adapters do not duplicate admission or import native d
   const adapter=await readFile(path.join(packageRoot,'src/commands/decision-record.mjs'),'utf8');
   assert.doesNotMatch(adapter,/native-story-decisions|native-obligation-risk|loadAcceptedStoryExecution|checkoutStoryBranch|transactStory/);
   assert.match(adapter,/binding\.engine\.run\(operation,/);
+  for(const [file,name] of [['decision-evidence-reuse','decisionEvidenceReuseCommand'],
+    ['decision-visual-profile','decisionVisualProfileCommand'],['decision-test-narrowing','decisionTestNarrowingCommand'],
+    ['decision-test-risk','decisionTestRiskCommand'],['decision-test-command','decisionTestCommandCommand']]) {
+    const source=ts.createSourceFile(file,await readFile(path.join(packageRoot,`src/commands/${file}.mjs`),'utf8'),ts.ScriptTarget.Latest,true);
+    const node=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name);
+    assert.ok(node,name);
+    assert.match(node.body.getText(source),/executeTestDecision\(/);
+    assert.doesNotMatch(node.body.getText(source),/loadAcceptedStoryExecution|loadConfig|checkoutStoryBranch|actionActor|loadSession|transactStory|await record/);
+  }
+  const testAdapter=await readFile(path.join(packageRoot,'src/commands/shared/test-decision-operation.mjs'),'utf8');
+  assert.match(testAdapter,/binding\.engine\.run\(operation,/);
+  assert.doesNotMatch(testAdapter,/native-.*decisions|loadAcceptedStoryExecution|transactStory/);
 });
 
 test('decision effect and combined-approval coordinators import native recorders instead of commands',async()=>{

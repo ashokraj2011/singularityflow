@@ -1,6 +1,7 @@
 /** Pure decision answer validation, authority selection and stable plan batching. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {MAX_PLAN_AMENDMENT_CHANGES,DECISION_CAUSE_LIMITS as CAUSE} from './decision-limits.mjs';
+import {isVisualVerificationPhase} from './phase-policy.mjs';
 function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
 }
@@ -18,7 +19,13 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
     'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
     'decision.applicability':['APPLICABILITY_STORY_CLOSED', `Story ${workId} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`],
-    'decision.risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`]
+    'decision.risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
+    'decision.test-risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
+    'decision.test-narrowing':['TEST_NARROWING_CLOSED', `Story ${workId} is ${workflow.status}; narrowed runs are decided while it is in progress.`],
+    'decision.evidence-reuse':['EVIDENCE_REUSE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; evidence reuse is decided while it is in progress.`],
+    'decision.visual-profile':['VISUAL_PROFILE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; which screen sizes apply is decided while it is in progress.`],
+    'test-command.request':['TEST_COMMAND_DECISION_CLOSED', `Story ${workId} is ${workflow.status}; its test commands are decided while it is in progress.`],
+    'test-command.decide':['TEST_COMMAND_DECISION_CLOSED', `Story ${workId} is ${workflow.status}; its test commands are decided while it is in progress.`]
   }[operation];
   if (!closed) refused('The standalone decision operation is unavailable.', 'ENGINE_OPERATION_UNSUPPORTED');
   if (workflow.status !== 'in_progress') refused(closed[1], closed[0]);
@@ -53,7 +60,71 @@ export function standaloneDecisionRequest(operation, input) {
     checklist:input.checklist ?? [], reason};
   if (operation === 'decision.choose') return {option:input.option ?? null, to:input.to ?? null,
     expected:input.expected ?? null, reason};
+  if (operation === 'decision.evidence-reuse') return {phaseId:input.phaseId ?? null,attemptId:input.attemptId ?? null,
+    revoke:input.revoke ?? null,expires:input.expires ?? null,reason};
+  if (operation === 'decision.visual-profile') return {phaseId:input.phaseId ?? null,profileId:input.profileId ?? null,
+    notApplicable:input.notApplicable === true,revoke:input.revoke ?? null,reason};
+  if (operation === 'decision.test-narrowing') return {phaseId:input.phaseId ?? null,commandId:input.commandId ?? null,
+    revoke:input.revoke ?? null,expires:input.expires ?? null,reason};
+  if (operation === 'decision.test-risk') return {phaseId:input.phaseId ?? null,commandId:input.commandId ?? null,
+    argvSha256:input.argvSha256 ?? null,causeClass:input.causeClass ?? null,cause:input.cause ?? '',
+    revoke:input.revoke ?? null,expires:input.expires ?? null,reason};
+  if (operation === 'test-command.request') {
+    if (!input.phaseId || [input.command,input.suggestionId,input.repinId].filter(Boolean).length !== 1) refused(
+      'A test-command request names one phase and exactly one explicit command, inspected suggestion or current pin.',
+      'TEST_COMMAND_DECISION_INVALID');
+    if (input.repinId && input.sourceRoots?.length) refused('A re-pin uses the command as the gate resolves it now.', 'TEST_COMMAND_DECISION_INVALID');
+    return {phaseId:input.phaseId,command:input.command ?? null,suggestionId:input.suggestionId ?? null,
+      sourceRoots:input.sourceRoots ?? [],repinId:input.repinId ?? null,reason};
+  }
+  if (operation === 'test-command.decide') {
+    const accept=input.accept ?? null,revoke=input.revoke ?? null;
+    if (!accept === !revoke) refused('Accept or revoke exactly one existing test-command request.', 'TEST_COMMAND_DECISION_INVALID');
+    return {accept,revoke,reason};
+  }
   refused('The standalone decision operation is unavailable.', 'ENGINE_OPERATION_UNSUPPORTED');
+}
+
+/** Select a target from native, presence-checked lookup facts; no files, identity or command execution. */
+export function resolveTestEvidenceIntent(operation, workflow, input, {target=null,causeCategory=null}={}) {
+  if(!['decision.evidence-reuse','decision.visual-profile','decision.test-narrowing','decision.test-risk'].includes(operation)) {
+    refused('The test-evidence decision operation is unavailable.','ENGINE_OPERATION_UNSUPPORTED');
+  }
+  const id=workflow.workItem.id, revoke=input.revoke, requestedPhase=input.phaseId;
+  if (operation === 'decision.evidence-reuse') {
+    if (!revoke === !requestedPhase || revoke && (input.attemptId || input.expires)) refused(
+      'Name the step with --phase PHASE --from-attempt TA-..., or a decision to revoke with --revoke ERU-...', 'EVIDENCE_REUSE_INVALID');
+    if (!revoke && !input.attemptId) refused("Name the recorded run to reuse with --from-attempt TA-... (an earlier step's retained attempt).", 'EVIDENCE_REUSE_INVALID');
+    if (revoke && (!target || target.id!==revoke)) refused(`This Story has no evidence-reuse decision ${revoke}.`, 'EVIDENCE_REUSE_UNKNOWN');
+    const phaseId=revoke?target.phase:requestedPhase;
+    if (!workflow.phases?.[phaseId] || workflow.phases[phaseId].status==='skipped') refused(
+      `Story ${id} has no step ${phaseId} that is on its route.`, 'EVIDENCE_REUSE_INVALID');
+    return {...input,phaseId};
+  }
+  if (operation === 'decision.visual-profile') {
+    if (revoke?Boolean(requestedPhase || input.profileId || input.notApplicable):!(requestedPhase && input.profileId && input.notApplicable)) refused(
+      'Name the step and the profile that does not apply with --phase VISUAL-STEP --profile PROFILE-ID --not-applicable, or a decision to revoke with --revoke VPD-...', 'VISUAL_PROFILE_DECISION_INVALID');
+    if (revoke && (!target || target.id!==revoke)) refused(`This Story has no visual-profile decision ${revoke}.`, 'VISUAL_PROFILE_DECISION_UNKNOWN');
+    const phaseId=revoke?target.phase:requestedPhase,phase=workflow.phases?.[phaseId];
+    if (!phase || phase.status==='skipped' || !isVisualVerificationPhase(phase)) refused(
+      `Story ${id} has no visual verification step ${phaseId} on its route (a step whose artifact is visual-test-evidence).`, 'VISUAL_PROFILE_DECISION_INVALID');
+    const {notApplicable,...request}=input;
+    return {...request,phaseId};
+  }
+  const narrowing=operation==='decision.test-narrowing';
+  const invalid=narrowing?'TEST_NARROWING_INVALID':'TEST_RUN_RISK_INVALID';
+  if (!revoke === !requestedPhase) refused(`Name the step with --phase PHASE, or a decision to revoke with --revoke ${narrowing?'TNR':'TRR'}-...`,invalid);
+  if (revoke && (!target || target.id!==revoke)) refused(
+    `This Story has no ${narrowing?'test-narrowing':'test-run risk'} decision ${revoke}.`,narrowing?'TEST_NARROWING_UNKNOWN':'TEST_RUN_RISK_UNKNOWN');
+  const phaseId=revoke?target.phase:requestedPhase;
+  if (!workflow.phases?.[phaseId]) refused(`Story ${id} has no step ${phaseId}.`,invalid);
+  if (!narrowing) {
+    if (input.argvSha256!==null && (revoke || !input.commandId || !/^[a-f0-9]{64}$/u.test(input.argvSha256))) refused(
+      '--argv-sha256 takes the 64-character digest a refusal named, with --phase and --command.',invalid);
+    if (input.causeClass!==null && (revoke || causeCategory!=='environment')) refused(
+      '--cause-class takes the environment cause class a refusal named, with --phase.',invalid);
+  }
+  return {...input,phaseId};
 }
 
 /** The policy data a planner consumes; host commands and display-only authority prose stay out. */

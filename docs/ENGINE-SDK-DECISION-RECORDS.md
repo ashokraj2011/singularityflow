@@ -4,6 +4,8 @@ Five existing CLI decision routes now enter the SDK registry: `decision.scope`,
 `decision.completeness`, `decision.applicability`, `decision.risk` and `decision.choose`.
 These are individual human requests. The existing `decisions.record` operation remains the
 separate, digest-confirmed protocol for recording selections from a pending-decision list.
+The test/evidence extension below adds six entries, separating agent command requests from
+human acceptance and retaining the original CLI syntax.
 
 Both protocols use the same installed native record writers. No second authority evaluator,
 serializer, event format or publication transaction is introduced.
@@ -87,3 +89,40 @@ and runtime gates continue to enforce their existing ceilings.
 Other standalone decision families, plan corrections, amendment orchestration, phase manifests,
 queries and admission helpers remain Phase 5 work. The remaining storage, embedding, migration
 and distribution phases retain their scope in [the migration plan](ENGINE-SDK-MIGRATION.md).
+
+## Test and evidence decisions
+
+Six additional entries reuse the same coordinator through a separate `testDecisionRecord` port.
+Its `resolve` stage reads retained native records and repository facts between `prepare` and
+`commit`. The existing four-stage port and its five operations are unchanged.
+
+| Operation | Request fields in addition to `workId` / `fetch` | Authority |
+|---|---|---|
+| `decision.evidence-reuse` | `phaseId`, `attemptId`, `revoke`, `reason`, `expires` | Consuming phase's existing approvers |
+| `decision.visual-profile` | `phaseId`, `profileId`, `notApplicable`, `revoke`, `reason` | Visual phase's existing approvers |
+| `decision.test-narrowing` | `phaseId`, `commandId`, `revoke`, `reason`, `expires` | Test phase's existing approvers |
+| `decision.test-risk` | `phaseId`, `commandId`, `argvSha256`, `causeClass`, `cause`, `revoke`, `reason`, `expires` | Test phase's existing approvers |
+| `test-command.request` | `phaseId`, exactly one of `command` / `suggestionId` / `repinId`, `sourceRoots`, `reason` | Existing requester identity; no human approval is claimed |
+| `test-command.decide` | Exactly one of `accept` / `revoke`, `reason` | Requested phase's existing human approvers |
+
+`sourceRoots` scopes suggestion inspection; it cannot accompany a repin. A request never executes
+the command. Accepting a request also executes no test and activates no phase. Later publication
+and submission retain their required test execution. Self-acceptance, submitted-review holds,
+presence and target-phase authority remain enforced by the installed native writer.
+
+The resolver derives a revocation's original phase from retained records; a caller cannot supply
+the original record or a private repin description. A repin is inspected from the current native
+gate resolution. Explicit commands keep the existing structured-command, environment and language
+checks. Configuration proposal and Story suggestion selection share one repository inspection
+helper, while flag parsing remains in the CLI.
+
+Receipts distinguish the target `phase` from `currentPhase`. A test/evidence decision cannot claim
+to advance the current phase. The SDK checks the resolved target against any requested phase and
+the accepted workflow. The record's phase must agree. A repeated pending test-command request has
+status `retained`, revision `null` and both effect flags false; it retains the original requester.
+All other operations in this family require an actual publication revision and human authority
+group. A command request's authority group is always `null`.
+
+The CLI retains `decision test-command` and its existing JSON operation name for both requesting
+and deciding. This is a host projection of the two separate SDK operations. Existing helper
+exports and combined decision recording continue to call the exact same native writers.

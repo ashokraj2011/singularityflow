@@ -12,21 +12,15 @@
  * cause. The Copilot guard refuses this command, like approve: an agent may name the route, never
  * decide it.
  */
-import { checkoutStoryBranch } from '../story-branch-name.mjs';
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 
-import { repoRoot } from '../git.mjs';
 
+import {executeTestDecision} from './shared/test-decision-operation.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { loadSession } from '../session.mjs';
 
-import { loadConfig } from '../state-stores.mjs';
-import { testRunCauseCategory, testRunCauseWords } from '../test-run-cause.mjs';
-import { testRunRiskAuthorities } from '../test-run-risk.mjs';
-import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { testRunCauseWords } from '../test-run-cause.mjs';
+import { optionBoolean, optionString } from '../util.mjs';
 
-import { actionActor } from './kernel.mjs';
 import {testRunRiskDecisionPart,recordTestRunRiskDecision} from '../engine-compatibility/native-test-risk-decisions.mjs';
 export {testRunRiskDecisionPart,recordTestRunRiskDecision};
 
@@ -36,45 +30,9 @@ export { testRunRiskAuthorities } from '../test-run-risk.mjs';
 export async function decisionTestRiskCommand(positionals, options) {
   // Its sibling decision on a test run, routed here so the CLI's dispatch keeps one line for both.
   if (positionals[1] === 'test-narrowing') return (await import('./decision-test-narrowing.mjs')).decisionTestNarrowingCommand(positionals, options);
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; risks are decided while it is in progress.`, { code: 'RISK_STORY_CLOSED' });
-  }
-  const revoke = optionString(options, 'revoke') ?? null;
-  const requestedPhase = optionString(options, 'phase') ?? null;
-  if (!revoke === !requestedPhase) {
-    throw new SingularityFlowError('Name the step with --phase PHASE, or a decision to revoke with --revoke TRR-...', { code: 'TEST_RUN_RISK_INVALID' });
-  }
-  const target = revoke ? (workflow.testRunRisks ?? []).find((entry) => !entry.revokes && entry.id === revoke) ?? null : null;
-  const phaseId = revoke ? target?.phase ?? null : requestedPhase;
-  if (revoke && !target) throw new SingularityFlowError(`This Story has no test-run risk decision ${revoke}.`, { code: 'TEST_RUN_RISK_UNKNOWN' });
-  if (!workflow.phases?.[phaseId]) {
-    throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'TEST_RUN_RISK_INVALID' });
-  }
-  const commandOption = optionString(options, 'command') ?? null;
-  const argvDigest = optionString(options, 'argv-sha256') ?? null;
-  if (argvDigest !== null && (revoke || !commandOption || !/^[a-f0-9]{64}$/u.test(argvDigest))) {
-    throw new SingularityFlowError('--argv-sha256 takes the 64-character digest a refusal named, with --phase and --command.', { code: 'TEST_RUN_RISK_INVALID' });
-  }
-  const causeClass = optionString(options, 'cause-class') ?? null;
-  if (causeClass !== null && (revoke || testRunCauseCategory(causeClass) !== 'environment')) {
-    throw new SingularityFlowError('--cause-class takes the environment cause class a refusal named, with --phase.', { code: 'TEST_RUN_RISK_INVALID' });
-  }
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { record, publication } = await recordTestRunRiskDecision(root, config, workflow, {
-    phaseId, revoke, commandId: commandOption, argvSha256: argvDigest, causeClass, cause: optionString(options, 'cause') ?? '',
-    reason: optionString(options, 'reason') ?? '', expires: optionString(options, 'expires') ?? null
-  }, { actor, agent });
+  const {receipt,context,publication}=await executeTestDecision('decision.test-risk',
+    positionals[2]??optionString(options,'work-id')??null,options,()=>({phaseId:optionString(options,'phase')??null,commandId:optionString(options,'command')??null,argvSha256:optionString(options,'argv-sha256')??null,causeClass:optionString(options,'cause-class')??null,cause:optionString(options,'cause')??'',revoke:optionString(options,'revoke')??null,reason:optionString(options,'reason')??'',expires:optionString(options,'expires')??null}));
+  const {workflow}=context,id=receipt.subject.id,record=receipt.record;
   if (!optionBoolean(options, 'json')) {
     console.log(record.revokes
       ? `Revoked ${record.revokes} on ${record.phase} ${record.commandId}.`

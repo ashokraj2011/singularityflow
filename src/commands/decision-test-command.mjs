@@ -16,19 +16,14 @@
  * step's when it has none), so the Copilot guard refuses those forms, like approve; the decision list
  * offers the acceptance to the people who may give it.
  */
-import { checkoutStoryBranch } from '../story-branch-name.mjs';
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 
-import { repoRoot } from '../git.mjs';
 
+import {executeTestDecision} from './shared/test-decision-operation.mjs';
 import { action, commandResult, effects, noop, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { loadSession } from '../session.mjs';
-import { loadConfig } from '../state-stores.mjs';
 import { pinDiffWords, storyTestCommandState } from '../story-test-commands.mjs';
 
-import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
-import { actionActor } from './kernel.mjs';
+import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import {recordStoryTestCommand} from '../engine-compatibility/native-test-command-decisions.mjs';
 export {recordStoryTestCommand};
 
@@ -49,64 +44,37 @@ function repinWords(repin) {
 }
 
 export async function decisionTestCommandCommand(positionals, options) {
-  const root = repoRoot();
-  // `--accept` is a global flag, so `--accept TCD-001` leaves the request ID among the positionals.
-  const request = (value) => /^TCD-[0-9]{3,}$/u.test(String(value ?? ''));
-  const named = positionals.slice(2);
-  const requestedId = named.find((value) => !request(value)) ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') fail(`Story ${id} is ${workflow.status}; its test commands are decided while it is in progress.`, 'TEST_COMMAND_DECISION_CLOSED');
-  const accept = optionBoolean(options, 'accept') ? named.find(request) ?? null : null;
-  const revoke = optionString(options, 'revoke') ?? null;
-  if (optionBoolean(options, 'accept') && !accept) fail(`Name the request to accept: --accept TCD-001. ${USAGE}`);
-  const phaseId = optionString(options, 'phase') ?? null;
-  if ([accept, revoke, phaseId].filter(Boolean).length !== 1) {
-    fail(`Request a command for a step with --phase PHASE, or decide a request with --accept or --revoke. ${USAGE}`);
+  // `--accept` is a global flag, so its request ID is positional, as in the installed CLI.
+  const isRequest=value=>/^TCD-[0-9]{3,}$/u.test(String(value??''));
+  const named=positionals.slice(2);
+  const requestedId=named.find(value=>!isRequest(value))??optionString(options,'work-id')??null;
+  const operation=optionBoolean(options,'accept')||options.revoke!==undefined?'test-command.decide':'test-command.request';
+  const prepare=async()=>{
+    const accept=optionBoolean(options,'accept')?named.find(isRequest)??null:null;
+    const revoke=optionString(options,'revoke')??null;
+    if(optionBoolean(options,'accept')&&!accept)fail(`Name the request to accept: --accept TCD-001. ${USAGE}`);
+    const phaseId=optionString(options,'phase')??null;
+    if([accept,revoke,phaseId].filter(Boolean).length!==1)fail(`Request a command for a step with --phase PHASE, or decide a request with --accept or --revoke. ${USAGE}`);
+    if((accept||revoke)&&COMMAND_OPTIONS.some(key=>options[key]!==undefined))fail('--accept and --revoke decide the requested command as it was asked; they take no command options.');
+    const repinId=optionString(options,'repin')??null;
+    if(repinId&&(!phaseId||COMMAND_OPTIONS.some(key=>options[key]!==undefined)))fail(`--repin takes the command as the gate resolves it now, with --phase PHASE and no command options. ${USAGE}`);
+    const reason=optionString(options,'reason')??'';
+    if(accept||revoke)return {accept,revoke,reason};
+    if(repinId)return {phaseId,repinId,reason};
+    const suggestionId=optionString(options,'use')??null;
+    if(suggestionId)return {phaseId,suggestionId,sourceRoots:optionStrings(options,'source-root'),reason};
+    const {parseExplicitTestCommandOptions}=await import('../test-setup-proposal.mjs');
+    return {phaseId,command:await parseExplicitTestCommandOptions(options),reason};
+  };
+  let executed;
+  try {executed=await executeTestDecision(operation,requestedId,options,prepare);}
+  catch(error) {
+    if(error?.code==='TEST_SETUP_PROPOSAL_USAGE')fail(`${error.message.replace(/ Use: [\s\S]*$/u,'')} ${USAGE}`);
+    throw error;
   }
-  if ((accept || revoke) && COMMAND_OPTIONS.some((key) => options[key] !== undefined)) fail('--accept and --revoke decide the requested command as it was asked; they take no command options.');
-  const repinId = optionString(options, 'repin') ?? null;
-  if (repinId && (!phaseId || COMMAND_OPTIONS.some((key) => options[key] !== undefined))) {
-    fail(`--repin takes the command as the gate resolves it now, with --phase PHASE and no command options. ${USAGE}`);
-  }
-  let command = null;
-  let repin = null;
-  if (phaseId && repinId) {
-    const [{ resolveStoryLocalTestCommands }, { removalRequest, repinRequest }] = await Promise.all([import('../local-test-runs.mjs'), import('../test-command-pins.mjs')]);
-    const { phase, commands } = await resolveStoryLocalTestCommands(root, config, workflow, { phaseId });
-    const current = commands.find((entry) => entry.id === repinId);
-    // A pinned suite the step no longer runs: the request is that it no longer run [TCE:REQ-012].
-    const removal = current ? null : await removalRequest(root, config, workflow, phase, repinId);
-    if (!current && !removal) fail(`Step ${phaseId} runs no test command ${repinId} now (it runs ${commands.map((entry) => entry.id).join(', ') || 'none'}).`);
-    if (removal) ({ repin, command } = removal);
-    else {
-      repin = await repinRequest(root, config, workflow, phase, current);
-      command = { id: current.id, kind: 'test', argv: current.argv, workingDirectory: current.workingDirectory,
-        affectedRoots: current.affectedRoots, ...(current.ecosystem ? { ecosystem: current.ecosystem } : {}), modelPolicy: 'never', result: current.result };
-    }
-  } else if (phaseId) {
-    const [{ requestedCommand }, { normalizeRequiredTestCommand }, { phaseRequiresCodeDelivery }] = await Promise.all([
-      import('../test-setup-proposal.mjs'), import('../code-delivery-tests.mjs'), import('../delivery-evidence.mjs')]);
-    if (!workflow.phases?.[phaseId]) fail(`Story ${id} has no step ${phaseId}.`);
-    if (!phaseRequiresCodeDelivery(workflow.phases[phaseId])) fail(`Step ${phaseId} delivers no code, so it runs no test command.`);
-    let requested;
-    // The command options are `capability test-setup`'s; say how this command takes them.
-    try { requested = await requestedCommand(root, options); }
-    catch (error) { if (error?.code === 'TEST_SETUP_PROPOSAL_USAGE') fail(`${error.message.replace(/ Use: [\s\S]*$/u, '')} ${USAGE}`); throw error; }
-    try { normalizeRequiredTestCommand(requested); } catch (error) { fail(`Test command '${requested.id}' cannot be requested: ${error.message}`); }
-    command = { id: requested.id, kind: 'test', argv: requested.argv, ...(requested.env ? { env: requested.env } : {}),
-      ...(requested.ecosystem ? { ecosystem: requested.ecosystem } : {}),
-      workingDirectory: requested.workingDirectory, affectedRoots: requested.affectedRoots, modelPolicy: 'never', result: requested.result };
-  }
-  const actor = actionActor(root);
-  const session = await loadSession(root, { required: false });
-  const agent = session?.workId === id ? session.agent ?? null : null;
-  const { record, publication, reused = false } = await recordStoryTestCommand(root, config, workflow,
-    { phaseId, command, repin, accept, revoke, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+  const {receipt,context,publication}=executed;
+  const {workflow}=context,id=receipt.subject.id,record=receipt.record,reused=receipt.status==='retained';
+  const {accept=null,revoke=null}=context.request;
   const recordId = record.id ?? accept ?? revoke;
   const repinned = accept ? storyTestCommandState(workflow, accept)?.request?.repin ?? null : null;
   if (!optionBoolean(options, 'json')) {

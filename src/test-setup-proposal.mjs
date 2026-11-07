@@ -126,19 +126,14 @@ export { activatedTestCommandsFor } from './activated-test-commands.mjs';
 export async function requestedCommand(root, options) {
   const use = optionString(options, 'use');
   if (use) {
-    const { inspectRepositoryTestSetup } = await import('./repository-test-setup.mjs');
-    const selected = optionStrings(options, 'source-root');
-    const inspection = await inspectRepositoryTestSetup(root, { sourceRoots: selected.length ? selected : ['.'] });
-    const suggestion = inspection.suggestions.find((entry) => entry.id === use);
-    if (suggestion) return suggestion;
-    const written = inspection.instructionCandidates.find((entry) => entry.id === use);
-    // Provenance `instruction`, with the file and line it was read from.
-    if (written?.command) return { ...written.command, source: { kind: 'instruction', file: written.source.file, line: written.source.line } };
-    if (written) throw usage(`'${use}' (${written.source.file}:${written.source.line}) cannot be proposed as written: ${written.reason} Give the command in full.`);
-    const ids = [...inspection.suggestions, ...inspection.instructionCandidates.filter((entry) => entry.command)].map((entry) => entry.id);
-    throw usage(`No suggestion is called '${use}'${ids.length ? `; inspection suggested ${ids.join(', ')}` : ''}. `
-      + 'Inspect with singularity-flow capability test-setup --source-root <DIRECTORY> --json, or give the command in full.');
+    const { inspectedTestCommand } = await import('./test-command-selection.mjs');
+    return inspectedTestCommand(root, {suggestionId:use, sourceRoots:optionStrings(options, 'source-root')});
   }
+  return parseExplicitTestCommandOptions(options);
+}
+
+/** Host-only flag parsing; repository suggestion resolution is shared with the native SDK port. */
+export async function parseExplicitTestCommandOptions(options) {
   const missing = ['id', 'argv', 'working-directory', 'adapter', 'report'].filter((key) => !optionString(options, key));
   if (missing.length || !optionStrings(options, 'affected-root').length) {
     throw usage(`Give the test command in full${missing.length ? ` (missing --${missing.join(', --')})` : ''}, with at least one --affected-root. ${USAGE}`);
@@ -154,12 +149,8 @@ export async function requestedCommand(root, options) {
   for (const entry of optionStrings(options, 'env')) {
     const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su.exec(entry);
     if (!assignment) throw usage('--env takes NAME=VALUE, for example --env BASE_URL=http://localhost:3000.');
-    const { classifyVariable } = await import('./secret-looking.mjs');
-    if (classifyVariable(assignment[1], assignment[2]).kind === 'secret') {
-      throw new SingularityFlowError(`--env ${assignment[1]} looks like it carries a secret, and workflow.yml never holds one. Declare it as a secret in `
-        + 'singularity/environments.yml, bind it on the machine that runs the tests, and link the command to that environment.',
-      { code: 'QUALITY_COMMAND_ENV_SECRET', details: { subjectKind: 'configuration', name: assignment[1] } });
-    }
+    const { assertTestCommandEnvironment } = await import('./test-command-selection.mjs');
+    await assertTestCommandEnvironment({[assignment[1]]:assignment[2]});
     env[assignment[1]] = assignment[2];
   }
   const ecosystem = optionString(options, 'ecosystem') ?? null;

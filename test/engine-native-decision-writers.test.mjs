@@ -56,6 +56,16 @@ test('the packaged CLI accepts an exact Story test command through its native wr
   const {buildCliBundle}=await import('../scripts/build-cli-bundle.mjs');
   await buildCliBundle({outdir});
   const before=f.git('rev-parse','HEAD');
+  const duplicate=run(process.execPath,[CLI,'--no-model','decision','test-command',id,
+    '--phase','implementation','--id','native-fixture-checks','--argv',JSON.stringify([process.execPath,'fixture-checks.mjs']),
+    '--working-directory','.','--affected-root','.','--adapter','sflow-test-result-v1',
+    '--report','.sflow/results/native-checks.json','--reason','The same exact command still needs the configured human review.','--json'],
+    {cwd:f.root,allowFailure:true,env:{...reviewerEnv,SINGULARITY_FLOW_BUNDLE:'auto',SINGULARITY_FLOW_BUNDLE_DIR:outdir}});
+  assert.equal(duplicate.status,0,duplicate.stdout+'\n'+duplicate.stderr);
+  const retained=JSON.parse(duplicate.stdout);
+  assert.deepEqual(retained.data.record,requested);
+  assert.equal(retained.data.reused,true);assert.equal(retained.data.commit,null);
+  assert.equal(f.git('rev-parse','HEAD'),before,'the bundled request resolver does not duplicate a retained request');
   const response=run(process.execPath,[CLI,'--no-model','decisions','record',id,
     '--phase','implementation','--choose',`${item.id}=accept-test-command`,
     '--confirm',packet.packetSha256,'--json'],{cwd:f.root,allowFailure:true,env:{...reviewerEnv,
@@ -74,6 +84,15 @@ test('the packaged CLI accepts an exact Story test command through its native wr
   assert.equal(after.workflow.phases.implementation.status,'not_started');
   await assert.rejects(readFile(path.join(f.root,'.sflow/results/native-checks.json')),{code:'ENOENT'},
     'accepting a test command does not claim or execute its tests');
+  const revoked=run(process.execPath,[CLI,'--no-model','decision','test-command',id,'--revoke',requested.id,
+    '--reason','The repository now provides a replacement runner for the approved behavior.','--json'],
+    {cwd:f.root,allowFailure:true,env:{...reviewerEnv,SINGULARITY_FLOW_BUNDLE:'auto',SINGULARITY_FLOW_BUNDLE_DIR:outdir}});
+  assert.equal(revoked.status,0,revoked.stdout+'\n'+revoked.stderr);
+  assert.equal(JSON.parse(revoked.stdout).data.record.revokes,requested.id);
+  const revokedState=await loadAcceptedStoryExecution(f.root,id);
+  assert.equal(revokedState.workflow.testCommandDecisions.length,3);
+  assert.equal(revokedState.workflow.currentPhase,'specification');
+  assert.deepEqual(revokedState.workflow.phases.implementation.storyTestCommands??[],[]);
 });
 
 for(const mode of ['sdk','standalone','legacy'])test(`${mode} routing keeps the committed decision when local session activation fails`,async t=>{

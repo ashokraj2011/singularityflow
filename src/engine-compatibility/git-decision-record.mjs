@@ -1,31 +1,13 @@
 /** Single-record native decision port. Flags and presentation stay in the host adapter. */
-import { actionActor } from '../git.mjs';
-import { loadConfig, actorKey } from '../state-stores.mjs';
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { checkoutStoryBranch } from '../story-branch-name.mjs';
-import { loadSession } from '../session.mjs';
+import { actorKey } from '../state-stores.mjs';
+import {loadNativeDecisionRecordContext,nativeDecisionRecordActor as who} from './record-decision-context.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
-
-async function who(context) {
-  if (!context.who) {
-    const actor = actionActor(context.root);
-    const session = await loadSession(context.root, {required:false});
-    context.who = {actor, agent:session?.workId === context.workflow.workItem.id ? session.agent ?? null : null};
-  }
-  return context.who;
-}
 
 export function createGitDecisionRecordPort({root, interaction=null, notice=()=>{}, onContext=()=>{}}) {
   const prepare = typeof interaction?.prepare === 'function' ? interaction.prepare.bind(interaction) : null;
   return {
     async load(input, {operation}) {
-      const initial = await loadConfig(root);
-      if (input.workId) await checkoutStoryBranch(root, initial, input.workId, {fetch:input.fetch === true});
-      const accepted = await loadAcceptedStoryExecution(root, input.workId ?? undefined);
-      const workflow = accepted.workflow;
-      const context = {root, config:accepted.definition, workflow, pending:workflow.pendingDecision ?? null,
-        phaseId:operation.id === 'decision.choose' ? workflow.pendingDecision?.after ?? null : workflow.currentPhase ?? null,
-        subject:{kind:'story', id:workflow.workItem.id}};
+      const context = await loadNativeDecisionRecordContext(root,input,operation);
       onContext(context);
       return context;
     },

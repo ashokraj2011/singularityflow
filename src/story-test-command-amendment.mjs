@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { applyCapabilityPolicyToWorkResolution } from './capability-context.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { approvedStoryApprovalAuthorities, resolveApprovedStoryWorkTypeFor } from './configuration-branch.mjs';

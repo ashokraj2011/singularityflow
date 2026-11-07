@@ -99,7 +99,7 @@ import { applicabilityStatus } from './evidence/applicability.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { answerSelectionReceipt, beginCustomSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio, usesEpicPlanningLifecycle } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';

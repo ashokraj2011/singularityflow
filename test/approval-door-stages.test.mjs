@@ -42,6 +42,7 @@ const DOOR = Object.freeze({
   assertNoPendingPublication: 'gate stage: publication',
   assertPhaseSequence: 'gate stage: sequence',
   assertConvergencePublicationReady: 'gate stage: convergence',
+  assertApprovalReviewConfirmation: 'consent: the exact submitted review the person confirmed',
   resolveSelectionReceipt: 'consent: the receipt the person answered',
   preparePersonPresence: 'check: presenceRefusals',
   requireApprovalAuthority: 'gate stage: identity',
@@ -50,7 +51,8 @@ const DOOR = Object.freeze({
 });
 
 test('every check at approve\'s door is in the approval check, or is the person\'s own answer', async () => {
-  const door = `${await source('commands/shared/decision-workflow.mjs')}\n${await source('commands/approve.mjs')}`;
+  const door = (await Promise.all(['commands/shared/decision-workflow.mjs', 'commands/approve.mjs',
+    'engine-compatibility/decision-context.mjs', 'engine-compatibility/git-approval.mjs'].map(source))).join('\n');
   const called = [...new Set([...door.matchAll(/\b((?:assert|require|prepare|resolve)[A-Z]\w+)\(/gu)].map((match) => match[1]))]
     .filter((name) => !['resolveWorkspace', 'requireApprovalAuthorityRoute'].includes(name)).sort();
   // A check nothing maps here could refuse without the check saying so first: map it, or make it a stage.
@@ -59,7 +61,7 @@ test('every check at approve\'s door is in the approval check, or is the person\
   for (const [name, where] of Object.entries(DOOR)) {
     if (where.startsWith('check: ') && !where.includes('only explains')) assert.ok(check.includes(where.slice(7)), `${name}: ${where}`);
   }
-  const gate = await source('state.mjs');
+  const gate = await source('engine-compatibility/approval-transition.mjs');
   for (const where of Object.values(DOOR).filter((entry) => entry.startsWith('gate stage: '))) assert.ok(gate.includes(`await stage('${where.slice(12)}'`), where);
   // The ending is the check's last read, and approve still runs its own.
   assert.match(check, /\.\.\.gateHolds, \.\.\.await endingRefusals\(/u);

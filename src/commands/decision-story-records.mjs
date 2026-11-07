@@ -2,7 +2,7 @@
  * The one write of each of these people's decisions: its own `decision` command and a choice recorded
  * from the decision list both come here, so the authority check, the record and the commit are the same.
  */
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { omissionAuthorities, recordApplicabilityDecision } from '../evidence/applicability.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from '../scope/decisions.mjs';

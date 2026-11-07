@@ -8,7 +8,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { normalizeApprovalSecurity } from './approval-authority.mjs';
+import { normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
 import {
   CONFIGURATION_BRANCH, configurationBranchHead, resolveConfigurationRemote,
   takeStoryConfigurationCheckout, captureEnrolledConfigurationSnapshot, withRetainedConfigurationSnapshot

@@ -1,6 +1,6 @@
 /** Exact pre-feature failure review. No serialized value substitutes for host evidence or live consent. */
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { exactFileAtObject, head, identity } from './git.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import path from 'node:path';

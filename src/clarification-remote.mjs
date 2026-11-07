@@ -13,7 +13,7 @@
  * a typed answer is). Nothing else is trusted from the packet.
  */
 import { createHash } from 'node:crypto';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';

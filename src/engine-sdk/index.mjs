@@ -5,6 +5,7 @@
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent } from '../kernel/submission-intent.mjs';
+import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -13,16 +14,23 @@ const PUBLISH_FIELDS = Object.freeze([
 const SUBMIT_FIELDS = Object.freeze(['workId', 'phaseId', 'runChecks', 'decisionValues']);
 const CONVERGENCE_FIELDS = Object.freeze([...SUBMIT_FIELDS, 'confirmation']);
 const WRITE_STAGES = Object.freeze(['load', 'retained', 'prepare', 'commit', 'finish']);
-export const ENGINE_OPERATIONS = Object.freeze([
-  Object.freeze({ id: 'phase.publish', version: 1, effect: 'publication',
+const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','selectionReceipt','fetch','agent',
+  'checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason']);
+const definitions = [
+  { id: 'phase.publish', version: 1, effect: 'publication',
     inputFields: PUBLISH_FIELDS, port: 'publication',
-    stages: WRITE_STAGES }),
-  Object.freeze({ id: 'phase.submit', version: 1, effect: 'submission', inputFields: SUBMIT_FIELDS,
-    port: 'submission', stages: WRITE_STAGES }),
-  Object.freeze({ id: 'convergence.submit', version: 1, effect: 'submission', inputFields: CONVERGENCE_FIELDS,
-    confirmation: 'exact-reviewed-convergence-digest', port: 'submission', stages: WRITE_STAGES })
-]);
-const registry = new Map(ENGINE_OPERATIONS.map(operation => [operation.id, operation]));
+    stages: WRITE_STAGES, validate:publicationInput, execute:publish },
+  { id: 'phase.submit', version: 1, effect: 'submission', inputFields: SUBMIT_FIELDS,
+    port: 'submission', stages: WRITE_STAGES, validate:submissionInput, execute:submit },
+  { id: 'convergence.submit', version: 1, effect: 'submission', inputFields: CONVERGENCE_FIELDS,
+    confirmation: 'exact-reviewed-convergence-digest', port: 'submission', stages: WRITE_STAGES,
+    validate:submissionInput, execute:submit },
+  { id:'phase.approve',version:1,effect:'approval',inputFields:APPROVAL_FIELDS,port:'approval',
+    humanDecision:true,stages:Object.freeze(['load','prepare','commit','finish']),
+    validate:approvalInput,execute:approve }
+];
+export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
+const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
@@ -89,6 +97,27 @@ function submissionInput(value, operation) {
     || Object.values(input.decisionValues).some(value => value !== null && !['string','number','boolean'].includes(typeof value)))) {
     invalid('Submission decisionValues must map names to scalar values.');
   }
+  return input;
+}
+
+function approvalInput(value) {
+  const input=data(value);
+  if(!input || Array.isArray(input) || typeof input!=='object'
+    || Object.keys(input).some(key=>!APPROVAL_FIELDS.includes(key)))invalid('Unknown approval input field.');
+  for(const key of ['workId','phaseId','selectionReceipt','agent','evidenceReason']) {
+    if(input[key]!=null && typeof input[key]!=='string')invalid(`Approval ${key} must be a string or null.`);
+  }
+  for(const key of ['fetch','confirmEvidence'])if(input[key]!=null && typeof input[key]!=='boolean')invalid(`Approval ${key} must be a boolean.`);
+  for(const key of ['checklist','witnessMappings','bindingDecisions'])if(input[key]!=null && !Array.isArray(input[key]))invalid(`Approval ${key} must be an array.`);
+  for(const key of ['confirmation','decisions'])if(input[key]!=null && (typeof input[key]!=='object' || Array.isArray(input[key])))invalid(`Approval ${key} must be a record.`);
+  if(input.confirmation!=null) {
+    const binding=input.confirmation;
+    if(Object.keys(binding).some(key=>!['workId','phase','generation','reviewPacketSha256'].includes(key))
+      || !['workId','phase','reviewPacketSha256'].every(key=>typeof binding[key]==='string' && binding[key].length>0)
+      || !Number.isSafeInteger(binding.generation) || binding.generation<1)invalid('Approval confirmation must name the exact submitted review.');
+  }
+  if(input.decisions!=null && (Object.keys(input.decisions).some(key=>!['answers','digest'].includes(key))
+      || input.decisions.digest!=null && typeof input.decisions.digest!=='string'))invalid('Approval decisions require answers and a list digest.');
   return input;
 }
 
@@ -188,17 +217,56 @@ async function submit(port, inputs, signal, operation) {
   }
 }
 
+function approvalResult(context,facts,binding) {
+  const fields=['workId','phase','generation','revision','pushed','reviewPacket','artifactSet','actorId',
+    'authorityGroup','selfApproval','thresholdReached','currentPhase'];
+  const text=value=>typeof value==='string' && value.length>0 && value.length<=512;
+  if(!facts || Object.keys(facts).some(key=>!fields.includes(key))
+    || !text(facts.workId) || facts.workId!==context.subject?.id || facts.workId!==binding.workId
+    || facts.phase!==binding.phase || facts.generation!==binding.generation
+    || !text(facts.revision) || typeof facts.pushed!=='boolean'
+    || facts.reviewPacket!==binding.reviewPacketSha256 || !text(facts.artifactSet)
+    || !text(facts.actorId) || !text(facts.authorityGroup)
+    || typeof facts.selfApproval!=='boolean' || typeof facts.thresholdReached!=='boolean'
+    || facts.currentPhase!==null && !text(facts.currentPhase)) {
+    throw new SingularityFlowError('The approval port returned an invalid or differently bound decision.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.approve',status:'recorded',
+    subject:Object.freeze({kind:'story',id:facts.workId}),phase:facts.phase,generation:facts.generation,
+    revision:facts.revision,effects:Object.freeze({committed:true,pushed:facts.pushed}),
+    approval:Object.freeze({actorId:facts.actorId,authorityGroup:facts.authorityGroup,selfApproval:facts.selfApproval,
+      thresholdReached:facts.thresholdReached,reviewPacket:facts.reviewPacket,artifactSet:facts.artifactSet}),currentPhase:facts.currentPhase});
+}
+
+async function approve(port,inputs,signal) {
+  notCancelled(signal);
+  const context=await port.load(inputs,{signal});
+  const binding=data(context.reviewBinding ?? null);
+  notCancelled(signal);
+  const prepared=await port.prepare(context,inputs,{signal});
+  assertApprovalReviewConfirmation(binding,prepared?.confirmation);
+  notCancelled(signal);
+  const committed=await port.commit(context,prepared,{signal});
+  try {
+    return approvalResult(context,await port.finish(context,prepared,committed),binding);
+  } catch(error) {
+    if(error && typeof error==='object' && Object.isExtensible(error))error.enginePublication=committed;
+    throw error;
+  }
+}
+
 export function createEngine({ ports } = {}) {
   if (!ports || typeof ports !== 'object') invalid('Engine construction requires explicit trusted ports.');
   const bound = new Map();
   for (const name of new Set(ENGINE_OPERATIONS.map(operation => operation.port))) {
     const supplied = ports[name];
     if (supplied === undefined) continue;
-    if (!supplied || WRITE_STAGES.some(stage => typeof supplied[stage] !== 'function')) {
+    const stages=ENGINE_OPERATIONS.find(operation=>operation.port===name).stages;
+    if (!supplied || stages.some(stage => typeof supplied[stage] !== 'function')) {
       invalid(`The ${name} port must implement every declared operation stage.`);
     }
     bound.set(name, Object.freeze(Object.fromEntries([
-      ...WRITE_STAGES.map(stage => [stage, supplied[stage].bind(supplied)]),
+      ...stages.map(stage => [stage, supplied[stage].bind(supplied)]),
       ...(typeof supplied.notice === 'function' ? [['notice', supplied.notice.bind(supplied)]] : [])
     ])));
   }
@@ -210,15 +278,16 @@ export function createEngine({ ports } = {}) {
       code: 'ENGINE_OPERATION_UNSUPPORTED', details: { operation: typeof operation === 'string' ? operation.slice(0, 128) : null, contract: ENGINE_CONTRACT }
     });
     const definition = registry.get(operation);
-    const input = operation === 'phase.publish' ? publicationInput(inputs) : submissionInput(inputs, definition);
+    const input = definition.validate(inputs, definition);
     const port = bound.get(definition.port);
     if (!port) throw new SingularityFlowError('No port implements this engine operation in the current host.', {
       code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port}
     });
-    return invoke(() => operation === 'phase.publish' ? publish(port, input, signal) : submit(port, input, signal, definition));
+    return invoke(() => definition.execute(port, input, signal, definition));
   };
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
     submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
-    submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options) });
+    submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options),
+    approvePhase:(inputs,options)=>execute('phase.approve',inputs,options) });
 }

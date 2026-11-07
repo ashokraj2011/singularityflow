@@ -17,13 +17,15 @@ import { CLI, specification, submittedPlanningStory } from './helpers/submitted-
 
 const OWNERS = ['you-decide', 'someone-decides', 'author-repairs', 'machine', 'this-checkout'];
 const stateSource = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
-const evaluateSource = stateSource.slice(stateSource.indexOf('export async function evaluateApproval('),
-  stateSource.indexOf('export async function approvePhase('));
-const recordSource = stateSource.slice(stateSource.indexOf('export async function approvePhase('));
+const transitionUrl = new URL('../src/engine-compatibility/approval-transition.mjs', import.meta.url);
+const transitionSource = await readFile(transitionUrl, 'utf8');
+const evaluateSource = transitionSource.slice(transitionSource.indexOf('export async function evaluateNativeApproval('),
+  transitionSource.indexOf('export async function approveNativePhase('));
+const recordSource = transitionSource.slice(transitionSource.indexOf('export async function approveNativePhase('));
 const recordBody = recordSource.slice(0, recordSource.indexOf('\n}\n') + 2);
 
 test('the gate guard: every refusal comes from the one check, and every one names who clears it', () => {
-  assert.ok(evaluateSource.length > 10_000, 'evaluateApproval holds the gate');
+  assert.ok(evaluateSource.length > 10_000, 'evaluateNativeApproval holds the gate');
   const codes = [...new Set([...evaluateSource.matchAll(/code: '([A-Z][A-Z0-9_]+)'/gu)].map((match) => match[1]))];
   assert.ok(codes.length >= 15, String(codes.length));
   assert.deepEqual(codes.filter((code) => !APPROVAL_HOLD_OWNERS[code]), [],
@@ -31,7 +33,9 @@ test('the gate guard: every refusal comes from the one check, and every one name
   for (const [code, owner] of Object.entries(APPROVAL_HOLD_OWNERS)) assert.ok(OWNERS.includes(owner), `${code}: ${owner}`);
   // Recording adds no refusal of its own: everything that can refuse is a stage the preview runs.
   assert.doesNotMatch(recordBody, /new SingularityFlowError|\bthrow\b/u, 'approvePhase refuses only through evaluateApproval');
-  assert.match(recordBody, /await evaluateApproval\(root, config, workflow, \{ \.\.\.options, preview: false \}\)/u);
+  assert.match(recordBody, /await evaluateNativeApproval\(root, config, workflow, \{ \.\.\.options, preview: false \}, collaborators\)/u);
+  assert.match(stateSource, /return evaluateNativeApproval\(root, config, workflow, options, nativeApprovalCollaborators\(\)\)/u);
+  assert.match(stateSource, /return approveNativePhase\(root, config, workflow, options, nativeApprovalCollaborators\(\)\)/u);
   // Nothing in the check runs outside a stage, so the preview sees every refusal the gate can raise.
   const body = evaluateSource.slice(evaluateSource.indexOf('\n  try {\n') + 9, evaluateSource.indexOf('\n  } catch (error) {\n    if (error !== APPROVAL_PREVIEW_STOP)'));
   const outside = body.split('\n').filter((line) => /^ {4}\S/u.test(line) && !/^ {4}(await stage\(|\}(\)|, \{))/u.test(line));
@@ -41,15 +45,15 @@ test('the gate guard: every refusal comes from the one check, and every one name
 /** The refusal codes the modules evaluateApproval's stages call can raise, read from their source. */
 async function stageModuleCodes() {
   const modules = new Set();
-  for (const match of stateSource.matchAll(/import \{([^}]+)\} from '(\.\/[^']+)'/gu)) {
-    if (match[1].split(',').some((name) => evaluateSource.includes(`${name.trim().split(' as ')[0].trim()}(`))) modules.add(match[2]);
+  for (const match of transitionSource.matchAll(/import \{([^}]+)\} from '(\.\.?\/[^']+)'/gu)) {
+    if (match[1].split(',').some((name) => evaluateSource.includes(`${name.trim().split(' as ')[0].trim()}(`))) modules.add(new URL(match[2], transitionUrl).href);
   }
-  for (const match of evaluateSource.matchAll(/import\('(\.\/[^']+)'\)/gu)) modules.add(match[1]);
-  for (const match of evaluateSource.matchAll(/path\.join\(PACKAGE_ROOT, 'src', '([^']+)'\)/gu)) modules.add(`./${match[1]}`);
+  for (const match of evaluateSource.matchAll(/import\('(\.\.?\/[^']+)'\)/gu)) modules.add(new URL(match[1], transitionUrl).href);
+  for (const match of evaluateSource.matchAll(/path\.join\(PACKAGE_ROOT, 'src', '([^']+)'\)/gu)) modules.add(new URL(`../src/${match[1]}`, import.meta.url).href);
   const codes = new Set();
   for (const module of modules) {
-    const source = await readFile(new URL(`../src/${module.slice(2)}`, import.meta.url), 'utf8').catch(() => '');
-    for (const match of source.matchAll(/\bcode: '([A-Z][A-Z0-9_]+)'|\b(?:araFail|fail)\(\s*'([A-Z][A-Z0-9_]+)'/gu)) codes.add(match[1] ?? match[2]);
+    const source = await readFile(new URL(module), 'utf8');
+    for (const match of source.matchAll(/\bcode:\s*'([A-Z][A-Z0-9_]+)'|\b(?:araFail|fail)\(\s*'([A-Z][A-Z0-9_]+)'/gu)) codes.add(match[1] ?? match[2]);
   }
   return { modules, codes };
 }
@@ -70,7 +74,7 @@ const UNCLASSIFIED_STAGE_CODES = Object.freeze([
   'CHANGE_SET_POLICY_VIOLATION', 'CODE_DELIVERY_EVIDENCE_TOO_LARGE', 'CODE_DELIVERY_REUSE_INVALID',
   'CODE_DELIVERY_SCOPE_INVALID', 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID',
   'CONFIGURATION_PROPOSAL_EXACT_TREE_UNAVAILABLE', 'DECISIONS_PHASE_UNKNOWN', 'DECISION_CHOICE_REQUIRED',
-  'DECISION_CONDITION_REQUIRED', 'DECISION_INPUTS_MISSING', 'DECISION_INPUT_INVALID', 'DECISION_INPUT_UNKNOWN',
+  'DECISION_CONDITION_REQUIRED', 'DECISION_INPUTS_MISSING', 'DECISION_INPUT_INVALID',
   'DECISION_NOT_PENDING', 'DECISION_OPTION_UNKNOWN', 'DECISION_STEP_NOT_ALLOWED', 'DOCUMENT_REUPLOAD_REQUIRED',
   'ENVIRONMENT_AUDIT_HEAD_UNREADABLE', 'ENVIRONMENT_AUDIT_INDEX_UNREADABLE', 'ENVIRONMENT_DECLARATION_INVALID',
   'ENVIRONMENT_LOCAL_CONTENT_REFUSED', 'ENVIRONMENT_POLICY_UNAVAILABLE', 'EVIDENCE_CLAUSE_UNAPPROVED',
@@ -81,15 +85,15 @@ const UNCLASSIFIED_STAGE_CODES = Object.freeze([
   'GIT_OBJECT_WRITE_UNAVAILABLE', 'GIT_PARTIAL_CLONE_FETCH_FAILED', 'GIT_PARTIAL_CLONE_TOO_MANY_MISSING',
   'GIT_READ_UNAVAILABLE', 'GIT_REF_SELECTION_INVALID', 'GIT_REMOTE_AUTHORITY_CHANGED', 'GIT_REMOTE_BRANCH_INVALID',
   'GIT_REMOTE_CONFIG_INVALID', 'GOVERNANCE_BACKUP_EXISTS', 'LOCAL_FAST_FORWARD_FAILED', 'LOCAL_READ_TIMEOUT_INVALID',
-  'MISSING_ARGUMENT', 'NETWORK_DISABLED', 'PENDING_PUBLICATION_CANDIDATE_INVALID',
-  'PENDING_PUBLICATION_IDENTITY_INVALID', 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID',
-  'PENDING_PUBLICATION_ROOT_UNPROVEN', 'PHASE_REPAIR_ADMISSION_REFUSED', 'PHASE_REPAIR_LOCK_REQUIRED',
+  'MISSING_ARGUMENT', 'NETWORK_DISABLED',
+
+  'PHASE_REPAIR_ADMISSION_REFUSED', 'PHASE_REPAIR_LOCK_REQUIRED',
   'PHASE_REPAIR_QUARANTINE_STALE', 'PROSPECTIVE_TREE_INVALID', 'PSS_RECORD_UNSIGNED', 'PUBLICATION_BRANCH_CHANGED',
-  'PUBLICATION_CANDIDATE_DRIFT', 'PUBLICATION_MARKER_UNREADABLE', 'PUBLICATION_RECOVERY_DIVERGED',
-  'PUBLICATION_RECOVERY_REQUIRED', 'PUBLICATION_REF_OUTCOME_UNKNOWN', 'PUBLICATION_REF_REQUEST_INVALID',
+  'PUBLICATION_CANDIDATE_DRIFT',
+  'PUBLICATION_REF_OUTCOME_UNKNOWN', 'PUBLICATION_REF_REQUEST_INVALID',
   'PUBLICATION_REF_REQUEST_UNVERIFIED', 'PUBLICATION_SNAPSHOT_UNVERIFIED', 'PUBLICATION_SYMBOLIC_REF_UNSUPPORTED',
   'PUSH_EXPECTED_REVISION_REQUIRED', 'RECOVERY_COMMIT_CHANGED', 'RECOVERY_COMMIT_FAILED', 'RECOVERY_PLAN_STALE',
-  'REPOSITORY_PATH_UNSAFE', 'REV_ATTESTATION_RECOVERY_MISMATCH', 'REV_ATTESTATION_RECOVERY_UNPROVEN',
+  'REPOSITORY_PATH_UNSAFE',
   'SCHEMA_FAMILY_UNKNOWN', 'SCHEMA_MIGRATION_INVALID', 'SCHEMA_MIGRATION_NONDETERMINISTIC',
   'SCHEMA_MIGRATION_SOURCE_CORRUPT', 'SCHEMA_RECORD_INVALID', 'SCHEMA_VERSION_ARCHIVED', 'SCHEMA_VERSION_FUTURE',
   'SCHEMA_VERSION_MISSING', 'SECRET_DETECTED', 'SECRET_SCAN_UNREADABLE', 'SELECTION_REQUIRED',
@@ -116,12 +120,12 @@ const UNCLASSIFIED_STAGE_CODES = Object.freeze([
   'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', 'SPEC_PLANNED_FULFILLMENT_INVALID', 'SPEC_PLANNED_OBSERVABLE_INVALID',
   'SPEC_PLANNED_PATH_ROLE_INVALID', 'SPEC_PLANNED_PATH_SENTINEL_INVALID', 'SPEC_PLANNED_ROW_REQUIRED',
   'SPEC_PLANNED_TABLE_INVALID', 'SPEC_SUPPORTING_FILE_INVALID', 'SPEC_VERIFICATION_INTENT_INVALID',
-  'STORY_PROMOTION_CANDIDATE_INVALID', 'STORY_PROMOTION_NOT_FAST_FORWARD', 'STORY_PROMOTION_PUSH_FAILED',
-  'STORY_PROMOTION_RECOVERY_INVALID', 'STORY_PROMOTION_REMOTE_UNAVAILABLE', 'STORY_PUBLICATION_IN_PROGRESS',
+  'STORY_PROMOTION_CANDIDATE_INVALID', 'STORY_PROMOTION_NOT_FAST_FORWARD',
+  'STORY_PROMOTION_REMOTE_UNAVAILABLE', 'STORY_PUBLICATION_IN_PROGRESS',
   'SUBPROCESS_OUTPUT_TOO_LARGE', 'SUBPROCESS_TIMEOUT', 'SUBPROCESS_UNAVAILABLE', 'SYMLINK_DELIVERY_FORBIDDEN',
   'TRP_RISK_ADAPTER_UNAVAILABLE', 'WORKFLOW_CONVERGENCE_MULTIPLE_UNSUPPORTED', 'WORKFLOW_DECISION_INVALID',
   'WORKFLOW_TEMPLATE_NOT_INSTALLED', 'WORKING_DIRECTORY_MISSING', 'WORK_INTERVAL_AMENDMENT_INVALID',
-  'WORK_PENDING_SUBJECT_KEY_REQUIRED', 'WORK_RECONCILIATION_BINDING_MISMATCH', 'WORK_RECONCILIATION_HASH_MISMATCH',
+  'WORK_RECONCILIATION_BINDING_MISMATCH', 'WORK_RECONCILIATION_HASH_MISMATCH',
   'WORK_RECONCILIATION_INVALID', 'WORK_RECONCILIATION_TARGET_DRIFT'
 ]);
 
@@ -151,8 +155,10 @@ test('every hold says who clears it: a kind, always, and words only from that ki
 
 test('only what the approval\'s own form asks counts as an answer in the approval: nothing else says ready', () => {
   const answered = Object.entries(APPROVAL_HOLD_OWNERS).filter(([, owner]) => owner === 'you-decide').map(([code]) => code).sort();
-  // The third is where the same approval is taken, in the person's terminal, not one more thing to clear.
-  assert.deepEqual(answered, ['APPROVAL_CHECKLIST_INCOMPLETE', 'PSS_CARD_NOT_SHOWN', 'WEL_WITNESS_MAPPING_UNREVIEWED']);
+  // Exact SDK confirmation is the same person's consent to the current packet. A stale answer
+  // must be refreshed, and is never inferred from an earlier review or from calling the operation.
+  assert.deepEqual(answered, ['APPROVAL_CHECKLIST_INCOMPLETE', 'ENGINE_APPROVAL_CONFIRMATION_REQUIRED',
+    'ENGINE_APPROVAL_CONFIRMATION_STALE', 'PSS_CARD_NOT_SHOWN', 'WEL_WITNESS_MAPPING_UNREVIEWED']);
   // Each of these is a step of its own, whatever the check once said: the gate refused after "ready".
   for (const code of ['ARA_REVIEW_REQUIRED', 'ARA_EVIDENCE_UNAVAILABLE', 'ARA_REVIEW_STALE', 'READ_ONLY_AGENT_CANNOT_MUTATE', 'SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE', 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED']) {
     assert.notEqual(approvalHoldOwner(new SingularityFlowError('refused', { code })), 'you-decide', code);

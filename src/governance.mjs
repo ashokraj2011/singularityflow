@@ -14,7 +14,7 @@ import { sourceTreeHash, validateWorkflow, workflowPublicationBranch } from './s
 import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
-import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
+import { matchApprovalAuthority, remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
 import { clarificationRecordRelative, verifyClarificationRecord } from './clarifications.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';

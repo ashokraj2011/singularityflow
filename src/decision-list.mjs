@@ -20,7 +20,7 @@ import { ISSUE_ONLY_OPTIONS } from './person-step-catalog.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
+import { matchApprovalAuthority, normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';

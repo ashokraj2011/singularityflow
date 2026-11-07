@@ -11,7 +11,7 @@ import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { exactTreePathsAtObject, head } from './git.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
+import { approvalRequirementsMet, matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill, readSkillAttachments } from './skill-library.mjs';
 import { instructionPath, parseInstruction, instructionUtf8 } from './instruction-library.mjs';

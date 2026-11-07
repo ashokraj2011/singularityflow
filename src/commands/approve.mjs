@@ -1,24 +1,17 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { stdin as processInput, stdout as processOutput } from 'node:process';
+import {repoRoot} from '../git.mjs';
 import { optionBoolean, SingularityFlowError, optionString, optionStrings } from '../util.mjs';
 import { decisionWorkflow } from './shared/decision-workflow.mjs';
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 // Human document rendering is not part of the compact agent approval path.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
-import { requireApprovalAuthority, remainingRequiredAuthorities, sameApprover } from '../approval-authority.mjs';
+import { requireApprovalAuthority, remainingRequiredAuthorities, sameApprover } from '../kernel/approval-policy.mjs';
 import { confirm, activeActionContext } from './kernel.mjs';
 import { checklistDecisions } from './shared/checklist-decisions.mjs';
-import { isConvergencePhase } from '../kernel/phase-policy.mjs';
-import { assertConvergencePublicationReady } from '../convergence-context.mjs';
-import { withRefusalMemory } from '../evidence/refusal-memory.mjs';
-import { actorKey, transactStory, approvePhase, workflowPublicationBranch } from '../state-stores.mjs';
-import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { consumeSelectionReceipt, removeApprovalReceipts } from '../choices.mjs';
-import { postPublicationStep } from './shared/post-publication-step.mjs';
-import { recordSpecUsageAfterTransition } from './shared/record-spec-usage-after-transition.mjs';
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { activateWorkItemSession } from '../session.mjs';
-import { recordRequiredReceiptsAfterTransition } from './shared/record-required-receipts-after-transition.mjs';
+
+import { workflowPublicationBranch } from '../state-stores.mjs';
+
 import { formatContextBoundaryHandoff } from '../context-policy.mjs';
 import { recordedCompletion, printCompletionVerdict } from '../completion-verdict.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -27,7 +20,7 @@ import { completionContinuation } from './shared/completion-continuation.mjs';
 import { stepActionHoldAfterTransition } from './shared/step-action-hold-after-transition.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
-import { forgetTerminalReview, recordTerminalReview, terminalReviewBinding, terminalReviewShown } from '../terminal-review.mjs';
+import { recordTerminalReview, terminalReviewBinding, terminalReviewShown } from '../terminal-review.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -97,234 +90,143 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
   }
-  const { root, config, workflow, phase, session, receipt, receiptToken, requestedPhase } = await decisionWorkflow(positionals, options, 'approve');
-  const selfApproval = sameApprover(phase.generatedBy ?? {}, session.actor);
-  const asking = !receipt && !optionBoolean(options, 'yes');
-  // `approve <PHASE>` typed after this terminal showed the review is the one confirmation [SPEC-OAP M4].
-  const reviewed = terminalReviewBinding(workflow, phase);
-  const confirmedByCommand = asking && Boolean(requestedPhase) && await terminalReviewShown(root, reviewed, session.actor);
-  if (confirmedByCommand && !forAgent) {
-    console.log(`Approving the ${phase.label ?? phase.id} review you read in this terminal (generation ${phase.generation}, packet ${reviewed.reviewPacketSha256.slice(0, 19)}…).`);
-  } else if (!forAgent) {
-    // Approval itself names any commit that blocks it, in its refusal; the advisory would only repeat it.
-    printPhaseReview(await phaseReview(root, config, workflow, phase, { includeApprovalCheck: false }), { showArtifact: optionBoolean(options, 'show-artifact') });
-    if (asking) await recordTerminalReview(root, reviewed, session.actor);
-  }
-  // SF Guard (SPEC-PSS-v1 M2): on a Story it requires, everything a presence signature needs is
-  // checked here, before any prompt or write; each refusal names a route the person can take today.
-  const presenceModule = workflow.resolution?.presence ? await import('../presence/person-records.mjs') : null;
-  const presence = presenceModule
-    ? await presenceModule.preparePersonPresence(root, { workflow, phase, actor: session.actor, action: 'phase.approve' }, dependencies.presence)
-    : null;
-  const counts = presenceModule ? presenceModule.presenceCounts(workflow) : null;
-  const approvalAuthority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    phase.approvalPolicy,
-    session.actor,
-    { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals, { counts }) }
-  );
-  if (!forAgent) {
-  console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
-  console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
-  console.log(`Agent: ${session.agent} (prompt/audit context only)`);
-  console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
-  console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
-  console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
-  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})${presenceLabel(presenceModule, workflow, item)}`).join(', ') || 'none'}`);
-  if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
-  if (presence?.bypass) console.log(`SF Guard: recorded unsigned, labelled "bypass: per-person exception ${presence.bypass.id}".`);
-  else if (presence) console.log(`SF Guard: this approval takes your presence signature (${presence.keyId}). Your card shows next, then one Touch ID prompt.`);
-  }
-  // The approver's own decisions go in the approval commit [SPEC-OAP M4]: from the flags, or asked here.
-  const who = { actor: session.actor, agent: session.agent };
-  let decisions = null;
-  let prompt = null;
-  if (optionStrings(options, 'choose').length || options.decisions !== undefined) {
-    const { approvalDecisionFlags, prepareApprovalDecisions } = await import('../approval-decisions.mjs');
-    decisions = await prepareApprovalDecisions(root, config, workflow, phase, await approvalDecisionFlags(options), who);
-  } else if (asking && !forAgent && processInput.isTTY && processOutput.isTTY) {
-    ({ decisions, prompt } = await askApprovalDecisions(root, config, workflow, phase, who));
-  }
-  if (decisions && !forAgent) {
-    console.log('\nRecorded with this approval, in the same commit:');
-    for (const line of decisions.summary) console.log(`  ${line}`);
-  }
-  try {
-    // Decisions answered after the command was typed are confirmed by the typed phase, like the review.
-    if (asking && (!confirmedByCommand || prompt)) {
-      const typed = prompt
-        ? (await prompt.ask(`Type ${phase.id} to approve ${phase.label} and record these decisions: `))?.trim() === phase.id
-        : await confirm(phase);
-      if (!typed) throw new SingularityFlowError('Approval cancelled.');
-    }
-  } finally {
-    prompt?.close();
-  }
-  const approvedGeneration = phase.generation;
-  // The evidence the approver confirms with this approval, recorded in its commit as witnesses.
-  const witnessRecords = optionBoolean(options, 'confirm-evidence') ? await import('../verification/witness-records.mjs') : null;
-  const evidence = witnessRecords ? await witnessRecords.evidenceConfirmations(root, config, workflow, session.actor) : null;
-  if (evidence && !forAgent) {
-    console.log('\nConfirmed with this approval: each file states the outcome, matches its criterion and is current for this change.');
-    for (const entry of evidence.confirm) console.log(`  ${entry.clauseId} ${entry.slot.slot}: ${entry.file}`);
-    for (const entry of evidence.others) console.log(`  not confirmed here: ${entry.clauseId} ${entry.slot}, because ${entry.reason}`);
-  }
-  const checklist = await checklistDecisions(options);
-  const witnessMappings = witnessMappingDecisions(options);
-  const bindingDecisions = implementationBindingDecisions(options);
-  // The transition mutates the aggregate in place, so the convergence guard uses an immutable
-  // pre-decision projection while rereading external files/refs at the isolated-commit boundary.
-  const approvalStabilityWorkflow = structuredClone(workflow);
-  const approvalStabilityPhase = approvalStabilityWorkflow.phases[phase.id];
-  const expectedConvergenceApprovalSnapshot = isConvergencePhase(phase)
-    ? (await assertConvergencePublicationReady(
-        root, config, approvalStabilityWorkflow, approvalStabilityPhase
-      )).snapshotSha256
-    : null;
-  const approvalStabilityGuard = async () => {
-    let convergenceIdentity = 'not-convergence';
-    if (expectedConvergenceApprovalSnapshot) {
-      const current = await assertConvergencePublicationReady(
-        root, config, approvalStabilityWorkflow, approvalStabilityPhase
-      );
-      if (current.snapshotSha256 !== expectedConvergenceApprovalSnapshot) {
-        throw new SingularityFlowError(
-          'Convergence evidence changed while approval was being recorded. Nothing was committed; review and submit the current projection again.',
-          { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
-        );
+  const root=repoRoot();
+  const {createGitEngine}=await import('../engine-compatibility/git-publication.mjs');
+  const binding=createGitEngine({root,approvalInteraction:{
+    load:()=>decisionWorkflow(positionals,options,'approve',{root}),
+    async prepare(context) {
+      const {config,workflow,phase,session,receipt,requestedPhase}=context;
+      const selfApproval = sameApprover(phase.generatedBy ?? {}, session.actor);
+      const asking = !receipt && !optionBoolean(options, 'yes');
+      // `approve <PHASE>` typed after this terminal showed the review is the one confirmation [SPEC-OAP M4].
+      const reviewed = terminalReviewBinding(workflow, phase);
+      const confirmedByCommand = asking && Boolean(requestedPhase) && await terminalReviewShown(root, reviewed, session.actor);
+      if (confirmedByCommand && !forAgent) {
+        console.log(`Approving the ${phase.label ?? phase.id} review you read in this terminal (generation ${phase.generation}, packet ${reviewed.reviewPacketSha256.slice(0, 19)}…).`);
+      } else if (!forAgent) {
+        // Approval itself names any commit that blocks it, in its refusal; the advisory would only repeat it.
+        printPhaseReview(await phaseReview(root, config, workflow, phase, { includeApprovalCheck: false }), { showArtifact: optionBoolean(options, 'show-artifact') });
+        if (asking) await recordTerminalReview(root, reviewed, session.actor);
       }
-      convergenceIdentity = current.snapshotSha256;
-    }
-    return convergenceIdentity;
-  };
-  const { value: result, publication } = await withRefusalMemory(root, {
-    operation: 'approve', workId: workflow.workItem.id, phase: phase.id, actor: actorKey(session.actor),
-    args: [checklist ?? null, witnessMappings ?? null, bindingDecisions, evidence ? evidence.confirm.map((entry) => `${entry.clauseId}:${entry.slot.slot}`) : null,
-      ...(decisions ? [decisions.steps.map((step) => `${step.item}=${step.option}`)] : [])]
-  }, () => transactStory(
-    root,
-    config,
-    workflow,
-    {
-      type: LIFECYCLE_EVENT.PHASE_APPROVED,
-      phaseId: phase.id,
-      generation: phase.generation,
-      actor: session.actor,
-      agent: session.agent,
-      authorityGroup: approvalAuthority.authorityGroup
-    },
-    `[${workflow.workItem.id}][phase:${phase.id}][approve] ${approvalAuthority.authorityGroup}${decisions ? ` with ${decisions.parts.length} decision record${decisions.parts.length === 1 ? '' : 's'}` : ''}`,
-    async (aggregate) => withApprovalDecisions(aggregate, decisions, () => {
-      // Confirmed evidence is recorded first, so the approval (and a Story's ending) is judged with it.
-      if (evidence?.confirm.length) witnessRecords.recordEvidenceConfirmations(aggregate, evidence.confirm, {
-        actor: actorKey(session.actor), agent: session.agent, phaseId: phase.id,
-        reason: optionString(options, 'evidence-reason') ?? null, at: new Date().toISOString() });
-      return approvePhase(root, config, aggregate, {
-      phaseId: phase.id,
-      channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
-      actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
-      checklist,
-      witnessMappings,
-      bindingDecisions,
-      actor: session.actor,
-      agent: session.agent,
-      presence,
-      persist: false
-    });
-    }),
-    {
-      paths: phase.artifacts.map((item) => item.path),
-      eventFromResult: (transition) => ({
-        actor: transition.approval.actor,
-        agent: transition.approval.agent,
-        authorityGroup: transition.approval.authorityGroup,
-        identityAssurance: transition.approval.identityAssurance,
-        payload: {
-          decision: transition.approval.decision,
-          reviewPacketSha256: transition.approval.reviewPacketSha256,
-          evidenceCommit: transition.approval.evidenceCommit,
-          artifactSetSha256: transition.approval.artifactSetSha256,
-          witnessMappingsSha256: transition.approval.witnessMappingsSha256 ?? null,
-          ...(transition.decisions ? { decisions: transition.decisions } : {})
+      // SF Guard (SPEC-PSS-v1 M2): on a Story it requires, everything a presence signature needs is
+      // checked here, before any prompt or write; each refusal names a route the person can take today.
+      const presenceModule = workflow.resolution?.presence ? await import('../presence/person-records.mjs') : null;
+      const presence = presenceModule
+        ? await presenceModule.preparePersonPresence(root, { workflow, phase, actor: session.actor, action: 'phase.approve' }, dependencies.presence)
+        : null;
+      const counts = presenceModule ? presenceModule.presenceCounts(workflow) : null;
+      const approvalAuthority = requireApprovalAuthority(
+        workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+        phase.approvalPolicy,
+        session.actor,
+        { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals, { counts }) }
+      );
+      if (!forAgent) {
+      console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
+      console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
+      console.log(`Agent: ${session.agent} (prompt/audit context only)`);
+      console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
+      console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
+      console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
+      console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})${presenceLabel(presenceModule, workflow, item)}`).join(', ') || 'none'}`);
+      if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
+      if (presence?.bypass) console.log(`SF Guard: recorded unsigned, labelled "bypass: per-person exception ${presence.bypass.id}".`);
+      else if (presence) console.log(`SF Guard: this approval takes your presence signature (${presence.keyId}). Your card shows next, then one Touch ID prompt.`);
+      }
+      // The approver's own decisions go in the approval commit [SPEC-OAP M4]: from the flags, or asked here.
+      const who = { actor: session.actor, agent: session.agent };
+      let decisions = null;
+      let prompt = null;
+      if (optionStrings(options, 'choose').length || options.decisions !== undefined) {
+        const { approvalDecisionFlags, prepareApprovalDecisions } = await import('../approval-decisions.mjs');
+        decisions = await prepareApprovalDecisions(root, config, workflow, phase, await approvalDecisionFlags(options), who);
+      } else if (asking && !forAgent && processInput.isTTY && processOutput.isTTY) {
+        ({ decisions, prompt } = await askApprovalDecisions(root, config, workflow, phase, who));
+      }
+      if (decisions && !forAgent) {
+        console.log('\nRecorded with this approval, in the same commit:');
+        for (const line of decisions.summary) console.log(`  ${line}`);
+      }
+      try {
+        // Decisions answered after the command was typed are confirmed by the typed phase, like the review.
+        if (asking && (!confirmedByCommand || prompt)) {
+          const typed = prompt
+            ? (await prompt.ask(`Type ${phase.id} to approve ${phase.label} and record these decisions: `))?.trim() === phase.id
+            : await confirm(phase);
+          if (!typed) throw new SingularityFlowError('Approval cancelled.');
         }
-      }),
-      worktreeGuard: approvalStabilityGuard
+      } finally {
+        prompt?.close();
+      }
+      // The evidence the approver confirms with this approval, recorded in its commit as witnesses.
+      const witnessRecords = optionBoolean(options, 'confirm-evidence') ? await import('../verification/witness-records.mjs') : null;
+      const evidence = witnessRecords ? await witnessRecords.evidenceConfirmations(root, config, workflow, session.actor) : null;
+      if (evidence && !forAgent) {
+        console.log('\nConfirmed with this approval: each file states the outcome, matches its criterion and is current for this change.');
+        for (const entry of evidence.confirm) console.log(`  ${entry.clauseId} ${entry.slot.slot}: ${entry.file}`);
+        for (const entry of evidence.others) console.log(`  not confirmed here: ${entry.clauseId} ${entry.slot}, because ${entry.reason}`);
+      }
+      const checklist = await checklistDecisions(options);
+      const witnessMappings = witnessMappingDecisions(options);
+      const bindingDecisions = implementationBindingDecisions(options);
+
+      return {confirmation:reviewed,reviewed,presenceModule,presence,approvalAuthority,decisions,witnessRecords,evidence,
+        checklist,witnessMappings,bindingDecisions,evidenceReason:optionString(options,'evidence-reason') ?? null,
+        channel:process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
+        actionContext:activeActionContext() ?? receipt?.approvalContext ?? null};
     }
-  ));
-  // Spent once the approval has actually landed. Consuming it up front — before the confirmation
-  // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
-  // the reviewer's one-shot receipt, and a new one had to be issued before they could try again.
-  if (receiptToken) {
-    try { await consumeSelectionReceipt(root, receiptToken); }
-    catch (error) {
-      // The governed decision is already committed and may already be on the remote. Treat receipt
-      // cleanup as a local recovery warning so retry cannot strand the reviewer behind an
-      // "already approved" refusal after a successful gate transition.
-      console.warn(`Warning: approval succeeded, but selection receipt cleanup is pending: ${error.message}`);
-    }
-  }
-  await forgetTerminalReview(root, reviewed, session.actor);
-  // Other receipts for this review (another window, an earlier /sf-approve) can never approve it again.
-  await removeApprovalReceipts(root, workflow.workItem.id, (receipt) => receipt.approvalContext?.phase === phase.id
-    && receipt.approvalContext?.generation === approvedGeneration);
-  // Approval may cross a phase boundary. Rebind from the committed aggregate rather than the
-  // caller's pre-transaction object so a same-agent transition (for example verification →
-  // release) still changes the phase binding, and deterministic convergence clears agent
-  // authority instead of inheriting the previous phase's session.
-  await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
-    const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    return activateWorkItemSession(root, accepted.config, accepted.workflow);
+  }});
+  const sdkReceipt=await binding.engine.run('phase.approve',{
+    workId:optionString(options,'work-id') ?? null,phaseId:optionString(options,'phase') ?? null
   });
+  const context=binding.presentation();
+  const {config,workflow,result,publication,receiptsLine,usageLine,presenceModule}=context;
   if (!forAgent) console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.${presenceLabel(presenceModule, workflow, result.approval)}`);
   if (!forAgent && result.decisions) console.log(`Recorded in the same commit: ${result.decisions.map((entry) => `${entry.item} ${entry.record}`).join(', ')}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
-  const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
   if (receiptsLine && !forAgent) console.log(receiptsLine);
-  const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
   if (usageLine && !forAgent) console.log(usageLine);
   if (!forAgent) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
   if (completion && !forAgent) printCompletionVerdict(completion);
-  emitCommandResult(commandResult({
+  emitCommandResult(phaseApprovalCommandResult(sdkReceipt,context,{completion}), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
+    stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
+}
+
+/** The existing CLI wire projection; SDK receipts contain no host presentation. */
+export function phaseApprovalCommandResult(receipt,context,{completion=null}={}) {
+  const {workflow,result,presenceModule}=context;
+  return commandResult({
     operation: { id: 'approve', classification: 'mutation' },
-    subject: { kind: 'story', id: workflow.workItem.id },
+    subject: receipt.subject,
     outcome: succeeded('approve.succeeded', {
-      phase: result.phase.id, next: result.next?.id ?? null, reached: result.reached !== false,
+      phase: receipt.phase, next: result.next?.id ?? null, reached: receipt.approval.thresholdReached,
       ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
     ...completionContinuation(completion),
     data: {
-      commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup,
-      turnBoundary: 'end', selfApproval: result.approval.selfApproval === true,
+      commit: receipt.revision, pushed: receipt.effects.pushed, authorityGroup: receipt.approval.authorityGroup,
+      turnBoundary: 'end', selfApproval: receipt.approval.selfApproval,
       contextBoundary: result.contextBoundary,
-      reviewer: result.approval.approvedBy, reviewPacketSha256: result.approval.reviewPacketSha256,
+      reviewer: receipt.approval.actorId, reviewPacketSha256: receipt.approval.reviewPacket,
       ...(result.approval.presence ? { presence: { keyId: result.approval.presence.keyId ?? null, bypass: result.approval.presence.bypass ?? null,
         label: presenceModule.personRecordLabel(workflow, result.approval) } } : {}),
       ...(result.decisions ? { decisions: result.decisions } : {}),
-      artifactSetSha256: result.approval.artifactSetSha256,
+      artifactSetSha256: receipt.approval.artifactSet,
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
-  }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
-    stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
+  });
 }
 
 /** How SF Guard reads one recorded decision, as a suffix for a line, or ''. */
 function presenceLabel(presenceModule, workflow, record) {
   const label = presenceModule?.personRecordLabel(workflow, record);
   return label ? ` [${label}]` : '';
-}
-
-/** Write the approver's decisions into the aggregate, then approve over them: one transaction. */
-async function withApprovalDecisions(aggregate, decisions, approve) {
-  if (!decisions) return approve();
-  const { writeApprovalDecisions } = await import('../approval-decisions.mjs');
-  const recorded = writeApprovalDecisions(aggregate, decisions);
-  return Object.assign(await approve(), { decisions: recorded });
 }
 
 /**

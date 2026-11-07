@@ -16,7 +16,7 @@ import { commandRouteLines, safeCommandGuidance } from '../safe-command-guidance
 import { lstat, readFile } from 'node:fs/promises';
 import { loadSession } from '../session.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';

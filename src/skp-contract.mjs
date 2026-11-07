@@ -13,7 +13,7 @@
  */
 import path from 'node:path';
 
-import { normalizeApprovalPolicy } from './approval-authority.mjs';
+import { normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { normalizeArtifactSet } from './artifact-sets.mjs';
 import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';

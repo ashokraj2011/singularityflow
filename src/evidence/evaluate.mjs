@@ -11,7 +11,7 @@
  * in the authoritative attempt and reaches exact-local-observed; a witness in a module whose
  * adapter only counts tests passes through its module command and stops at module-observed.
  */
-import { approvalRequirementsMet } from '../approval-authority.mjs';
+import { approvalRequirementsMet } from '../kernel/approval-policy.mjs';
 import { countedApprovals } from '../presence/counted.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';

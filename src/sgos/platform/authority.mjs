@@ -8,7 +8,7 @@ import YAML from 'yaml';
 
 import {
   matchApprovalAuthority, normalizeApprovalAuthorities, normalizeApprovalSecurity
-} from '../../approval-authority.mjs';
+} from '../../kernel/approval-policy.mjs';
 import {
   configurationReadRoot, isConfigurationReadPath
 } from '../../configuration-read-scope.mjs';

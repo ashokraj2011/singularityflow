@@ -1618,9 +1618,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 30
+        "command-run": 28
       },
-      "digest": "13682597530baf8665724724a8b4f040eda1b97ba5d26df177c723917e51eaea"
+      "digest": "b18b0ce019e0143a241b76350355f113b0a19e4cd08122f3d6b98b7f6ae9def6"
     },
     "src/story-intake-verification.mjs": {
       "counts": {
@@ -1920,6 +1920,12 @@
         "command-run": 1
       },
       "digest": "0b0734f7ab41e6504e6cfe85f74d337884965081f67370ee034547169d49bca6"
+    },
+    "src/engine-compatibility/approval-transition.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "13a737aed2540322ac4061b526582d37c2f80be422ce7551ba41f4df33815b7a"
     }
   }
 }

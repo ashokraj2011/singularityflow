@@ -4,7 +4,7 @@ import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { recordSha256 } from './records.mjs';
 import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
-  remainingRequiredAuthorities } from './approval-authority.mjs';
+  remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeReworkLoops, normalizeRepairBudget, repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';
 import { advanceCompletedPhase, reopenPhaseRange } from './lifecycle-transitions.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';

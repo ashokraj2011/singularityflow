@@ -34,7 +34,7 @@ function publicationFacts(context, phase, result, status, retentionReason = null
     artifact: phase.requiredArtifact.path, ...(retentionReason ? {retentionReason} : {}) });
 }
 
-export function createGitEngine({ root, notice = () => {} } = {}) {
+export function createGitEngine({ root, notice = () => {}, approvalInteraction = null } = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
     'Git engine composition requires an explicit absolute checkout root.', { code: 'ENGINE_INPUT_INVALID' });
   let presentation = null;
@@ -319,7 +319,22 @@ export function createGitEngine({ root, notice = () => {} } = {}) {
       return owner[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, invocation: {
+  let approvalOwner;
+  const interaction=approvalInteraction ? Object.freeze({
+    ...(typeof approvalInteraction.load==='function'?{load:approvalInteraction.load.bind(approvalInteraction)}:{}),
+    ...(typeof approvalInteraction.prepare==='function'?{prepare:approvalInteraction.prepare.bind(approvalInteraction)}:{})
+  }) : null;
+  const approval={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='approval').stages) {
+    approval[stage]=async(...args)=>{
+      approvalOwner ??= import('./git-approval.mjs')
+        .then(({createGitApprovalPort})=>createGitApprovalPort({root,interaction,onContext:context=>{presentation=context;}}))
+        .catch(error=>{approvalOwner=undefined;throw error;});
+      const owner=await approvalOwner;
+      return owner[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, approval, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

@@ -11,7 +11,7 @@ import { readFileSync as readFileSyncSafe } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { branch, commitExactPaths, refHead, repoRoot } from '../git.mjs';
 import { because, commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';

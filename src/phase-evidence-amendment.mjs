@@ -11,7 +11,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { readRepositoryManifest, resolveRepositoryManifest } from './repository-manifest.mjs';
 import { worktreeFingerprint, assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { captureTerminalActionAuthorization, captureEvidenceReviewAuthorization } from './action-authorization.mjs';
 import { consumeAndRetainHumanReview } from './human-review-origin.mjs';
 import { assertNoPendingPublication, actorKey, transactStory } from './state-stores.mjs';

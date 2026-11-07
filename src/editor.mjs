@@ -97,7 +97,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
 import { storyDecisionView } from './workflow-decisions.mjs';
-import { storyApprovalView } from './approval-authority.mjs';
+import { storyApprovalView } from './kernel/approval-policy.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { INSPECTION_READ, withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { readObjectsBatch } from './git-ref-tree.mjs';

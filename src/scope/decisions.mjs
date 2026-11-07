@@ -11,7 +11,7 @@ import { stepResponsibilities } from '../kernel/phase-policy.mjs';
 import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-quality.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
-import { fallbackAuthorities } from '../approval-fallback.mjs';
+import { fallbackAuthorities } from '../kernel/approval-fallback.mjs';
 import { countedRecords, inDecisionOrder, isWithdrawn } from '../presence/counted.mjs';
 
 /** Who may decide the scope: the approval groups of the steps that define it, else the nearest step's. */

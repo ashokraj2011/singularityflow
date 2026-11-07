@@ -47,7 +47,7 @@ import { importsStatus } from './asset-import.mjs';
 import { importableMcpServers } from './mcp-import.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, templateReferences } from './template-catalog.mjs';
 import { normalizeArtifactSet } from './artifact-sets.mjs';
-import { normalizeApprovalSecurity } from './approval-authority.mjs';
+import { normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
 import {
   authoringRoute, compiledSkillStep, deterministicOnlyGeneration, legacyAuthoringSkill, stepOutputKind, workflowCodeGeneration
 } from './code-delivery-policy.mjs';

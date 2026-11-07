@@ -313,3 +313,9 @@ environments, bounds and failures, and the commit policy's and the ledger's read
 the source inspection facade. Those owners lose eight `run` sites and one `git` site for this module's
 one. No new call is made and no permission changes. `util.mjs` keeps its three approved-configuration
 hint reads: `run()`'s commit policy check is synchronous and sits below these modules, which import it.
+
+Engine approval extraction moves two existing local Git observations from `state.mjs` into
+`engine-compatibility/approval-transition.mjs`: the generation commit's ancestry check and the
+exact submitted commit's retained receipt read. Their fixed arguments, environments, bounds and
+refusals are unchanged. The aggregate loses exactly those two sites; the extracted native owner
+gains them. Only those baseline entries change, and no process owner is exempted or permission added.

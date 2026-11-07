@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './approval-authority.mjs';
+import { approvalPolicyCapacity, approvalRequirementsMet, remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
 import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
 import { noCurrentPhaseLabel, storyStatusLabel } from './progress.mjs';
 

@@ -12,7 +12,7 @@ import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { commitInitiativeChange } from './state-stores.mjs';
 import { setAgentSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
-import { matchApprovalAuthority } from './approval-authority.mjs';
+import { matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';

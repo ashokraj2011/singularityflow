@@ -9,7 +9,7 @@ import { recordSha256 } from '../records.mjs';
 import { loadBoundActiveSpecRecords, normalizeClaimMap } from '../specifications.mjs';
 import { validatePlannedVerification } from '../verification/intent.mjs';
 import { planCorrectionAuthorities, recordPlanRowCorrection } from '../plan-row-corrections.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { captureTerminalActionAuthorization, consumeActionAuthorization } from '../action-authorization.mjs';
 import { assertNoPendingPublication, actorKey, transactStory } from '../state-stores.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';

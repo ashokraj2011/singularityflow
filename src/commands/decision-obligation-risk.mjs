@@ -2,7 +2,7 @@
  * The one write of an obligation's risk decision [E2G-025, D4]: `decision risk` and a choice recorded
  * from the decision list both come here, so the evaluation, the authority check and the commit are the same.
  */
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from '../evidence/risk-decisions.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { actorKey, assertNoPendingPublication, transactStory } from '../state-stores.mjs';

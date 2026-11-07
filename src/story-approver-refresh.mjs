@@ -16,7 +16,7 @@
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { matchApprovalAuthority } from './approval-authority.mjs';
+import { matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { captureTerminalActionAuthorization, consumeActionAuthorization } from './action-authorization.mjs';
 import { approverRefreshAdditions, applyApproverRefresh, approverRefreshDigest, approverRefreshPolicyDigest,
   approverRefreshSummary } from './approver-refresh-contracts.mjs';

@@ -28,7 +28,7 @@ import {
   CHECKLIST_DECISIONS, MARKER_FINDING_KINDS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality,
   policyHash, specificationQualityPolicy, validateChecklistDecisions
 } from './specification-quality.mjs';
-import { matchApprovalAuthority } from './approval-authority.mjs';
+import { matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { exists } from './util.mjs';
 
 /** The marker half of the pinned clarification policy `[SPK:REQ-064]`. */

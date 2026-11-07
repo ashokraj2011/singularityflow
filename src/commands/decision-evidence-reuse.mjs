@@ -13,7 +13,7 @@
  */
 import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { evidenceReuseDecision, evidenceReuseLabel, prepareEvidenceReuse, recordEvidenceReuse,
   recordEvidenceReuseRevocation } from '../evidence-reuse.mjs';
 import { repoRoot } from '../git.mjs';

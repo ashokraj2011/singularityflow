@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { matchApprovalAuthority } from '../approval-authority.mjs';
+import { matchApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { loadDefinition } from '../config.mjs';
 import {
   configurationReadRoot, isConfigurationReadPath

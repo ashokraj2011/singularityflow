@@ -19,7 +19,7 @@ import { recordPlanAmendment, planAuthorities } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
 import { workDir } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, sourceTreeHash, testInputTreeHash, transactStory } from './state-stores.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { consumeAndRetainHumanReview, humanReviewOriginPresent } from './human-review-origin.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';

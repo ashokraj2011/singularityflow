@@ -20,12 +20,7 @@ const directory = (root) => path.join(gitDir(root), 'singularity-flow', 'termina
 const interactive = () => stdin.isTTY === true && stdout.isTTY === true;
 
 /** The review a person would approve: its step, generation and submitted packet, or null without one. */
-export function terminalReviewBinding(workflow, phase) {
-  if (phase?.status !== 'awaiting_approval') return null;
-  const packet = [...(workflow.lineage?.submissions ?? [])].reverse()
-    .find((entry) => entry.phase === phase.id && entry.generation === phase.generation)?.packetSha256 ?? null;
-  return packet ? { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, reviewPacketSha256: packet } : null;
-}
+export {terminalReviewBinding} from './kernel/approval-policy.mjs';
 
 function file(root, binding, actor) {
   // The Git email first: a GitHub login may be known to one command and not yet to another.

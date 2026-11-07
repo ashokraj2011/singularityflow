@@ -1,6 +1,6 @@
 /** Governed Story risk review. A preview or caller-supplied actor never grants consent. */
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { head, identity } from './git.mjs';
 import { workDir } from './story-paths.mjs';
 import { StoryStateStore, storyPublicationPending } from './state-stores.mjs';

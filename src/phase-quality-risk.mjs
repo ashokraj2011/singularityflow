@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { canonicalJson } from './records.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { exactFileAtObject, exactFirstParentFileChanges, head, identity } from './git.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { consumeAndRetainHumanReview, humanReviewOriginPresent } from './human-review-origin.mjs';
 import { actorKey, assertNoPendingPublication, transactStory } from './state-stores.mjs';

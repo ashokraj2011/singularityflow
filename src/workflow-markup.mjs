@@ -11,7 +11,7 @@ import { scanEntries } from './secrets.mjs';
 import { inlineInstructionTags } from './skill-instruction-composition.mjs';
 import { withoutAttachedSkills, effectiveLibrarySkills } from './skill-library.mjs';
 import { derivedMcpPolicy } from './workflow-markup-mcp.mjs';
-import { normalizeApprovalPolicy } from './approval-authority.mjs';
+import { normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
 
 export const WORKFLOW_MARKUP_FORMAT = 'sflow-workflow-markup/v1';

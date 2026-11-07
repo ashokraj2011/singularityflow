@@ -93,10 +93,12 @@ test('Git compatibility composes existing owners without introducing another per
 
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
-  const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs'].map(file=>path.join(packageRoot,file)));
+  const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
+    'src/approval-authority.mjs','src/approval-fallback.mjs'].map(file=>path.join(packageRoot,file)));
   const transitions=new Set(['src/engine-compatibility/generation-publication.mjs',
-    'src/engine-compatibility/submission-transition.mjs'].map(file=>path.join(packageRoot,file)));
+    'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs'].map(file=>path.join(packageRoot,file)));
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
+  const approvalPort=path.join(packageRoot,'src/engine-compatibility/git-approval.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -108,6 +110,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         const target=path.resolve(path.dirname(file),specifier.text);
         if(oldRules.has(target)||(transitions.has(target)&&relative!=='src/state.mjs'))problems.push(relative);
         if(target===submissionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===approvalPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);

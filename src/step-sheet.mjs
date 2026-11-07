@@ -16,7 +16,7 @@
  * A blank in a command is `{name}` with an entry in that step's `fills`, never `<...>`; a value the
  * system knows is already in it. A person's reason is theirs: no agent fills its default for them.
  */
-import { approvalRequirementsMet, normalizeApprovalAuthorities, remainingRequiredAuthorities } from './approval-authority.mjs';
+import { approvalRequirementsMet, normalizeApprovalAuthorities, remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { holdItemKind } from './decision-list.mjs';
 import { recordSha256 } from './records.mjs';

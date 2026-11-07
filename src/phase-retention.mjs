@@ -14,7 +14,7 @@
  * document or design source reopened always run again.
  */
 import path from 'node:path';
-import { approvalRequirementsMet } from './approval-authority.mjs';
+import { approvalRequirementsMet } from './kernel/approval-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { stepResponsibilities } from './kernel/phase-policy.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';

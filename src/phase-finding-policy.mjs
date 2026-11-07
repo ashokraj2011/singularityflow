@@ -1,6 +1,6 @@
 /** Installed gate policy. Repository/error text cannot register a waiver or executable repair. */
 import { createHash } from 'node:crypto';
-import { phaseCorrectionTargets } from './approval-fallback.mjs';
+import { phaseCorrectionTargets } from './kernel/approval-fallback.mjs';
 
 /** Installed lifecycle predicates. Projections and mutations use the same rules, never error text. */
 export const PHASE_REPAIR_POLICY_REVISION = 'phase-local-repair-v2';

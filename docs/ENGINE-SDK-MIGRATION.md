@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: ordinary/confirmed convergence submission extracted; remaining operations and manifests retain their gates |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: ordinary/confirmed convergence submission and approval extracted; decisions, advancement, manifests and shared helper ownership remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -285,3 +285,27 @@ advancement operations, context manifests and queries, and the shared post-trans
 ownership. Phases 6–9 retain their filesystem/database, standalone packaging, explicit migration
 and obsolete-path/performance qualification requirements. No existing project or installed storage
 authority has been migrated, and no branch has been merged or pushed for this refactoring.
+
+## Phase 5 approval delivery
+
+The [approval slice](ENGINE-SDK-APPROVAL.md) routes CLI and Node approval through `phase.approve`.
+Registry definitions now own validation and execution as well as their public metadata. The pure
+kernel owns authority/threshold rules and exact consent bindings; old authority imports remain
+compatible aliases. The native evaluator and transition leave the aggregate with 33 named
+collaborators, preserving the single preview/recording gate and its unchanged transition bodies.
+
+Human interaction belongs to the host adapter. The SDK accepts neither caller-selected authority
+nor executable decision data, requires the exact reviewed packet, and distinguishes a recorded
+partial vote from a completed approval threshold. Native actor, presence, source/evidence, history
+and final Story gates stay in force. Error identity and accepted/pending publication effects are
+preserved; a headless invocation cannot silently confirm an unreviewed packet.
+
+The 176-test Mac regression run passed with no failures or skips, including the complete fresh-
+clone Story journey. The shared Git/namespace compatibility recheck also passed 102 tests. The
+approval source guards now follow the real native owner and keep the same preview/recording and
+hold-ownership obligations. The five real SDK approval integration cases passed after the final
+edits, including partial thresholds, duplicate votes and unauthorized identities. The source gate
+passed 3,547 checks; typechecking, rebuilt runtime budgets and package admission also passed.
+The gateway allowance admits exactly its one extracted native transition owner (848 to 849),
+with all byte and other module ceilings unchanged. Phase 5's remaining operations and helper ownership, followed by all
+of phases 6–9, remain part of the migration objective.

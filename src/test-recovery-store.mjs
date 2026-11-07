@@ -11,7 +11,7 @@ import { link, lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/pro
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { consumeActionAuthorization } from './action-authorization.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { exactFileAtObject, gitDir } from './git.mjs';

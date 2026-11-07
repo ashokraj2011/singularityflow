@@ -182,6 +182,8 @@ test('GDP M2 surface is explicit, read-only, model-free, and secondary in VS Cod
   assert.doesNotMatch(command, /\b(?:commitAndPublish|transactStory|saveStoryDraft|writeFile|runModel)\b/u);
   for (const relative of [
     'src/state.mjs', 'src/governance.mjs', 'src/approval-authority.mjs',
+    'src/kernel/approval-policy.mjs', 'src/engine-compatibility/approval-transition.mjs',
+    'src/engine-compatibility/git-approval.mjs',
     'src/publication-unit-of-work.mjs', 'src/story-lineage.mjs'
   ]) {
     assert.doesNotMatch(await readFile(path.join(root, relative), 'utf8'), /shadow-passport\.mjs/u, relative);

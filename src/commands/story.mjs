@@ -22,7 +22,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
-import { matchApprovalAuthority, normalizeApprovalAuthorities, requireApprovalAuthority } from '../approval-authority.mjs';
+import { matchApprovalAuthority, normalizeApprovalAuthorities, requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';

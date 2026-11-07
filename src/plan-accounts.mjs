@@ -13,7 +13,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { approvalRequirementsMet } from './approval-authority.mjs';
+import { approvalRequirementsMet } from './kernel/approval-policy.mjs';
 import { planAuthorities } from './plan-amendments.mjs';
 import { countedApprovals, countedRecords, isWithdrawn } from './presence/counted.mjs';
 import { readRecord } from './schema-migrations.mjs';

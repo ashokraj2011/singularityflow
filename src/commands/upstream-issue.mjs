@@ -7,7 +7,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { loadSession } from '../session.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { workDirRelative } from '../story-paths.mjs';
 import { assertNoPendingPublication, actorKey, decideForwardAmendment, proposeForwardAmendment, rejectPhase, revalidateAfterForwardAmendment, transactStory } from '../state-stores.mjs';
 import { persistGenerationPublicationRecord } from '../generation-publication-store.mjs';

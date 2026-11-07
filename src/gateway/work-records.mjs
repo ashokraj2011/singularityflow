@@ -11,7 +11,7 @@
  * a bucket assigned by judgement is a bucket that differs between surfaces.
  */
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
-import { approvalRequirementsMet, matchApprovalAuthority } from '../approval-authority.mjs';
+import { approvalRequirementsMet, matchApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { subjectKey, validateSubjectKey } from '../subject-ref.mjs';
 import { LIFECYCLE_EVENT } from '../vocabularies/catalog.mjs';
 

@@ -11,7 +11,7 @@ import { loadDefinition, validateDefinition, resolveWorkType, assertWorkTypeStar
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
 import { MODEL_TASKS, assertModelTask } from './model-tasks.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
-import { approvalPolicyCapacity, normalizeApprovalPolicy } from './approval-authority.mjs';
+import { approvalPolicyCapacity, normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { inspectSkillPackageContents, readSealedSkillPackage } from './skp-package.mjs';
 import { validateConfiguredSkillPhase, compileSkillPhaseProposal } from './skp-contract.mjs';

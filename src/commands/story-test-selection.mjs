@@ -1,7 +1,7 @@
 /** Read-only cohort planning and exact, human-reviewed scope confirmation. Never runs tests. */
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { captureTerminalActionAuthorization } from '../action-authorization.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { storyTestScope } from '../code-delivery-policy.mjs';
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head, identity, repoRoot } from '../git.mjs';

@@ -13,7 +13,7 @@
 import { recordSha256 } from '../records.mjs';
 import { countedRecords } from '../presence/counted.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { fallbackAuthorities, stepGroups } from '../approval-fallback.mjs';
+import { fallbackAuthorities, stepGroups } from '../kernel/approval-fallback.mjs';
 
 export { fallbackAuthorities };
 

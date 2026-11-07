@@ -384,6 +384,8 @@ test('proof CLI is read-only, model-free, and leaves Story duration and publicat
 test('M3 proof modules remain absent from lifecycle, gate, approval, and publisher consumers', async () => {
   for (const relative of [
     'src/state.mjs', 'src/governance.mjs', 'src/approval-authority.mjs',
+    'src/kernel/approval-policy.mjs', 'src/engine-compatibility/approval-transition.mjs',
+    'src/engine-compatibility/git-approval.mjs',
     'src/publication-unit-of-work.mjs', 'src/story-lineage.mjs', 'src/gate.mjs'
   ]) {
     const file = path.join(repositoryRoot, relative);

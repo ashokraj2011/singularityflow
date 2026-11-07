@@ -3,7 +3,7 @@ import { readRecord, currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { normalizeSessionPolicy } from './session-policy.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
-import { DEFAULT_APPROVAL_AUTHORITY } from './approval-authority.mjs';
+import { DEFAULT_APPROVAL_AUTHORITY } from './kernel/approval-policy.mjs';
 import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 export function normalizeCurrentWorkflow(workflow) {

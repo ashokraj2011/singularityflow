@@ -7,7 +7,7 @@ import { writeAtomicExclusive } from './util.mjs';
 import { canonicalJson } from './records.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { applicationReviewPhase } from './code-delivery-policy.mjs';
 import { applicationReviewPlan, applicationReviewStatus, applicationReviewResults, findReviewSession, reviewTargetCurrent,
   reviewEvidenceAvailable, reviewLocalRoot, localCheckoutIdentity, bytesDigest, compactReviewResults, reviewSnapshotReference } from './application-review-read.mjs';

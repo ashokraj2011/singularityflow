@@ -5,7 +5,7 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { planAuthorities, recordPlanAmendment } from '../plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from '../specifications.mjs';

@@ -1,7 +1,7 @@
 /** Re-review an existing baseline admission without reviving an expired or revoked grant. */
 import path from 'node:path';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { exactFileAtObject, head, identity } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { StoryStateStore } from './state-stores.mjs';

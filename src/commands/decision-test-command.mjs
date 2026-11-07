@@ -18,7 +18,7 @@
  */
 import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
 import { repoRoot } from '../git.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { action, commandResult, effects, noop, succeeded } from '../narration/command-result.mjs';

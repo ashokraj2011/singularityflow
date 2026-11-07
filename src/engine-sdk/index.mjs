@@ -9,7 +9,7 @@ import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs'
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
-import {phaseReviewSelection,phaseReviewManifest} from '../kernel/phase-policy.mjs';
+import {phaseReviewSelection,phaseReviewManifest,phaseBeginSelection,phaseBeginResult} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
@@ -96,13 +96,56 @@ const definitions = [
     stages:Object.freeze(['load','resolve','read']),validate:documentReadInput,execute:readDocument},
   {id:'phase.enter',version:1,effect:'context-entry',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','compose']),port:'phaseEntry',
-    stages:Object.freeze(['load','inspect','compose','clarify','finish']),validate:phaseEntryInput,execute:enterPhase}
+    stages:Object.freeze(['load','inspect','compose','clarify','finish']),validate:phaseEntryInput,execute:enterPhase},
+  {id:'phase.begin',version:1,effect:'local-draft',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId','adoptExisting','confirm']),port:'phaseBegin',
+    stages:Object.freeze(['load','verify','begin']),validate:phaseBeginInput,execute:beginPhase}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function attachDiagnostic(error,key,value) {
+  try{if(error&&typeof error==='object'&&Object.isExtensible(error))error[key]=data(value);}
+  catch{ /* Optional diagnostics cannot replace a native refusal. */ }
+}
+
+function phaseBeginInput(value,operation) {
+  const input=data(value);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
+    ||['workId','phaseId','confirm'].some(key=>input[key]!=null&&typeof input[key]!=='string')
+    ||input.adoptExisting!=null&&typeof input.adoptExisting!=='boolean')invalid('Invalid generation selection or adoption request.');
+  return input;
+}
+
+async function beginPhase(port,inputs,signal) {
+  let binding=null,pendingStage='load';const completedStages=[];
+  try {
+    notCancelled(signal);
+    const context=await port.load(inputs,{signal});completedStages.push('load');notCancelled(signal);
+    binding=data(phaseBeginSelection(context?.workflow,inputs));
+    pendingStage=binding.retained?'verify':'begin';
+    const facts=await port[pendingStage](context,binding,inputs,{signal});
+    completedStages.push(pendingStage);notCancelled(signal);
+    let intent;
+    try{intent=data(phaseBeginResult(binding,data(facts)));}catch(error){
+      if(error?.code==='ENGINE_INPUT_INVALID')throw new SingularityFlowError('The generation port returned non-JSON facts.',{
+        code:'ENGINE_PORT_RESULT_INVALID',cause:error});
+      throw error;
+    }
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.begin',status:binding.retained?'retained':'begun',
+      subject:{kind:'story',id:binding.workId},phase:binding.phase,generation:binding.generation,intent,
+      effects:{localOnly:true,generationOpened:!binding.retained,draftSaved:!binding.retained,
+        testsRun:false,modelInvocations:0,committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+  } catch(error) {
+    attachDiagnostic(error,'enginePhaseBegin',{operation:'phase.begin',
+      subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,generation:binding?.generation??null,
+      completedStages,pendingStage,localEffectsMayExist:pendingStage==='begin',committed:false,pushed:false,approvalRecorded:false});
+    throw error;
+  }
 }
 
 function phaseEntryInput(value,operation) {
@@ -158,7 +201,7 @@ async function enterPhase(port,inputs,signal) {
         taskCheckpointUpdated:Boolean(finished?.task),testsRun:false,modelInvocations:0,storyAdvanced:false,
         committed:false,pushed:false,approvalRecorded:false}});
   } catch(error) {
-    if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePhaseEntry=data({operation:'phase.enter',
+    attachDiagnostic(error,'enginePhaseEntry',{operation:'phase.enter',
       subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,generation:binding?.inspectionGeneration??null,
       completedStages,pendingStage,localEffectsMayExist:completedStages.some(stage=>['inspect','compose','clarify','finish'].includes(stage))
         ||pendingStage!=='load',committed:false,pushed:false,approvalRecorded:false});
@@ -910,6 +953,7 @@ export function createEngine({ ports } = {}) {
   };
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
+    beginPhase: (inputs, options) => execute('phase.begin', inputs, options),
     submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
     submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options),
     approvePhase:(inputs,options)=>execute('phase.approve',inputs,options),

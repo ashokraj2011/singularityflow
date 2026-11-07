@@ -2,7 +2,7 @@
 import { effectivePhasePublicationProducer } from '../../kernel/phase-policy.mjs';
 import { operationContext } from '../../operation-context.mjs';
 import { isConvergencePhase } from '../../kernel/phase-policy.mjs';
-import { storyDraftTransaction } from './story-draft-transaction.mjs';
+import { storyDraftTransaction } from '../../engine-compatibility/story-draft-transaction.mjs';
 import { preparePhase, saveStoryDraft } from '../../state-stores.mjs';
 
 /**

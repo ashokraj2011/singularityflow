@@ -80,3 +80,50 @@ export function createGitPhaseEntryEngine({root=null,cwd=process.cwd(),modelEnab
   const engine=createEngine({ports:{phaseEntry,invocation:{run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))}}});
   return Object.freeze({engine,presentation:()=>context});
 }
+
+/** Local authoring boundary, using the installed admission and crash-recovery transaction. */
+export function createGitPhaseBeginPort({root,onContext=()=>{}}) {
+  const facts=(context,binding)=>({workId:binding.workId,phase:binding.phase,generation:binding.generation,
+    intent:{id:context.result.id,sha256:context.result.receiptSha256,
+      baselineCommit:context.result.baseline?.commit,status:context.result.status}});
+  return {
+    async load(inputs) {
+      const {loadAcceptedStoryExecution}=await import('../accepted-story-execution.mjs');
+      const accepted=await loadAcceptedStoryExecution(root,inputs.workId??null);
+      const context={root,config:accepted.definition,workflow:accepted.workflow};onContext(context);return context;
+    },
+    async verify(context,binding) {
+      const {verifyOpenGenerationIntent}=await import('../generation-boundary.mjs');
+      context.phase=context.workflow.phases[binding.phase];
+      await verifyOpenGenerationIntent(root,context.workflow,context.phase);
+      context.result=context.phase.generationIntent;context.retained=true;
+      return facts(context,binding);
+    },
+    async begin(context,binding,inputs) {
+      const {beginPhaseGeneration,saveStoryDraft}=await import('../state-stores.mjs');
+      const {verifyOpenGenerationIntent}=await import('../generation-boundary.mjs');
+      const {storyDraftTransaction}=await import('./story-draft-transaction.mjs');
+      context.phase=context.workflow.phases[binding.phase];
+      context.result=await storyDraftTransaction(root,context.config,context.workflow,`phase-begin:${binding.phase}`,async()=>{
+        const opened=await beginPhaseGeneration(root,context.config,context.workflow,{
+          phaseId:binding.phase,adoptExisting:inputs.adoptExisting===true,confirm:inputs.confirm??null
+        });
+        await saveStoryDraft(root,context.config,context.workflow);
+        await verifyOpenGenerationIntent(root,context.workflow,context.phase);
+        return opened;
+      });
+      context.retained=false;return facts(context,binding);
+    }
+  };
+}
+
+export function createGitPhaseBeginEngine({root}={}) {
+  if(typeof root!=='string'||!path.isAbsolute(root))throw new SingularityFlowError(
+    'Git generation entry requires an explicit absolute checkout root.',{code:'ENGINE_INPUT_INVALID'});
+  let context;
+  const phaseBegin=createGitPhaseBeginPort({root,onContext:value=>{context=value;}});
+  const engine=createEngine({ports:{phaseBegin,invocation:{
+    run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
+  }}});
+  return Object.freeze({engine,presentation:()=>context});
+}

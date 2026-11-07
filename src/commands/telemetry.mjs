@@ -159,7 +159,7 @@ export async function telemetryCommand(positionals, options) {
     { storyDraftTransaction }
   ] = await Promise.all([
     import('../state-stores.mjs'),
-    import('./shared/story-draft-transaction.mjs')
+    import('../engine-compatibility/story-draft-transaction.mjs')
   ]);
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   let result;

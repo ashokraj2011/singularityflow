@@ -86,7 +86,9 @@ const DECIDING_MODULES = Object.freeze([
   'commands/shared/print-selection-receipt.mjs', 'commands/shared/record-required-receipts-after-transition.mjs',
   'commands/shared/record-spec-usage-after-transition.mjs',
   'commands/shared/selected-phase-argument.mjs', 'commands/shared/step-action-hold-after-transition.mjs',
-  'commands/shared/story-draft-transaction.mjs', 'commands/shared/with-refusal-memory.mjs'
+  'engine-compatibility/story-draft-transaction.mjs', 'commands/shared/story-draft-transaction.mjs',
+  'generation-boundary.mjs', 'state.mjs',
+  'commands/shared/with-refusal-memory.mjs'
 ]);
 
 let memoized = null;

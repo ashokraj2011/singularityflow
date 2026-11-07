@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and preparation/code-generation/prepublish admission remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and preparation/rollover/prepublish admission remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -96,6 +96,10 @@ The [phase-entry operation](ENGINE-SDK-PHASE-ENTRY.md) coordinates binding, sema
 optional composition, clarification and local task progress through the registry. Its public
 manifest describes what an author should read; prompt wording and native command guidance remain
 private integration presentation. A manifest is not a record that its resources were consumed.
+
+The [generation-begin operation](ENGINE-SDK-GENERATION-BEGIN.md) establishes or verifies the native
+local code-generation receipt. CLI and SDK use one coordinator; neither outcome publishes a
+lifecycle event, runs tests, changes authority or records approval.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -676,3 +680,39 @@ This delivery does not finish Phase 5. The portable prompt/asset inventory, prep
 generation/prepublish admission, remaining queries and native-rule extraction remain. Phases
 6–9 retain their full filesystem/database adapter, installable headless runtime and cross-agent
 resume, verified authority migration, and final removal/distribution/performance scope.
+
+## Phase 5 local generation-begin delivery
+
+The [generation-begin operation](ENGINE-SDK-GENERATION-BEGIN.md) places local begin/retry
+coordination behind the registry, shared by CLI and SDK. It captures the Story, phase, exact next
+generation and any open intent before awaiting native verification or a write. An idempotent
+retry verifies and retains its original receipt. Local adoption remains subject to the existing
+explicit digest, source-boundary and protected-path checks; a begin result does not establish
+approval, test evidence or permission to bypass the edit guard.
+
+The fifteen installed admission statements move from `state.mjs` to the existing native generation-
+boundary owner, with twelve named legacy collaborators. Their tokens are unchanged. The native
+draft transaction moves from a command helper into one compatibility owner, with a compatible
+alias and token-identical body. Locks, preimages, rollback, journals, cursor capture and native
+errors retain their meanings. CLI creation/retry output remains unchanged. Optional entry/begin
+diagnostics cannot mask an original error with a frozen or read-only property.
+
+Mac qualification on Node 26.12.0 passes 320 distinct focused checks without failures,
+cancellations or skips, including 150 native publication/recovery fault checks and four complete
+dirty-review repair journeys. The final 112-check rerun covers the narrowed native dependency,
+source/bundled CLI parity, retained receipts, policy/feature-readiness checks, work intervals and
+the error-diagnostic guarantees. The final import guard also restricts the extracted native
+admission to its compatibility aggregate.
+
+`npm run check` passes 3,620 checks. VS Code typechecking, the Git ownership audit (2,010 existing
+sites), all 13 unchanged bundle budgets, npm dry-run packaging and whitespace checks pass. The
+SDK remains 15 pure modules / 191,747 input bytes with zero external imports. The gateway remains
+852 modules / 6,742,146 bytes; no budget was raised or runtime behavior externalized. The package
+contains 9,478 files, includes the native owner/compatibility alias/documentation and excludes
+tests. All machine state and local remotes are isolated fixtures. No Windows, hosted CI, live
+provider, merge, push or real-project migration ran.
+
+Preparation, rollover, draft/prepublish admission, the remaining queries and native policy helpers
+still belong to Phase 5. Phases 6–9 retain their full alternate-backend, headless package/resume,
+verified authority-cutover and removal/distribution/performance scope. The completed local begin
+operation does not complete or narrow those remaining milestones.

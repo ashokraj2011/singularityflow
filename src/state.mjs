@@ -74,7 +74,7 @@ import { storyTestScope, TEST_SCOPES } from './code-delivery-policy.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
 import { verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
 import { verifyTestCommandEpochValidation } from './test-command-epoch.mjs';
-import { beginCodeGeneration, publishedGenerationCommit } from './generation-boundary.mjs';
+import { beginCodeGeneration, beginNativePhaseGeneration, publishedGenerationCommit } from './generation-boundary.mjs';
 
 import { reopenAuthorityStep } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
@@ -2011,28 +2011,13 @@ export async function beginPhaseGeneration(root, config, workflow, {
   adoptExisting = false,
   confirm = null
 } = {}) {
-  assertStoryNotArchived(root, workflow);
-  const session = await loadSession(root, { required: false });
-  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId], session, 'begin');
-  assertIntentAmendmentAcknowledged(workflow);
-  await assertNoPendingPublication(root, config, workflow, 'begin code generation');
-  const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
-  await assertDocumentInputs(root, config, workflow, phase);
-  const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
-  const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
-  if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  await assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
-  if (!phaseRequiresCodeDelivery(phase)) {
-    throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
-  }
-  await assertPlannedSpecificationClaims(root, config, workflow, phase);
-  await ensureStoryFeatureWorkInterval(root, config, workflow, phase, testAdmission);
-  return beginCodeGeneration(root, config, workflow, phase, {
-    adoptExisting,
-    confirm,
-    actor: session?.actor ?? null,
-    agent: session?.agent ?? null
-  });
+  return beginNativePhaseGeneration(
+    root, config, workflow, {phaseId,adoptExisting,confirm}, {
+      assertStoryNotArchived,loadSession,assertPhaseAgentMayMutate,assertIntentAmendmentAcknowledged,
+      assertNoPendingPublication,assertPhaseSequence,assertDocumentInputs,assertStoryTestRecoveryFeatureAdmission,
+      assertPassedCodeDeliveryInput,assertSkillPhaseHostReady,assertPlannedSpecificationClaims,
+      ensureStoryFeatureWorkInterval
+    });
 }
 
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, {

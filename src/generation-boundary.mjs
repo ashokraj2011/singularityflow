@@ -59,6 +59,40 @@ async function verifiedIntentRecord(root, workflow, phase, intent) {
   return receipt;
 }
 
+/** Installed generation admission. Legacy collaborators stay explicit until their policy extraction. */
+export async function beginNativePhaseGeneration(root, config, workflow, {
+  phaseId = workflow.currentPhase,
+  adoptExisting = false,
+  confirm = null
+} = {}, dependencies) {
+  const {assertStoryNotArchived,loadSession,assertPhaseAgentMayMutate,assertIntentAmendmentAcknowledged,
+    assertNoPendingPublication,assertPhaseSequence,assertDocumentInputs,assertStoryTestRecoveryFeatureAdmission,
+    assertPassedCodeDeliveryInput,assertSkillPhaseHostReady,assertPlannedSpecificationClaims,
+    ensureStoryFeatureWorkInterval}=dependencies;
+  assertStoryNotArchived(root, workflow);
+  const session = await loadSession(root, { required: false });
+  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId], session, 'begin');
+  assertIntentAmendmentAcknowledged(workflow);
+  await assertNoPendingPublication(root, config, workflow, 'begin code generation');
+  const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
+  await assertDocumentInputs(root, config, workflow, phase);
+  const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
+  const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
+  if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
+  await assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
+  if (!phaseRequiresCodeDelivery(phase)) {
+    throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
+  }
+  await assertPlannedSpecificationClaims(root, config, workflow, phase);
+  await ensureStoryFeatureWorkInterval(root, config, workflow, phase, testAdmission);
+  return beginCodeGeneration(root, config, workflow, phase, {
+    adoptExisting,
+    confirm,
+    actor: session?.actor ?? null,
+    agent: session?.agent ?? null
+  });
+}
+
 /**
  * Establish the immutable authoring boundary. Repeating begin for the same open generation is a
  * read-equivalent operation and returns the existing intent.

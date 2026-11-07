@@ -174,3 +174,9 @@ test('phase selection and input selection have one pure owner, including custom 
   workflow.currentPhase='constructor';workflow.phases.constructor={id:'constructor'};
   assert.equal(currentEntryPhase(workflow).id,'constructor');
 });
+
+test('entry diagnostics cannot mask a native error whose diagnostic property is read-only',async()=>{
+  const original=Object.defineProperty(new Error('Original native refusal'),'enginePhaseEntry',{value:null,writable:false});
+  const f=fixture(stage=>{if(stage==='inspect')throw original;});
+  await assert.rejects(f.engine.run('phase.enter'),error=>error===original);
+});

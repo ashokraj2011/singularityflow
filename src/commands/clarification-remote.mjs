@@ -5,7 +5,7 @@
 import { identity } from '../git.mjs';
 import { publishClarificationAnswer, remoteClarificationAnswers } from '../clarification-remote.mjs';
 import { recordClarificationResponses } from '../clarifications.mjs';
-import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
+import { storyDraftTransaction } from '../engine-compatibility/story-draft-transaction.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString } from '../util.mjs';

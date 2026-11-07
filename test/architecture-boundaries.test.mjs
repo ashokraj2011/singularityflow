@@ -95,7 +95,8 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
-    'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs'].map(file=>path.join(packageRoot,file)));
+    'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
+    'src/commands/shared/story-draft-transaction.mjs'].map(file=>path.join(packageRoot,file)));
   const transitions=new Set(['src/engine-compatibility/generation-publication.mjs',
     'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs'].map(file=>path.join(packageRoot,file)));
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
@@ -115,6 +116,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const documentReferences=path.join(packageRoot,'src/engine-compatibility/native-document-references.mjs');
   const entryPort=path.join(packageRoot,'src/engine-compatibility/git-phase-entry.mjs');
   const nativeEntry=path.join(packageRoot,'src/engine-compatibility/native-phase-entry.mjs');
+  const generationBoundary=path.join(packageRoot,'src/generation-boundary.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -139,8 +141,11 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===nativeReview&&!['src/engine-compatibility/git-phase-review.mjs','src/commands/shared/phase-review.mjs'].includes(relative))problems.push(relative);
         if(target===documentPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
         if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs','src/engine-compatibility/native-phase-entry.mjs'].includes(relative))problems.push(relative);
-        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs'].includes(relative))problems.push(relative);
+        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs'].includes(relative))problems.push(relative);
         if(target===nativeEntry&&relative!=='src/engine-compatibility/git-phase-entry.mjs')problems.push(relative);
+        if(target===generationBoundary&&relative!=='src/state.mjs'&&ts.isImportDeclaration(node)
+          &&node.importClause?.namedBindings&&ts.isNamedImports(node.importClause.namedBindings)
+          &&node.importClause.namedBindings.elements.some(item=>(item.propertyName??item.name).text==='beginNativePhaseGeneration'))problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -156,7 +161,7 @@ test('extracted native decision writers do not import command handlers or host p
     'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs',
     'git-upstream.mjs','native-forward-amendments.mjs','upstream-artifact-issues.mjs',
     'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs',
-    'git-phase-entry.mjs','native-phase-entry.mjs'];
+    'git-phase-entry.mjs','native-phase-entry.mjs','story-draft-transaction.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);
@@ -223,6 +228,19 @@ test('configuration and SKP validation use pure clarification policy instead of 
     assert.match(source,/import \{normalizeClarificationPolicy\} from '\.\/kernel\/phase-inputs.mjs'/);
     assert.doesNotMatch(source,/from '\.\/clarifications.mjs'/);
   }
+});
+
+test('generation begin uses registry coordination and a native transaction, without a command-layer persistence owner',async()=>{
+  const host=await readFile(path.join(packageRoot,'src/commands/phase-lifecycle.mjs'),'utf8');
+  const source=ts.createSourceFile('phase-lifecycle.mjs',host,ts.ScriptTarget.Latest,true);
+  const begin=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='phaseBeginCommand');
+  assert.ok(begin);assert.match(begin.getText(source),/\.engine\.run\('phase\.begin'/u);
+  assert.doesNotMatch(begin.getText(source),/\b(beginPhaseGeneration|saveStoryDraft|storyDraftTransaction|verifyOpenGenerationIntent)\s*\(/u);
+  const aggregate=await readFile(path.join(packageRoot,'src/state.mjs'),'utf8');
+  const parsed=ts.createSourceFile('state.mjs',aggregate,ts.ScriptTarget.Latest,true);
+  const legacy=parsed.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='beginPhaseGeneration');
+  assert.ok(legacy);assert.match(legacy.body.getText(parsed),/beginNativePhaseGeneration/u);
+  assert.doesNotMatch(legacy.body.getText(parsed),/\bbeginCodeGeneration\s*\(/u);
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

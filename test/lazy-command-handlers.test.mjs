@@ -566,6 +566,8 @@ test('extracted legacy helpers remain part of the development build identity', a
     'kernel/phase-admission.mjs','kernel/phase-entry.mjs','phase-entry.mjs','phase-entry-context.mjs',
     'phase-entry-admission.mjs','phase-entry-authoring.mjs','phase-input-policy.mjs','document-runtime.mjs',
     'engine-compatibility/git-phase-entry.mjs','engine-compatibility/native-phase-entry.mjs',
+    'engine-compatibility/story-draft-transaction.mjs',
+    'generation-boundary.mjs','state.mjs',
     'commands/documents.mjs', 'commands/documents-view.mjs',
     'api.mjs', 'documents-read.mjs', 'commands/phase-show.mjs', 'agent-briefs.mjs',
     'engine-compatibility/native-witness-decisions.mjs', 'commands/decision-witness.mjs', 'commands/decision-witness-exception.mjs',

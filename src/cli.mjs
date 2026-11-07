@@ -10,7 +10,7 @@ import { sessionDiscoveryConfiguration } from './commands/shared/session-discove
 import { postPublicationStep, presentPostPublicationNotice } from './phase-post-transition-guidance.mjs';
 import {refuseNearMissDocumentOptions} from './commands/shared/document-options.mjs';
 import {documentTitle,documentPhasesLabel} from './commands/shared/document-presentation.mjs';
-import { storyDraftTransaction } from './commands/shared/story-draft-transaction.mjs';
+import { storyDraftTransaction } from './engine-compatibility/story-draft-transaction.mjs';
 import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
 import { prepareConfiguredPhase } from './commands/shared/prepare-configured-phase.mjs';
 import { completionContinuation } from './commands/shared/completion-continuation.mjs';

@@ -1,6 +1,35 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
+/** Capture the local generation boundary before an asynchronous native admission/write. */
+export function phaseBeginSelection(workflow,inputs) {
+  const id=inputs.phaseId??workflow?.currentPhase;
+  const phase=id!=null&&Object.hasOwn(workflow?.phases??{},id)?workflow.phases[id]:null;
+  if(!phase)throw new SingularityFlowError(`Unknown or unavailable phase '${id??''}'. Provide a phase ID.`);
+  if(inputs.workId!=null&&inputs.workId!==workflow.workItem.id)throw new SingularityFlowError(
+    'Requested Story does not match the generation checkout.',{code:'ACTIVE_SUBJECT_MISMATCH',
+      details:{expectedWorkId:inputs.workId,actualWorkId:workflow.workItem.id}});
+  const existing=phase.generationIntent;
+  return {workId:workflow.workItem.id,phase:phase.id,generation:nextPhaseGeneration(phase),
+    retained:existing?.status==='open'&&Number(existing.generation)===nextPhaseGeneration(phase),
+    existing:existing?{id:existing.id??null,sha256:existing.receiptSha256??null,baselineCommit:existing.baseline?.commit??null}:null};
+}
+
+/** Local receipts expose logical provenance; native staging paths and actor presentation stay private. */
+export function phaseBeginResult(binding,facts) {
+  const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
+  const keys=(value,allowed)=>value&&typeof value==='object'&&!Array.isArray(value)
+    &&Object.keys(value).length===allowed.length&&Object.keys(value).every(key=>allowed.includes(key));
+  if(!keys(facts,['workId','phase','generation','intent'])||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||facts.generation!==binding.generation||!keys(facts.intent,['id','sha256','baselineCommit','status'])
+    ||!text(facts.intent.id)||!/^sha256:[a-f0-9]{64}$/u.test(facts.intent.sha256??'')
+    ||!text(facts.intent.baselineCommit)||facts.intent.status!=='open'
+    ||binding.retained&&['id','sha256','baselineCommit'].some(key=>facts.intent[key]!==binding.existing[key])) {
+    throw new SingularityFlowError('The generation port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  return facts.intent;
+}
+
 /** Historical review is allowed; phase authoring admission is a separate operation. */
 export function phaseReviewSelection(workflow, requested=null) {
   const id=requested??workflow.currentPhase;

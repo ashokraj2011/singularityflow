@@ -6,7 +6,7 @@ import { generationResultMatches, generationResultDigest, beginPhaseGeneration, 
 import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
 import { nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
-import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
+import { storyDraftTransaction } from '../engine-compatibility/story-draft-transaction.mjs';
 import { verifyOpenGenerationIntent } from '../generation-boundary.mjs';
 // Load the full document renderer only when a caller actually requests that projection.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
@@ -68,6 +68,7 @@ export async function phaseCommand(positionals, options) {
   if (subcommand === 'show') return (await import('./phase-show.mjs')).phaseShowCommand(positionals, options);
   const root = repoRoot();
   if (subcommand === 'publish') return phasePublishCommand(root, positionals, options);
+  if (subcommand === 'begin') return phaseBeginCommand(root, positionals, options);
   const accepted = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? null);
   const config = accepted.definition;
   const workflow = accepted.workflow;
@@ -148,35 +149,6 @@ export async function phaseCommand(positionals, options) {
     else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
     return;
   }
-  if (subcommand === 'begin') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    const existing = phase.generationIntent;
-    if (existing?.status === 'open' && Number(existing.generation) === nextPhaseGeneration(phase)) {
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      if (optionBoolean(options, 'json')) console.log(JSON.stringify(existing, null, 2));
-      else console.log(`Generation intent ${existing.id} is already open for ${phase.id} generation ${existing.generation}.`);
-      return;
-    }
-    const generation = nextPhaseGeneration(phase);
-    const intent = await storyDraftTransaction(root, config, workflow, `phase-begin:${phaseId}`, async () => {
-      const opened = await beginPhaseGeneration(root, config, workflow, {
-        phaseId,
-        adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
-        confirm: optionString(options, 'confirm')
-      });
-      // Generation begin is a local authoring boundary, not lifecycle authority. Persist the
-      // workflow and receipt without a commit, but with a hard-crash recovery journal.
-      await saveStoryDraft(root, config, workflow);
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      return opened;
-    });
-    const output = { ...intent, local: true, lifecycleEvent: null };
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
-    else console.log(`Began ${phaseId} generation ${generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
-    return;
-  }
   if (subcommand === 'draft-check' || subcommand === 'prepublish') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
@@ -231,6 +203,25 @@ export async function phaseCommand(positionals, options) {
     return;
   }
   throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
+}
+
+async function phaseBeginCommand(root,positionals,options) {
+  const {createGitPhaseBeginEngine}=await import('../engine-compatibility/git-phase-entry.mjs');
+  const binding=createGitPhaseBeginEngine({root});
+  const receipt=await binding.engine.run('phase.begin',{
+    workId:optionString(options,'work-id')??null,phaseId:positionals[2]??null,
+    adoptExisting:optionBoolean(options,'adopt-existing')||optionBoolean(options,'adopt-current-interval'),
+    confirm:optionString(options,'confirm')??null
+  });
+  const {phase,result:intent}=binding.presentation();
+  if(receipt.status==='retained') {
+    if(optionBoolean(options,'json'))console.log(JSON.stringify(intent,null,2));
+    else console.log(`Generation intent ${intent.id} is already open for ${phase.id} generation ${intent.generation}.`);
+    return;
+  }
+  const output={...intent,local:true,lifecycleEvent:null};
+  if(optionBoolean(options,'json'))console.log(JSON.stringify(output,null,2));
+  else console.log(`Began ${phase.id} generation ${receipt.generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
 }
 
 export function phasePublicationJson(receipt, context) {

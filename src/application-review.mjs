@@ -184,7 +184,7 @@ export async function prepareApplicationRepair(root, options) {
     phase = workflow.phases[phase.id];
   }
   const { beginPhaseGeneration } = await import('./state.mjs');
-  const { storyDraftTransaction } = await import('./commands/shared/story-draft-transaction.mjs');
+  const { storyDraftTransaction } = await import('./engine-compatibility/story-draft-transaction.mjs');
   const { saveStoryDraft } = await import('./state-stores.mjs');
   const generationIntent = await storyDraftTransaction(root, config, workflow, `app-review-repair:${phase.id}`, async () => {
     const intent = await beginPhaseGeneration(root, config, workflow, { phaseId: phase.id });

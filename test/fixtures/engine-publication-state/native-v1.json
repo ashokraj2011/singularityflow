@@ -1,0 +1,76 @@
+{
+  "baseline": "78ba9c774",
+  "schemaVersion": 2,
+  "expressions": {
+    "receipt": "2769d3c42927d0cfad5ae6f6bd3561c0e7372f5935f2659076c1fe6e4aeed5bd",
+    "delivery": "7c9fb26775ded994866f1be490d611387e502546248737a6d83d5b93b0f8838d",
+    "artifactSet": "df2f424fd9159548bc7de95620bd77f84cf461c06f5fd4153b4f9a7f5f63655b",
+    "publications": "17e53c72a4cd210baa2e042ad64c45d4d1a93647f4ef7a0abafbd7a2e12b45f8"
+  },
+  "cases": [
+    {
+      "name": "ordinary-code",
+      "sha256": "518a72703a4444e3dfac4c14954cdb43295b015e80b39de7e2f0d5d0c4b06e43"
+    },
+    {
+      "name": "manual-code",
+      "sha256": "894d96832d5bb03c56c983a344cd9c59dc217ad913963f25b3f56f1df98e7e5d"
+    },
+    {
+      "name": "deterministic-code",
+      "sha256": "6d228bc3de9c5ec35ae9198f6afeac5d55a9bf51a48184640d12775e72317a50"
+    },
+    {
+      "name": "minimal-optional-state",
+      "sha256": "1e2580d58711b9a02e5de3a5d1ffa7534b37143de8acad3f681e2ea0bb061249"
+    },
+    {
+      "name": "replaced-current-generation",
+      "sha256": "8c07e51c3d18d701f56e6faeaeea9b1757703480cc642ff24cd6aaac9119a0a7"
+    },
+    {
+      "name": "no-optional-attestations",
+      "sha256": "77c8f25859821380d91ffb026172c5540ceb6f5d97be103e37220048f05a38c9"
+    },
+    {
+      "name": "test-input-binding",
+      "sha256": "a60cc937a0f02a20eaf015583c2e759c6cf3762e246b3eb25f3d73ec67a51025"
+    },
+    {
+      "name": "source-bindings",
+      "sha256": "92dc6182cc79f4a2002feb5d2d91b9cea4c88780df2733160d176985f7dbceff"
+    },
+    {
+      "name": "all-optional-evidence",
+      "sha256": "62bbbf0d50a51783c0734d937a416f9ae860e5629d8ccb0304c9c40d6ba3146a"
+    },
+    {
+      "name": "empty-optional-evidence",
+      "sha256": "40aeb2a82d25f17484f52433341920f74c4aebd9da71b0da07c98c0224ce1d2e"
+    },
+    {
+      "name": "auto-candidate",
+      "sha256": "2a0ee79566ffb0ff17b9988f3faa1b62e58ea47471a7a1a0289645feeb6d131c"
+    },
+    {
+      "name": "observed-model",
+      "sha256": "9ee7a711f82afb4b7edaa84ecd481997d9e5c137385aef7584aec4037721dac5"
+    },
+    {
+      "name": "model-policy-default",
+      "sha256": "33e7ca9c29ee765ba56dbc5cf5d9aa8b6fe9c7c9014c50449786aef8d9d53bf6"
+    },
+    {
+      "name": "no-declared-origins",
+      "sha256": "a292bf7c22479115f36db04a4f073f5c6b399cfc7c1668e67e40559dfde842a7"
+    },
+    {
+      "name": "retained-surgical-state",
+      "sha256": "2e09bc42dd76c74d3c7792dcbd90d36563bfb6b3212b1d33a918279f93bd11f2"
+    },
+    {
+      "name": "unordered-prior-generations",
+      "sha256": "d7575d2c3dd50b9e66d2cb1a35f19fbc78f54f43013ca44621d093fb4e95d80f"
+    }
+  ]
+}

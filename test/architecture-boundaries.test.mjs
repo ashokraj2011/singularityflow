@@ -331,6 +331,42 @@ test('native submission and approval keep admission outside shared kernel state 
   assert.doesNotMatch(core,/singularity-flow|copilot|readFile|saveWorkflow/);
 });
 
+test('native publication preserves admission, clock and accepted-write checkpoints around pure aggregate updates', async () => {
+  const source = await readFile(path.join(packageRoot, 'src/engine-compatibility/generation-publication.mjs'), 'utf8');
+  const ast = ts.createSourceFile('generation-publication.mjs', source, ts.ScriptTarget.Latest, true);
+  const calls = [];
+  const visit = node => {
+    if (ts.isCallExpression(node)) calls.push({ name: node.expression.getText(ast), node });
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  const call = name => {
+    const found = calls.find(entry => entry.name === name);
+    assert.ok(found, name);
+    return found.node;
+  };
+  const begin = call('beginGenerationPublication');
+  for (const name of ['assertStoryNotArchived', 'assertPhaseAgentMayMutate', 'assertNoPendingPublication',
+    'assertPhaseSequence', 'assertProducerAllowed', 'assertPhasePublicationReadiness', 'assertAstLifecycleGate']) {
+    assert.ok(call(name).pos < begin.pos, name + ' must precede aggregate changes');
+  }
+  const clock = calls.find(entry => entry.name === 'nowIso' && entry.node.pos > begin.pos).node;
+  assert.ok(begin.end < clock.pos && clock.end < call('appendGenerationAuthorship').pos);
+  const receipt = call('codeDeliveryPublicationReceipt');
+  const acceptedWrite = calls.find(entry => entry.name === 'writeJson'
+    && entry.node.arguments[0]?.getText(ast) === 'path.join(root, receiptPath)').node;
+  assert.ok(ts.isAwaitExpression(acceptedWrite.parent), 'delivery receipt must be accepted before its live binding');
+  assert.ok(receipt.end < acceptedWrite.pos && acceptedWrite.end < call('recordCodeDeliveryPublication').pos);
+  assert.ok(call('persistAstLifecycleReceipt').end < call('recordGenerationAstGate').pos);
+  assert.ok(call('recordPhaseTelemetry').end < call('recordGenerationTelemetry').pos);
+  assert.ok(call('createAgentBriefs').end < call('recordGenerationAgentBriefs').pos);
+  assert.ok(call('catalogArtifactSet').end < call('recordGenerationArtifactSet').pos);
+  assert.ok(call('validatePhase').end < call('recordGenerationPublication').pos);
+  assert.ok(call('recordGenerationPublication').end < call('persistGenerationPublicationRecord').pos);
+  assert.ok(call('persistGenerationPublicationRecord').end < call('saveWorkflow').pos);
+  assert.doesNotMatch(source, /phase\.(?:deliveryEvidence|generationPublications|authorship|artifactSet|astGates|clarifications|markers|agentBriefs|telemetry)\s*=/);
+});
+
 test('workflow compilation and routing simulation use the pure interpreter while native rendering and pending hashes stay outside it', async () => {
   const core = await readFile(path.join(packageRoot, 'src/kernel/workflow-decisions.mjs'), 'utf8');
   assert.doesNotMatch(core, /singularity-flow|createHash|canonicalJson|applicabilityStatus|describeWhen|describeOutcome|parseDecisionAssignments|storyDecisionView/);

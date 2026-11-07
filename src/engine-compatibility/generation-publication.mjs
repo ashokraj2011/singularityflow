@@ -38,6 +38,11 @@ import { updateRemoteOutputRenderedHashes } from '../agents.mjs';
 import { verifyAcceptedTestCommandAmendment } from '../story-test-command-amendment.mjs';
 import { verifySkillPhasePublication } from '../skp-phase-evidence.mjs';
 import { workDir, workDirRelative } from '../story-paths.mjs';
+import { beginGenerationPublication, appendGenerationAuthorship, resetGenerationDeliveryBindings,
+  codeDeliveryPublicationReceipt, recordCodeDeliveryPublication, recordGenerationAstGate,
+  recordGenerationClarification, recordGenerationMarkers, recordGenerationTelemetry,
+  recordGenerationAgentBriefs, recordGenerationArtifactSet, recordGenerationPublication } from '../kernel/lifecycle-transitions.mjs';
+
 
 export async function publishNativeGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null
@@ -360,19 +365,14 @@ export async function publishNativeGeneration(root, config, workflow, {
   // intent binding or decision, exactly as when it was disabled.
   const architectureIntentBinding = null;
   const architectureDecision = null;
-  phase.generation = targetGeneration; phase.generatedBy = session.actor;
-  phase.submissionArchitectureDecision = null;
-  phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
-  phase.authorship ??= [];
+  beginGenerationPublication(phase, { targetGeneration, actor: session.actor,
+    agent: session.agent, producer: effectiveAuthorship.producer });
   const publishedAt = nowIso();
-  phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+  appendGenerationAuthorship(phase, effectiveAuthorship, publishedAt);
   if (deliveryPreflight) {
     // These are live submission bindings, not publication history. A successor starts without
     // observed evidence; immutable prior claim maps/publications remain in Git and lineage.
-    if (phase.claimMaps) delete phase.claimMaps.observed;
-    phase.generationCommit = null;
-    phase.publicationCommit = null;
-    phase.submittedAt = null;
+    resetGenerationDeliveryBindings(phase);
     const deliveryRoot = posix(path.join(
       workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery'
     ));
@@ -381,99 +381,15 @@ export async function publishNativeGeneration(root, config, workflow, {
     await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
     const workingStateDigest = await sourceTreeHash(root, config, workflow);
     const testInputSha256 = await testInputTreeHash(root, config, workflow);
-    const receipt = {
-      schemaVersion: currentSchemaVersion('code-delivery'),
-      kind: 'code-delivery',
-      workId: workflow.workItem.id,
-      phase: phase.id,
-      generation: phase.generation,
-      generationIntentId: deliveryPreflight.generationIntentId,
-      changeSet: {
-        path: changeSetPath,
-        digest: deliveryPreflight.changeSet.digest,
-        sourcePaths: deliveryPreflight.sourcePaths,
-        deletedSourcePaths: deliveryPreflight.deletedSourcePaths,
-        configurationPaths: deliveryPreflight.configurationPaths,
-        executableTestPaths: deliveryPreflight.testPaths,
-        supportingTestPaths: deliveryPreflight.supportingTestPaths
-      },
-      changeClassification: {
-        ...deliveryPreflight.changeClassification,
-        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
-      },
-      ...(deliveryPreflight.documentationCorrection ? {
-        documentationCorrection: structuredClone(deliveryPreflight.documentationCorrection)
-      } : {}),
-      ...(deliveryPreflight.testingRepair ? {
-        testingRepair: structuredClone(deliveryPreflight.testingRepair)
-      } : {}),
-      traceability: {
-        required: deliveryPreflight.acceptanceCriteria.required,
-        bound: deliveryPreflight.acceptanceCriteria.tagged,
-        missing: deliveryPreflight.acceptanceCriteria.missing,
-        ambiguous: deliveryPreflight.acceptanceCriteria.ambiguous,
-        bindings: deliveryPreflight.acceptanceCriteria.bindings,
-        // Which exact test each criterion tag sits on, read by the module adapter [E2G-015].
-        witnesses: deliveryPreflight.acceptanceCriteria.witnesses ?? [],
-        unattachedTags: deliveryPreflight.acceptanceCriteria.unattachedTags ?? [],
-        adapterProfiles: deliveryPreflight.acceptanceCriteria.profiles ?? [],
-        ...(deliveryPreflight.sourceBindings.mode === 'enforce' ? {
-          sourceRequired: deliveryPreflight.sourceBindings.required,
-          sourceBindings: deliveryPreflight.sourceBindings.bindings
-        } : {})
-      },
-      ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
-      ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
-      ...(deliveryPreflight.cornerCaseMatrix ? { cornerCaseMatrix: structuredClone(deliveryPreflight.cornerCaseMatrix) } : {}),
-      ...(deliveryPreflight.excludedChanges?.length ? { excludedChanges: [...deliveryPreflight.excludedChanges] } : {}),
-      testExecutions: [],
-      ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
-      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
-      ...(autoCandidateVerification ? {
-        autoCandidateVerification: structuredClone(autoCandidateVerification)
-      } : {}),
-      tree: { workingStateDigest, ...(testInputSha256 ? { testInputSha256 } : {}),
-        generationCommit: null, generationTree: null },
-      model: {
-        task: 'code',
-        required: effectiveAuthorship.producer === 'governed-agent',
-        authorshipProducer: effectiveAuthorship.producer,
-        minimumAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
-        mappingRevision: codeModelObservation?.mappingRevision ?? null,
-        provider: codeModelObservation?.provider ?? null,
-        requestedModel: codeModelObservation?.requestedModel ?? null,
-        resolvedModel: codeModelObservation?.resolvedModel ?? null,
-        assurance: codeModelAssurance,
-        invocationIds: codeModelObservation ? [codeModelObservation.invocationId] : [],
-        host: codeModelObservation?.host ?? null,
-        observationSource: codeModelObservation?.source ?? null,
-        observationIntegrity: codeModelObservation?.observationIntegrity ?? 'unverified-local',
-        observedAt: codeModelObservation?.observedAt ?? null,
-        generation: codeModelObservation?.generation ?? null
-      },
-      status: 'pending-tests',
-      capturedAt: publishedAt
-    };
+    const receipt = codeDeliveryPublicationReceipt(workflow, phase, deliveryPreflight, {
+      schemaVersion: currentSchemaVersion('code-delivery'), changeSetPath, workingStateDigest, testInputSha256,
+      effectiveAuthorship, codeModelObservation, codeModelAssurance, autoCandidate, autoCandidateVerification, publishedAt
+    });
     await writeJson(path.join(root, receiptPath), receipt);
-    phase.deliveryEvidence = {
-      ...deliveryPreflight,
-      changeClassification: {
-        ...deliveryPreflight.changeClassification,
-        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
-      },
-      generation: phase.generation,
-      receiptPath,
-      changeSetPath,
-      sourceTreeSha256: workingStateDigest,
-      ...(testInputSha256 ? { testInputSha256 } : {}),
-      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
-      ...(autoCandidateVerification ? {
-        autoCandidateVerification: structuredClone(autoCandidateVerification)
-      } : {}),
-      status: 'pending-tests',
-      capturedAt: publishedAt,
-      validation: null
-    };
+    recordCodeDeliveryPublication(phase, deliveryPreflight, {
+      receiptPath, changeSetPath, workingStateDigest, testInputSha256, effectiveAuthorship,
+      autoCandidate, autoCandidateVerification, publishedAt
+    });
     if (autoCandidate && publicationTransaction?.publicationEvent?.payload) {
       publicationTransaction.publicationEvent.payload.autoCandidate = {
         candidateId: autoCandidate.candidateId,
@@ -485,44 +401,17 @@ export async function publishNativeGeneration(root, config, workflow, {
     }
   }
   const astReceipt = await persistAstLifecycleReceipt(root, config, workflow, phase, astGate);
-  if (astReceipt) {
-    phase.astGates = [
-      ...(phase.astGates ?? []).filter((record) => record.generation !== phase.generation),
-      astReceipt
-    ].sort((left, right) => left.generation - right.generation);
-  }
+  recordGenerationAstGate(phase, astReceipt);
 
-  if (clarification.record) {
-    phase.clarifications ??= [];
-    phase.clarifications = [
-      ...phase.clarifications.filter((record) => record.generation !== phase.generation),
-      {
-        generation: phase.generation,
-        path: clarification.path,
-        sha256: clarification.sha256,
-        promptSha256: clarification.record.promptSha256,
-        responses: clarification.record.responses.length,
-        // Which artifact markers this batch answered `[SPK:REQ-066]`. Kept on the summary so the
-        // gate can tell a resolved marker from a deleted one without reading every record off disk
-        // on a path that already does a lot of I/O.
-        markers: answeredMarkerHashes(clarification.record),
-        recordedAt: clarification.record.recordedAt,
-        recordedBy: structuredClone(clarification.record.recordedBy)
-      }
-    ];
-  }
+  recordGenerationClarification(phase, clarification,
+    clarification.record ? answeredMarkerHashes(clarification.record) : null);
   /**
    * What this generation left open, so the next one can tell resolution from deletion.
    *
    * `[SPK:REQ-067]` only works if there is a prior list to have vanished from: without it, quietly
    * removing a question is indistinguishable from answering it.
    */
-  if (gate.applies && gate.record) {
-    phase.markers = [
-      ...(phase.markers ?? []).filter((record) => record.generation !== phase.generation),
-      { ...gate.record, generation: phase.generation, recordedAt: publishedAt }
-    ].sort((left, right) => left.generation - right.generation);
-  }
+  recordGenerationMarkers(phase, gate, publishedAt);
   phase.sourceCommit = head(root);
   // Every conformance report is bound to the tree it compared, so any of them can be checked for freshness.
   if (isConformancePhase(phase)) phase.conformanceTree = await sourceTreeHash(root, config, workflow);
@@ -530,7 +419,7 @@ export async function publishNativeGeneration(root, config, workflow, {
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
     itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
   });
-  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), phaseTelemetrySummary(telemetry)];
+  recordGenerationTelemetry(phase, phaseTelemetrySummary(telemetry));
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
   /**
@@ -573,12 +462,7 @@ export async function publishNativeGeneration(root, config, workflow, {
     itemDirectory: workDir(root, config, workflow.workItem.id),
     itemRelative: workDirRelative(config, workflow.workItem.id)
   });
-  if (agentBriefs.length) {
-    phase.agentBriefs = [
-      ...(phase.agentBriefs ?? []).filter((entry) => entry.generation !== phase.generation),
-      ...agentBriefs
-    ].sort((left, right) => left.generation - right.generation || left.consumerPhase.localeCompare(right.consumerPhase));
-  }
+  recordGenerationAgentBriefs(phase, agentBriefs);
   /**
    * The typed artifact set `[SPK:REQ-110]` `[SPK:REQ-111]`.
    *
@@ -597,18 +481,7 @@ export async function publishNativeGeneration(root, config, workflow, {
     await assertRequiredArtifactSetPublishable(root, phase, catalog);
     const diff = artifactSetDiff(previous, catalog, { declared: phase.surgicalReopen?.members ?? [] });
     for (const line of disclosureLines(diff)) console.warn(`Warning: ${line}`);
-    phase.artifactSet = {
-      ...catalog,
-      generation: phase.generation,
-      preserved: diff.preserved.map((member) => member.path),
-      changed: diff.changed.map((member) => member.path),
-      // Member names, not repository paths: this block is read beside `reopen.members`, which is
-      // the list the reviewer wrote, and the two have to be comparable at a glance.
-      ...(phase.surgicalReopen ? { reopen: { ...phase.surgicalReopen, incidental: diff.incidental.map((member) => member.member) } } : {})
-    };
-    // Consumed by the generation that answered it. A reopen that stayed on the phase would keep
-    // re-disclosing the same incidental change at every later generation.
-    delete phase.surgicalReopen;
+    recordGenerationArtifactSet(phase, catalog, diff);
   }
 
   await refreshPhaseSpecificationIndex(root, config, workflow, phase);
@@ -651,10 +524,7 @@ export async function publishNativeGeneration(root, config, workflow, {
     architectureDecision: structuredClone(architectureDecision),
     record: null
   };
-  phase.generationPublications = [
-    ...(phase.generationPublications ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)),
-    generationPublication
-  ].sort((left, right) => Number(left.generation) - Number(right.generation));
+  recordGenerationPublication(phase, generationPublication);
   if (publicationTransaction) {
     await persistGenerationPublicationRecord(root, workflow, phase, {
       ...publicationTransaction,

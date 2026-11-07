@@ -345,19 +345,29 @@ test('the task map lands on the advisory member of the planning set', () => {
 test('publication catalogues the set and approval binds the bundle', async () => {
   // A source-level check that the consumers exist, because the whole defect this feature corrects
   // was a declaration with no consumer.
-  const state = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
-  assert.match(state, /catalogArtifactSet\(/, 'publication does not catalogue the set');
-  assert.match(state, /bundleSha256: phase\.artifactSet\.bundleSha256/, 'no decision binds the bundle [SPK:CON-045]');
-  const publish = state.slice(state.indexOf('export async function publishGeneration'), state.indexOf('export async function reconcilePhaseTelemetry'));
-  assert.ok(publish.includes('catalogArtifactSet('), 'the catalogue is built outside publishGeneration');
+  const [state, publish, approval] = await Promise.all([
+    '../src/state.mjs',
+    '../src/engine-compatibility/generation-publication.mjs',
+    '../src/engine-compatibility/approval-transition.mjs'
+  ].map(relative => readFile(new URL(relative, import.meta.url), 'utf8')));
+  const wrapper = state.slice(state.indexOf('export async function publishGeneration'), state.indexOf('export async function reconcilePhaseTelemetry'));
+  assert.ok(wrapper.includes("import('./engine-compatibility/generation-publication.mjs')"), 'publication must delegate to its extracted native owner');
+  assert.ok(wrapper.includes('return publishNativeGeneration('), 'publication must execute that owner');
+  assert.ok(publish.includes('catalogArtifactSet('), 'publication does not catalogue the set');
+  assert.ok(approval.includes('bundleSha256: phase.artifactSet.bundleSha256'), 'no decision binds the bundle [SPK:CON-045]');
   const scanned = publish.indexOf('await scanArtifacts(');
-  assert.ok(publish.indexOf('catalogArtifactSet(') < publish.indexOf('await preparePhaseInputs('),
+  const firstCatalog = publish.indexOf('catalogArtifactSet('), preparation = publish.indexOf('await preparePhaseInputs(');
+  assert.ok(scanned >= 0 && firstCatalog >= 0 && preparation >= 0, 'publication checkpoints must exist');
+  assert.ok(firstCatalog < preparation,
     'required members must be checked before publication writes');
   assert.ok(scanned < publish.indexOf('const catalog = await catalogArtifactSet(', scanned),
     'the published bundle must be catalogued after artifacts are scanned');
   const finalCatalog = publish.indexOf('const catalog = await catalogArtifactSet(', scanned);
   assert.ok(finalCatalog < publish.indexOf('await assertRequiredArtifactSetPublishable(root, phase, catalog);', finalCatalog),
     'required members must be rechecked against the final post-scan catalog');
+  assert.ok(publish.indexOf('await assertRequiredArtifactSetPublishable(root, phase, catalog);', finalCatalog)
+    < publish.indexOf('recordGenerationArtifactSet(phase, catalog, diff);', finalCatalog),
+  'the checked catalog must feed the shared aggregate update');
 });
 
 /**

@@ -189,6 +189,11 @@ placeholder/heading, metadata and size checks behind a pure boundary. Native rea
 bytes and hashing; publication, recovery and manual authoring share the same findings. This is a
 portable-publication prerequisite, without changing installed write authority.
 
+The [publication-state boundary](ENGINE-SDK-PUBLICATION-STATE.md) moves delivery receipt construction
+and retained-generation aggregate updates into pure kernel rules. Native admission, clock sampling,
+receipt writes, generation-intent consumption and transaction persistence retain their original
+checkpoints. This is a portable-writer prerequisite, not a new storage authority.
+
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
 The first four use the installed phase approvers; command requests remain distinct from human

@@ -288,4 +288,202 @@ export function recordPhaseApprovalState(phase, decision, {key,reached}) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
   }
 }
+/** Publication mutations apply only after the owner has completed its unchanged admission checks. */
+export function beginGenerationPublication(phase, { targetGeneration, actor, agent, producer }) {
+  phase.generation = targetGeneration; phase.generatedBy = actor;
+  phase.submissionArchitectureDecision = null;
+  phase.generatedAgent = producer === 'governed-agent' ? agent : null;
+  phase.authorship ??= [];
+}
 
+export function appendGenerationAuthorship(phase, effectiveAuthorship, publishedAt) {
+  phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+}
+
+/** Only live submission bindings are cleared; immutable previous publications remain retained. */
+export function resetGenerationDeliveryBindings(phase) {
+    if (phase.claimMaps) delete phase.claimMaps.observed;
+    phase.generationCommit = null;
+    phase.publicationCommit = null;
+    phase.submittedAt = null;
+}
+
+/** Construct the original delivery record from explicit verified observations; no I/O or clock. */
+export function codeDeliveryPublicationReceipt(workflow, phase, deliveryPreflight, {
+  schemaVersion, changeSetPath, workingStateDigest, testInputSha256, effectiveAuthorship,
+  codeModelObservation, codeModelAssurance, autoCandidate, autoCandidateVerification, publishedAt
+}) {
+  return {
+      schemaVersion: schemaVersion,
+      kind: 'code-delivery',
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation: phase.generation,
+      generationIntentId: deliveryPreflight.generationIntentId,
+      changeSet: {
+        path: changeSetPath,
+        digest: deliveryPreflight.changeSet.digest,
+        sourcePaths: deliveryPreflight.sourcePaths,
+        deletedSourcePaths: deliveryPreflight.deletedSourcePaths,
+        configurationPaths: deliveryPreflight.configurationPaths,
+        executableTestPaths: deliveryPreflight.testPaths,
+        supportingTestPaths: deliveryPreflight.supportingTestPaths
+      },
+      changeClassification: {
+        ...deliveryPreflight.changeClassification,
+        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
+      },
+      ...(deliveryPreflight.documentationCorrection ? {
+        documentationCorrection: structuredClone(deliveryPreflight.documentationCorrection)
+      } : {}),
+      ...(deliveryPreflight.testingRepair ? {
+        testingRepair: structuredClone(deliveryPreflight.testingRepair)
+      } : {}),
+      traceability: {
+        required: deliveryPreflight.acceptanceCriteria.required,
+        bound: deliveryPreflight.acceptanceCriteria.tagged,
+        missing: deliveryPreflight.acceptanceCriteria.missing,
+        ambiguous: deliveryPreflight.acceptanceCriteria.ambiguous,
+        bindings: deliveryPreflight.acceptanceCriteria.bindings,
+        // Which exact test each criterion tag sits on, read by the module adapter [E2G-015].
+        witnesses: deliveryPreflight.acceptanceCriteria.witnesses ?? [],
+        unattachedTags: deliveryPreflight.acceptanceCriteria.unattachedTags ?? [],
+        adapterProfiles: deliveryPreflight.acceptanceCriteria.profiles ?? [],
+        ...(deliveryPreflight.sourceBindings.mode === 'enforce' ? {
+          sourceRequired: deliveryPreflight.sourceBindings.required,
+          sourceBindings: deliveryPreflight.sourceBindings.bindings
+        } : {})
+      },
+      ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
+      ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
+      ...(deliveryPreflight.cornerCaseMatrix ? { cornerCaseMatrix: structuredClone(deliveryPreflight.cornerCaseMatrix) } : {}),
+      ...(deliveryPreflight.excludedChanges?.length ? { excludedChanges: [...deliveryPreflight.excludedChanges] } : {}),
+      testExecutions: [],
+      ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
+      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
+      ...(autoCandidateVerification ? {
+        autoCandidateVerification: structuredClone(autoCandidateVerification)
+      } : {}),
+      tree: { workingStateDigest, ...(testInputSha256 ? { testInputSha256 } : {}),
+        generationCommit: null, generationTree: null },
+      model: {
+        task: 'code',
+        required: effectiveAuthorship.producer === 'governed-agent',
+        authorshipProducer: effectiveAuthorship.producer,
+        minimumAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+        mappingRevision: codeModelObservation?.mappingRevision ?? null,
+        provider: codeModelObservation?.provider ?? null,
+        requestedModel: codeModelObservation?.requestedModel ?? null,
+        resolvedModel: codeModelObservation?.resolvedModel ?? null,
+        assurance: codeModelAssurance,
+        invocationIds: codeModelObservation ? [codeModelObservation.invocationId] : [],
+        host: codeModelObservation?.host ?? null,
+        observationSource: codeModelObservation?.source ?? null,
+        observationIntegrity: codeModelObservation?.observationIntegrity ?? 'unverified-local',
+        observedAt: codeModelObservation?.observedAt ?? null,
+        generation: codeModelObservation?.generation ?? null
+      },
+      status: 'pending-tests',
+      capturedAt: publishedAt
+    };
+}
+
+/** Called at the same checkpoint as the receipt's accepted write, rather than before that await. */
+export function recordCodeDeliveryPublication(phase, deliveryPreflight, {
+  receiptPath, changeSetPath, workingStateDigest, testInputSha256, effectiveAuthorship,
+  autoCandidate, autoCandidateVerification, publishedAt
+}) {
+  phase.deliveryEvidence = {
+      ...deliveryPreflight,
+      changeClassification: {
+        ...deliveryPreflight.changeClassification,
+        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
+      },
+      generation: phase.generation,
+      receiptPath,
+      changeSetPath,
+      sourceTreeSha256: workingStateDigest,
+      ...(testInputSha256 ? { testInputSha256 } : {}),
+      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
+      ...(autoCandidateVerification ? {
+        autoCandidateVerification: structuredClone(autoCandidateVerification)
+      } : {}),
+      status: 'pending-tests',
+      capturedAt: publishedAt,
+      validation: null
+    };
+}
+
+export function recordGenerationAstGate(phase, astReceipt) {
+  if (astReceipt) {
+    phase.astGates = [
+      ...(phase.astGates ?? []).filter((record) => record.generation !== phase.generation),
+      astReceipt
+    ].sort((left, right) => left.generation - right.generation);
+  }
+}
+
+export function recordGenerationClarification(phase, clarification, answeredMarkers) {
+  if (clarification.record) {
+    phase.clarifications ??= [];
+    phase.clarifications = [
+      ...phase.clarifications.filter((record) => record.generation !== phase.generation),
+      {
+        generation: phase.generation,
+        path: clarification.path,
+        sha256: clarification.sha256,
+        promptSha256: clarification.record.promptSha256,
+        responses: clarification.record.responses.length,
+        // Which artifact markers this batch answered `[SPK:REQ-066]`. Kept on the summary so the
+        // gate can tell a resolved marker from a deleted one without reading every record off disk
+        // on a path that already does a lot of I/O.
+        markers: answeredMarkers,
+        recordedAt: clarification.record.recordedAt,
+        recordedBy: structuredClone(clarification.record.recordedBy)
+      }
+    ];
+  }
+}
+
+export function recordGenerationMarkers(phase, gate, publishedAt) {
+  if (gate.applies && gate.record) {
+    phase.markers = [
+      ...(phase.markers ?? []).filter((record) => record.generation !== phase.generation),
+      { ...gate.record, generation: phase.generation, recordedAt: publishedAt }
+    ].sort((left, right) => left.generation - right.generation);
+  }
+}
+
+export function recordGenerationTelemetry(phase, summary) {
+  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), summary];
+}
+
+export function recordGenerationAgentBriefs(phase, agentBriefs) {
+  if (agentBriefs.length) {
+    phase.agentBriefs = [
+      ...(phase.agentBriefs ?? []).filter((entry) => entry.generation !== phase.generation),
+      ...agentBriefs
+    ].sort((left, right) => left.generation - right.generation || left.consumerPhase.localeCompare(right.consumerPhase));
+  }
+}
+
+export function recordGenerationArtifactSet(phase, catalog, diff) {
+  phase.artifactSet = {
+      ...catalog,
+      generation: phase.generation,
+      preserved: diff.preserved.map((member) => member.path),
+      changed: diff.changed.map((member) => member.path),
+      // Member names, not repository paths: this block is read beside `reopen.members`, which is
+      // the list the reviewer wrote, and the two have to be comparable at a glance.
+      ...(phase.surgicalReopen ? { reopen: { ...phase.surgicalReopen, incidental: diff.incidental.map((member) => member.member) } } : {})
+    };
+  // Consumed by this generation so later publications do not disclose the same reopen again.
+  delete phase.surgicalReopen;
+}
+
+export function recordGenerationPublication(phase, generationPublication) {
+  phase.generationPublications = [
+    ...(phase.generationPublications ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)),
+    generationPublication
+  ].sort((left, right) => Number(left.generation) - Number(right.generation));
+}

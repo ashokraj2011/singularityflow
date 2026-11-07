@@ -27,10 +27,12 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
   const foundation = await sourceFiles('src/foundation');
   const contracts = ['src/sda/shared-state-contract.mjs', 'src/sda/lifecycle-authority-contract.mjs'];
   const namespaces = await sourceFiles('src/sda/namespace');
+  const compatibilityContract = ['src/sda/git-compatibility-contract.mjs'];
   for (const rule of [
     { entries: foundation, allowed: foundation },
     { entries: contracts, allowed: [...foundation, ...contracts] },
-    { entries: namespaces, allowed: [...foundation, ...namespaces] }
+    { entries: namespaces, allowed: [...foundation, ...namespaces] },
+    { entries: compatibilityContract, allowed: [...foundation, ...contracts, ...namespaces, ...compatibilityContract] }
   ]) {
     const report = await inspectPureModuleGraph({ root: packageRoot, ...rule });
     assert.deepEqual(report.problems, [],
@@ -38,8 +40,11 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
   }
 });
 
-test('namespace draft contracts are not wired into existing production operations', async () => {
+test('only the explicit Git compatibility boundary may consume namespace contracts outside their pure directory', async () => {
   const directory = path.join(packageRoot, 'src/sda/namespace') + path.sep;
+  // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
+  // routing is a later vertical slice; adding a direct host dependency must fail this guard.
+  const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -49,13 +54,37 @@ test('namespace draft contracts are not wired into existing production operation
       const specifier = (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ? node.moduleSpecifier
         : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword ? node.arguments[0] : null;
       if (specifier && ts.isStringLiteralLike(specifier) && specifier.text.startsWith('.')) {
-        if (path.resolve(path.dirname(absolute), specifier.text).startsWith(directory)) violations.push(relative);
+        const target = path.resolve(path.dirname(absolute), specifier.text);
+        if ((target.startsWith(directory) || [...compatibility].some(file => target === path.join(packageRoot, file)))
+          && !compatibility.has(relative)) violations.push(relative);
       }
       ts.forEachChild(node, visit);
     };
     visit(source);
   }
-  assert.deepEqual(violations, [], 'Phase 2 adds contract definitions and fixtures; production wiring belongs to a later qualified adapter phase');
+  assert.deepEqual(violations, [], 'namespace contracts and the compatibility facade must not change existing production routing');
+});
+
+test('Git compatibility composes existing owners without introducing another persistence or authorization path', async () => {
+  const relative = 'src/sda/git-compatibility-adapter.mjs';
+  const source = ts.createSourceFile(relative, await readFile(path.join(packageRoot, relative), 'utf8'), ts.ScriptTarget.Latest, true);
+  const staticImports = [];
+  const dynamicImports = [];
+  const visit = node => {
+    if (ts.isImportDeclaration(node) || (ts.isExportDeclaration(node) && node.moduleSpecifier)) {
+      staticImports.push(node.moduleSpecifier.text);
+    }
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      assert.equal(ts.isStringLiteralLike(node.arguments[0]), true, 'owner imports must be literal and reviewable');
+      dynamicImports.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.deepEqual(staticImports.sort(), ['node:path', './shared-state-contract.mjs', './namespace/values.mjs',
+    './git-compatibility-contract.mjs'].sort());
+  assert.deepEqual(dynamicImports.sort(), ['../approved-configuration-reader.mjs', '../configuration-proposal.mjs',
+    './story-branch-authority.mjs', './git-ledger-adapter.mjs'].sort());
 });
 
 test('application surfaces cannot bypass the revisioned state-store boundary', async () => {

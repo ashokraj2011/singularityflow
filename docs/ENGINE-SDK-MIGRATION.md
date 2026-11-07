@@ -4,9 +4,10 @@ The target is a portable Node runtime with an embeddable engine. CLI, VS Code, M
 adapters consume the same versioned operation vocabulary. An application can persist SFlow's
 logical data through Git, files or its own database implementation.
 
-This work starts from `main@229441d9b`. The first delivery establishes a component baseline and
-extracts shared errors and outcomes. The SDK package, namespace store and alternate backends are
-subsequent deliveries; this change does not expose a new public SDK or change storage authority.
+This migration starts from `main@229441d9b`. The first three deliveries establish a component
+baseline, extract shared errors/outcomes, define the namespace-store draft, and add an internal Git
+compatibility bridge. The SDK package and alternate backends follow in later deliveries. These
+foundations do not expose a new public SDK or change installed storage authority.
 
 ## Ownership
 
@@ -71,7 +72,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 0 | Baseline the first extraction and identify existing ownership and compatibility contracts | First component baseline captured; the operation inventory grows with each later slice |
 | 1 | Pure shared errors/outcomes, compatibility exports and transitive import guards | Implemented; qualification recorded below |
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
-| 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Planned; existing records and authority stay intact |
+| 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Planned; one chosen transport per surface operation |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | Planned; extract each operation's rules alongside its orchestration |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
@@ -176,5 +177,41 @@ Fast contract-only reproduction from the repository root:
 node --test test/sda-namespace-contract.test.mjs test/sda-namespace-conformance.test.mjs
 ```
 
-The next delivery is the Git compatibility adapter. Production admission and any future authority
-cutover remain explicitly separate from this draft and its in-process reference tests.
+Production admission and any future authority cutover remain explicitly separate from this draft
+and its in-process reference tests.
+
+## Phase 3 compatibility boundary
+
+The [Git compatibility adapter](GIT-COMPATIBILITY-ADAPTER.md) binds an explicit checkout and stable
+project scope to the installed lifecycle, proof and configuration owners. Its pure descriptor names
+those roles; the concrete adapter loads only the requested owner. Existing production routing stays
+unchanged until the publication vertical slice in Phase 4.
+
+This compatibility profile delegates native protocols, rather than claiming generic record-store
+transactions over incompatible current authorities. Raw writes and cross-namespace atomicity are
+not advertised. Existing SDA v1 descriptors, bytes, approval/identity checks, leases, journals and
+recovery outcomes remain the owners' responsibility. The original Git conformance fixtures are
+shared with the new adapter tests so that both paths exercise the same concurrent-writer,
+lost-response, cancellation, pagination and integrity cases.
+
+Phase 3 qualification passed on macOS 26.7.2 with Node 26.12.0:
+
+- 214 focused tests, with zero failures, cancellations or skips (152.2 seconds). These cover the
+  compatibility ports and unchanged namespace, foundation, SDA v1, lifecycle/proof, configuration
+  proposal/service/activation, SGOS, dependency, name-ownership and startup regression suites.
+- `npm run check`: 3,525 checks across 191 skills.
+- `npm run vscode:typecheck` and all 13 existing VS Code runtime bundle budgets.
+- npm dry-run packaging: both compatibility modules and their documentation are included; test
+  adapters and fixtures are excluded.
+- Staged diff whitespace validation.
+
+Reviewed configuration activation preserved dirty application bytes and the index, required exact
+review confirmation and protection acknowledgement, and retained the original Story configuration
+commit. The native lifecycle/proof descriptors and refusal/recovery meanings are unchanged. The
+compatibility descriptor consumes their protocol constants; native adapter IDs remain owned by
+their original modules, with no additional name-ownership exception.
+
+This is component qualification, rather than a full product or alternate-backend release. All Git
+integration runs used isolated machine state and local fixture remotes. No Windows, hosted CI or
+live provider qualification ran. Phase 4 is the publication SDK/registry vertical slice with explicit
+CLI result parity.

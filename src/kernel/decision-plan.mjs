@@ -6,6 +6,41 @@ function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
 }
 
+/** Installed upstream admission: a list may inspect a closed Story; mutations require it open. */
+export function upstreamOperationAdmission(operation, workflow) {
+  const workId=workflow.workItem.id;
+  if(operation!=='upstream.list'&&workflow.status!=='in_progress')refused(
+    `Story ${workId} is ${workflow.status}; upstream issues are raised and decided while it is in progress.`,
+    'UPSTREAM_ISSUE_STORY_CLOSED');
+  return {workId,phase:workflow.currentPhase??null,
+    phases:Object.fromEntries(Object.entries(workflow.phases??{}).map(([id,phase])=>[id,{
+      generation:Number(phase.generation??0),groups:[...new Set([...(phase.approvalPolicy?.authorities??[]),
+        ...(phase.approvalPolicy?.requiredAuthorities??[])])].sort()}])),
+    issues:(workflow.upstreamIssues??[]).map(({id,phase})=>({id,phase})),
+    amendments:(workflow.forwardAmendments??[]).map(({id,phase,fromGeneration})=>({id,phase,fromGeneration}))};
+}
+
+/** Request defaults and exact amendment confirmation; native owners validate records and authority. */
+export function upstreamOperationRequest(operation,input) {
+  if(operation==='upstream.list')return {open:input.open===true};
+  if(operation==='upstream.raise')return {fromArtifact:input.fromArtifact===true,phaseId:input.phaseId??null,
+    about:input.about??null,problem:input.problem??null,assumption:input.assumption??null,impact:input.impact??null,
+    proposed:input.proposed??null,authored:input.authored??null,supersedes:input.supersedes??null};
+  if(operation==='upstream.decide')return {issueId:input.issueId??'',outcome:input.outcome??null,
+    reason:input.reason??'',link:input.link??null,expires:input.expires??null};
+  if(operation==='forward-amendment.propose')return {phaseId:input.phaseId??null,reason:input.reason??null,
+    file:input.file??null,upstreamIssue:input.upstreamIssue??null};
+  if(operation==='forward-amendment.decide') {
+    const amendmentId=input.amendmentId??'';
+    if(input.confirmation!==amendmentId)refused(`Confirm the exact amendment: --confirm ${amendmentId}.`,
+      'FORWARD_AMENDMENT_CONFIRMATION_REQUIRED');
+    return {amendmentId,decision:input.decision??null,reason:input.reason??null,confirmation:input.confirmation};
+  }
+  if(operation==='forward-amendment.revalidate')return {phaseId:input.phaseId??'',amendmentId:input.amendmentId??null,
+    outcome:input.outcome??null,reason:input.reason??null};
+  refused('The upstream operation is unavailable.','ENGINE_OPERATION_UNSUPPORTED');
+}
+
 /** Existing standalone admission, shared by every host before it prepares a human request. */
 export function standaloneDecisionAdmission(operation, workflow) {
   const workId = workflow.workItem.id;

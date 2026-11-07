@@ -74,11 +74,15 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, convergence advancement and shared post-transition effects extracted; upstream issues/forward amendments, manifests/queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, convergence advancement and shared post-transition effects extracted; phase manifests/queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
+
+The [upstream operation boundary](ENGINE-SDK-UPSTREAM-OPERATIONS.md) covers author-raised issues,
+owner decisions, forward proposals and decisions, downstream revalidation and the read-only list.
+These routes keep their existing CLI output and native Git authority.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -500,3 +504,41 @@ Upstream-issue and forward-amendment operations, phase manifests/queries and rem
 helpers still belong to Phase 5. Alternate backends, headless packaging/resume, verified existing-
 project authority migration and removal/distribution/performance qualification remain in Phases
 6–9. These plan operations do not complete the full migration objective.
+
+## Phase 5 upstream issue and forward amendment delivery
+
+Six [registered upstream operations](ENGINE-SDK-UPSTREAM-OPERATIONS.md) replace the remaining
+upstream CLI coordination. Authors may raise issues and propose document amendments without
+approval-group membership. Decisions retain the earlier phase's approvers; amendment decisions
+require the exact confirmed amendment ID, and downstream revalidation uses that downstream phase's
+approvers. The pure SDK captures the owner and generation binding before asynchronous resolution.
+It retains a multi-issue batch's accepted prefix and remaining suffix on an error, without retrying
+an unknown native publication or treating cancellation as undo.
+
+The existing upstream writer remains shared with combined decisions. Its compatibility exports
+keep their original return shapes; transaction helpers additionally expose native publication
+acknowledgements to the registry. Forward amendment transactions, rollback paths and generation
+publication finalization move from the CLI into an explicit native owner. The host retains all
+seven original result envelopes, token-identical to their predecessors, and owns unowned-item
+explanations and rendered recovery commands. No authority, record/hash version or Git layout
+changes. Underlying legacy transitions still require later kernel/backend extraction.
+
+Mac qualification on Node 26.12.0 passes 147 focused tests with zero failures, cancellations or
+skips: 110 SDK/policy/boundary cases, 30 native/protocol cases and seven startup/import checks.
+The native run includes existing upstream return, between-submission-and-approval, wrong-owner,
+deduplication, supersession, completion and complete document-chain journeys. Three refreshed
+native SDK/CLI parity cases also pass after adding independent author permission and a second
+approved amendment: native SDK approval reaches generation 3, and the actually bundled CLI
+revalidates the downstream phase against that generation. Source and bundled routes both write
+through the registry; prior approvals and current draft bytes retain their native semantics.
+
+`npm run check` passes 3,595 checks; VS Code typechecking, all 13 unchanged runtime bundle budgets,
+Git ownership audit (2,010 existing sites), npm dry-run package inclusion/exclusion and whitespace
+validation pass. The SDK closure remains 11 pure modules / 141,279 input bytes, with zero external
+imports; the gateway stays at 852 modules. No budget was raised. All fixtures and bare remotes are
+local and isolated; no Windows, hosted CI, provider, merge, push or real-project migration ran.
+
+Phase manifests/queries and remaining admission helpers still belong to Phase 5. Phases 6–9
+remain the filesystem/database adapters, portable package and cross-agent resume, verified
+authority migration, and final removal/distribution/performance qualification. This delivery
+does not complete or narrow those remaining milestones.

@@ -6,7 +6,8 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs';
-import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner} from '../kernel/decision-plan.mjs';
+import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
+  upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
@@ -41,6 +42,16 @@ const TEST_DECISIONS = Object.freeze([
   ['test-command.decide','test-command-decision',['accept','revoke','reason'],['phaseId','accept','revoke','reason']]
 ].map(([id,recordKind,fields,intentFields])=>Object.freeze({id,recordKind,
   requestFields:Object.freeze(fields),intentFields:Object.freeze(intentFields)})));
+const UPSTREAM_OPERATIONS=Object.freeze([
+  ['upstream.list',['open'],'read',false],
+  ['upstream.raise',['phaseId','about','problem','assumption','impact','proposed','authored','fromArtifact','supersedes'],'upstream-issue',false],
+  ['upstream.decide',['issueId','outcome','reason','link','expires'],'upstream-decision',true],
+  ['forward-amendment.propose',['phaseId','reason','file','upstreamIssue'],'amendment-proposal',false],
+  ['forward-amendment.decide',['amendmentId','decision','reason','confirmation'],'amendment-decision',true],
+  ['forward-amendment.revalidate',['phaseId','amendmentId','outcome','reason'],'amendment-revalidation',true]
+].map(([id,fields,effect,humanDecision])=>({id,version:1,effect,humanDecision,requestFields:Object.freeze(fields),
+  inputFields:Object.freeze(['workId',...fields]),port:'upstream',stages:Object.freeze(['load','resolve','commit','finish']),
+  ...(id==='forward-amendment.decide'?{confirmation:'exact-amendment-id'}:{}),validate:singleDecisionInput,execute:upstreamOperation})));
 const definitions = [
   { id: 'phase.publish', version: 1, effect: 'publication',
     inputFields: PUBLISH_FIELDS, port: 'publication',
@@ -70,7 +81,8 @@ const definitions = [
     humanDecision:operation.id!=='test-command.request',authority:operation.id==='test-command.request'?'requester':'reviewer',
     allowRetained:operation.id==='test-command.request',phaseBinding:'resolved-target',
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
-    stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision}))
+    stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
+  ...UPSTREAM_OPERATIONS
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -185,7 +197,7 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
     || Object.keys(input).some(key=>!fields.includes(key))) invalid('Unknown standalone decision input field.');
   for (const [key,value] of Object.entries(input)) {
     if (value==null) continue;
-    if (['fetch','notApplicable'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
+    if (['fetch','notApplicable','open','fromArtifact'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
     else if (['clauseIds','transitions','sourceRoots'].includes(key)) {
       if(!Array.isArray(value)||value.some(item=>typeof item!=='string'))invalid(`Decision ${key} must be an array of strings.`);
     } else if (key==='checklist') {
@@ -469,6 +481,111 @@ async function recordSingleDecision(port, inputs, signal, operation) {
     return singleDecisionResult(resultBinding,await port.finish(context,intent,committed,{operation:descriptor}),operation);
   } catch(error) {
     if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePublication=committed;
+    throw error;
+  }
+}
+
+/** Ordered native issues keep their own transactions; a later failure never erases accepted work. */
+async function upstreamOperation(port,inputs,signal,operation) {
+  const descriptor=ENGINE_OPERATIONS.find(entry=>entry.id===operation.id),id=operation.id;
+  const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
+  const bad=()=>{throw new SingularityFlowError('The upstream port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});};
+  const facts=value=>{try{return data(value);}catch(cause){throw new SingularityFlowError(
+    'The upstream port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}};
+  notCancelled(signal);
+  const context=await port.load(inputs,{signal,operation:descriptor});
+  notCancelled(signal);
+  if(context?.subject?.kind!=='story'||!text(context.workflow?.workItem?.id)
+    ||context.subject.id!==context.workflow.workItem.id)bad();
+  const binding=facts(upstreamOperationAdmission(id,context.workflow));
+  if(inputs.workId!=null&&inputs.workId!==binding.workId||binding.phase!==null&&!text(binding.phase))bad();
+  const request=data(upstreamOperationRequest(id,inputs));
+  // Capture the owner before an awaited resolver can mutate its native context.
+  const target=id==='upstream.decide'?binding.issues.find(entry=>entry.id===request.issueId)?.phase
+    :id==='forward-amendment.decide'?binding.amendments.find(entry=>entry.id===request.amendmentId)?.phase:request.phaseId;
+  const amendment=binding.amendments.find(entry=>entry.id===request.amendmentId);
+  const plan=facts(await port.resolve(context,request,{signal,operation:descriptor}));
+  notCancelled(signal);
+  const base={schemaVersion:1,contract:ENGINE_CONTRACT,operation:id,subject:{kind:'story',id:binding.workId},phase:binding.phase};
+  if(id==='upstream.list') {
+    if(!plan||Object.keys(plan).some(key=>key!=='issues')||!Array.isArray(plan.issues)
+      ||new Set(plan.issues.map(issue=>issue.id)).size!==plan.issues.length
+      ||!request.open&&plan.issues.length!==binding.issues.length
+      ||plan.issues.some(issue=>!binding.issues.some(entry=>entry.id===issue.id&&entry.phase===issue.phase)
+        ||!['open','expired','decided','superseded'].includes(issue.status)
+        ||request.open&&!['open','expired'].includes(issue.status)))bad();
+    return data({...base,status:'observed',currentPhase:binding.phase,revision:null,
+      effects:{committed:false,pushed:false},issues:plan.issues});
+  }
+  if(!plan||Object.keys(plan).some(key=>!['requests','actorId','authored','agent','unowned'].includes(key))
+    ||!Array.isArray(plan.requests)||!text(plan.actorId)||!Array.isArray(plan.unowned)
+    ||plan.agent!==null&&!text(plan.agent)
+    ||id==='upstream.raise'&&!['human','governed-agent'].includes(plan.authored)
+    ||id!=='upstream.raise'&&(plan.authored!==null||plan.unowned.length||plan.requests.length!==1||!equalJson(plan.requests[0],request)))bad();
+  if(id==='upstream.raise') {
+    if(request.authored&&request.authored!==plan.authored)bad();
+    const manual={phase:request.phaseId,about:request.about,problem:request.problem,assumption:request.assumption,
+      impact:request.impact,proposed:request.proposed??'unknown',source:null,supersedes:request.supersedes};
+    if(!request.fromArtifact&&(plan.requests.length!==1||!equalJson(plan.requests[0],manual)||plan.unowned.length))bad();
+    for(const item of plan.requests)if(!item||Object.keys(item).some(key=>!Object.keys(manual).includes(key))
+      ||!binding.phases[item.phase]||!text(item.about)||typeof item.problem!=='string'||!item.problem
+      ||request.proposed&&item.proposed!==request.proposed)bad();
+  }
+  const accepted=[];
+  let pending=null,index=0;
+  try {
+    for(const item of plan.requests) {
+      notCancelled(signal);
+      pending=await port.commit(context,item,{operation:descriptor,index,signal});
+      const written=facts(pending);
+      if(!written||Object.keys(written).some(key=>!['revision','pushed','record'].includes(key))
+        ||!text(written.revision)||typeof written.pushed!=='boolean'||!written.record||typeof written.record!=='object'||Array.isArray(written.record))bad();
+      const record=written.record,owner=id==='upstream.raise'?item.phase:target;
+      if(!owner||!binding.phases[owner])bad();
+      const decision=id==='forward-amendment.decide'?record.decision:record;
+      if(id==='upstream.raise') {
+        if(record.phase!==owner||record.raisedIn?.phase!==binding.phase||record.raisedBy!==plan.actorId
+          ||record.authored!==plan.authored||record.agent!==plan.agent
+          ||record.producerGeneration!==binding.phases[owner].generation
+          ||record.about!==String(item.about??'').trim()||record.problem!==String(item.problem??'').trim()
+          ||record.proposed!==item.proposed
+          ||record.assumption!==(String(item.assumption??'').trim()||null)||record.impact!==(String(item.impact??'').trim()||null)
+          ||!equalJson(record.source,item.source??null)||(record.supersedes??null)!==(item.supersedes??null))bad();
+      } else if(id==='forward-amendment.propose') {
+        if(record.phase!==owner||record.proposedBy!==plan.actorId||record.fromGeneration!==binding.phases[owner].generation
+          ||record.reason!==String(request.reason??'').trim()||record.upstreamIssue!==request.upstreamIssue)bad();
+      } else {
+        if(!decision||decision.actor!==plan.actorId||!binding.phases[owner].groups.includes(decision.authorityGroup)
+          ||decision.reason!==String(request.reason??'').trim())bad();
+        if(id==='upstream.decide'&&(decision.issue!==request.issueId||decision.outcome!==request.outcome
+          ||(request.outcome==='return'?(decision.changeRequest?.targetPhase!==owner||decision.link!==decision.changeRequest?.id):decision.link!==request.link)))bad();
+        if(id==='forward-amendment.decide'&&(decision.amendment!==request.amendmentId||decision.phase!==owner
+          ||decision.decision!==(request.decision==='approve'?'approved':'rejected')||record.applied!==(request.decision==='approve')
+          ||record.proposal?.id!==request.amendmentId||record.proposal?.phase!==owner
+          ||record.applied&&(record.approval?.phase!==owner||record.approval?.generation!==amendment.fromGeneration+1
+            ||record.approval?.authorityGroup!==decision.authorityGroup)))bad();
+        if(id==='forward-amendment.revalidate'&&(decision.amendment!==request.amendmentId||decision.phase!==owner
+          ||decision.outcome!==request.outcome||decision.generation!==binding.phases[owner].generation))bad();
+      }
+      accepted.push(written);pending=null;index++;
+    }
+    // An accepted effect must be reported even if a cancellation arrived while it was publishing.
+    const final=facts(await port.finish(context,request,{operation:descriptor}));
+    const currentPhase=['upstream.decide','forward-amendment.revalidate'].includes(id)&&request.outcome==='return'?target:binding.phase;
+    const amendmentResult=id==='forward-amendment.decide'?accepted[0]?.record:null;
+    const owed=amendmentResult?.applied?(amendmentResult.decision.revalidate??[]).map(entry=>entry.phase):[];
+    const refreshed=amendmentResult?.applied?amendmentResult.refreshed??null:null;
+    if(!final||Object.keys(final).some(key=>!['workId','currentPhase','revalidate','refreshed'].includes(key))
+      ||final.workId!==binding.workId||final.currentPhase!==currentPhase||!Array.isArray(final.revalidate)
+      ||final.revalidate.some(phase=>!binding.phases[phase])||final.refreshed!==null&&!binding.phases[final.refreshed]
+      ||!equalJson(final.revalidate,owed)||final.refreshed!==refreshed)bad();
+    return data({...base,status:accepted.length?'recorded':'unchanged',currentPhase:final.currentPhase,
+      revision:accepted.at(-1)?.revision??null,effects:{committed:accepted.length>0,pushed:accepted.some(entry=>entry.pushed)},
+      publications:accepted.map(({revision,pushed})=>({revision,pushed})),records:accepted.map(({record})=>record),
+      actorId:plan.actorId,unowned:plan.unowned,revalidate:final.revalidate,refreshed:final.refreshed});
+  } catch(error) {
+    if(error&&typeof error==='object'&&Object.isExtensible(error))error.engineUpstreamEffects={
+      operation:id,workId:binding.workId,accepted,pending,remaining:plan.requests.slice(index)};
     throw error;
   }
 }

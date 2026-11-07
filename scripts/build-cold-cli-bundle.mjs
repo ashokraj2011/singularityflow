@@ -84,6 +84,7 @@ const FAMILIES = Object.freeze([
     'engine-compatibility/git-advancement.mjs', 'engine-compatibility/convergence-projection-read.mjs',
     'engine-compatibility/git-decision-record.mjs', 'commands/decision-record.mjs',
     'engine-compatibility/git-plan-correction.mjs', 'commands/decision-plan.mjs', 'commands/plan-correction.mjs',
+    'engine-compatibility/git-upstream.mjs', 'engine-compatibility/native-forward-amendments.mjs', 'engine-compatibility/upstream-artifact-issues.mjs',
     'engine-compatibility/native-witness-decisions.mjs', 'commands/decision-witness.mjs', 'commands/decision-witness-exception.mjs',
     'engine-compatibility/git-test-decision-record.mjs', 'engine-compatibility/record-decision-context.mjs',
     'engine-compatibility/test-decision-intent.mjs', 'commands/shared/test-decision-operation.mjs', 'test-command-selection.mjs',

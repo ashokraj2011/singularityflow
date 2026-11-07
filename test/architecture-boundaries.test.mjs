@@ -106,6 +106,9 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const testDecisionPort=path.join(packageRoot,'src/engine-compatibility/git-test-decision-record.mjs');
   const witnessWriter=path.join(packageRoot,'src/engine-compatibility/native-witness-decisions.mjs');
   const correctionPort=path.join(packageRoot,'src/engine-compatibility/git-plan-correction.mjs');
+  const upstreamPort=path.join(packageRoot,'src/engine-compatibility/git-upstream.mjs');
+  const forwardWriter=path.join(packageRoot,'src/engine-compatibility/native-forward-amendments.mjs');
+  const upstreamReader=path.join(packageRoot,'src/engine-compatibility/upstream-artifact-issues.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -124,6 +127,8 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===testDecisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===witnessWriter&&relative!=='src/engine-compatibility/git-decision-record.mjs')problems.push(relative);
         if(target===correctionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===upstreamPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if((target===forwardWriter||target===upstreamReader)&&relative!=='src/engine-compatibility/git-upstream.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -136,7 +141,8 @@ test('extracted native decision writers do not import command handlers or host p
     'native-evidence-decisions.mjs','native-visual-decisions.mjs','native-test-command-decisions.mjs',
     'native-test-narrowing-decisions.mjs','native-test-risk-decisions.mjs','native-upstream-decisions.mjs','native-witness-decisions.mjs','git-plan-correction.mjs',
     'git-decisions.mjs','git-decision-record.mjs','git-test-decision-record.mjs','record-decision-context.mjs',
-    'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs'];
+    'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs',
+    'git-upstream.mjs','native-forward-amendments.mjs','upstream-artifact-issues.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);
@@ -153,6 +159,16 @@ test('extracted native decision writers do not import command handlers or host p
     };visit(source);
   }
   assert.deepEqual(problems,[],'native decisions return local effect reports; command helpers only project them');
+});
+
+test('the upstream host owns grammar and presentation, with no direct writer or admission path',async()=>{
+  const source=await readFile(path.join(packageRoot,'src/commands/upstream-issue.mjs'),'utf8');
+  assert.match(source,/binding\.engine\.run\(operations\[action\],input\)/);
+  assert.doesNotMatch(source,/loadAcceptedStoryExecution|actionActor|loadSession|transactStory|readFile|readdir/);
+  const ast=ts.createSourceFile('upstream-issue.mjs',source,ts.ScriptTarget.Latest,true);
+  for(const node of ast.statements.filter(node=>ts.isImportDeclaration(node))) {
+    assert.doesNotMatch(node.moduleSpecifier.text,/native-upstream-decisions|state-stores/);
+  }
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

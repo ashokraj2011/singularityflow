@@ -28,16 +28,21 @@ export function undecidableIssue(workflow, issue) {
  * sit between a step's submission and its approval without staling either. `raise` and the decision
  * list both raise through this.
  */
-export async function commitUpstreamIssue(root, config, workflow, request, { actor, agent = null, authored = 'human' }) {
+export async function commitUpstreamIssue(root, config, workflow, request, identity) {
+  return (await commitUpstreamIssueTransaction(root, config, workflow, request, identity)).value;
+}
+
+/** Native transaction result for registered operations; the legacy helper keeps its value-only shape. */
+export async function commitUpstreamIssueTransaction(root, config, workflow, request, { actor, agent = null, authored = 'human' }) {
   const part = upstreamIssuePart(workflow, request, { actor, agent, authored });
-  const { value } = await transactStory(root, config, workflow, {
+  const result = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
     actor, agent, authorityGroup: null, payload: { decision: 'upstream-issue' }
   }, part.message, async (aggregate) => {
     await assertNoPendingPublication(root, config, aggregate, 'raise an upstream issue');
     return part.write(aggregate);
   }, { exactWorkItemPaths: [], eventFromResult: (issue) => ({ payload: { decision: 'upstream-issue', issue: issue.id, reviewPacketSha256: null } }) });
-  return value;
+  return result;
 }
 
 /** One issue to raise, checked and ready to write into a transaction: its own commit's or an approval's [SPEC-OAP M4]. */
@@ -62,12 +67,18 @@ export function upstreamIssuePart(workflow, request, { actor, agent = null, auth
  * through this, and every other outcome through `upstreamIssueDecisionPart`, which an approval also
  * writes into its own commit, so authority, validation and the record are the same.
  */
-export async function decideUpstreamIssueRecord(root, config, workflow, issueId, {
+export async function decideUpstreamIssueRecord(...args) {
+  const { value, authority } = await commitUpstreamIssueDecision(...args);
+  return { value, authority };
+}
+
+/** Same writer and native publication token, with no CLI projection. */
+export async function commitUpstreamIssueDecision(root, config, workflow, issueId, {
   outcome, reason = '', link = null, expires = null
 }, { actor, agent = null }) {
   if (outcome !== 'return') {
     const part = upstreamIssueDecisionPart(root, config, workflow, issueId, { outcome, reason, link, expires }, { actor, agent });
-    const { value } = await transactStory(root, config, workflow, {
+    const { value, publication } = await transactStory(root, config, workflow, {
       type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
       actor, agent, authorityGroup: part.authority.authorityGroup, payload: { decision: 'upstream-issue' }
     }, part.message, async (aggregate) => {
@@ -75,7 +86,7 @@ export async function decideUpstreamIssueRecord(root, config, workflow, issueId,
       return part.write(aggregate);
     }, { exactWorkItemPaths: [], eventFromResult: (recorded) => ({ authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
       payload: { decision: 'upstream-issue', issue: recorded.issue, reviewPacketSha256: null } }) });
-    return { value, authority: part.authority };
+    return { value, authority: part.authority, publication };
   }
   const state = upstreamIssueStates(workflow).find((entry) => entry.issue.id === issueId);
   if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story. List them with upstream-issue list.`, 'UPSTREAM_ISSUE_NOT_FOUND');
@@ -99,7 +110,7 @@ export async function decideUpstreamIssueRecord(root, config, workflow, issueId,
     refused('A return needs a current step in progress or awaiting approval.', 'UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
   }
   const target = state.issue.phase;
-  const { value } = await transactStory(root, config, workflow, {
+  const { value, publication } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: current.id, generation: current.generation, actor, agent,
     payload: { targetPhaseId: target }
   }, `[${workflow.workItem.id}][upstream-issue] ${issueId} returns to ${target}`, async (aggregate) => {
@@ -107,7 +118,7 @@ export async function decideUpstreamIssueRecord(root, config, workflow, issueId,
       channel: 'terminal', upstreamIssue: { id: issueId } });
     return { ...record(aggregate, decision(aggregate, returned.changeRequest.id)), changeRequest: returned.changeRequest };
   }, { eventFromResult: (result) => ({ payload: { targetPhaseId: target, changeRequestId: result.changeRequest.id } }) });
-  return { value, authority };
+  return { value, authority, publication };
 }
 
 /**

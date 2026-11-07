@@ -35,7 +35,7 @@ function publicationFacts(context, phase, result, status, retentionReason = null
 }
 
 export function createGitEngine({ root, notice = () => {}, approvalInteraction = null, decisionInteraction = null,
-  decisionRecordInteraction = null } = {}) {
+  decisionRecordInteraction = null, planCorrectionInteraction = null } = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
     'Git engine composition requires an explicit absolute checkout root.', { code: 'ENGINE_INPUT_INVALID' });
   if (typeof notice !== 'function') throw new SingularityFlowError(
@@ -389,7 +389,19 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await testDecisionRecordOwner)[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, testDecisionRecord, invocation: {
+  let planCorrectionOwner;
+  const correctionInteraction=planCorrectionInteraction?Object.freeze(Object.fromEntries(['prepare','capture','consume']
+    .filter(name=>typeof planCorrectionInteraction[name]==='function').map(name=>[name,planCorrectionInteraction[name].bind(planCorrectionInteraction)]))):null;
+  const planCorrection={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='planCorrection').stages) {
+    planCorrection[stage]=async(...args)=>{
+      planCorrectionOwner ??= import('./git-plan-correction.mjs')
+        .then(({createGitPlanCorrectionPort})=>createGitPlanCorrectionPort({root,interaction:correctionInteraction,onContext:context=>{presentation=context;}}))
+        .catch(error=>{planCorrectionOwner=undefined;throw error;});
+      return (await planCorrectionOwner)[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

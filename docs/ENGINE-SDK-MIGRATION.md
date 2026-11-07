@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, convergence advancement and shared post-transition effects extracted; corrections/amendments, manifests/queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, convergence advancement and shared post-transition effects extracted; upstream issues/forward amendments, manifests/queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -464,6 +464,39 @@ bytes, zero external imports); the gateway remains 852 modules with no increased
 Git remotes and Stories used for qualification are local fixtures. No Windows, hosted CI, live
 provider, merge, push or real-project migration ran.
 
-Phase 5 still requires plan corrections, upstream issues and amendments, manifests/queries and
-admission helpers. Phases 6–9 retain the full backend, embedding, authority migration and
+Phase 5's plan extension follows below; upstream issues and forward amendments, manifests/queries
+and admission helpers remain. Phases 6–9 retain the full backend, embedding, authority migration and
 distribution scope; this extension does not complete those milestones.
+
+## Phase 5 plan amendment and correction delivery
+
+The [plan boundary](ENGINE-SDK-DECISION-RECORDS.md#plan-amendments-and-reviewed-corrections) registers
+`decision.plan`, `plan.correction.preview` and `plan.correct`. Narrow amendments still use the
+unchanged native amendment writer. Approved-owner selection moves to the pure kernel; correction
+coordination moves to the SDK's six-stage port. The native compatibility port retains approved-map
+reads, row/verification validation, fresh-preview comparison and the existing conditional write.
+The CLI owns the exact terminal presentation and its three existing result envelopes. Ordinary
+headless calls can preview, but cannot fabricate the required live review or feed a grant/actor
+through operation inputs. The existing authorization owner still consumes the one-time grant
+inside the transaction after the fresh preview matches.
+
+Mac qualification on Node 26.12.0 passes 63 protocol/boundary checks, 18 existing plan/terminal
+checks and 13 initial native/startup/bundle checks. A final five-case native run covers all three
+new SDK/CLI cases, a truly bundled correction preview, the undefined optional-row flag regression,
+and both real wrong-path/test-only correction journeys. All pass with zero failures, cancellations
+or skips. The concurrent-session case verifies that a newer correction survives and a stale
+review never consumes consent. Capturing a detached review card cannot mutate the internal card;
+plan approvals, generations, current phase and application drafts remain unchanged by a correction.
+
+All three correction result envelopes and the amendment result envelope are token-identical to
+their predecessors. The native amendment/Node-pin writer file is unchanged. Source checks pass
+3,589 checks. VS Code typechecking, all 13 unchanged runtime budgets, Git ownership audit, dry-run
+package inclusion/exclusion and whitespace checks pass. The SDK remains 11 pure modules / 129,334
+input bytes with zero external imports; the gateway remains 852 modules. No ceiling is raised.
+Qualification uses local fixture remotes on Mac; no Windows, hosted CI, live provider, merge,
+push or real-project migration ran.
+
+Upstream-issue and forward-amendment operations, phase manifests/queries and remaining admission
+helpers still belong to Phase 5. Alternate backends, headless packaging/resume, verified existing-
+project authority migration and removal/distribution/performance qualification remain in Phases
+6–9. These plan operations do not complete the full migration objective.

@@ -1,7 +1,7 @@
 # Standalone decision records through the engine
 
-Five existing CLI decision routes now enter the SDK registry: `decision.scope`,
-`decision.completeness`, `decision.applicability`, `decision.risk` and `decision.choose`.
+The base CLI decision routes enter the SDK registry: `decision.scope`, `decision.completeness`,
+`decision.applicability`, `decision.risk`, `decision.plan` and `decision.choose`.
 These are individual human requests. The existing `decisions.record` operation remains the
 separate, digest-confirmed protocol for recording selections from a pending-decision list.
 The test/evidence extension below adds six entries, separating agent command requests from
@@ -12,9 +12,12 @@ four-stage single-record port, with their different phase bindings retained.
 Both protocols use the same installed native record writers. No second authority evaluator,
 serializer, event format or publication transaction is introduced.
 
+Plan amendments and reviewed corrections are also registered, as described below. A correction
+preview is a separate read operation; a correction never treats a plain JSON request as human consent.
+
 ## Versioned vocabulary
 
-All five operations accept `workId` and the optional existing source-checkout `fetch` request.
+These operations accept `workId` and the optional existing source-checkout `fetch` request.
 Each has a closed set of domain fields:
 
 | Operation | Request fields | Record kind |
@@ -23,6 +26,7 @@ Each has a closed set of domain fields:
 | `decision.completeness` | `confirm`, `checklist`, `reason` | `completeness-review` |
 | `decision.applicability` | `responsibility`, `reason` | `applicability` |
 | `decision.risk` | `obligationId`, `revoke`, `category`, `transitions`, `expires`, `reason` | `obligation-risk` |
+| `decision.plan` | `changes`, `reason` | `plan-amendment` |
 | `decision.choose` | `option`, `to`, `expected`, `reason` | `routing` |
 
 `engine.run(operation, inputs)` and the existing Node API's `run` expose the same entries. Public
@@ -78,7 +82,7 @@ backend or migrate an existing project.
 
 ## Qualification and remaining work
 
-Focused tests cover all five registry entries, immutable bindings and records, invalid authority
+Focused tests cover the base registry entries, immutable bindings and records, invalid authority
 fields, cancellation, native errors and accepted-effect retention. Native tests compare actual
 CLI/SDK receipts, reject an unauthorized caller, exercise a second seeded workflow and retain
 routing when local session refresh and its observer fail. Broader scope, risk and branching
@@ -162,3 +166,47 @@ owns flag spelling and its existing text/JSON projections in `commands/decision-
 and `commands/decision-witness-exception.mjs`. The monolithic witness dispatcher now only forwards
 to its host adapter. Evidence construction, publication checks and person-presence enforcement
 remain with their existing native owners.
+
+## Plan amendments and reviewed corrections
+
+| Operation | Domain request fields in addition to `workId` / `fetch` | Effect |
+|---|---|---|
+| `decision.plan` | `changes`, `reason` | Existing narrow plan amendment, through the plan approvers |
+| `plan.correction.preview` | `ownerPhase`, `operations`, `reason`, `upstreamIssue` | Read the exact approved plan and normalize a proposed correction |
+| `plan.correct` | The same correction request | Review, authorize, recheck and record that correction |
+
+`changes` uses the existing `add-location` or `add-supporting` records. Application code cannot be
+classified as supporting configuration. `operations` uses the existing row operations: `add-row`,
+`set-fulfillment`, `add-test`, `remove-test`, `replace-test`, `remove-location` and `replace-location`.
+Only existing approved clauses and the selected approved owner generation can be corrected.
+Multiple approved plans still require an explicit owner. Their selection rule now has one pure
+kernel owner; row normalization, verification intent, native record schemas and replay stay unchanged.
+
+The six-stage `planCorrection` port performs `load`, `prepare`, `review`, `authorize`, `commit`
+and `finish`. The SDK captures the Story/current phase and approved owner binding before the
+review. A preview returns `ready-to-review` with normalized operations, owner/map/generation,
+digest and approval groups. It records nothing and claims no human authorization. A cancelled
+review likewise has no committed or pushed effect. A completed correction must return the exact
+reviewed operations and owner binding, verified actor/group, original current phase and real
+publication revision. A failure after the write retains its actual publication token.
+
+The current Git profile still requires a live direct-terminal review of the exact correction
+card. The CLI provides that presentation through a trusted host interaction; prompts are absent
+from the pure SDK and native correction writer. The ordinary Node API can preview a correction,
+but cannot invent the terminal presentation required to commit it. Authorization tokens, actors,
+callbacks, raw records and policy cannot enter through operation inputs. The existing one-time
+authorization owner consumes consent only inside the native transaction, after a fresh preview
+matches. A concurrent plan change preserves the newer correction and refuses the stale review.
+
+Trusted host presentation receives a detached card. Mutating that copy cannot rewrite the
+internal card or the reviewed operation set. The legacy `runPlanCorrection` helper keeps its
+signature and test/host interaction hooks, but now enters the registry and resolves current
+accepted Story state; a supplied aggregate is not storage authority. CLI flags and all three
+legacy preview/cancellation/recorded envelopes remain in the host adapter. The flag parser's
+undefined optional row fields are omitted at the JSON boundary, preserving the existing record
+encoding without weakening SDK input validation.
+
+Amendments and corrections do not reset phases, rewrite their approvals, waive tests or change
+application drafts. Git authority, source bindings and existing conditional publication and
+recovery protocols remain unchanged. Upstream-issue/amendment orchestration and the remaining
+query/manifest and backend migrations retain their separate scope.

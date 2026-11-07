@@ -8,6 +8,7 @@ const cases=[
   ['decision.completeness',{confirm:`sha256:${'a'.repeat(64)}`,checklist:[]},'completeness-review'],
   ['decision.applicability',{responsibility:'verify',reason:'Reviewed omission'},'applicability'],
   ['decision.risk',{obligationId:'OBL-1',reason:'Reviewed risk'},'obligation-risk'],
+  ['decision.plan',{changes:[{kind:'add-location',clauseId:'STORY-1:AC-001',path:'src/helper.mjs'}],reason:'Reviewed supporting implementation'},'plan-amendment'],
   ['decision.choose',{option:'continue',expected:'pending-1',reason:'Reviewed route'},'routing']
 ];
 

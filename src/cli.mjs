@@ -4156,49 +4156,7 @@ async function decisionWitnessCommand(positionals, options) {
  * The plan's revision changes; no step is reset.
  */
 async function decisionPlanCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its plan is amended while it is in progress.`, { code: 'PLAN_AMENDMENT_STORY_CLOSED' });
-  }
-  const correction = await import('./commands/plan-correction.mjs');
-  if (correction.planCorrectionRequested(options)) return correction.runPlanCorrection({ root, config, workflow, options });
-  const split = (entry, flag) => {
-    const separator = String(entry).indexOf('=');
-    if (separator < 1) throw new SingularityFlowError(`${flag} must be <left>=<right>; got '${entry}'.`, { code: 'PLAN_AMENDMENT_INVALID' });
-    return [String(entry).slice(0, separator).trim(), String(entry).slice(separator + 1).trim()];
-  };
-  const reasons = optionStrings(options, 'supporting-reason');
-  let next = 0;
-  const changes = [
-    ...optionStrings(options, 'add-location').map((entry) => { const [clauseId, file] = split(entry, '--add-location'); return { kind: 'add-location', clauseId, path: file }; }),
-    ...optionStrings(options, 'add-supporting').map((entry) => { const [file, kind] = split(entry, '--add-supporting'); return { kind: 'add-supporting', path: file, class: kind, reason: reasons[next++] ?? null }; })
-  ];
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitPlanAmendment } = await import('./engine-compatibility/native-plan-decisions.mjs');
-  const { amendment, publication } = await commitPlanAmendment(root, config, workflow, { changes, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded plan amendment ${amendment.id} for ${id} through ${amendment.authorityGroup}.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.plan', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.plan.succeeded', { amendment: amendment.id, changes: String(amendment.changes.length) }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, amendment }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-plan.mjs')).decisionPlanCommand(positionals, options);
 }
 
 /**

@@ -6,7 +6,7 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs';
-import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest} from '../kernel/decision-plan.mjs';
+import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
@@ -20,11 +20,13 @@ const WRITE_STAGES = Object.freeze(['load', 'retained', 'prepare', 'commit', 'fi
 const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','selectionReceipt','fetch','agent',
   'checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason']);
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
+const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
   ['decision.scope','scope-disposition',['item','disposition','clauseIds','reason']],
   ['decision.completeness','completeness-review',['confirm','checklist','reason']],
   ['decision.applicability','applicability',['responsibility','reason']],
   ['decision.risk','obligation-risk',['obligationId','revoke','category','transitions','expires','reason']],
+  ['decision.plan','plan-amendment',['changes','reason'],{keepsCurrentPhase:true}],
   ['decision.choose','routing',['option','to','expected','reason']],
   ['decision.witness','witness',['clauseId','slotName','file','answers','reason','expectedContext','expectedFile'],{keepsCurrentPhase:true}],
   ['decision.witness-exception','witness-exception-renewal',['phaseId','mappingSha256','expires','reason'],
@@ -57,6 +59,10 @@ const definitions = [
   {id:'convergence.advance',version:1,effect:'submission',inputFields:ADVANCE_FIELDS,port:'advancement',
     humanDecision:true,confirmation:'exact-reviewed-convergence-digest',delegatesTo:'convergence.submit',
     stages:Object.freeze(['withReview']),validate:submissionInput,execute:advanceConvergence},
+  ...['plan.correction.preview','plan.correct'].map(id=>({id,version:1,effect:id==='plan.correct'?'plan-correction':'read',
+    humanDecision:id==='plan.correct',confirmation:id==='plan.correct'?'live-terminal-exact-plan-review':null,
+    requestFields:CORRECTION_FIELDS,inputFields:Object.freeze(['workId','fetch',...CORRECTION_FIELDS]),port:'planCorrection',
+    stages:Object.freeze(['load','prepare','review','authorize','commit','finish']),validate:singleDecisionInput,execute:correctPlan})),
   ...SINGLE_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',humanDecision:true,
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'decisionRecord',
     stages:Object.freeze(['load','prepare','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
@@ -184,6 +190,8 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
       if(!Array.isArray(value)||value.some(item=>typeof item!=='string'))invalid(`Decision ${key} must be an array of strings.`);
     } else if (key==='checklist') {
       if(!Array.isArray(value))invalid('Decision checklist must be an array.');
+    } else if (['changes','operations'].includes(key)) {
+      if(!Array.isArray(value)||value.some(item=>!item||typeof item!=='object'||Array.isArray(item)))invalid(`Decision ${key} must be an array of JSON records.`);
     } else if (['command','repin','answers'].includes(key)) {
       if(typeof value!=='object'||Array.isArray(value))invalid(`Decision ${key} must be a JSON record.`);
     } else if(typeof value!=='string')invalid(`Decision ${key} must be a string or null.`);
@@ -459,6 +467,77 @@ async function recordSingleDecision(port, inputs, signal, operation) {
   const committed=await port.commit(context,intent,{signal,operation:descriptor});
   try {
     return singleDecisionResult(resultBinding,await port.finish(context,intent,committed,{operation:descriptor}),operation);
+  } catch(error) {
+    if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePublication=committed;
+    throw error;
+  }
+}
+
+function equalJson(left,right) {
+  if(left===right)return true;
+  if(!left||!right||typeof left!=='object'||typeof right!=='object'||Array.isArray(left)!==Array.isArray(right))return false;
+  const keys=Object.keys(left);
+  return keys.length===Object.keys(right).length&&keys.every(key=>Object.hasOwn(right,key)&&equalJson(left[key],right[key]));
+}
+
+function correctionData(value) {
+  try{return data(value);}
+  catch(cause){throw new SingularityFlowError('The correction port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+}
+
+/** A preview is data. Only a trusted host can present a human ceremony; only the writer consumes it. */
+async function correctPlan(port,inputs,signal,operation) {
+  const descriptor=ENGINE_OPERATIONS.find(entry=>entry.id===operation.id);
+  const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
+  const bad=message=>{throw new SingularityFlowError(message,{code:'ENGINE_PORT_RESULT_INVALID'});};
+  notCancelled(signal);
+  const context=await port.load(inputs,{signal,operation:descriptor});
+  notCancelled(signal);
+  if(context?.subject?.kind!=='story'||!text(context.workflow?.workItem?.id)
+    ||context.subject.id!==context.workflow.workItem.id)bad('The correction writer did not bind a Story.');
+  const binding=data(standaloneDecisionAdmission(operation.id,context.workflow));
+  if(inputs.workId!=null&&inputs.workId!==binding.workId||binding.phase!==null&&!text(binding.phase))bad('The correction writer bound a different Story.');
+  const supplied=Object.fromEntries(operation.requestFields.filter(key=>Object.hasOwn(inputs,key)).map(key=>[key,inputs[key]]));
+  const prepared=await port.prepare(context,data(supplied),{signal,operation:descriptor});
+  const request=data(standaloneDecisionRequest(operation.id,singleDecisionInput(prepared,operation,{requestOnly:true})));
+  const owner=planCorrectionOwner(context.workflow,request.ownerPhase);
+  const ownerBinding=data({ownerPhase:owner.id,ownerGeneration:Number(owner.generation),ownerMapSha256:owner.claimMaps.planned.sha256});
+  notCancelled(signal);
+  const review=correctionData(await port.review(context,request,{signal,operation:descriptor}));
+  const reviewFields=['workId','currentPhase','ownerPhase','ownerGeneration','ownerMapSha256','previewSha256','operations','authorityGroups','reason','upstreamIssue'];
+  if(!review||Object.keys(review).some(key=>!reviewFields.includes(key))||review.workId!==binding.workId||review.currentPhase!==binding.phase
+    ||review.ownerPhase!==ownerBinding.ownerPhase||review.ownerGeneration!==ownerBinding.ownerGeneration
+    ||review.ownerMapSha256!==ownerBinding.ownerMapSha256||!text(review.ownerPhase)||!Number.isSafeInteger(review.ownerGeneration)||review.ownerGeneration<1
+    ||!text(review.ownerMapSha256)||!(/^[a-f0-9]{64}$/u.test(review.previewSha256??''))
+    ||!Array.isArray(review.operations)||!review.operations.length||review.operations.some(entry=>!entry||typeof entry!=='object'||Array.isArray(entry))
+    ||!Array.isArray(review.authorityGroups)||!review.authorityGroups.length||review.authorityGroups.some(group=>!text(group))
+    ||review.reason!==request.reason.trim()||review.upstreamIssue!==request.upstreamIssue)bad('The correction preview did not match its bound plan.');
+  const base={schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,subject:Object.freeze({kind:'story',id:binding.workId}),
+    phase:binding.phase,currentPhase:binding.phase,review};
+  notCancelled(signal);
+  if(operation.id==='plan.correction.preview')return Object.freeze({...base,status:'ready-to-review',revision:null,
+    effects:Object.freeze({committed:false,pushed:false})});
+  const authorization=correctionData(await port.authorize(context,request,{signal,operation:descriptor}));
+  const authFields=['workId','ownerPhase','ownerGeneration','previewSha256','confirmed','actorId','authorityGroup'];
+  if(!authorization||Object.keys(authorization).some(key=>!authFields.includes(key))||authorization.workId!==binding.workId
+    ||authorization.ownerPhase!==review.ownerPhase||authorization.ownerGeneration!==review.ownerGeneration
+    ||authorization.previewSha256!==review.previewSha256||typeof authorization.confirmed!=='boolean'||!text(authorization.actorId)
+    ||!review.authorityGroups.includes(authorization.authorityGroup))bad('The correction authorization did not match the reviewed plan.');
+  notCancelled(signal);
+  if(!authorization.confirmed)return Object.freeze({...base,status:'cancelled',revision:null,effects:Object.freeze({committed:false,pushed:false})});
+  const committed=await port.commit(context,request,{signal,operation:descriptor});
+  try {
+    const facts=correctionData(await port.finish(context,request,committed,{operation:descriptor}));
+    const fields=['workId','currentPhase','record','revision','pushed','actorId','authorityGroup'];
+    if(!facts||Object.keys(facts).some(key=>!fields.includes(key))||facts.workId!==binding.workId||facts.currentPhase!==binding.phase
+      ||!text(facts.revision)||typeof facts.pushed!=='boolean'||facts.actorId!==authorization.actorId||facts.authorityGroup!==authorization.authorityGroup
+      ||!facts.record||facts.record.kind!=='plan-row-correction'||!text(facts.record.id)||facts.record.ownerPhase!==review.ownerPhase
+      ||facts.record.ownerGeneration!==review.ownerGeneration||facts.record.ownerMapSha256!==review.ownerMapSha256
+      ||facts.record.actor!==authorization.actorId||facts.record.authorityGroup!==authorization.authorityGroup
+      ||facts.record.reviewAssurance!=='live-terminal-exact-plan-review'||!equalJson(facts.record.operations,review.operations)
+      ||facts.record.reason!==review.reason||facts.record.upstreamIssue!==review.upstreamIssue)bad('The correction result did not match the authorized plan.');
+    return Object.freeze({...base,status:'recorded',revision:facts.revision,effects:Object.freeze({committed:true,pushed:facts.pushed}),
+      recordKind:'plan-row-correction',record:facts.record,actorId:facts.actorId,authorityGroup:facts.authorityGroup});
   } catch(error) {
     if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePublication=committed;
     throw error;

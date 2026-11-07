@@ -23,6 +23,11 @@ export function createGitDecisionRecordPort({root, interaction=null, notice=()=>
         const {commitWitnessDecision,commitWitnessExceptionRenewal}=await import('./native-witness-decisions.mjs');
         result=await (operation.id==='decision.witness'?commitWitnessDecision:commitWitnessExceptionRenewal)(context,request);
         record=result.record;
+      } else if (operation.id === 'decision.plan') {
+        const identity=await who(context);
+        const {commitPlanAmendment}=await import('./native-plan-decisions.mjs');
+        result=await commitPlanAmendment(root,config,workflow,request,identity);
+        record=result.amendment;
       } else if (operation.id === 'decision.risk') {
         const identity=await who(context);
         const {commitRiskDecision} = await import('./native-obligation-risk.mjs');

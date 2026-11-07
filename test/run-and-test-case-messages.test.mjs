@@ -7,7 +7,7 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { CASE_MESSAGE_LIMIT, testCaseMessages } from '../src/test-case-messages.mjs';
-import { buildTestSummary } from '../src/test-summary.mjs';
+import { buildTestSummary, testSummaryText } from '../src/test-summary.mjs';
 
 import { repository } from './helpers/run-and-test-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -89,6 +89,15 @@ test('the summary gives a failed case its message (or null) and other cases none
     ['one', 'passed', undefined], ['two', 'failed', 'off by one'], ['three', 'failed', null], ['four', 'failed', null]]);
   assert.equal(Object.hasOwn(summary.cases[0], 'message'), false);
   assert.equal(summary.cases.some((entry) => entry.command === 'karma'), false);
+});
+
+test('the summary text shows each failed case\'s message under it [CQF:REQ-014]', () => {
+  const summary = buildTestSummary({ scope: { kind: 'capability', capability: 'web' }, run: { id: 'RUN-1', label: 'Local preview' }, entries: [
+    { receipt: { commandId: 'unit', adapter: 'junit-xml', status: 'failed', exitCode: 1, tests: { discovered: 2, passed: 0, failed: 2, skipped: 0 },
+      occurrences: [{ className: 'a', name: 'two', outcome: 'failed', file: 'test/a.test.js', line: 4 }, { className: 'a', name: 'three', outcome: 'failed' }] },
+    messages: ['Expected: 2\nReceived: 1', null] }] });
+  const text = testSummaryText(summary);
+  assert.match(text, /^ {2}✖ unit › a › two \(test\/a\.test\.js:4\)\n {6}Expected: 2\n {6}Received: 1\n {2}✖ unit › a › three\n/mu);
 });
 
 const SECRET = 'case-message-secret-4d1f';

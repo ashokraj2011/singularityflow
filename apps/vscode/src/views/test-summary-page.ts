@@ -21,9 +21,10 @@ function commandHtml(command: CommandTable): string {
     ? `<button type="button" class="link" data-ts-open="${escape(entry.file)}" data-ts-line="${entry.line ?? 0}">${escape(entry.location)}</button>`
     : '<span class="muted">—</span>'}</td>
       <td>${entry.clauses.length ? entry.clauses.map((clause) => `<code class="ts-tag">${escape(clause)}</code>`).join(' ') : '<span class="muted">untagged</span>'}</td>
+      <td class="ts-message">${entry.message ? `<pre data-ts-message>${escape(entry.message)}</pre>` : '<span class="muted">—</span>'}</td>
     </tr>`).join('');
   const table = command.rows.length
-    ? `<table class="ts-cases"><thead><tr><th>Outcome</th><th>Test case</th><th>Duration</th><th>File</th><th>Requirement tags</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table class="ts-cases"><thead><tr><th>Outcome</th><th>Test case</th><th>Duration</th><th>File</th><th>Requirement tags</th><th>Message</th></tr></thead><tbody>${rows}</tbody></table>`
     : `<p class="muted">${command.total ? 'No test case here matches the filters.' : 'No test cases were recorded for this command.'}</p>`;
   return `<section class="ts-command" data-ts-command="${escape(command.id)}" data-per-case="true">${head}${note}${table}
     ${command.total !== command.rows.length ? `<p class="muted">${command.rows.length} of ${command.total} shown.</p>` : ''}</section>`;
@@ -97,6 +98,7 @@ export const TEST_SUMMARY_STYLE = `
 .ts-cases td { vertical-align:top; overflow-wrap:anywhere; }
 .ts-duration { white-space:nowrap; }
 .ts-tag { margin-right:.25rem; }
+.ts-message pre { margin:0; max-height:12rem; overflow:auto; white-space:pre-wrap; font-size:.85em; }
 .ts-base { margin:1rem 0; }
 .ts-base-head { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
 .ts-base-results { margin:.5rem 0 0; padding-left:1.1rem; }

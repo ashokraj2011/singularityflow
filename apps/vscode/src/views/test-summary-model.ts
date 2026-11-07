@@ -212,6 +212,8 @@ export function caseFiles(summary: TestSummary | null): Set<string> {
 export interface CaseRow {
   name: string; suite: string | null; outcome: string; outcomePill: 'ok' | 'bad' | 'wait' | '';
   duration: string; file: string | null; line: number | null; location: string | null; clauses: string[];
+  /** A failed case's message as the engine bounded and redacted it [CQF:REQ-014]. */
+  message: string | null;
 }
 
 export interface CommandTable {
@@ -248,7 +250,8 @@ function row(entry: TestSummaryCase): CaseRow {
   return {
     name: entry.name, suite: entry.suite, outcome: entry.outcome, outcomePill: PILLS[entry.outcome] ?? '',
     duration: formatDuration(entry.durationMs), file: entry.file, line: entry.line,
-    location: entry.file ? `${entry.file}${entry.line ? `:${entry.line}` : ''}` : null, clauses: entry.clauses
+    location: entry.file ? `${entry.file}${entry.line ? `:${entry.line}` : ''}` : null, clauses: entry.clauses,
+    message: entry.outcome === 'failed' ? entry.message : null
   };
 }
 

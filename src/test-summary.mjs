@@ -213,7 +213,11 @@ export function testSummaryText(summary, { next = null } = {}) {
   const failed = summary.cases.filter((entry) => entry.outcome === 'failed');
   if (failed.length) {
     lines.push('Failed:');
-    for (const entry of failed.slice(0, 20)) lines.push(`  ✖ ${entry.command} › ${caseLine(entry)}`);
+    for (const entry of failed.slice(0, 20)) {
+      lines.push(`  ✖ ${entry.command} › ${caseLine(entry)}`);
+      // Its message, bounded and redacted as the JSON's [CQF:REQ-014].
+      if (entry.message) for (const line of entry.message.split('\n')) lines.push(`      ${line}`);
+    }
     if (failed.length > 20) lines.push(`  … and ${failed.length - 20} more (use --json)`);
   }
   lines.push(`Untagged cases: ${summary.untagged}${summary.truncated ? ` · first ${summary.cases.length} cases listed` : ''}`);

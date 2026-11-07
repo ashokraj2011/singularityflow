@@ -21,7 +21,7 @@
  * Only a `production` adapter may be selected as authority. A `test-only` adapter exists for the
  * conformance suite and is refused here, whatever asks.
  */
-import { SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError } from '../foundation/failures.mjs';
 
 export const SHARED_STATE_CONTRACT = 'sda-shared-state/v1';
 export const ADAPTER_QUALIFICATIONS = Object.freeze(['production', 'test-only']);

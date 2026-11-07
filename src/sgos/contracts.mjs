@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError } from '../foundation/failures.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 import { canonicalizeSgosAbsolutePath } from './paths.mjs';

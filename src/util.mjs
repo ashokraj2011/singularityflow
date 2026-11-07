@@ -18,7 +18,7 @@ import { processResultCompleted, processResultSucceeded } from './process-result
 import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
 import { cachedGitFact, gitFactRequest, gitFactSnapshot, gitFactStoreHits, rememberGitFact } from './git-fact-cache.mjs';
-import { outcomeClassOf } from './outcome-classes.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -36,30 +36,8 @@ export async function replaceWithSharingRetry(source, target, { renameCommand = 
   }
 }
 
-export class SingularityFlowError extends Error {
-  constructor(message, { exitCode = 1, code = null, details = null, cause = undefined, outcomeClass = null } = {}) {
-    super(message);
-    this.name = 'SingularityFlowError';
-    this.exitCode = exitCode;
-    if (code) this.code = code;
-    if (details != null) this.details = details;
-    if (cause !== undefined) this.cause = cause;
-    // The shared class over existing codes (SDA §7.1); new code may name it directly.
-    const classified = outcomeClass ?? outcomeClassOf({ code });
-    if (classified) this.outcomeClass = classified;
-  }
-
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      exitCode: this.exitCode,
-      ...(this.code ? { code: this.code } : {}),
-      ...(this.outcomeClass ? { outcomeClass: this.outcomeClass } : {}),
-      ...(this.details != null ? { details: this.details } : {})
-    };
-  }
-}
+// Compatibility export: old imports and pure-contract imports share one constructor.
+export { SingularityFlowError };
 
 const WINDOWS_RESERVED_PORTABLE_BASENAME = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\..*)?$/iu;
 const TEMPORARY_TREE_RETRYABLE_ERRORS = new Set([

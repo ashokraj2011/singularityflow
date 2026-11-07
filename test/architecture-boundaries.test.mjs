@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { inspectPureModuleGraph } from './helpers/pure-module-graph.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Match the aggregate modules by exact basename. Revision components may legitimately contain
@@ -20,6 +21,19 @@ async function sourceFiles(directory) {
   }
   return files;
 }
+
+test('the shared foundation and SDA contracts have no infrastructure dependency closure', async () => {
+  const foundation = await sourceFiles('src/foundation');
+  const contracts = ['src/sda/shared-state-contract.mjs', 'src/sda/lifecycle-authority-contract.mjs'];
+  for (const rule of [
+    { entries: foundation, allowed: foundation },
+    { entries: contracts, allowed: [...foundation, ...contracts] }
+  ]) {
+    const report = await inspectPureModuleGraph({ root: packageRoot, ...rule });
+    assert.deepEqual(report.problems, [],
+      'foundation must not depend on SDA; contracts may use foundation, without host I/O or computed imports');
+  }
+});
 
 test('application surfaces cannot bypass the revisioned state-store boundary', async () => {
   const domainBoundaryFiles = new Set([

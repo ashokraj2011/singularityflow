@@ -19,8 +19,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Name → the modules (under src/ or scripts/) that may use it.
 export const SDA_NAMES = Object.freeze({
   // M1 refusal codes and outcome classes
-  LEDGER_EVENT_PAYLOAD_CONFLICT: ['src/ledger.mjs', 'src/outcome-classes.mjs'],
-  TRANSPORT_OPERATION_ID_REUSED: ['src/outcome-classes.mjs', 'src/transport-intents.mjs'],
+  LEDGER_EVENT_PAYLOAD_CONFLICT: ['src/foundation/failures.mjs', 'src/ledger.mjs'],
+  TRANSPORT_OPERATION_ID_REUSED: ['src/foundation/failures.mjs', 'src/transport-intents.mjs'],
   TRANSPORT_OPERATION_ID_INVALID: ['src/transport-intents.mjs'],
   PUSH_EXPECTED_REVISION_REQUIRED: ['src/git.mjs', 'src/publication-unit-of-work.mjs'],
   LEDGER_PAGE_LIMIT_INVALID: ['src/ledger-pages.mjs', 'src/sda/shared-state-contract.mjs'],
@@ -80,8 +80,8 @@ export const SDA_NAMES = Object.freeze({
   'Sflow-Intent-Kind': ['src/configuration-people.mjs', 'src/configuration-proposal.mjs'],
   'configuration.proposal-projection': ['src/configuration-proposal.mjs'],
   // M3: transactional drafts
-  CONFIGURATION_DRAFT_OPERATION_REUSED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs', 'src/refusal-remediation.mjs'],
-  CONFIGURATION_DRAFTS_CHANGED: ['src/configuration-drafts.mjs', 'src/outcome-classes.mjs', 'src/refusal-remediation.mjs'],
+  CONFIGURATION_DRAFT_OPERATION_REUSED: ['src/configuration-drafts.mjs', 'src/foundation/failures.mjs', 'src/refusal-remediation.mjs'],
+  CONFIGURATION_DRAFTS_CHANGED: ['src/configuration-drafts.mjs', 'src/foundation/failures.mjs', 'src/refusal-remediation.mjs'],
   CONFIGURATION_DRAFT_OPERATION_INVALID: ['src/configuration-drafts.mjs'],
   SINGULARITY_FLOW_TEST_CRASH_AT: ['src/configuration-drafts.mjs', 'src/spec-library/draft-store.mjs'],
   'sflow-configuration-draft@2': ['src/configuration-drafts.mjs'],

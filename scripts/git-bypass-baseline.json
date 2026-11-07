@@ -423,6 +423,12 @@
       },
       "digest": "12766a84d01dec669d3f04855b0525477092cefbce2112e1ecdfd874e1d14ab9"
     },
+    "scripts/engine-foundation-benchmark.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "a1016513c77098e99e0a30e9208d2d9c35d781afa73cad6963a0106589f32420"
+    },
     "scripts/fos-benchmark.mjs": {
       "counts": {
         "command-git": 12,

@@ -12,9 +12,10 @@ needs, and every departure from the approved documents is recorded and decided o
 
 The owner took every recommended default from the study and added the sources:
 
-1. **SonarQube** is the team's tool for complexity and vulnerabilities. **CodeQL** is used too where it can be.
-2. **Sources are configured, not coded:** an API, a link, a Confluence page link (or a Confluence CQL
-   query), or an export file. Security and TLM are configured separately, because they can differ.
+1. **SonarQube** is the team's tool for complexity and vulnerabilities. **CodeQL** is used through GitHub
+   (code scanning), as the team runs it.
+2. **Sources are configured, not coded:** an API, a link, a Confluence page link, or an export file.
+   Security and TLM are configured separately, because they can differ.
 3. On a `new-and-changed` Story the existing tests that import changed code run once, at the last step that runs tests.
 4. Coverage of changed lines is shown, and warns below 80%. It never refuses by default.
 5. The check for tests that assert nothing warns by default.
@@ -88,7 +89,7 @@ security:
   sources:
     - { id: sonar, type: api, provider: sonarqube, url: https://sonar.example.internal,
         project: payments-api, environment: sonar, include: [vulnerability, bug, code-smell, hotspot] }
-    - { id: codeql, type: api, provider: github-code-scanning, repository: example/payments-api, environment: github }
+    - { id: codeql, type: api, provider: github-code-scanning, tool: CodeQL }   # the GitHub CLI's own sign-in
     - { id: sec-jira, type: api, provider: jira, jql: 'project = SEC AND component = payments-api AND statusCategory != Done' }
     - { id: sec-export, type: file, path: security/findings.sarif, format: sarif }
   policy: { bringIntoCodeStep: touched, autoFix: { dependencies: [patch, minor], code: [critical, high] }, exceptions: honour }
@@ -99,7 +100,6 @@ tlm:
     - { id: tlm-page, type: confluence, page: https://example.atlassian.net/wiki/spaces/ENG/pages/123456,
         environment: confluence, table: 1,
         columns: { component: Component, currentVersion: Version, endOfLifeAt: EOL, targetVersion: Target } }
-    - { id: tlm-search, type: confluence, cql: 'space = ENG and label = "tlm" and label = "payments-api"', environment: confluence }
     - { id: tlm-link, type: link, url: https://tlm.example.internal/export/payments-api.csv, format: csv, environment: tlm }
     - { id: tlm-api, type: api, provider: generic-json, url: https://tlm.example.internal/api/v1/components?app=payments-api,
         environment: tlm, fields: { component: name, currentVersion: version, endOfLifeAt: eolDate, targetVersion: target } }
@@ -199,10 +199,11 @@ A token is never written in either file. A literal that looks like a credential 
   - **Server:** `sonar-scanner`, `mvn sonar:sonar` or `gradle sonar` with `sonar.qualitygate.wait=true` on the Story branch, run once at submit, and only when the server supports branch analysis. SFlow then reads, for the branch's new code, `api/issues/search`, `api/hotspots/search`, `api/qualitygates/project_status` and `api/measures/component` (`complexity`, `cognitive_complexity`, `duplicated_lines_density`, `new_coverage`).
   - **No branch analysis on the server:** SFlow never analyses into the main project. It reads that project's findings (M6) unless the owner names a scratch project key.
   - The token and host come from environment `sonar`, bound with `env bind`.
-- `[CQF:REQ-049]` CodeQL:
-  - **Local:** the CLI (`codeql database create`, then `codeql database analyze` with the language's `security-extended` suite, `--format=sarif-latest`), read as SARIF.
-  - **Remote:** GitHub code scanning alerts for the Story's branch through the API, with environment `github`.
-  - The setup text says the CLI on private code needs a GitHub Advanced Security licence.
+- `[CQF:REQ-049]` CodeQL comes from GitHub code scanning, as the team runs it:
+  - SFlow reads the open CodeQL alerts for the Story's branch with `gh api repos/<owner>/<repo>/code-scanning/alerts?ref=<branch>&tool_name=CodeQL&state=open`. It uses the GitHub CLI's own sign-in and host resolution, as `src/github-evidence.mjs` does for check runs, so no token is stored.
+  - The alerts exist once the branch is pushed and the CodeQL workflow has run. They are read at submit and in later steps, are new-code findings when they fall on changed lines, and are shown with the analysis's commit. Before that, they show as "CodeQL has not analysed this branch yet", which never blocks.
+  - A capability's `requiredChecks` can still require the CodeQL check run to pass.
+  - Optional: a local `codeql` CLI writing SARIF, where one is installed.
   - Team import and Build with Copilot classify `sonar-scanner`, `codeql`, `semgrep`, `npm audit`, `pip-audit`, `osv-scanner`, `dependency-check` and `eslint` as checks, and propose CI `uses:` steps such as `github/codeql-action` and the SonarQube scan action.
 
 ## M5 Security checks `[CQF:REQ-050]`
@@ -224,9 +225,9 @@ A token is never written in either file. A literal that looks like a credential 
 
   | Type | What it reads |
   |---|---|
-  | `api` | Providers: `sonarqube`, `github-code-scanning`, `github-dependabot`, `jira` (JQL), `generic-json` with a field map |
+  | `api` | Providers: `sonarqube`, `github-code-scanning` (through `gh`), `github-dependabot`, `jira` (JQL), `generic-json` with a field map |
   | `link` | An HTTPS URL returning JSON, CSV or SARIF |
-  | `confluence` | A `page` link, or a `cql` query that finds pages. Reads the page's table with a column map; Cloud and Data Center REST |
+  | `confluence` | A `page` link. Reads the page's table with a column map; Cloud and Data Center REST |
   | `file` | An export in the repository, or a local path: SARIF, SonarQube issues JSON, or CSV with a column map |
 - `[CQF:REQ-062]` Credentials come only from bound environments. Requests go only to configured hosts. Fetched text is data: bounded, quoted, and never read as instructions.
 - `[CQF:REQ-063]` `findings sync [--feed security|tlm] [--json]`:

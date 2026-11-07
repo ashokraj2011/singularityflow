@@ -49,7 +49,9 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs']);
+  const namespaceAdapters = new Set(['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
+    'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
+    'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -70,8 +72,10 @@ test('only explicit storage adapters consume namespace contracts outside their p
   assert.deepEqual(violations, [], 'new namespace backends must not change installed Git routing');
 });
 
-test('the filesystem namespace backend does not import lifecycle, Git, command or approval owners', async () => {
-  const owners = ['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs'];
+test('namespace backends do not import lifecycle, Git, command or approval owners', async () => {
+  const owners = ['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
+    'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
+    'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs'];
   for (const owner of owners) {
     const source = ts.createSourceFile(owner, await readFile(path.join(packageRoot, owner), 'utf8'), ts.ScriptTarget.Latest, true);
     const visit = node => {
@@ -80,8 +84,9 @@ test('the filesystem namespace backend does not import lifecycle, Git, command o
       if (specifier) {
         assert.equal(ts.isStringLiteralLike(specifier), true);
         const name = specifier.text;
-        assert.ok(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path'].includes(name)
-          || name.startsWith('./namespace/') || name === './filesystem-namespace-journal.mjs', `${owner}: ${name}`);
+        assert.ok(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite'].includes(name)
+          || name.startsWith('./namespace/') || ['./filesystem-namespace-journal.mjs',
+            './sqlite-namespace-journal.mjs', './namespace-journal-adapter.mjs', './sqlite-native.mjs'].includes(name), `${owner}: ${name}`);
       }
       ts.forEachChild(node, visit);
     };

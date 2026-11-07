@@ -1374,5 +1374,63 @@
         "events": []
       }
     }
+  ],
+  "namespace-sqlite-manifest": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-sqlite-namespace/v1",
+      "storeId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "kind": "shared"
+      },
+      "limits": {
+        "maxPage": 1000,
+        "maxChanges": 128,
+        "maxPreconditions": 256,
+        "maxEvents": 128,
+        "maxValueBytes": 65536,
+        "maxTransactionBytes": 262144,
+        "maxDepth": 24,
+        "maxNodes": 20000
+      },
+      "cursorKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ],
+  "namespace-sqlite-entry": [
+    {
+      "schemaVersion": 1,
+      "storeId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "kind": "shared"
+      },
+      "scope": {
+        "projectId": "fixture-project"
+      },
+      "sequence": 1,
+      "previousSha256": null,
+      "revision": "sql:00000000-0000-4000-8000-000000000002",
+      "transaction": {
+        "operationId": "fixture-operation",
+        "preconditions": [
+          {
+            "namespace": "state",
+            "key": "stories/STORY-1",
+            "version": null
+          }
+        ],
+        "changes": [
+          {
+            "op": "put",
+            "namespace": "state",
+            "key": "stories/STORY-1",
+            "value": {
+              "phase": "specification"
+            },
+            "immutable": false
+          }
+        ],
+        "events": []
+      }
+    }
   ]
 }

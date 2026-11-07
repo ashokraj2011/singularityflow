@@ -7,7 +7,7 @@
  */
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
-import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, COMMAND_TIMING_SCHEMA,
+import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, COMMAND_TIMING_SCHEMA,
   WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './foundation/record-schema.mjs';
 
 function plainObject(value) {
@@ -4010,7 +4010,8 @@ const families = [
     immutable: true, migrationPolicy: 'frozen-identity'
   }),
   family({ id: 'ledger-archive-manifest', currentVersion: 1, immutable: true }),
-  ...Object.values(NAMESPACE_STORAGE_SCHEMAS).map(entry => family(entry))
+  ...Object.values(NAMESPACE_STORAGE_SCHEMAS).map(entry => family(entry)),
+  ...Object.values(SQLITE_NAMESPACE_SCHEMAS).map(entry => family(entry))
 ];
 
 for (const entry of families) {

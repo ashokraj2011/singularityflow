@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA } from '../src/foundation/record-schema.mjs';
-import { NAMESPACE_STORAGE_SCHEMAS, admitNamespaceStorageSchema } from '../src/sda/namespace/storage-schemas.mjs';
+import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
+  admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
 import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION as legacyViewVersion } from '../src/world-model/view-contract-schema-version.mjs';
 
@@ -24,15 +25,16 @@ test('filesystem durable families have one frozen registry owner and never migra
   assert.equal(legacyViewVersion, 1);
   assert.equal(schemaFamily('world-model-view-contract').currentVersion, legacyViewVersion);
   assert.equal(schemaFamily(COMMAND_TIMING_SCHEMA.id).currentVersion, COMMAND_TIMING_SCHEMA.currentVersion);
-  for (const [kind, definition] of Object.entries(NAMESPACE_STORAGE_SCHEMAS)) {
+  for (const [definitions, admit] of [[NAMESPACE_STORAGE_SCHEMAS, admitNamespaceStorageSchema],
+    [SQLITE_NAMESPACE_SCHEMAS, admitSqliteNamespaceSchema]]) for (const [kind, definition] of Object.entries(definitions)) {
     const registered = schemaFamily(definition.id);
     for (const key of ['currentVersion', 'minimumReadableVersion', 'maximumReadableVersion', 'migrationPolicy', 'immutable']) {
       assert.equal(registered[key], definition[key]);
     }
     const value = { schemaVersion: 1, kind };
-    assert.deepEqual(admitNamespaceStorageSchema(kind, value), { record: value, storedVersion: 1 });
+    assert.deepEqual(admit(kind, value), { record: value, storedVersion: 1 });
     assert.deepEqual(readRecord(definition.id, value), { record: value, storedVersion: 1, migratedThrough: [] });
-    assert.throws(() => admitNamespaceStorageSchema(kind, { schemaVersion: 2 }), error =>
+    assert.throws(() => admit(kind, { schemaVersion: 2 }), error =>
       error.code === 'SDA_NAMESPACE_UNSUPPORTED' && error.cause.code === 'SCHEMA_VERSION_FUTURE');
   }
 });

@@ -10,6 +10,7 @@ import {
 import { namespaceBinding, namespaceLimits, assertNamespaceBinding, assertNamespaceNotCancelled } from './namespace/contract.mjs';
 import { namespaceTransaction, namespaceTransactionIdentity } from './namespace/transaction.mjs';
 import { applyNamespaceTransaction, emptyNamespaceState } from './namespace/state-transition.mjs';
+import { NAMESPACE_JOURNAL_PORT } from './namespace/journal-contract.mjs';
 
 const FORMAT = 'sflow-filesystem-namespace/v1';
 const MAX_FILE_BYTES = 1_048_576;
@@ -167,7 +168,7 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
       let state = emptyNamespaceState(), sha256 = null, sequence = 0;
       if (!paths) {
         if (through !== null && through !== 0) throw corrupt('The requested namespace snapshot is missing.');
-        return { state, sha256, sequence };
+        return { scope: normalizedScope, state, sha256, sequence };
       }
       const files = (await readdir(paths.commits)).sort();
       if (files.some(name => !FILE.test(name))) throw corrupt('The namespace journal contains an unrecognized entry.');
@@ -205,13 +206,16 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
         state = applied.state; sequence += 1; sha256 = envelope.sha256;
       }
       if (through !== null && sequence !== through) throw corrupt('The requested namespace snapshot is no longer present.');
-      return { state, sha256, sequence };
+      return { scope: normalizedScope, state, sha256, sequence };
     } catch (cause) { throw unavailable('journal-read', cause); }
   }
 
   async function append(scope, observed, transaction, { signal } = {}) {
     const normalizedScope = namespaceScope(scope);
     transaction = namespaceTransaction(transaction, limits);
+    for (const value of [...transaction.preconditions, ...transaction.changes, ...transaction.events]) {
+      assertNamespaceBinding({ binding: normalizedBinding }, value.namespace);
+    }
     const revision = `fs:${randomUUID()}`;
     const applied = applyNamespaceTransaction(observed.state, normalizedScope, transaction, {
       revision, requestDigest: hash(namespaceTransactionIdentity(normalizedScope, transaction, limits)), limits
@@ -243,6 +247,7 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
   }
 
   return Object.freeze({
+    contract: NAMESPACE_JOURNAL_PORT,
     manifest: Object.freeze({ storeId: manifest.storeId, binding: normalizedBinding, cursorKey: manifest.cursorKey }),
     read, append,
     async confirm(scope) {

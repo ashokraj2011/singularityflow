@@ -8,6 +8,10 @@ export const NAMESPACE_STORAGE_SCHEMAS = Object.freeze({
   manifest: frozenFamily('namespace-filesystem-manifest'),
   entry: frozenFamily('namespace-filesystem-entry')
 });
+export const SQLITE_NAMESPACE_SCHEMAS = Object.freeze({
+  manifest: frozenFamily('namespace-sqlite-manifest'),
+  entry: frozenFamily('namespace-sqlite-entry')
+});
 // Historical view records retain their original schema and compatibility export indefinitely.
 export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = frozenFamily('world-model-view-contract').currentVersion;
 // Writers need the current wire stamp, not every historical migration function.

@@ -238,7 +238,7 @@ test('Git compatibility composes existing owners without introducing another per
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
-    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs','src/commands/status-read.mjs','src/lifecycle-transitions.mjs',
+    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs','src/commands/status-read.mjs','src/lifecycle-transitions.mjs','src/phase-actor-policy.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
     'src/commands/shared/story-draft-transaction.mjs','src/commands/shared/convergence-preparation-state.mjs'].map(file=>path.join(packageRoot,file)));
@@ -390,6 +390,32 @@ test('native publication preserves admission, clock and accepted-write checkpoin
   assert.ok(call('recordGenerationPublication').end < call('persistGenerationPublicationRecord').pos);
   assert.ok(call('persistGenerationPublicationRecord').end < call('saveWorkflow').pos);
   assert.doesNotMatch(source, /phase\.(?:deliveryEvidence|generationPublications|authorship|artifactSet|astGates|clarifications|markers|agentBriefs|telemetry)\s*=/);
+});
+
+test('native sequence and role adapters render shared admission while confirmations remain host-scoped', async () => {
+  const read = relative => readFile(path.join(packageRoot, relative), 'utf8');
+  const sequence = await read('src/sequence.mjs'), actor = await read('src/phase-transition-routes.mjs');
+  const ast = ts.createSourceFile('sequence.mjs', sequence, ts.ScriptTarget.Latest, true);
+  const find = name => ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(ast);
+  assert.match(find('evaluateSequence'), /sequenceAdmission\(workflow/);
+  assert.doesNotMatch(find('evaluateSequence'), /workflow\.pendingDecision|workflow\.status|allowedStatuses\.includes/);
+  assert.match(find('applySequenceDecision'), /applyConfirmedSequenceState\(next, phase, decision, at\)/);
+  assert.doesNotMatch(find('applySequenceDecision'), /\.status\s*=|\.approvals\?/);
+  assert.match(find('withConfirmationPort'), /confirmationPorts\.run\(/);
+  assert.doesNotMatch(sequence, /activeConfirmationPort|function switchCurrentPhase|function reconcileStatus/);
+  assert.match(actor, /phaseAgentMutationFacts\(/); assert.doesNotMatch(actor, /export function readOnlyAgent|SOURCE_REVIEW_REVIEWER_CANNOT_/);
+  const alias = ts.createSourceFile('phase-actor-policy.mjs', await read('src/phase-actor-policy.mjs'), ts.ScriptTarget.Latest, true);
+  assert.ok(alias.statements.every(ts.isExportDeclaration));
+  const config = await read('src/config.mjs'), review = await read('src/source-review-policy.mjs');
+  assert.match(config, /assertSourceReviewerAvailable, normalizeSourceReviewPolicy.*kernel\/phase-admission\.mjs/);
+  assert.doesNotMatch(review, /function normalizeSourceReviewPolicy|function assertSourceReviewerAvailable/);
+  const simulation = await read('src/workflow-lifecycle-simulation.mjs');
+  assert.match(simulation, /sequenceAdmission as evaluateSequence/); assert.doesNotMatch(simulation, /from '\.\/sequence\.mjs'/);
+  const identity = await read('src/build-identity.mjs'), manifest = await read('src/vsix-source-manifest.mjs');
+  for (const name of ['kernel/lifecycle-transitions.mjs','kernel/phase-admission.mjs']) {
+    assert.ok(identity.includes("'" + name + "'"), name + ' must invalidate advisory snapshots');
+    assert.ok(manifest.includes("'src/" + name + "'"), name + ' must be present in staged CLI payloads');
+  }
 });
 
 test('workflow compilation and routing simulation use the pure interpreter while native rendering and pending hashes stay outside it', async () => {

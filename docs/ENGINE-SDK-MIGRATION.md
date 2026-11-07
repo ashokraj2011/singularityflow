@@ -179,6 +179,11 @@ submission dispositions, normalized decision-input recording and checked human-v
 pure kernel owners. Native admission, execution, evidence promotion and transaction sequencing
 remain unchanged; portable lifecycle writers are still a later gate.
 
+The [lifecycle admission boundary](ENGINE-SDK-LIFECYCLE-ADMISSION.md) gives native transitions and
+structural simulation one phase-sequence/role/reviewer policy owner. Native confirmation, audit and
+command wording remain outside the kernel; overlapping confirmation scopes are isolated. This
+provides more of the policy required by portable lifecycle ports without changing installed authority.
+
 The [workflow decision interpreter](ENGINE-SDK-WORKFLOW-DECISIONS.md) owns branch, bounded-loop and
 human-choice rules independently of native record hashing and host presentation. Compiler and
 runtime share one pure owner; identity, expected-question validation and publication retain their

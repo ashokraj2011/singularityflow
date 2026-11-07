@@ -1,4 +1,4 @@
-/** Current-phase selection and composition admission. No command names, prompt prose or I/O. */
+/** Phase selection, role/compiler policy and composition admission. No command rendering or I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 
 export function currentEntryPhase(workflow,phaseId=null,{allowTerminal=false}={}) {
@@ -54,4 +54,70 @@ export function phaseAdmissionActions(actions,admission,{authoring,recovery}={})
   const rank=action=>action.id?.startsWith('review-evidence-contract:')?0:action.id==='working-tree'?1
     :action.id==='set-aside-worktree'?2:action.id==='commit-reviewed-worktree'?4:3;
   return [...actions].sort((left,right)=>rank(left)-rank(right));
+}
+
+export function readOnlyAgent(config, workflow, session) {
+  const id = session?.agent;
+  if (!id) return null;
+  const mode = config?.agents?.[id]?.metadata?.['sflow-mode'];
+  if (['read-only', 'read-only-review'].includes(mode)) return { id, mode };
+  if (id === workflow?.resolution?.sourceReview?.reviewerAgent) return { id, mode: 'read-only-review' };
+  return null;
+}
+
+/** Role eligibility is independent of host commands, session persistence and review wording. */
+export function phaseAgentMutationFacts(config, workflow, phase, session, operation) {
+  const agent = readOnlyAgent(config, workflow, session);
+  if (!agent) return { allowed: true };
+  return { allowed: false, code: agent.mode === 'read-only-review'
+    ? `SOURCE_REVIEW_REVIEWER_CANNOT_${operation.toUpperCase().replaceAll('-', '_')}` : 'READ_ONLY_AGENT_CANNOT_MUTATE',
+  category: 'agent-role', phase: phase?.id ?? null, workId: workflow?.workItem?.id ?? null,
+  agent, author: phase?.defaultAgent ?? null };
+}
+
+/** The optional reviewability predicate is the trusted compiler's structural rule, never SDK request data. */
+export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workflow', phases = [], reviewable = null } = {}) {
+  if (value == null) return { mode: 'off', phases: [], reviewerAgent: null };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview must be an object.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!['mode', 'phases', 'reviewerAgent'].includes(key)) {
+      throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview has unknown field '${key}'.`);
+    }
+  }
+  const mode = value.mode ?? 'off';
+  if (!['off', 'enforce'].includes(mode)) {
+    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.mode must be off or enforce.`);
+  }
+  const selected = value.phases ?? [];
+  if (!Array.isArray(selected) || new Set(selected).size !== selected.length
+      || selected.some((phase) => !phases.includes(phase) || (reviewable && !reviewable(phase)))) {
+    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.phases must list distinct active steps that define the scope or plan the claims.`);
+  }
+  const reviewerAgent = value.reviewerAgent ?? null;
+  if (reviewerAgent != null && (typeof reviewerAgent !== 'string'
+      || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(reviewerAgent))) {
+    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.reviewerAgent must be an agent ID.`);
+  }
+  if (mode === 'enforce' && (!selected.length || !reviewerAgent)) {
+    throw new SingularityFlowError(`Work type '${workTypeId}' enforced sourceReview needs phases and reviewerAgent.`);
+  }
+  return { mode, phases: selected, reviewerAgent };
+}
+
+export function assertSourceReviewerAvailable(policy, agents, { workTypeId = 'workflow' } = {}) {
+  if (policy?.mode !== 'enforce') return;
+  const reviewer = agents?.find((agent) => agent.id === policy.reviewerAgent);
+  if (!reviewer || reviewer.metadata?.['sflow-mode'] !== 'read-only-review') {
+    throw new SingularityFlowError(
+      `Work type '${workTypeId}' requires reviewer '${policy.reviewerAgent}' with sflow-mode: read-only-review.`,
+      { code: 'SOURCE_REVIEW_AGENT_UNAVAILABLE' }
+    );
+  }
+  const collisions = (policy.phases ?? []).filter((id) => reviewer.defaultFor?.includes(id));
+  if (collisions.length) throw new SingularityFlowError(
+    `Work type '${workTypeId}' cannot use '${reviewer.id}' as both author and independent reviewer of ${collisions.join(', ')}. Choose a writable default author.`,
+    { code: 'SOURCE_REVIEW_AUTHOR_COLLISION', details: { workTypeId, reviewerAgent: reviewer.id, phases: collisions } }
+  );
 }

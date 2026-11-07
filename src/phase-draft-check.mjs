@@ -27,7 +27,7 @@ import { inspectCodeDocumentation } from './code-documentation-inspection.mjs';
 import { inspectUnclaimedChangedPaths } from './spec-coverage-preview.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { traceabilityDraftFingerprint, traceabilityRepairProjection } from './traceability-repair.mjs';
-import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
+import { phaseAgentMutationRestriction } from './phase-transition-routes.mjs';
 import { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 import { phaseGovernanceHold } from './phase-transition-routes.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';

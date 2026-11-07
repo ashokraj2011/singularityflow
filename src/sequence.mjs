@@ -2,6 +2,7 @@ import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import readline from 'node:readline/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { stdin as input, stdout as output } from 'node:process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,14 +14,14 @@ import { gitDir } from './git.mjs';
 import { effectivePhasePublicationProducer, phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { operationContext } from './operation-context.mjs';
-import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './kernel/lifecycle-transitions.mjs';
+import { currentSequencePhase, sequenceGateMode, sequenceAdmission, applyConfirmedSequenceState } from './kernel/lifecycle-transitions.mjs';
 import { cancelledStoryRefusal } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 
 export { phaseNeedsGeneration };
 
 const confirmed = new WeakMap();
-let activeConfirmationPort = null;
+const confirmationPorts = new AsyncLocalStorage();
 
 /**
  * The publication route guidance names for the run's model mode: with a model, the configured
@@ -41,13 +42,10 @@ export function phasePublicationCommandForMode(phase, {
 }
 
 function activePhase(workflow) {
-  return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+  return currentSequencePhase(workflow);
 }
 
-export function sequenceGateMode(workflow, gate) {
-  const gates = workflow.resolution?.sequenceGates;
-  return (gates?.[gate] ?? gates?.default) === 'soft' ? 'soft' : 'hard';
-}
+export { sequenceGateMode };
 
 export { phaseExplicitlyReopened } from './kernel/phase-policy.mjs';
 
@@ -273,16 +271,13 @@ async function askToContinue(message, gate, next = null) {
 }
 
 /** Port used by terminal and editor confirmation adapters. */
-export async function confirmOverride({ message, gate, next = null }, confirmationPort = activeConfirmationPort ?? askToContinue) {
+export async function confirmOverride({ message, gate, next = null }, confirmationPort = confirmationPorts.getStore() ?? askToContinue) {
   return confirmationPort(message, gate, next);
 }
 
 /** Scope one surface adapter to one command; it can never leak into the next invocation. */
 export async function withConfirmationPort(confirmationPort, operation) {
-  const previous = activeConfirmationPort;
-  activeConfirmationPort = confirmationPort;
-  try { return await operation(); }
-  finally { activeConfirmationPort = previous; }
+  return confirmationPorts.run(confirmationPort, () => operation());
 }
 
 async function recordOverride(root, workflow, gate, action, { requestedPhase, reason, before }) {
@@ -343,106 +338,39 @@ export async function enforceSequenceGate(root, workflow, gate, action, { reques
   return record;
 }
 
-function switchCurrentPhase(workflow, phase, at) {
-  const targetIndex = workflow.phaseOrder.indexOf(phase.id);
-  for (let index = 0; index < workflow.phaseOrder.length; index += 1) {
-    const candidate = workflow.phases[workflow.phaseOrder[index]];
-    if (candidate.id === phase.id) {
-      candidate.status = 'in_progress';
-      candidate.startedAt ??= at;
-      candidate.submittedAt = null;
-      candidate.approvedAt = null;
-      candidate.approvedBy = null;
-      clearDecisionState(candidate);
-      clearApprovalDisposition(candidate);
-      continue;
-    }
-    if (['in_progress', 'awaiting_approval'].includes(candidate.status) || index > targetIndex) {
-      candidate.status = 'not_started';
-      candidate.submittedAt = null;
-      candidate.approvedAt = null;
-      candidate.approvedBy = null;
-      clearDecisionState(candidate);
-      clearApprovalDisposition(candidate);
-    }
-    if (index >= targetIndex) candidate.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
+function sequenceReasonMessage(workflow, reason) {
+  switch (reason.kind) {
+    case 'pending-decision': return `The Story is waiting for a decision: '${reason.label}'. Choose with singularity-flow decision choose ${reason.workId}.`;
+    case 'cancelled': return cancelledStoryRefusal(workflow).message;
+    case 'reopen': return `The completed workflow must be reopened at '${reason.phase}' to continue.`;
+    case 'no-reopen-target': return 'No valid phase is available to reopen.';
+    case 'current-phase-only': return `Only the current phase '${reason.current}' may change; '${reason.requested}' is ${reason.status}.`;
+    case 'unknown-phase': return `'${reason.phase}' is not part of this workflow.`;
+    case 'status-required': return `This action requires status ${reason.allowedStatuses.join(' or ')}, but '${reason.phase}' is ${reason.status}.`;
+    default: throw new SingularityFlowError('The sequence decision has an unsupported reason.', { code: 'LIFECYCLE_TRANSITION_INVALID' });
   }
-  // A deliberate jump supersedes any question that was waiting for a person.
-  delete workflow.pendingDecision;
-  workflow.currentPhase = phase.id;
-  workflow.status = 'in_progress';
 }
 
-function reconcileStatus(workflow, phase, allowedStatuses, at) {
-  const desired = allowedStatuses[0];
-  if (desired === 'in_progress') {
-    phase.status = 'in_progress';
-    phase.submittedAt = null;
-    phase.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
-    clearApprovalDisposition(phase);
-  } else if (desired === 'awaiting_approval') {
-    phase.status = 'awaiting_approval';
-    phase.submittedAt ??= at;
-    clearApprovalDisposition(phase);
-  }
-  workflow.currentPhase = phase.id;
-  workflow.status = 'in_progress';
-}
-
-/** Pure decision: it inspects lifecycle state but never prompts or mutates it. */
+/** Compatibility wording over the kernel's state-only decision; never prompts or mutates. */
 export function evaluateSequence(workflow, {
   requestedPhase = null,
   allowedStatuses = ['in_progress']
 } = {}) {
-  const phase = activePhase(workflow);
-  // A Story waiting for a person moves only by that person's choice. The approved phase before the
-  // decision must not be reconciled back into progress by a soft status gate.
-  if (workflow.pendingDecision) {
-    return {
-      allowed: false, gate: 'decision', targetPhase: workflow.pendingDecision.after, invalid: true,
-      reason: `The Story is waiting for a decision: '${workflow.pendingDecision.label}'. Choose with singularity-flow decision choose ${workflow.workItem.id}.`
-    };
-  }
-  if (workflow.status === 'cancelled') {
-    return { allowed: false, gate: 'completion', targetPhase: null, invalid: true, reason: cancelledStoryRefusal(workflow).message };
-  }
-  if (!phase) {
-    const target = requestedPhase ? workflow.phases?.[requestedPhase] : completionPhaseOf(workflow);
-    return target
-      ? { allowed: false, gate: 'completion', targetPhase: target.id, effect: 'switch', reason: `The completed workflow must be reopened at '${target.id}' to continue.` }
-      : { allowed: false, gate: 'completion', targetPhase: requestedPhase, invalid: true, reason: 'No valid phase is available to reopen.' };
-  }
-  if (requestedPhase && requestedPhase !== phase.id) {
-    const requested = workflow.phases?.[requestedPhase];
-    return requested
-      ? { allowed: false, gate: 'currentPhase', targetPhase: requestedPhase, effect: 'switch', reason: `Only the current phase '${phase.id}' may change; '${requestedPhase}' is ${requested.status}.` }
-      : { allowed: false, gate: 'currentPhase', targetPhase: requestedPhase, invalid: true, reason: `'${requestedPhase}' is not part of this workflow.` };
-  }
-  if (!allowedStatuses.includes(phase.status)) {
-    return {
-      allowed: false,
-      gate: 'phaseStatus',
-      targetPhase: phase.id,
-      effect: 'status',
-      allowedStatuses: [...allowedStatuses],
-      reason: `This action requires status ${allowedStatuses.join(' or ')}, but '${phase.id}' is ${phase.status}.`
-    };
-  }
-  return { allowed: true, phaseId: phase.id };
+  const decision = sequenceAdmission(workflow, { requestedPhase, allowedStatuses });
+  if (decision.allowed) return decision;
+  return { ...decision, reason: sequenceReasonMessage(workflow, decision.reason) };
 }
 
 /** Pure reducer: returns a new aggregate after an already-confirmed decision. */
 export function applySequenceDecision(workflow, decision, at) {
   const next = structuredClone(workflow);
-  const phase = next.phases?.[decision.targetPhase];
+  const phase = Object.hasOwn(next.phases ?? {}, decision.targetPhase) ? next.phases[decision.targetPhase] : null;
   if (!phase) throw sequenceError(next, 'apply a sequence decision', {
     gate: decision.gate,
     requestedPhase: decision.targetPhase,
     reason: decision.reason
   });
-  if (decision.effect === 'switch') switchCurrentPhase(next, phase, at);
-  else if (decision.effect === 'status') reconcileStatus(next, phase, decision.allowedStatuses, at);
-  return next;
+  return applyConfirmedSequenceState(next, phase, decision, at);
 }
 
 export async function assertPhaseSequence(root, workflow, action, { requestedPhase = null, allowedStatuses = ['in_progress'] } = {}) {

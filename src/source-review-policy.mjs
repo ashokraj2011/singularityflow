@@ -1,39 +1,11 @@
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
 
 /** A pinned, opt-in gate. Older Story resolutions without this field stay unchanged. */
 /**
  * `reviewable(phaseId)`, when given, says whether a step defines the scope or plans the claims; the
  * policy is read from the step's structure, never its name [E2G-001].
  */
-export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workflow', phases = [], reviewable = null } = {}) {
-  if (value == null) return { mode: 'off', phases: [], reviewerAgent: null };
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview must be an object.`);
-  }
-  for (const key of Object.keys(value)) {
-    if (!['mode', 'phases', 'reviewerAgent'].includes(key)) {
-      throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview has unknown field '${key}'.`);
-    }
-  }
-  const mode = value.mode ?? 'off';
-  if (!['off', 'enforce'].includes(mode)) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.mode must be off or enforce.`);
-  }
-  const selected = value.phases ?? [];
-  if (!Array.isArray(selected) || new Set(selected).size !== selected.length
-      || selected.some((phase) => !phases.includes(phase) || (reviewable && !reviewable(phase)))) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.phases must list distinct active steps that define the scope or plan the claims.`);
-  }
-  const reviewerAgent = value.reviewerAgent ?? null;
-  if (reviewerAgent != null && (typeof reviewerAgent !== 'string'
-      || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(reviewerAgent))) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.reviewerAgent must be an agent ID.`);
-  }
-  if (mode === 'enforce' && (!selected.length || !reviewerAgent)) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' enforced sourceReview needs phases and reviewerAgent.`);
-  }
-  return { mode, phases: selected, reviewerAgent };
-}
+export { normalizeSourceReviewPolicy, assertSourceReviewerAvailable } from './kernel/phase-admission.mjs';
 
 export { sourceReviewRequired, sourceReviewAuthorConflict } from './kernel/phase-policy.mjs';
 
@@ -49,20 +21,4 @@ export function assertIntentAmendmentAcknowledged(workflow) {
     details: { workId: workflow.workItem.id, phase: workflow.currentPhase,
       actions: [{ command, skill: '/sf-reject', detail: 'Review the amendment and acknowledge only with an explicit human choice.' }] }
   });
-}
-
-export function assertSourceReviewerAvailable(policy, agents, { workTypeId = 'workflow' } = {}) {
-  if (policy?.mode !== 'enforce') return;
-  const reviewer = agents?.find((agent) => agent.id === policy.reviewerAgent);
-  if (!reviewer || reviewer.metadata?.['sflow-mode'] !== 'read-only-review') {
-    throw new SingularityFlowError(
-      `Work type '${workTypeId}' requires reviewer '${policy.reviewerAgent}' with sflow-mode: read-only-review.`,
-      { code: 'SOURCE_REVIEW_AGENT_UNAVAILABLE' }
-    );
-  }
-  const collisions = (policy.phases ?? []).filter((id) => reviewer.defaultFor?.includes(id));
-  if (collisions.length) throw new SingularityFlowError(
-    `Work type '${workTypeId}' cannot use '${reviewer.id}' as both author and independent reviewer of ${collisions.join(', ')}. Choose a writable default author.`,
-    { code: 'SOURCE_REVIEW_AUTHOR_COLLISION', details: { workTypeId, reviewerAgent: reviewer.id, phases: collisions } }
-  );
 }

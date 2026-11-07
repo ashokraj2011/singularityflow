@@ -66,7 +66,7 @@ import { approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROV
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
-import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
+import { assertPhaseAgentMayMutate } from './phase-transition-routes.mjs';
 
 import { phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths, verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { storyTestScope, TEST_SCOPES } from './code-delivery-policy.mjs';

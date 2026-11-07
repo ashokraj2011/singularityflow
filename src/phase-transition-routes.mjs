@@ -1,5 +1,6 @@
 /** Host wording and command rendering for provider-neutral continuation actions. */
 import { convergenceTransitionPlan, sourceReviewContinuationPlan, phaseGovernancePlan, phaseHandoffPlan, workflowGuidePlan } from './kernel/phase-policy.mjs';
+import { phaseAgentMutationFacts } from './kernel/phase-admission.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
@@ -188,4 +189,25 @@ export function guideText(guide) {
     ...guide.nextActions.flatMap((action) => [action.reason, '', ...commandRouteLines(safeCommandGuidance(action) ?? safeCommandGuidance(action.command) ?? {}), ''])
   ];
   return `${lines.join('\n')}\n`;
+}
+
+export function phaseAgentMutationRestriction(config, workflow, phase, session, operation) {
+  const facts = phaseAgentMutationFacts(config, workflow, phase, session, operation);
+  if (facts.allowed) return null;
+  const { agent, author } = facts;
+  const command = author ? `singularity-flow agent --agent ${author}` : null;
+  return {
+    code: facts.code,
+    category: facts.category, phase: facts.phase, workId: facts.workId,
+    message: `The read-only ${agent.mode === 'read-only-review' ? 'source reviewer' : 'agent'} '${agent.id}' cannot ${operation.replaceAll('-', ' ')} phase '${phase?.id}'. Select the configured phase author${command ? ` with ${command}` : ''}; preserve published authorship and review history.`,
+    actions: [{ command, skill: command ? '/sf-agent' : null,
+      detail: 'Select the accepted phase author before any lifecycle mutation.' }]
+  };
+}
+
+export function assertPhaseAgentMayMutate(config, workflow, phase, session, operation) {
+  const restriction = phaseAgentMutationRestriction(config, workflow, phase, session, operation);
+  if (restriction) throw new SingularityFlowError(restriction.message, {
+    code: restriction.code, details: restriction
+  });
 }

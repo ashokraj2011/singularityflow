@@ -1,8 +1,8 @@
 /** Deterministic structural scenarios only. No receipts, permissions or runtime effects are minted. */
-import { isConvergencePhase } from './kernel/phase-policy.mjs';
+import { isConvergencePhase, phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { recordSha256 } from './records.mjs';
-import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
+import { sequenceAdmission as evaluateSequence, sequenceGateMode } from './kernel/lifecycle-transitions.mjs';
 import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
   remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeReworkLoops, normalizeRepairBudget, repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';

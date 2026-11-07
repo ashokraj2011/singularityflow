@@ -2,7 +2,7 @@
 import { assertStoryNotArchived } from '../governance-archive.mjs';
 import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
 import { loadSession } from '../session.mjs';
-import { assertPhaseAgentMayMutate } from '../phase-actor-policy.mjs';
+import { assertPhaseAgentMayMutate } from '../phase-transition-routes.mjs';
 import { assertPhaseGovernanceMayAdvance } from '../phase-transition-routes.mjs';
 import { verifyAcceptedTestCommandAmendment } from '../story-test-command-amendment.mjs';
 import { assertNoPendingPublication } from '../story-publication-pending.mjs';

@@ -487,3 +487,101 @@ export function recordGenerationPublication(phase, generationPublication) {
     generationPublication
   ].sort((left, right) => Number(left.generation) - Number(right.generation));
 }
+
+export function sequenceGateMode(workflow, gate) {
+  const gates = workflow.resolution?.sequenceGates;
+  return (gates?.[gate] ?? gates?.default) === 'soft' ? 'soft' : 'hard';
+}
+
+/** A lifecycle dictionary's inherited properties never name configured phases. */
+export function currentSequencePhase(workflow) {
+  const id = workflow.currentPhase;
+  return id && Object.hasOwn(workflow.phases ?? {}, id) ? workflow.phases[id] ?? null : null;
+}
+
+/** State-only admission facts. Soft mode requires an independently confirmed host decision. */
+export function sequenceAdmission(workflow, { requestedPhase = null, allowedStatuses = ['in_progress'] } = {}) {
+  const phase = currentSequencePhase(workflow);
+  const selected = id => id && Object.hasOwn(workflow.phases ?? {}, id) ? workflow.phases[id] : null;
+  if (workflow.pendingDecision) return {
+    allowed: false, gate: 'decision', targetPhase: workflow.pendingDecision.after, invalid: true,
+    reason: { kind: 'pending-decision', label: workflow.pendingDecision.label, workId: workflow.workItem.id }
+  };
+  if (workflow.status === 'cancelled') return {
+    allowed: false, gate: 'completion', targetPhase: null, invalid: true, reason: { kind: 'cancelled' }
+  };
+  if (!phase) {
+    const candidate = requestedPhase ? selected(requestedPhase) : completionPhaseOf(workflow);
+    const target = candidate && Object.hasOwn(workflow.phases ?? {}, candidate.id) ? candidate : null;
+    return target ? { allowed: false, gate: 'completion', targetPhase: target.id, effect: 'switch', reason: { kind: 'reopen', phase: target.id } }
+      : { allowed: false, gate: 'completion', targetPhase: requestedPhase, invalid: true, reason: { kind: 'no-reopen-target' } };
+  }
+  if (requestedPhase && requestedPhase !== phase.id) {
+    const requested = selected(requestedPhase);
+    return requested ? { allowed: false, gate: 'currentPhase', targetPhase: requestedPhase, effect: 'switch',
+      reason: { kind: 'current-phase-only', current: phase.id, requested: requestedPhase, status: requested.status } }
+      : { allowed: false, gate: 'currentPhase', targetPhase: requestedPhase, invalid: true,
+        reason: { kind: 'unknown-phase', phase: requestedPhase } };
+  }
+  if (!allowedStatuses.includes(phase.status)) return {
+    allowed: false, gate: 'phaseStatus', targetPhase: phase.id, effect: 'status', allowedStatuses: [...allowedStatuses],
+    reason: { kind: 'status-required', allowedStatuses: [...allowedStatuses], phase: phase.id, status: phase.status }
+  };
+  return { allowed: true, phaseId: phase.id };
+}
+
+/** Mutates only the proposed aggregate, after the owner obtained the required confirmation. */
+export function applyConfirmedSequenceState(workflow, phase, decision, at) {
+  if (!Object.hasOwn(workflow.phases ?? {}, decision.targetPhase) || workflow.phases[decision.targetPhase] !== phase) {
+    throw new SingularityFlowError('Sequence reconciliation requires its selected existing phase.', { code: 'LIFECYCLE_TRANSITION_INVALID' });
+  }
+  if (decision.effect === 'switch') switchCurrentPhase(workflow, phase, at);
+  else if (decision.effect === 'status') reconcileStatus(workflow, phase, decision.allowedStatuses, at);
+  return workflow;
+}
+
+function switchCurrentPhase(workflow, phase, at) {
+  const targetIndex = workflow.phaseOrder.indexOf(phase.id);
+  for (let index = 0; index < workflow.phaseOrder.length; index += 1) {
+    const candidate = workflow.phases[workflow.phaseOrder[index]];
+    if (candidate.id === phase.id) {
+      candidate.status = 'in_progress';
+      candidate.startedAt ??= at;
+      candidate.submittedAt = null;
+      candidate.approvedAt = null;
+      candidate.approvedBy = null;
+      clearDecisionState(candidate);
+      clearApprovalDisposition(candidate);
+      continue;
+    }
+    if (['in_progress', 'awaiting_approval'].includes(candidate.status) || index > targetIndex) {
+      candidate.status = 'not_started';
+      candidate.submittedAt = null;
+      candidate.approvedAt = null;
+      candidate.approvedBy = null;
+      clearDecisionState(candidate);
+      clearApprovalDisposition(candidate);
+    }
+    if (index >= targetIndex) candidate.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
+  }
+  // A deliberate jump supersedes any question that was waiting for a person.
+  delete workflow.pendingDecision;
+  workflow.currentPhase = phase.id;
+  workflow.status = 'in_progress';
+}
+
+function reconcileStatus(workflow, phase, allowedStatuses, at) {
+  const desired = allowedStatuses[0];
+  if (desired === 'in_progress') {
+    phase.status = 'in_progress';
+    phase.submittedAt = null;
+    phase.approvals?.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = at; });
+    clearApprovalDisposition(phase);
+  } else if (desired === 'awaiting_approval') {
+    phase.status = 'awaiting_approval';
+    phase.submittedAt ??= at;
+    clearApprovalDisposition(phase);
+  }
+  workflow.currentPhase = phase.id;
+  workflow.status = 'in_progress';
+}

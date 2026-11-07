@@ -8,7 +8,7 @@ import { assertAutoCandidateMatches, autoCandidatePublicationFromEnvironment, ob
 import { assertConvergencePublicationReady } from '../convergence-context.mjs';
 import { assertIntentAmendmentAcknowledged } from '../source-review-policy.mjs';
 import { assertNoPendingPublication } from '../story-publication-pending.mjs';
-import { assertPhaseAgentMayMutate } from '../phase-actor-policy.mjs';
+import { assertPhaseAgentMayMutate } from '../phase-transition-routes.mjs';
 import { assertPhasePublicationReadiness } from '../phase-publication-readiness.mjs';
 import { assertPhaseSequence, phaseNeedsGeneration, phasePublicationCommandForMode } from '../sequence.mjs';
 import { assertProducerAllowed } from '../kernel/phase-policy.mjs';

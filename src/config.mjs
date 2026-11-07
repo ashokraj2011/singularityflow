@@ -50,7 +50,7 @@ import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs
 import { normalizeDecisions } from './kernel/workflow-decisions.mjs';
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
-import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
+import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './kernel/phase-admission.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';

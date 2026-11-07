@@ -1,5 +1,6 @@
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
-import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
+import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
+import { sequenceGateMode } from './kernel/lifecycle-transitions.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand, approvalHoldContinuation } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';

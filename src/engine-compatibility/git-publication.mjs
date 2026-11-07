@@ -6,7 +6,7 @@ import { actionActor } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { generationResultMatches, prefetchStoryPublicationObservation, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
 import { nextPhaseGeneration } from '../kernel/phase-policy.mjs';
-import { phaseAgentMutationRestriction } from '../phase-actor-policy.mjs';
+import { phaseAgentMutationRestriction } from '../phase-transition-routes.mjs';
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from '../code-delivery-policy.mjs';

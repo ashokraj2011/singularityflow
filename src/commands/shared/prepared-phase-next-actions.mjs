@@ -2,7 +2,7 @@
 import { action as narrationAction } from '../../narration/command-result.mjs';
 import { convergencePreparationState } from './convergence-preparation-state.mjs';
 import { generationSkillForPhase, phaseKernelOwned } from '../../code-delivery-policy.mjs';
-import { phasePublicationCommandForProducer, phasePublicationContract } from '../../manual-authorship.mjs';
+import { phasePublicationCommandForProducer, phasePublicationContract } from '../../phase-publication-guidance.mjs';
 
 const ITEMS_NAMED = 8;
 

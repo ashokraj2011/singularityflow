@@ -1,4 +1,5 @@
-import { nextPhaseGeneration, groundingRecordRelative } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
+import { groundingRecordRelative } from './story-paths.mjs';
 import { clarificationRecordRelative } from './story-paths.mjs';
 import { pinnedClarificationPolicy } from './phase-staging-paths.mjs';
 export { clarificationRecordRelative };

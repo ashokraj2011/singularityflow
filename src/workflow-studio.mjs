@@ -10,7 +10,7 @@
  * the way a Configuration Center save validates one file, and only then are the changed files
  * written — in one review proposal, or in a local authority's working tree.
  */
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import path from 'node:path';

@@ -1,5 +1,5 @@
-import { isVisualVerificationPhase } from './phase-roles.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { isVisualVerificationPhase } from './kernel/phase-policy.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';

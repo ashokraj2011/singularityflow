@@ -1,6 +1,6 @@
 /** Versioned, read-only phase interpretation and runtime-topology admission. */
 import { bindAcceptedPhaseInterpretation, artifactKindOf, isConvergencePhase,
-  isConformancePhase, isVisualVerificationPhase } from './phase-roles.mjs';
+  isConformancePhase, isVisualVerificationPhase } from './kernel/phase-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseResponsibilities } from './evidence/responsibilities.mjs';
 import { isKnownPackagedAssetHash } from './packaged-asset-history.mjs';

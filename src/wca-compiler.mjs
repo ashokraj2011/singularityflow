@@ -1,5 +1,5 @@
 /** Deterministic, source-bound authoring preview. Nothing here approves, installs or executes. */
-import { artifactKindOf, isConformancePhase } from './phase-roles.mjs';
+import { artifactKindOf, isConformancePhase } from './kernel/phase-policy.mjs';
 import { readFile, lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';

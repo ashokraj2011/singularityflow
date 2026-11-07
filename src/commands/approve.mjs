@@ -8,7 +8,7 @@ async function phaseReview(...args) { return (await import('./shared/phase-revie
 import { requireApprovalAuthority, remainingRequiredAuthorities, sameApprover } from '../approval-authority.mjs';
 import { confirm, activeActionContext } from './kernel.mjs';
 import { checklistDecisions } from './shared/checklist-decisions.mjs';
-import { isConvergencePhase } from '../phase-roles.mjs';
+import { isConvergencePhase } from '../kernel/phase-policy.mjs';
 import { assertConvergencePublicationReady } from '../convergence-context.mjs';
 import { withRefusalMemory } from './shared/with-refusal-memory.mjs';
 import { actorKey, transactStory, approvePhase, workflowPublicationBranch } from '../state-stores.mjs';

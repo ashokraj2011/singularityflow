@@ -11,7 +11,7 @@ import { assertClean, branch, checkout, fetchRemote, fileAtRef, refExists, repoR
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from '../../repository-subject-index.mjs';
 import { localStorySubjectIndex } from '../../local-story-subject-index.mjs';
 import { stateStorySubjectIndex } from '../../session-story-discovery.mjs';
-import { currentPhase } from '../../phase-generation.mjs';
+import { currentPhase } from '../../kernel/phase-policy.mjs';
 import { resolveWorkItem, validateId } from '../../state-stores.mjs';
 import { phasePreparationCommandLines } from '../../phase-preparation-guidance.mjs';
 import { loadDefinition, resolveWorkType, WORKFLOW_PATH } from '../../config.mjs';

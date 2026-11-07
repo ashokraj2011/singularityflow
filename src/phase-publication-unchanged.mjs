@@ -13,7 +13,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { changedFiles, committedChangedPaths, exactFileAtObject } from './git.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './phase-inspection-generation.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 
 export async function documentUnchangedSincePublication(root, config, workflow, phase) {
   if (phase?.status !== 'in_progress' || phaseRequiresCodeDelivery(phase) || isConvergencePhase(phase)

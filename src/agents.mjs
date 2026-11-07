@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { retainedSkillExpansion } from './retained-skill-instructions.mjs';
 import { resolveSkillInstructions } from './instruction-library.mjs';
 import { composeSkillInstructions } from './skill-instruction-composition.mjs';

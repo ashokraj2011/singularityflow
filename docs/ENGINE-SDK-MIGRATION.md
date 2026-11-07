@@ -73,7 +73,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 1 | Pure shared errors/outcomes, compatibility exports and transitive import guards | Implemented; qualification recorded below |
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
-| 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Planned; one chosen transport per surface operation |
+| 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | Planned; extract each operation's rules alongside its orchestration |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
@@ -215,3 +215,40 @@ This is component qualification, rather than a full product or alternate-backend
 integration runs used isolated machine state and local fixture remotes. No Windows, hosted CI or
 live provider qualification ran. Phase 4 is the publication SDK/registry vertical slice with explicit
 CLI result parity.
+
+## Phase 4 publication boundary
+
+The [publication slice](ENGINE-SDK-PUBLICATION.md) adds `engine.run('phase.publish', inputs)` and a
+typed helper over one versioned registry entry. The CLI uses that operation and owns its legacy
+JSON/text projection. Kernel phase/generation/producer rules now have one pure implementation;
+compatibility exports remain available, and publication command rendering stays in the host.
+The existing generation transition has moved out of the aggregate into an explicit native
+compatibility adapter, with the remaining aggregate dependencies named as collaborators.
+
+The pure SDK has four static source modules, 33,510 bytes and no Node builtin dependency. Native
+publication retains the installed Git authorities, receipts, actor checks, exact source/test/REV
+bindings and recovery. SDK calls isolate inherited advisory read scopes so a long-lived host cannot
+publish from its caller's stale preview. Alternate backends and standalone packaging remain later
+milestones; no existing project is migrated by this slice.
+
+Phase 4 qualification on macOS 26.7.2 with Node 26.12.0 passed 406 tests with no failures,
+cancellations or skips (167.5 seconds). The slow publication journeys were explicitly enabled.
+Coverage includes packaged/copied phases, source/CLI parity, fresh SDK mutation contexts, manual
+imports, hidden test runners, code evidence, monotonic generations, REV, failed publication and
+recovery, fault API compatibility, and source ownership/startup guards.
+
+`npm run check` passed 3,533 checks across 191 skills. VS Code typechecking, all 13 freshly rebuilt
+runtime bundle budgets, npm dry-run packaging and staged whitespace checks passed. Existing byte
+and module ceilings are unchanged. The gateway has 846 bundled source modules, as before. The new
+SDK/kernel/native compatibility modules and documentation ship in the Node package; tests do not.
+Windows, hosted CI and live provider runs were not started.
+
+The final build-identity check also covers the extracted intent rules and host renderer, so a
+development receipt cannot survive a change to either owner. Its 25 focused SDK/startup/build
+checks passed after that adjustment; the unchanged startup ceilings still pass.
+
+Remaining milestones retain their original scope: the other registered operations and manifests,
+filesystem storage, database/application embedding and standalone packaging, verified existing-
+project migration, then removal/qualification of obsolete paths. Publication's 26 named legacy
+collaborators remain explicit compatibility work rather than a claim that all engine rules have
+already left the aggregate.

@@ -33,7 +33,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
-import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './phase-roles.mjs';
+import { isConvergencePhase, isVisualVerificationPhase, reviewKindForResponsibilities } from './kernel/phase-policy.mjs';
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';

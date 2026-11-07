@@ -17,7 +17,7 @@
  * artifact was published, against sources this reader does not see, and one it cannot resolve here
  * shows as a clause not declared here rather than turning a valid artifact into a corrupt one.
  */
-import { stepResponsibilities } from '../../phase-roles.mjs';
+import { stepResponsibilities } from '../../kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

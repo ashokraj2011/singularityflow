@@ -1,5 +1,5 @@
 /** Lifecycle binding for configured structural predicates. */
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 

@@ -16,7 +16,7 @@
  * limit stops and asks instead of carrying on. Everything here is pure: it validates configuration
  * and computes outcomes. The lifecycle owner applies them, inside its own transaction.
  */
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';

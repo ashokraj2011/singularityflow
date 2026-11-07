@@ -1,5 +1,5 @@
 /** One read-only Convergence action, shared by readiness and every user-facing handoff. */
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 
 export function convergenceTransitionRoute(workflow, phase, { needsGeneration = false } = {}) {
   if (!isConvergencePhase(phase) || phase.status !== 'in_progress') return null;

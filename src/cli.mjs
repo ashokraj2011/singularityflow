@@ -19,7 +19,7 @@ import { printSelectionReceipt } from './commands/shared/print-selection-receipt
 import { riskAuthorities } from './evidence/risk-decisions.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
 import { recordPublishedWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
-import { isConvergencePhase, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
+import { isConvergencePhase, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
 import readline from 'node:readline/promises';
 import { actionActor, activatePhaseAgent, activeActionContext, summary } from './commands/kernel.mjs';
 import { createHash } from 'node:crypto';
@@ -37,13 +37,13 @@ import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exist
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, defaultBranchName, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
-import { currentPhase } from './phase-generation.mjs';
+import { currentPhase } from './kernel/phase-policy.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { applicationPathContext } from './work-intervals.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { prepareTelemetryLaunch, setTelemetryCapture, TELEMETRY_DISCLOSURE, TELEMETRY_DISCLOSURE_CONFIRMATION } from './telemetry-provision.mjs';
@@ -61,7 +61,8 @@ import { launchHostSession } from './host-session-launcher.mjs';
 import { assertModelInvocationAllowed, operationContext } from './operation-context.mjs';
 import { invokeModel, resolveModelProvider } from './model-runner.mjs';
 import { summarizingRoute } from './model-tiers.mjs';
-import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
+import { phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, pinnedInitializationStatus, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';

@@ -28,11 +28,15 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
   const contracts = ['src/sda/shared-state-contract.mjs', 'src/sda/lifecycle-authority-contract.mjs'];
   const namespaces = await sourceFiles('src/sda/namespace');
   const compatibilityContract = ['src/sda/git-compatibility-contract.mjs'];
+  const kernel = await sourceFiles('src/kernel');
+  const sdk = await sourceFiles('src/engine-sdk');
   for (const rule of [
     { entries: foundation, allowed: foundation },
     { entries: contracts, allowed: [...foundation, ...contracts] },
     { entries: namespaces, allowed: [...foundation, ...namespaces] },
-    { entries: compatibilityContract, allowed: [...foundation, ...contracts, ...namespaces, ...compatibilityContract] }
+    { entries: compatibilityContract, allowed: [...foundation, ...contracts, ...namespaces, ...compatibilityContract] },
+    { entries: kernel, allowed: [...foundation, ...kernel] },
+    { entries: sdk, allowed: [...foundation, ...kernel, ...sdk] }
   ]) {
     const report = await inspectPureModuleGraph({ root: packageRoot, ...rule });
     assert.deepEqual(report.problems, [],
@@ -85,6 +89,27 @@ test('Git compatibility composes existing owners without introducing another per
     './git-compatibility-contract.mjs'].sort());
   assert.deepEqual(dynamicImports.sort(), ['../approved-configuration-reader.mjs', '../configuration-proposal.mjs',
     './story-branch-authority.mjs', './git-ledger-adapter.mjs'].sort());
+});
+
+test('production consumers use kernel phase rules and only the compatibility aggregate opens the native generation transition',async()=>{
+  const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
+  const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs'].map(file=>path.join(packageRoot,file)));
+  const transition=path.join(packageRoot,'src/engine-compatibility/generation-publication.mjs');
+  const problems=[];
+  for(const relative of packageFiles){
+    const file=path.join(packageRoot,relative);
+    const source=ts.createSourceFile(relative,await readFile(file,'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      const specifier=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.')){
+        const target=path.resolve(path.dirname(file),specifier.text);
+        if(oldRules.has(target)||(target===transition&&relative!=='src/state.mjs'))problems.push(relative);
+      }
+      ts.forEachChild(node,visit);
+    };visit(source);
+  }
+  assert.deepEqual(problems,[],'old paths are compatibility exports, not another internal policy or write path');
 });
 
 test('application surfaces cannot bypass the revisioned state-store boundary', async () => {

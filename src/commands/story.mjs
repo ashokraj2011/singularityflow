@@ -15,7 +15,7 @@
  * service runs, so the call is safe, and keeping it dynamic is what stops the import cycle from
  * pulling the router's whole graph back in here.
  */
-import { convergencePhaseOf, intentAmendmentSource, scopeStepOf } from '../phase-roles.mjs';
+import { convergencePhaseOf, intentAmendmentSource, scopeStepOf } from '../kernel/phase-policy.mjs';
 import readline from 'node:readline/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -56,7 +56,8 @@ import { persistGenerationPublicationRecord } from '../generation-publication-st
 import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
-import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions } from '../manual-authorship.mjs';
+import { assertProducerAllowed, normalizeAuthorshipOptions } from '../kernel/phase-policy.mjs';
+import { buildGenerationAuthorship } from '../kernel/phase-policy.mjs';
 import { activateWorkItemSession } from '../session.mjs';
 import {
   evaluateSpecAcceptance,
@@ -66,7 +67,7 @@ import {
   mergeObservedClaimRecords,
   mergePlannedClaimRecords
 } from '../specifications.mjs';
-import { currentPhase } from '../phase-generation.mjs';
+import { currentPhase } from '../kernel/phase-policy.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { workDir } from '../story-paths.mjs';
 import { StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedScopeContent, commitAndPublish, createWorkflow, decideIntentAmendment, decideStorySkillVersion, loadConfig, preparePhase, previewReworkRollForward, previewStorySkillVersionDecision, previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework, saveStoryDraft, sourceTreeHash, storySkillVersionStatus, workflowPublicationBranch } from '../state-stores.mjs';

@@ -1,8 +1,8 @@
 /** Read-only drafting milestones. Neither source changes nor tests imply publication. */
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
-import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
+import { consumedByPublishedGeneration, nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
-import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 

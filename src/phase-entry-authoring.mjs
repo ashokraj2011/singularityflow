@@ -5,7 +5,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { createHash } from 'node:crypto';
 import { recoveryPlan } from './collaboration.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { gitDir } from './git-execution.mjs';

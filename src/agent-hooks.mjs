@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { currentPhase } from './phase-generation.mjs';
+import { currentPhase } from './kernel/phase-policy.mjs';
 import { loadDefinition, normalizeSessionPolicy } from './config.mjs';
 import { branch, identity } from './git.mjs';
 import { AGENT_MAPPING_PATH, agentStatus, resolveCopilotAgent } from './agents.mjs';
@@ -18,7 +18,8 @@ import {
   workspaceRegistryFile
 } from './workspace-context.mjs';
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
+import { phasePublicationAuthorship } from './kernel/phase-policy.mjs';
+import { phasePublicationCommand } from './phase-publication-guidance.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';

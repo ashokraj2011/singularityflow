@@ -1,5 +1,5 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_BOUNDARY_MODES = new Set(['keep', 'compact', 'new']);

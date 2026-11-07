@@ -13,7 +13,7 @@ import { normalizeRequiredTestCommand, parseTestResult, structuredTestCommandReq
 import { evaluateExternalCommandForModelMode, withCommandLiteralEnvironment } from './external-command-policy.mjs';
 import { head } from './git.mjs';
 import { operationContext } from './operation-context.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { localTestRunKernel as kernel, sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { workDirRelative } from './story-paths.mjs';

@@ -1,12 +1,12 @@
 import path from 'node:path';
 import { verifyClarificationRecord } from './clarifications.mjs';
 import { collectInputs, inputReadinessFindings } from './inputs.mjs';
-import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
 import { verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
-import { isVisualVerificationPhase } from './phase-roles.mjs';
+import { isVisualVerificationPhase } from './kernel/phase-policy.mjs';
 import { requiredStepActionHold } from './step-action-receipts.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';

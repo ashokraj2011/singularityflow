@@ -1,4 +1,4 @@
-import { scopeStepOf, stepResponsibilities } from '../phase-roles.mjs';
+import { scopeStepOf, stepResponsibilities } from '../kernel/phase-policy.mjs';
 import { readFile } from 'node:fs/promises';
 
 import { loadDefinition } from '../config.mjs';

@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -46,7 +46,7 @@ import {
   writeText
 } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { phasePublicationCommand } from './manual-authorship.mjs';
+import { phasePublicationCommand } from './phase-publication-guidance.mjs';
 import { phasePublicationCommandForMode } from './sequence.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';

@@ -9,7 +9,7 @@
  * of the plan merges them as one more planned record, so the plan's revision changes without
  * resetting any step. Pure.
  */
-import { stepResponsibilities } from './phase-roles.mjs';
+import { stepResponsibilities } from './kernel/phase-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { classifySupportingChange, SUPPORTING_CHANGE_CLASSES } from './supporting-changes.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';

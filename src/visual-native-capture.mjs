@@ -14,8 +14,8 @@
 import { randomUUID } from 'node:crypto';
 import { lstat, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { nextPhaseGeneration } from './phase-generation.mjs';
-import { isVisualVerificationPhase } from './phase-roles.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
+import { isVisualVerificationPhase } from './kernel/phase-policy.mjs';
 import { readPngHeader } from './png-rgba8.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic, writeJson } from './util.mjs';

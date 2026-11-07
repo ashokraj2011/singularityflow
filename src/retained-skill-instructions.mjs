@@ -1,5 +1,5 @@
 /** Optional procedures expand only from the verified Story closure, never a current URL/library. */
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { parseLibrarySkill } from './skill-library.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { composeSkillInstructions } from './skill-instruction-composition.mjs';

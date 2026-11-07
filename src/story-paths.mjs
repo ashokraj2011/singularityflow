@@ -1,7 +1,7 @@
 /** Canonical Story paths and branch membership, with no lifecycle mutation imports. */
 import path from 'node:path';
 import { posix } from './util.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 
 export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? 'singularity/work-items', id); }
 
@@ -26,3 +26,8 @@ export function workflowBranchAllowed(workflow, branchName) {
   return workflowBranchNames(workflow).includes(branchName);
 }
 
+
+/** Pure context-record location, without grounding, source-review or input readers. */
+export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
+  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
+}

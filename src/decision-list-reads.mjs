@@ -234,7 +234,7 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
     retained = await storyPublicationPending(root, config, workId, { migrate: false }).catch(() => false);
   }
   const transport = await failedUploads(root).catch(() => []);
-  const { scopeStepOf } = await import('./phase-roles.mjs');
+  const { scopeStepOf } = await import('./kernel/phase-policy.mjs');
   return {
     scopePhase: scopeStepOf(workflow)?.id ?? null,
     approvalCheck: check,

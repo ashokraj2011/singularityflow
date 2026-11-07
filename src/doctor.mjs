@@ -1,6 +1,6 @@
 import { submitRoute } from './submit-route.mjs';
 import { nodeRequirement } from './node-requirement.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { changes, hasRemote, hasUpstream, head } from './git.mjs';

@@ -3,7 +3,7 @@ import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { phasePrepublish } from './phase-prepublish.mjs';
 import { loadSession } from './session.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { phasePublicationContract } from './manual-authorship.mjs';
+import { phasePublicationContract } from './phase-publication-guidance.mjs';
 
 export async function inspectPublicationAction(root, snapshot, { modelEnabled = false } = {}) {
   // Story nextsteps use workId; Initiative nextsteps carry an explicit subject instead.

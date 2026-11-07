@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { conformancePhasesOf, isConformancePhase } from './phase-roles.mjs';
+import { conformancePhasesOf, isConformancePhase } from './kernel/phase-policy.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, decisionHeadline, decisionListRoute, decisionListRouteLine,
   upstreamIssueStates } from './upstream-routes.mjs';
 import { workDir } from './story-paths.mjs';

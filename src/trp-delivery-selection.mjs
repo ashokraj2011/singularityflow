@@ -1,5 +1,5 @@
 /** Resolve a pinned TRP delivery cohort without executing repository commands. */
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';

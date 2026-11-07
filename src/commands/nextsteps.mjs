@@ -1,4 +1,4 @@
-import { isConvergencePhase, isVisualVerificationPhase } from '../phase-roles.mjs';
+import { isConvergencePhase, isVisualVerificationPhase } from '../kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { phaseNeedsGeneration } from '../sequence.mjs';
 import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
-import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from '../kernel/phase-policy.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../phase-inspection-generation.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
@@ -22,7 +22,7 @@ import { authoringSkillCatalog } from '../authoring-skills.mjs';
 import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-presentation.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { repositoryCheckStatus } from '../repository-check-cache.mjs';
-import { groundingRecordRelative } from '../phase-generation.mjs';
+import { groundingRecordRelative } from '../story-paths.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');

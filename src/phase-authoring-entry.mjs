@@ -1,7 +1,7 @@
 import { phaseExplicitlyReopened } from './sequence.mjs';
 import { requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { copilotAction } from './copilot-guidance.mjs';

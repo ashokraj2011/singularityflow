@@ -27,7 +27,7 @@ import { planAmendmentRecord } from '../plan-amendments.mjs';
 import { secureRepositoryPath } from '../util.mjs';
 import { witnessContextBindings, witnessRecordResults } from '../verification/witness-records.mjs';
 import { applicabilityStatus } from './applicability.mjs';
-import { phaseOwnsScope } from '../phase-roles.mjs';
+import { phaseOwnsScope } from '../kernel/phase-policy.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
   extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,

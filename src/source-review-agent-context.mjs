@@ -1,6 +1,6 @@
 import { phaseEntryContext } from './phase-entry-context.mjs';
 import { sourceReviewContext } from './source-review-lifecycle.mjs';
-import { sourceReviewKind } from './phase-roles.mjs';
+import { sourceReviewKind } from './kernel/phase-policy.mjs';
 import { branch, gitDir } from './git-execution.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
 import { sourceReviewStagingPath } from './phase-staging-paths.mjs';

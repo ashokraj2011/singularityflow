@@ -17,10 +17,10 @@
  * the advanced operations, and a planner you can call without a repository is a planner you can
  * actually prove that about.
  */
-import { isConvergencePhase, isTestEvidencePhase, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
+import { isConvergencePhase, isTestEvidencePhase, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { workflowGuide } from './guide.mjs';
-import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { operationContext } from './operation-context.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';

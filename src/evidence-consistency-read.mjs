@@ -26,7 +26,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
   const reporting = phaseReadsWitnessDecisions(workflow, phase);
   let documents = options.documents ?? null;
   const findings = [];
-  const { isTestEvidencePhase } = await import('./phase-roles.mjs');
+  const { isTestEvidencePhase } = await import('./kernel/phase-policy.mjs');
   for (const entry of executionEvidence?.entries ?? []) {
     if (entry.status !== 'no-governed-tests-in-this-packet' || !isTestEvidencePhase(workflow.phases?.[entry.phase])) continue;
     const reused = (executionEvidence.reusedTestEvidence ?? []).filter((item) => item.phase === entry.phase && item.state === 'active');

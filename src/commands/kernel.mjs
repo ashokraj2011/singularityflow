@@ -16,7 +16,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { actionActor } from '../git.mjs';
 export { actionActor };
 import { storyLineageLines } from '../story-base-lineage.mjs';
-import { currentPhase } from '../phase-generation.mjs';
+import { currentPhase } from '../kernel/phase-policy.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 /**

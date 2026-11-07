@@ -18,7 +18,7 @@ import { repoRoot } from '../git.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { isVisualVerificationPhase } from '../phase-roles.mjs';
+import { isVisualVerificationPhase } from '../kernel/phase-policy.mjs';
 import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';

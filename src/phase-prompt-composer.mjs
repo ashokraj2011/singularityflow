@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { constitutionPromptContext } from './constitution-prompt.mjs';
 import { withoutAttachedSkills, withoutTableSection } from './skill-library.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
@@ -33,16 +33,14 @@ import { assertPhaseSequence } from './sequence.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
-import { phaseOwnsScope, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
+import { phaseOwnsScope, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { deriveMutationContract, mutationToolProtocol } from './phase-mutation-contract.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import {
   renderClarificationProtocol, resolvedClarificationPolicy
 } from './clarifications.mjs';
-import {
-  phasePublicationContract
-} from './manual-authorship.mjs';
+import { phasePublicationContract } from './phase-publication-guidance.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
 import { phaseExecutionEvidence, renderExecutionEvidence, withExecutionEvidenceRefresh } from './phase-execution-evidence.mjs';

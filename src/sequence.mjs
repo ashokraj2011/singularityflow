@@ -1,5 +1,5 @@
 import { submitRoute } from './submit-route.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -10,10 +10,8 @@ import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused, withCommandResult } from './narration/command-result.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
-import {
-  effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer,
-  phaseUsesDeterministicGeneration
-} from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer, phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
+import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { operationContext } from './operation-context.mjs';
 import { cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';

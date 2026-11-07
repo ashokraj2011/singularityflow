@@ -1,5 +1,5 @@
 /** One thin-pilot Auto phase step. Model execution is allowed only under `auto.flight-step`. */
-import { nextPhaseGeneration } from '../phase-generation.mjs';
+import { nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import path from 'node:path';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { spawn, spawnSync } from 'node:child_process';

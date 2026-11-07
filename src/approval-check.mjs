@@ -14,7 +14,7 @@ import { skillForCommandLine } from './command-skills.mjs';
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
-import { scopeStepOf } from './phase-roles.mjs';
+import { scopeStepOf } from './kernel/phase-policy.mjs';
 import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { workDirRelative } from './story-paths.mjs';

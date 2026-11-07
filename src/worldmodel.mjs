@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { SingularityFlowError, optionBoolean, optionString } from './util.mjs';
 import { operationContext } from './operation-context.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { loadSession } from './session.mjs';
 import { readPromptGeneration } from './inject.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';

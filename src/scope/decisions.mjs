@@ -7,7 +7,7 @@
  * decision binds the statement's hash, so it lapses when the statement changes.
  */
 import { omissionAuthorities } from '../evidence/applicability.mjs';
-import { stepResponsibilities } from '../phase-roles.mjs';
+import { stepResponsibilities } from '../kernel/phase-policy.mjs';
 import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-quality.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';

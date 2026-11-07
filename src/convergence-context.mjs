@@ -7,7 +7,7 @@ import {
   convergenceFacts, decodeConvergenceRecord
 } from './convergence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { convergencePhaseOf, isConvergencePhase, latestStepBefore, stepResponsibilities } from './phase-roles.mjs';
+import { convergencePhaseOf, isConvergencePhase, latestStepBefore, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { authoredArtifactFingerprint, authoredArtifactText, requiredArtifactRepoPath } from './publication-preflight.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';

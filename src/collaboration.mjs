@@ -1,10 +1,10 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { rm } from 'node:fs/promises';
 import {
   branch, changedFiles, changes, excludeAlwaysLocalNames, fetchRemote, hasUpstream, head, indexLockState, pullFastForward,
   refreshIndexEntries, storyIndexDrift
 } from './git.mjs';
-import { currentPhase } from './phase-generation.mjs';
+import { currentPhase } from './kernel/phase-policy.mjs';
 import { generationResultDigest, generationResultMatches, syncPublication } from './state-stores.mjs';
 import { inspectPendingPublication, retainedPublicationRemoteMoved } from './publication-pending.mjs';
 import { recordSha256 } from './records.mjs';

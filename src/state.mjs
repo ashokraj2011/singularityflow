@@ -1,10 +1,10 @@
 import { formatCommandRouteLines } from './model-free-commands.mjs';
-import { resolvedPhasePolicy, currentPhasePolicy, resolutionPolicySha256, storyHistoryCommits, initialWorkflowRecord, verifiedInitialPolicyAnchor, committedResolutionPolicySha256, committedResolutionPolicy, PROSPECTIVE_SKILL_AMENDMENT } from './story-policy-anchor.mjs';
+import { resolutionPolicySha256, storyHistoryCommits, initialWorkflowRecord, committedResolutionPolicy, PROSPECTIVE_SKILL_AMENDMENT } from './story-policy-anchor.mjs';
 import { validateId, statusPath, legacyPendingPublicationPath, storyStatusMarkdown, saveWorkflow } from './story-state-write.mjs';
 export { validateId, statusPath, storyStatusMarkdown, saveWorkflow };
-import { workflowPublicationMode, workflowPublicationBranch, storyLedgerSummary } from './story-publication-binding.mjs';
+import { workflowPublicationMode, workflowPublicationBranch } from './story-publication-binding.mjs';
 export { workflowPublicationBranch };
-import { repairRetainedPublication, assertNoPendingPublication, TRANSITION_REPAIR_SWITCH } from './story-publication-pending.mjs';
+import { assertNoPendingPublication } from './story-publication-pending.mjs';
 export { assertNoPendingPublication };
 import { validateWorkflow, requiredRepoPath } from './story-state-validation.mjs';
 export { validateWorkflow };
@@ -13,22 +13,18 @@ export { commitAndPublish };
 export { validatePhase, refreshPhaseSpecificationIndex, refreshSkillLifecycleArtifactIdentities, registerApprovedSnapshot, settleRetainedPhases, updateArtifactMetadata, writeDecision };
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
-import { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
+import { workDir, workDirRelative, workflowPath } from './story-paths.mjs';
 export { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
-import { loadWorkflow, attachLegacyGovernedRoots } from './story-workflow-read.mjs';
+import { attachLegacyGovernedRoots } from './story-workflow-read.mjs';
 export { loadWorkflow } from './story-workflow-read.mjs';
-import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 export { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { storyPublicationPending } from './story-publication-read.mjs';
 export { storyPublicationPending } from './story-publication-read.mjs';
-import {
-  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, scopeStepOf,
-  stepResponsibilities
-} from './phase-roles.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { convergencePhaseOf, intentAmendmentSource, isConvergencePhase, isVisualVerificationPhase, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import { reservePreparedDocumentSuccessor } from './prepared-document-successor.mjs';
-import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
@@ -38,12 +34,7 @@ import path from 'node:path';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
 import { pathToFileURL } from 'node:url';
-import {
-  SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitHeadIsUnborn, gitReadOutput, invariant,
-  nowIso, posix, readJson, repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate,
-  writeBytes, writeJson, writeText
-} from './util.mjs';
-import { validatePortableWorkId } from './work-id.mjs';
+import { SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitReadOutput, nowIso, posix, readJson, repoRelative, run, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText } from './util.mjs';
 import { storyTestReadinessDocument } from './story-test-readiness-document.mjs';
 import { detectBaseStory, inheritFromBaseStory } from './story-base-lineage.mjs';
 import { initialTestRecoveryAgreement, normalizeTestRecoveryPolicy, prepareTestRecoveryIntake } from './test-recovery-intake.mjs';
@@ -51,156 +42,72 @@ import { authorizeTrpIntake, materializeTrpIntake, qualifiedTrpIntakeDecisions }
 import { appendTrpRecord, appendTrpOriginalBaseline, readTrpRecord, readTrpRepairEvidence, readTrpReadinessCheckpoint, readTrpOriginalBaseline } from './test-recovery-store.mjs';
 import { assertTrpFeatureAdmission, completeTrpReadinessRepair } from './test-recovery-repair.mjs';
 import { assertTrpRepairCohortRetained, inspectTrpRepairScope } from './test-recovery-repair-scope.mjs';
-import { trpDigest } from './test-recovery-policy.mjs';
-import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObservation,
-  retainedStoryTestRisk, verifiedStoryTestRiskReviewCommits } from './test-recovery-runtime.mjs';
+import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObservation, retainedStoryTestRisk, verifiedStoryTestRiskReviewCommits } from './test-recovery-runtime.mjs';
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
-import {
-  actionActor, artifactChangeInventory, branch, changedFiles, commitIsAncestor, commitsTouchingSince, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
-  publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
-} from './git.mjs';
-import {
-  WORKFLOW_PATH, assertWorkTypeStartable, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
-  normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
-} from './config.mjs';
+import { actionActor, artifactChangeInventory, branch, changedFiles, commitIsAncestor, commitsTouchingSince, committedChangedPaths, headTreeEntries, refHead, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity, publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles } from './git.mjs';
+import { WORKFLOW_PATH, assertWorkTypeStartable, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution } from './config.mjs';
 import { loadSession } from './session.mjs';
-import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
-import { createAgentBriefs, planAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
-import {
-  applyInputsBlock, collectInputs, extractInputsBlock, inputReadinessFindings, phaseInputsNotReadyError, recordInputs,
-  renderInputsBlock, resolvedPhaseInputs, verifyInputsIntegrity, workflowInputsMode
-} from './inputs.mjs';
+import { createAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
+import { applyInputsBlock, collectInputs, extractInputsBlock, inputReadinessFindings, phaseInputsNotReadyError, recordInputs, renderInputsBlock, resolvedPhaseInputs, verifyInputsIntegrity, workflowInputsMode } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
-import {
-  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode
-} from './sequence.mjs';
-import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
-import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
-import {
-  artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet,
-  unpublishableRequiredArtifactSetMembers
-} from './artifact-sets.mjs';
-import {
-  citedArticleIds, constitutionIndex, constitutionPin, loadConstitution, validateCitations
-} from './constitution.mjs';
-import {
-  approvalChecklistPrompt, evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
-  resolvedSpecificationQualityPolicy, specificationGateDiagnostics
-} from './specification-gate.mjs';
-import {
-  beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry, telemetryCaptureGap
-} from './telemetry.mjs';
+import { assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
+import { artifactSetDiff, catalogArtifactSet, memberRoot, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers } from './artifact-sets.mjs';
+import { constitutionIndex, constitutionPin, loadConstitution } from './constitution.mjs';
+import { approvalChecklistPrompt, evaluateApprovalChecklist, evaluateSpecificationGate, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
+import { beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry } from './telemetry.mjs';
 import { amendmentRetentionCandidates, retainUnchangedPhases } from './phase-retention.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
-import {
-  approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
-  eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority,
-  sameApprover
-} from './approval-authority.mjs';
+import { approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority, sameApprover } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
-import {
-  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
-  reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
-  verifyCodeDeliveryReceipt
-} from './delivery-evidence.mjs';
-import { generationSkillForPhase, pinCodeDeliveryTask, storyTestScope, TEST_SCOPES } from './code-delivery-policy.mjs';
+import { assertReviewCodeEvidenceFresh, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths, verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
+import { storyTestScope, TEST_SCOPES } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';
-import { prospectiveTestCommandAmendment, verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
+import { verifyAcceptedTestCommandAmendment } from './story-test-command-amendment.mjs';
 import { beginTestCommandEpochValidation, recordTestCommandEpochValidation, verifyTestCommandEpochValidation } from './test-command-epoch.mjs';
-import { directCopilotSkill } from './copilot-guidance.mjs';
-import {
-  beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
-  publishedGenerationCommit, verifyOpenGenerationIntent
-} from './generation-boundary.mjs';
+import { beginCodeGeneration, publishedGenerationCommit } from './generation-boundary.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
-import {
-  ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
-} from './environment-declaration.mjs';
+import { ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger, refreshLedgerRemoteView } from './ledger.mjs';
+import { ledgerLog, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
-import { storyLifecycleProgress } from './session-roster.mjs';
 import { currentSchemaVersion, phaseApprovalSummaryVersion, readRecord } from './schema-migrations.mjs';
 import { compareRepositoryIdentity } from './repository-change-set.mjs';
-import {
-  applyCapabilityPolicyToWorkResolution,
-  assertCapabilitySource,
-  resolveLifecycleCapability
-} from './capability-context.mjs';
+import { applyCapabilityPolicyToWorkResolution, assertCapabilitySource, resolveLifecycleCapability } from './capability-context.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { verifyGateRecoveryReopenPlan } from './gate-recovery.mjs';
-import {
-  clearPendingPublication,
-  completePendingStoryBranchPromotion,
-  ensurePendingRevisionAttestation,
-  hasPendingPublication,
-  isPendingStoryBranchPromotion,
-  activePublicationRefusal,
-  livePreparedPublicationOwner,
-  localPendingPublicationPath,
-  readPendingPublication,
-  recoverPreparedPublication,
-  remoteBranchHolds,
-  retainedPublicationOutcome,
-  verifyPendingPublicationCandidateAuthority,
-  verifyPendingPublicationCommit,
-  writePendingPublication,
-} from './publication-pending.mjs';
-import { publicationReworkRefNamespace, restorePublicationPreimage } from './publication-recovery.mjs';
+import { clearPendingPublication, completePendingStoryBranchPromotion, ensurePendingRevisionAttestation, isPendingStoryBranchPromotion, activePublicationRefusal, livePreparedPublicationOwner, localPendingPublicationPath, readPendingPublication, recoverPreparedPublication, remoteBranchHolds, retainedPublicationOutcome, verifyPendingPublicationCandidateAuthority, verifyPendingPublicationCommit, writePendingPublication } from './publication-pending.mjs';
+import { publicationReworkRefNamespace } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
-import {
-  capabilityPublicationEntrySha256, capabilityPublicationPlanSha256,
-  publishCapabilityRepositoriesDurably,
-  verifyCapabilityPublicationRecoveryPlan
-} from './capability-publication-recovery.mjs';
+import { capabilityPublicationEntrySha256, publishCapabilityRepositoriesDurably, verifyCapabilityPublicationRecoveryPlan } from './capability-publication-recovery.mjs';
 import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
-import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
+import { prefetchRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
-import { LIFECYCLE_EVENT, lifecycleEvent, projectedLedgerIntentFile, recordPublicationProjection } from './lifecycle-event.mjs';
+import { LIFECYCLE_EVENT, projectedLedgerIntentFile } from './lifecycle-event.mjs';
 import { PERSON_STEP_REVIEW_EFFECTS } from './person-step-catalog.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
-import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
-import { validateDocumentPublicationTree } from './document-publication.mjs';
-import {
-  prepareRevisionPublicationSelection, verifyPreparedRevisionPublicationSelection
-} from './revision/publication-selection.mjs';
-import { assertNoInteractiveRevisionPublication } from './revision/publication-adapter.mjs';
-import {
-  deliverStepActions, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning, storyUsesStepActions
-} from './step-action-delivery.mjs';
-import { assertRequiredStepActionsRecorded, storyRequiresStepActions } from './step-action-receipts.mjs';
-import { repositoryLogger } from './logging.mjs';
-import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
-import {
-  approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
-  readConfigurationSource, resolveApprovedStoryWorkType
-} from './configuration-branch.mjs';
-import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
+import { deliverStepActions, releaseWaitingStepActions, stepActionWarning, storyUsesStepActions } from './step-action-delivery.mjs';
+import { assertRequiredStepActionsRecorded } from './step-action-receipts.mjs';
+import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage, readConfigurationSource, resolveApprovedStoryWorkType } from './configuration-branch.mjs';
+import { classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
 import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import { planRowsOf } from './plan-amendments.mjs';
-import {
-  buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes,
-  evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
-  codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
-  readBoundSpecificationClaimMap,
-  predecessorSpecClauses, plannedClaimsForObservedPhase
-} from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes, evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy, readBoundSpecificationClaimMap, predecessorSpecClauses, plannedClaimsForObservedPhase } from './specifications.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
@@ -209,90 +116,44 @@ import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from './candidate-isolation.mjs';
 import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-policy.mjs';
-import {
-  hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
-} from './impact.mjs';
+import { hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt } from './impact.mjs';
 import { evaluateQuickFixWaiver, supportedWaiverPolicy, waiverNotAppliedMessage } from './quick-fix-policy.mjs';
-import {
-  applicationChangeSetProjection, applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
-  isApplicationChangePath, isApplicationPath,
-  isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval,
-  recordFinalReconciliation, verifyWorkIntervalBaseline
-} from './work-intervals.mjs';
+import { applicationChangeSetProjection, applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline, isApplicationChangePath, isApplicationPath, isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval, recordFinalReconciliation, verifyWorkIntervalBaseline } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
-import {
-  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand, withCommandLiteralEnvironment
-} from './external-command-policy.mjs';
-import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
+import { evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand, withCommandLiteralEnvironment } from './external-command-policy.mjs';
+import { assertProducerAllowed, normalizeAuthorshipOptions } from './kernel/phase-policy.mjs';
+import { buildGenerationAuthorship } from './kernel/phase-policy.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
-import {
-  advanceCompletedPhase, cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf,
-  nextPhaseAfterSkillAmendment, reopenPhaseRange, resetDecisionRounds, resetPhaseRangeForRework
-} from './lifecycle-transitions.mjs';
-import {
-  assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome,
-  normalizeDecisionInputValues, pendingDecisionRecord, recordedDecisionValues, resolveDecisionChoice
-} from './workflow-decisions.mjs';
+import { advanceCompletedPhase, cancelledStoryRefusal, clearApprovalDisposition, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange, resetDecisionRounds, resetPhaseRangeForRework } from './lifecycle-transitions.mjs';
+import { assertChoiceKeepsDependencies, decisionFedBy, decisionInputsHint, decisionOutcome, describeOutcome, normalizeDecisionInputValues, pendingDecisionRecord, recordedDecisionValues, resolveDecisionChoice } from './workflow-decisions.mjs';
 export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
-import {
-  assertAstLifecycleGate, evaluateAstLifecycleGate, persistAstLifecycleReceipt,
-  requireAstLifecycleReceipt
-} from './ast-lifecycle.mjs';
-import {
-  evaluateChangeFlightPlanBoundary, persistChangeFlightPlanBoundary
-} from './change-flight-plan.mjs';
+import { requireAstLifecycleReceipt } from './ast-lifecycle.mjs';
+import { evaluateChangeFlightPlanBoundary, persistChangeFlightPlanBoundary } from './change-flight-plan.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
-import {
-  captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, finalizeDraftWorkflowSnapshot,
-  verifyWorkflowSnapshot, verifyRejectedSkillVersionReviews
-} from './workflow-snapshots.mjs';
-import {
-  referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyReferenceRepositories,
-  writeReferenceRepositoryManifest
-} from './reference-repositories.mjs';
-import {
-  assertAutoCandidateMatches, autoCandidatePublicationFromEnvironment,
-  observeAutoCandidateWorktree
-} from './auto/auto-candidate.mjs';
-import {
-  configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
-  resolveAffectedModule, runEnvironmentSha256, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing
-} from './code-delivery-tests.mjs';
+import { captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
+import { referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyReferenceRepositories, writeReferenceRepositoryManifest } from './reference-repositories.mjs';
+import { configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule, runEnvironmentSha256, structuredTestCommandRequiredError, testCommandCoversPath, testReceiptPassing } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt, unchangedTestRun } from './verification/attempts.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
 import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from './verification/test-policy.mjs';
 import { evaluateWitnessMappingReview } from './wel-review.mjs';
-import {
-  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
-  repositoryCaseInsensitivePaths
-} from './repository-change-set.mjs';
+import { buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths, repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 import { assertNoHiddenWorktreeChanges, withoutConfiguredFilters } from './worktree-fingerprint.mjs';
-import {
-  artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
-  inspectPhaseAuthoredReviewContent, inspectPhaseArtifactQuality, inspectRequiredArtifactText, requiredArtifactRepoPath,
-  repairPreparedArtifactMetadata,
-  validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
-} from './publication-preflight.mjs';
+import { artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText, inspectPhaseArtifactQuality, inspectRequiredArtifactText, repairPreparedArtifactMetadata, validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight } from './publication-preflight.mjs';
 import { artifactBytesAreText, artifactTextCheckoutMatches } from './artifact-review-read.mjs';
-import {
-  assertConvergencePublicationReady, loadVerifiedConvergenceProjection
-} from './convergence-context.mjs';
-import {
-  resolveStoryExecutionCatalog, resolveStoryExecutionContext, storyExecutionVerified
-} from './story-execution-context.mjs';
+import { assertConvergencePublicationReady, loadVerifiedConvergenceProjection } from './convergence-context.mjs';
+import { resolveStoryExecutionCatalog, resolveStoryExecutionContext, storyExecutionVerified } from './story-execution-context.mjs';
 import { resolveStorySkillPackage } from './story-execution-context.mjs';
 import { needsAcceptedPhaseInterpretation } from './phase-semantics.mjs';
-import {
-  verifySkillPhaseApproval, verifySkillPhasePublication
-} from './skp-phase-evidence.mjs';
+import { verifySkillPhaseApproval } from './skp-phase-evidence.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
@@ -1403,8 +1264,7 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   if (creation) return { workId: requested, branch: requested, workflow: null, source: 'creation-fallback' };
   throw new SingularityFlowError(`No Story matches '${requested}'. Use a creation command to reserve a new Work ID.`);
 }
-
-import { currentPhase } from './phase-generation.mjs';
+import { currentPhase } from './kernel/phase-policy.mjs';
 export { currentPhase };
 
 
@@ -3547,604 +3407,36 @@ export async function assertUncodedPlanSupportingFiles(root, config, workflow, p
   }
 }
 
-export async function publishGeneration(root, config, workflow, {
-  phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null
-} = {}) {
-  assertStoryNotArchived(root, workflow);
-  if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
-  const selectedSession = await loadSession(root, { required: false });
-  assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase],
-    selectedSession, 'publish');
-  assertIntentAmendmentAcknowledged(workflow);
-  if (authorship?.governedAgentContext?.agentId) assertPhaseAgentMayMutate(config, workflow,
-    workflow.phases?.[phaseId ?? workflow.currentPhase], { agent: authorship.governedAgentContext.agentId }, 'publish');
-  await verifyAcceptedTestCommandAmendment(root, config, workflow);
-  if (workflow.resolution?.presence) await (await import('./story-test-command-amendment.mjs')).assertSignedTestCommandAmendments(workflow);
-  await assertNoPendingPublication(root, config, workflow, 'publish a generation');
-  const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
-  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
-  const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
-  await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
-  await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
-  await assertSkillPhaseHostReady(workflow, phase, 'publish');
-  // Deterministic generation is kernel-owned and deliberately carries no phase-agent session.
-  // Its explicit authorship still binds the human Git identity that invoked the publication.
-  const session = authorship?.producer === 'deterministic'
-    ? { actor: authorship.actor ?? identity(root), agent: null }
-    : selectedSession ?? await loadSession(root);
-  if (phaseRequiresCodeDelivery(phase)
-      && phase.generationIntent?.status === 'consumed'
-      && Number(phase.generationIntent.generation) === Number(phase.generation)) {
-    if (!phaseNeedsGeneration(workflow, phase)
-        && await generationResultMatches(root, config, workflow, phase)) return phase;
-    throw new SingularityFlowError(
-      `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phase.id} to preview the exact guarded next-generation command.`,
-      { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: `singularity-flow phase rollover ${phase.id}` } }
-    );
-  }
-  const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
-  assertRequiredAssignment(workflow, phase);
-  const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
-  // Resolve and validate authorship before any content, test, brief, input, telemetry, or lifecycle
-  // write. A wrong producer is a preflight refusal and must not leave partial recovery state.
-  let effectiveAuthorship = authorship ?? {
-    schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
-    governedAgentContext: session.agent ? { agentId: session.agent } : null,
-    kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
-    externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
-  };
-  if (workflow.executionOrigin?.mode === 'auto') {
-    effectiveAuthorship = {
-      ...effectiveAuthorship,
-      executionOrigin: structuredClone(workflow.executionOrigin)
-    };
-  }
-  assertProducerAllowed(phase, effectiveAuthorship.producer);
-  // Convergence is a kernel-owned projection regardless of which legacy/mixed producer label an
-  // upgraded workflow carried. Never let an alternate or omitted producer bypass exact review,
-  // source, fact, and artifact validation.
-  const deterministicConvergence = isConvergencePhase(phase);
-  if (deterministicConvergence) {
-    await assertConvergencePublicationReady(root, config, workflow, phase);
-  }
-  // Template completeness is a publication preflight, not a late transaction failure. In
-  // particular, do this before `preparePhaseInputs` records context or the generation counter,
-  // sidecars and telemetry begin to move. An untouched prepared template should cost the author one
-  // clear correction, not leave a half-started generation that produces the same adoption warning
-  // on every retry.
-  // Use the same authored-byte boundary as manual import and recovery. Report every deterministic
-  // authoring blocker together so a host can repair the artifact once instead of chasing one
-  // first-error failure per retry.
-  // The convergence body is a byte-for-byte kernel projection and may legitimately quote text such
-  // as "TODO remains" from evidence. Its exact projection check above supersedes human-template
-  // placeholder heuristics; asking a user to edit those bytes would itself violate the contract.
-  const contentFindings = deterministicConvergence
-    ? []
-    : await inspectPhaseAuthoredReviewContent(root, config, workflow, phase,
-      { transition: 'publish', generation: publicationTransaction?.publicationEvent?.generation ?? null });
-  if (contentFindings.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} generation is not publishable:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
-      + `Complete the listed review artifact(s), then run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. `
-      + 'A Copilot host may re-author and retry publication once only after the artifact fingerprint changes.',
-      {
-        code: 'ARTIFACT_AUTHORING_INCOMPLETE',
-        details: {
-          subjectKind: 'story',
-          workId: workflow.workItem.id,
-          phase: phase.id,
-          findings: contentFindings,
-          fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
-          retry: {
-            skill: directCopilotSkill(generationSkillForPhase(phase, workflow)), maximumAttempts: 1, requiresFingerprintChange: true,
-            command: phasePublicationCommandForMode(phase) ?? phasePublicationCommand(phase)
-          }
-        }
-      }
-    );
-  }
-  // Specification structure/markers are preflight too: before managed input rendering, tests,
-  // telemetry or generation writes. The gate reads the recorded clarification for this generation.
-  const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
-    generation: nextPhaseGeneration(phase),
-    artifactRelativePath: requiredRepoPath(config, workflow, phase),
-    namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null
+export async function publishGeneration(root, config, workflow, options = {}) {
+  const { publishNativeGeneration } = await import('./engine-compatibility/generation-publication.mjs');
+  return publishNativeGeneration(root, config, workflow, options, {
+    actorKey,
+    addUsageAggregate,
+    assertPassedCodeDeliveryInput,
+    assertPhaseChangeScope,
+    assertPlannedSpecificationClaims,
+    assertQualifiedConformanceReady,
+    assertRequiredArtifactSetPublishable,
+    assertRequiredAssignment,
+    assertSkillPhaseHostReady,
+    assertStoryTestRecoveryFeatureAdmission,
+    assertUncodedPlanSupportingFiles,
+    generationResultDigest,
+    generationResultMatches,
+    MODEL_ASSURANCE_RANK,
+    normalizeUsage,
+    preflightCodeDeliveryTests,
+    preparePhaseInputs,
+    readArtifactText,
+    refreshPhaseSpecificationIndex,
+    refreshPlannedSpecificationClaims,
+    requiredModelAssuranceRank,
+    scanArtifacts,
+    sourceTreeHash,
+    testInputTreeHash,
+    updateArtifactMetadata,
+    validatePhase
   });
-  gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (gate.errors.length) {
-    const clarification = specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings.some(finding => finding.category === 'clarification');
-    throw new SingularityFlowError(
-      `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`
-      + (clarification
-        ? resolvedClarificationPolicy(config, workflow, phase).mode === 'off'
-          ? `Replace each cited clarification marker with content sourced from the pinned evidence; clarification is off for ${phase.id}, so no question is recorded.`
-          : `Resolve only the cited clarification questions and record their actual answers with singularity-flow clarification record ${phase.id}; do not invent or repeat answered questions.`
-        : `Repair the listed specification draft structure from the pinned source and clarifications, then rerun singularity-flow phase prepublish ${phase.id} --json. Missing scenarios are author corrections, not a new clarification interview.`),
-      // A draft-structure refusal gets a code of its own, so its plan names the recheck rather than
-      // the generic recover/doctor route; a clarification refusal keeps its own wording.
-      clarification ? undefined : { code: 'SPEC_PUBLICATION_GATE_REFUSED', details: { phase: phase.id } }
-    );
-  }
-  // Required artifact-set members are part of the declared publication bundle. Refuse before
-  // inputs, briefs, telemetry, or generation state are written; a warning after cataloguing is
-  // too late for the author to repair this generation safely.
-  const requiredSet = resolvedArtifactSet(config, workflow, phase);
-  if (requiredSet) {
-    const catalog = await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, requiredSet);
-    await assertRequiredArtifactSetPublishable(root, phase, catalog);
-  }
-  await assertQualifiedConformanceReady(root, config, workflow, phase, 'publish a generation');
-  await assertUncodedPlanSupportingFiles(root, config, workflow, phase);
-  // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
-  // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
-  // preflight, not a half-started generation that has to be repaired in durable state.
-  if (phaseRequiresCodeDelivery(phase)) {
-    await assertPlannedSpecificationClaims(root, config, workflow, phase);
-  }
-  let deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
-  const dependencyOptions = { producer: effectiveAuthorship.producer,
-    generation: nextPhaseGeneration(phase), agent: session.agent };
-  let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
-  // Execute the exact structured test command before consuming the generation intent. Submission
-  // reuses this run while nothing it depends on moved [TCE:REQ-080], and command inference, test discovery, and
-  // result-adapter incompatibility must be found while the current generation is still editable.
-  // Otherwise the only way to repair a bad adapter is to mutate bytes after publication and enter
-  // generation recovery for a failure the kernel could have detected earlier.
-  if (deliveryPreflight) {
-    await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
-    const testedSelection = deliveryPreflight.trpSelection ?? null;
-    const testedRisk = deliveryPreflight.testRecovery ?? null;
-    const testedAttempts = deliveryPreflight.preflightAttempts ?? [];
-    const testedRunRisks = deliveryPreflight.testRunRisks ?? null;
-    // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
-    // evidence after they finish so publication never commits bytes that were absent from the
-    // preflight change set or retains hashes for bytes the test command changed.
-    deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
-    if (testedSelection) {
-      const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight },
-        { executionMode: storyTestScope(workflow) });
-      const refreshed = await resolveTrpDeliverySelection(root, config, workflow, phase, deliveryPreflight, commands,
-        { previewOnly: true });
-      // The selector owns the semantic source/command binding. Its own generated
-      // manifest and volatile capture timestamps must not invalidate that binding.
-      if (!refreshed.preview?.ready || refreshed.preview.planDigest !== testedSelection.planDigest) {
-        throw new SingularityFlowError('The candidate changed after its approved test selection ran. Review the new selection before publication.',
-          { code: 'TRP_TEST_SELECTION_STALE' });
-      }
-      deliveryPreflight.trpSelection = testedSelection;
-    }
-    if (testedRisk) deliveryPreflight.testRecovery = testedRisk;
-    if (testedRunRisks) deliveryPreflight.testRunRisks = testedRunRisks;
-    deliveryPreflight.preflightAttempts = testedAttempts;
-  }
-  // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
-  // publication path. Re-read the immutable Candidate after all preflight tests and before the
-  // first Story mutation so test/source drift cannot be adopted as a new Candidate implicitly.
-  const autoPublication = await autoCandidatePublicationFromEnvironment(root);
-  const autoCandidate = autoPublication?.binding ?? null;
-  const autoCandidateVerification = autoPublication?.verification ?? null;
-  if (autoCandidate) {
-    if (!deliveryPreflight) {
-      throw new SingularityFlowError(
-        'Auto Candidate publication requires a code-delivery phase with exact source evidence.',
-        { code: 'AUTO_CANDIDATE_DELIVERY_REQUIRED' }
-      );
-    }
-    assertAutoCandidateMatches(autoCandidate, await observeAutoCandidateWorktree(
-      root, autoCandidate, applicationPathContext(config, workflow)
-    ));
-  }
-  // Downstream briefs are derived later from the exact published bytes, but their authored
-  // heading contract can be validated now. This keeps ambiguity, missing preserved sections, and
-  // size-bound failures on the no-mutation side of the publication boundary.
-  await planAgentBriefs(root, workflow, phase, {
-    itemDirectory: workDir(root, config, workflow.workItem.id),
-    itemRelative: workDirRelative(config, workflow.workItem.id),
-    generation: nextPhaseGeneration(phase)
-  });
-  // Repository-owned tests may change dependency bytes too. Recheck before input/Story writes.
-  if (deliveryPreflight) dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
-  dependencies.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  const { clarification } = dependencies;
-  await preparePhaseInputs(root, config, workflow, phase.id);
-  // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
-  // only explicit governed-agent authorship proves that an interactive model path ran and must
-  // therefore carry a generation-bound human response. Never guess that from legacy provenance.
-  const modelAssisted = ['governed-agent', 'legacy-unspecified'].includes(effectiveAuthorship.producer);
-  // Code delivery has already evaluated protected paths and source boundaries against its one
-  // baseline-aware, rename-aware RepositoryChangeSet. Reconstructing those facts from a name-only
-  // dirty-tree list here would both disagree on committed changes and reintroduce rename bypasses.
-  if (!deliveryPreflight) await assertPhaseChangeScope(root, config, workflow, phase);
-  /**
-   * Constitution citations `[SPK:REQ-101]`.
-   *
-   * Validated against the Story's **pin**, not the file on disk. An article added since the Story
-   * started exists today and did not when the author wrote the citation, so accepting it would
-   * record a reference to a rule nobody read. Checked here, beside the marker gate, so a citation
-   * problem costs the same as a marker: the answer, and nothing else.
-   */
-  const citations = validateCitations(
-    workflow.resolution?.constitutionPin ?? null,
-    citedArticleIds(await readArtifactText(root, requiredRepoPath(config, workflow, phase))),
-    { label: `Phase ${phase.id}` }
-  );
-  citations.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (citations.errors.length && (workflow.resolution?.constitution?.mode ?? 'off') === 'enforce') {
-    throw new SingularityFlowError(`Phase ${phase.id} is not publishable:\n- ${citations.errors.join('\n- ')}`,
-      { code: 'CONSTITUTION_CITATION_INVALID', details: { phase: phase.id, errors: citations.errors, cited: citations.cited } });
-  }
-  citations.errors.forEach((error) => console.warn(`Warning: ${error}`));
-
-  const codeModelObservation = effectiveAuthorship.kernelModel?.observations
-    ?.find((observation) => observation.task === 'code') ?? null;
-  const codeModelAssurance = codeModelObservation?.assurance ?? 'unavailable';
-  if (deliveryPreflight && effectiveAuthorship.producer === 'governed-agent') {
-    const minimum = workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable';
-    if ((MODEL_ASSURANCE_RANK[codeModelAssurance] ?? -1) < requiredModelAssuranceRank(minimum)) {
-      throw new SingularityFlowError(
-        `Code generation requires ${minimum} model assurance; the host supplied ${codeModelAssurance}.`,
-        { code: 'CODE_MODEL_ASSURANCE_REQUIRED' }
-      );
-    }
-    if (codeModelAssurance !== 'unavailable' && !codeModelObservation?.invocationId) {
-      throw new SingularityFlowError('Observed code-model assurance requires a host invocation binding.', {
-        code: 'CODE_MODEL_ASSURANCE_REQUIRED'
-      });
-    }
-    if (codeModelAssurance !== 'unavailable' && (!codeModelObservation?.provider
-        || !codeModelObservation?.resolvedModel
-        || codeModelObservation?.host !== 'singularity-flow-kernel'
-        || codeModelObservation?.source !== 'model-invocation-audit'
-        || !codeModelObservation?.observedAt
-        || codeModelObservation?.observationIntegrity !== 'external-host-attested'
-        || Number(codeModelObservation?.generation) !== Number(nextPhaseGeneration(phase)))) {
-      throw new SingularityFlowError('Code-model assurance is missing its provider, model, host audit source, timestamp, or generation binding.', {
-        code: 'CODE_MODEL_ASSURANCE_REQUIRED'
-      });
-    }
-  }
-
-  // AST is optional. This boundary may collect structural diagnostics, but it never blocks or
-  // mutates publication when AST, a language pack, an adapter, or its evidence store is absent.
-  const astGate = await evaluateAstLifecycleGate(root, config, workflow, phase, {
-    generation: nextPhaseGeneration(phase)
-  });
-  assertAstLifecycleGate(astGate, `publication of phase '${phase.id}'`);
-
-  const capture = !modelAssisted
-    ? { source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [] }
-    : rawUsage
-    ? { source: 'usage-json', usage: Array.isArray(rawUsage) ? rawUsage : [rawUsage], spans: 0, rawBytes: 0, startedAt: rawUsage.startedAt, completedAt: rawUsage.completedAt, warnings: [] }
-    : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase, { readTelemetry: false }) };
-  capture.pending = modelAssisted && !rawUsage && capture.usage.length === 0;
-  // Only a launch SFlow started can still be exporting its turn; say so only when one ran.
-  if (capture.pending) capture.warnings.push(telemetryCaptureGap(capture, null) === 'awaiting-export'
-    ? 'Copilot usage is not read during the work; run singularity-flow telemetry reconcile to record it.'
-    : 'No Copilot activity was captured for this phase.');
-  capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
-  const normalizedUsage = modelAssisted
-    ? (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, nextPhaseGeneration(phase)))
-    : [];
-  const capabilityBudget = workflow.resolution?.capability?.policy?.tokenBudget;
-  if (capabilityBudget) {
-    const used = Object.values(workflow.phases).flatMap((entry) => entry.usage ?? [])
-      .reduce((total, record) => total + (record.totalTokens ?? 0), 0)
-      + normalizedUsage.reduce((total, record) => total + (record.totalTokens ?? 0), 0);
-    if (used > capabilityBudget) {
-      throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
-    }
-  }
-  const targetGeneration = nextPhaseGeneration(phase);
-  // Architecture intent was removed with the registered World Model; publications record no
-  // intent binding or decision, exactly as when it was disabled.
-  const architectureIntentBinding = null;
-  const architectureDecision = null;
-  phase.generation = targetGeneration; phase.generatedBy = session.actor;
-  phase.submissionArchitectureDecision = null;
-  phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
-  phase.authorship ??= [];
-  const publishedAt = nowIso();
-  phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
-  if (deliveryPreflight) {
-    // These are live submission bindings, not publication history. A successor starts without
-    // observed evidence; immutable prior claim maps/publications remain in Git and lineage.
-    if (phase.claimMaps) delete phase.claimMaps.observed;
-    phase.generationCommit = null;
-    phase.publicationCommit = null;
-    phase.submittedAt = null;
-    const deliveryRoot = posix(path.join(
-      workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery'
-    ));
-    const receiptPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}.json`;
-    const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
-    await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
-    const workingStateDigest = await sourceTreeHash(root, config, workflow);
-    const testInputSha256 = await testInputTreeHash(root, config, workflow);
-    const receipt = {
-      schemaVersion: currentSchemaVersion('code-delivery'),
-      kind: 'code-delivery',
-      workId: workflow.workItem.id,
-      phase: phase.id,
-      generation: phase.generation,
-      generationIntentId: deliveryPreflight.generationIntentId,
-      changeSet: {
-        path: changeSetPath,
-        digest: deliveryPreflight.changeSet.digest,
-        sourcePaths: deliveryPreflight.sourcePaths,
-        deletedSourcePaths: deliveryPreflight.deletedSourcePaths,
-        configurationPaths: deliveryPreflight.configurationPaths,
-        executableTestPaths: deliveryPreflight.testPaths,
-        supportingTestPaths: deliveryPreflight.supportingTestPaths
-      },
-      changeClassification: {
-        ...deliveryPreflight.changeClassification,
-        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
-      },
-      ...(deliveryPreflight.documentationCorrection ? {
-        documentationCorrection: structuredClone(deliveryPreflight.documentationCorrection)
-      } : {}),
-      ...(deliveryPreflight.testingRepair ? {
-        testingRepair: structuredClone(deliveryPreflight.testingRepair)
-      } : {}),
-      traceability: {
-        required: deliveryPreflight.acceptanceCriteria.required,
-        bound: deliveryPreflight.acceptanceCriteria.tagged,
-        missing: deliveryPreflight.acceptanceCriteria.missing,
-        ambiguous: deliveryPreflight.acceptanceCriteria.ambiguous,
-        bindings: deliveryPreflight.acceptanceCriteria.bindings,
-        // Which exact test each criterion tag sits on, read by the module adapter [E2G-015].
-        witnesses: deliveryPreflight.acceptanceCriteria.witnesses ?? [],
-        unattachedTags: deliveryPreflight.acceptanceCriteria.unattachedTags ?? [],
-        adapterProfiles: deliveryPreflight.acceptanceCriteria.profiles ?? [],
-        ...(deliveryPreflight.sourceBindings.mode === 'enforce' ? {
-          sourceRequired: deliveryPreflight.sourceBindings.required,
-          sourceBindings: deliveryPreflight.sourceBindings.bindings
-        } : {})
-      },
-      ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
-      ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
-      ...(deliveryPreflight.cornerCaseMatrix ? { cornerCaseMatrix: structuredClone(deliveryPreflight.cornerCaseMatrix) } : {}),
-      ...(deliveryPreflight.excludedChanges?.length ? { excludedChanges: [...deliveryPreflight.excludedChanges] } : {}),
-      testExecutions: [],
-      ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
-      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
-      ...(autoCandidateVerification ? {
-        autoCandidateVerification: structuredClone(autoCandidateVerification)
-      } : {}),
-      tree: { workingStateDigest, ...(testInputSha256 ? { testInputSha256 } : {}),
-        generationCommit: null, generationTree: null },
-      model: {
-        task: 'code',
-        required: effectiveAuthorship.producer === 'governed-agent',
-        authorshipProducer: effectiveAuthorship.producer,
-        minimumAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
-        mappingRevision: codeModelObservation?.mappingRevision ?? null,
-        provider: codeModelObservation?.provider ?? null,
-        requestedModel: codeModelObservation?.requestedModel ?? null,
-        resolvedModel: codeModelObservation?.resolvedModel ?? null,
-        assurance: codeModelAssurance,
-        invocationIds: codeModelObservation ? [codeModelObservation.invocationId] : [],
-        host: codeModelObservation?.host ?? null,
-        observationSource: codeModelObservation?.source ?? null,
-        observationIntegrity: codeModelObservation?.observationIntegrity ?? 'unverified-local',
-        observedAt: codeModelObservation?.observedAt ?? null,
-        generation: codeModelObservation?.generation ?? null
-      },
-      status: 'pending-tests',
-      capturedAt: publishedAt
-    };
-    await writeJson(path.join(root, receiptPath), receipt);
-    phase.deliveryEvidence = {
-      ...deliveryPreflight,
-      changeClassification: {
-        ...deliveryPreflight.changeClassification,
-        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
-      },
-      generation: phase.generation,
-      receiptPath,
-      changeSetPath,
-      sourceTreeSha256: workingStateDigest,
-      ...(testInputSha256 ? { testInputSha256 } : {}),
-      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
-      ...(autoCandidateVerification ? {
-        autoCandidateVerification: structuredClone(autoCandidateVerification)
-      } : {}),
-      status: 'pending-tests',
-      capturedAt: publishedAt,
-      validation: null
-    };
-    if (autoCandidate && publicationTransaction?.publicationEvent?.payload) {
-      publicationTransaction.publicationEvent.payload.autoCandidate = {
-        candidateId: autoCandidate.candidateId,
-        candidateSha256: autoCandidate.candidateSha256,
-        bindingSha256: autoCandidate.bindingSha256,
-        attemptId: autoCandidate.attemptId,
-        verificationReceiptSha256: autoCandidateVerification.verificationReceiptSha256
-      };
-    }
-  }
-  const astReceipt = await persistAstLifecycleReceipt(root, config, workflow, phase, astGate);
-  if (astReceipt) {
-    phase.astGates = [
-      ...(phase.astGates ?? []).filter((record) => record.generation !== phase.generation),
-      astReceipt
-    ].sort((left, right) => left.generation - right.generation);
-  }
-
-  if (clarification.record) {
-    phase.clarifications ??= [];
-    phase.clarifications = [
-      ...phase.clarifications.filter((record) => record.generation !== phase.generation),
-      {
-        generation: phase.generation,
-        path: clarification.path,
-        sha256: clarification.sha256,
-        promptSha256: clarification.record.promptSha256,
-        responses: clarification.record.responses.length,
-        // Which artifact markers this batch answered `[SPK:REQ-066]`. Kept on the summary so the
-        // gate can tell a resolved marker from a deleted one without reading every record off disk
-        // on a path that already does a lot of I/O.
-        markers: answeredMarkerHashes(clarification.record),
-        recordedAt: clarification.record.recordedAt,
-        recordedBy: structuredClone(clarification.record.recordedBy)
-      }
-    ];
-  }
-  /**
-   * What this generation left open, so the next one can tell resolution from deletion.
-   *
-   * `[SPK:REQ-067]` only works if there is a prior list to have vanished from: without it, quietly
-   * removing a question is indistinguishable from answering it.
-   */
-  if (gate.applies && gate.record) {
-    phase.markers = [
-      ...(phase.markers ?? []).filter((record) => record.generation !== phase.generation),
-      { ...gate.record, generation: phase.generation, recordedAt: publishedAt }
-    ].sort((left, right) => left.generation - right.generation);
-  }
-  phase.sourceCommit = head(root);
-  // Every conformance report is bound to the tree it compared, so any of them can be checked for freshness.
-  if (isConformancePhase(phase)) phase.conformanceTree = await sourceTreeHash(root, config, workflow);
-  phase.usage.push(...normalizedUsage);
-  const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
-    itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
-  });
-  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), phaseTelemetrySummary(telemetry)];
-  await updateArtifactMetadata(root, config, workflow, phase);
-  await scanArtifacts(root, config, workflow, phase.id);
-  /**
-   * Canonical provenance for this generation's final artifacts `[SPK:REQ-043]`.
-   *
-   * Capture only after lifecycle metadata and checkout representation have settled. The kernel
-   * owns `context/sidecars/`, outside the artifact-only scope already checked above [SPK:CON-023].
-   */
-  const sidecarDir = workDirRelative(config, workflow.workItem.id);
-  phase.sidecars = [];
-  for (const artifact of phase.artifacts ?? []) {
-    if (!artifact.sha256) continue;
-    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
-    const record = buildArtifactSidecar({
-      subject: { kind: 'story', id: workflow.workItem.id },
-      phase: phase.id,
-      generation: phase.generation,
-      artifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.size ?? null, role: artifact.kind ?? null },
-      configuration: { sha256: workflow.resolution?.configSha256 ?? null, revision: workflow.resolution?.configurationSource?.commit ?? null },
-      template: {
-        path: workflow.resolution?.templates?.[phase.id]?.path ?? null,
-        sha256: workflow.resolution?.templates?.[phase.id]?.sha256 ?? null
-      },
-      inputs: (phase.inputs ?? []).map((entry) => ({ path: entry.path, sha256: entry.sha256 ?? null, kind: entry.kind ?? null })),
-      producer: {
-        kind: effectiveAuthorship.producer,
-        actor: session.actor?.email ?? session.actor?.name ?? null,
-        agent: phase.generatedAgent
-      },
-      // The commit is not known until the publication transaction closes.
-      publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
-    });
-    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
-    phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
-  }
-  // Generate the downstream projection from the exact generation bytes that this publication
-  // commits. Submission later binds these hashes into its immutable review packet; subsequent
-  // approval metadata must not redefine what the reviewer and downstream consumer received.
-  const agentBriefs = await createAgentBriefs(root, workflow, phase, {
-    itemDirectory: workDir(root, config, workflow.workItem.id),
-    itemRelative: workDirRelative(config, workflow.workItem.id)
-  });
-  if (agentBriefs.length) {
-    phase.agentBriefs = [
-      ...(phase.agentBriefs ?? []).filter((entry) => entry.generation !== phase.generation),
-      ...agentBriefs
-    ].sort((left, right) => left.generation - right.generation || left.consumerPhase.localeCompare(right.consumerPhase));
-  }
-  /**
-   * The typed artifact set `[SPK:REQ-110]` `[SPK:REQ-111]`.
-   *
-   * Catalogued after the scan, so the set describes the bundle as published. Required members are
-   * checked again here because tests and other publication work ran after the initial preflight.
-   *
-   * When the phase was reopened for named members, this is also where the promise is checked. The
-   * clause asks that incidental change be *disclosed*, not forbidden — a regeneration that reflowed
-   * a neighbouring paragraph is usually harmless, and refusing it would push people into rewriting
-   * the whole bundle, which is the outcome surgical reopen exists to avoid.
-   */
-  const artifactSet = resolvedArtifactSet(config, workflow, phase);
-  if (artifactSet) {
-    const previous = phase.artifactSet ?? null;
-    const catalog = await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, artifactSet);
-    await assertRequiredArtifactSetPublishable(root, phase, catalog);
-    const diff = artifactSetDiff(previous, catalog, { declared: phase.surgicalReopen?.members ?? [] });
-    for (const line of disclosureLines(diff)) console.warn(`Warning: ${line}`);
-    phase.artifactSet = {
-      ...catalog,
-      generation: phase.generation,
-      preserved: diff.preserved.map((member) => member.path),
-      changed: diff.changed.map((member) => member.path),
-      // Member names, not repository paths: this block is read beside `reopen.members`, which is
-      // the list the reviewer wrote, and the two have to be comparable at a glance.
-      ...(phase.surgicalReopen ? { reopen: { ...phase.surgicalReopen, incidental: diff.incidental.map((member) => member.member) } } : {})
-    };
-    // Consumed by the generation that answered it. A reopen that stayed on the phase would keep
-    // re-disclosing the same incidental change at every later generation.
-    delete phase.surgicalReopen;
-  }
-
-  await refreshPhaseSpecificationIndex(root, config, workflow, phase);
-  await refreshPlannedSpecificationClaims(root, config, workflow, phase);
-  await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  const errors = await validatePhase(root, config, workflow, phase, {
-    placeholders: !deterministicConvergence,
-    content: true, generation: targetGeneration, transition: 'publish'
-  });
-  if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
-  // This is an evidence check only. Host admission above remains closed until a qualified
-  // containment/delivery boundary can prove how the selected skill was executed.
-  await verifySkillPhasePublication(root, config, workflow, phase);
-  if (generationIntent) {
-    const resultDigest = await generationResultDigest(root, config, workflow, phase, {
-      architectureIntent: architectureIntentBinding,
-      architectureDecision,
-      resultDigestVersion: 3
-    });
-    await consumeGenerationIntent(root, phase, {
-      generation: phase.generation,
-      publishedAt,
-      changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
-      resultDigest,
-      resultDigestVersion: 3
-    });
-  }
-  const generationPublication = {
-    generation: phase.generation,
-    publishedAt,
-    changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
-    resultDigest: generationIntent?.publication?.resultDigest
-      ?? await generationResultDigest(root, config, workflow, phase, {
-        architectureIntent: architectureIntentBinding,
-        architectureDecision,
-        resultDigestVersion: 3
-      }),
-    resultDigestVersion: Math.max(generationIntent?.publication?.resultDigestVersion ?? 0, 3),
-    architectureIntent: structuredClone(architectureIntentBinding),
-    architectureDecision: structuredClone(architectureDecision),
-    record: null
-  };
-  phase.generationPublications = [
-    ...(phase.generationPublications ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)),
-    generationPublication
-  ].sort((left, right) => Number(left.generation) - Number(right.generation));
-  if (publicationTransaction) {
-    await persistGenerationPublicationRecord(root, workflow, phase, {
-      ...publicationTransaction,
-      workDirectory: workDirRelative(config, workflow.workItem.id)
-    });
-  }
-  normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
-  workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), agent: session.agent, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
-  if (persist) await saveWorkflow(root, config, workflow);
-  return phase;
 }
 
 export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId } = {}) {

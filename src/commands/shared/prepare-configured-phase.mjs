@@ -1,7 +1,7 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { effectivePhasePublicationProducer } from '../../manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from '../../kernel/phase-policy.mjs';
 import { operationContext } from '../../operation-context.mjs';
-import { isConvergencePhase } from '../../phase-roles.mjs';
+import { isConvergencePhase } from '../../kernel/phase-policy.mjs';
 import { storyDraftTransaction } from './story-draft-transaction.mjs';
 import { preparePhase, saveStoryDraft } from '../../state-stores.mjs';
 

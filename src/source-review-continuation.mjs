@@ -1,6 +1,6 @@
 /** Read-only author/reviewer handoff. A draft is never evidence of publication. */
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';

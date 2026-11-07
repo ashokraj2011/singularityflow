@@ -1,0 +1,413 @@
+/** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
+import { SingularityFlowError } from '../foundation/failures.mjs';
+
+/**
+ * What a workflow step is for, read from its structure and never from its name [E2G-001].
+ *
+ * A step's id is the author's word for it, and a renamed copy of a step must be governed exactly
+ * like the original. Every rule that used to ask "is this the step called convergence?" asks one of
+ * these questions instead, so renaming a step changes nothing about how it is governed and naming a
+ * step after a packaged one confers nothing.
+ *
+ * Pure and import-free: it reads Story state (`requiredArtifact`), a resolved definition or raw
+ * configuration (`artifact`) alike, so the engine, Workflow Studio and simulation agree.
+ */
+
+/** The artifact kind of the engine's convergence report: the step a person reviews to advance. */
+export const CONVERGENCE_ARTIFACT_KIND = 'convergence-report';
+
+/** The artifact kind of a conformance report: the final account of every clause against the code. */
+export const CONFORMANCE_ARTIFACT_KIND = 'conformance-report';
+
+/** The artifact kind of visual verification evidence: screens checked against declared profiles. */
+export const VISUAL_EVIDENCE_ARTIFACT_KIND = 'visual-test-evidence';
+
+const TEST_EVIDENCE_KINDS = new Set(['test-evidence', VISUAL_EVIDENCE_ARTIFACT_KIND]);
+// Read-side interpretation, installed only after the accepted closure has been verified. It is
+// deliberately not serialized into a Story, copied into a pin, or read from caller-provided flags.
+const acceptedKinds = new WeakMap();
+const acceptedResponsibilities = new WeakMap();
+
+/** Internal boundary used by the verified execution-catalog reader. */
+export function bindAcceptedPhaseInterpretation(workflow, kinds, responsibilities) {
+  for (const [id, kind] of Object.entries(kinds)) {
+    if (workflow.phases?.[id]) acceptedKinds.set(workflow.phases[id], kind);
+  }
+  acceptedResponsibilities.set(workflow, responsibilities);
+}
+
+function interpretedKind(phase) {
+  return phase && acceptedKinds.has(phase) ? acceptedKinds.get(phase) : artifactKindOf(phase);
+}
+
+/** The kind of a step's required artifact, from Story state, a resolved definition or configuration. */
+export function artifactKindOf(phase) {
+  return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
+}
+
+/**
+ * The convergence step: the engine reconciles the specification, the plan, the code and its tests
+ * into one report, and only an explicit human advancement and approval move the Story past it.
+ */
+export function isConvergencePhase(phase) {
+  return interpretedKind(phase) === CONVERGENCE_ARTIFACT_KIND;
+}
+
+/** A Story's convergence step: the active one when it is a convergence step, otherwise the first. */
+export function convergencePhaseOf(workflow) {
+  const current = workflow?.phases?.[workflow?.currentPhase];
+  if (isConvergencePhase(current)) return current;
+  for (const id of workflow?.phaseOrder ?? []) {
+    if (isConvergencePhase(workflow.phases?.[id])) return workflow.phases[id];
+  }
+  return null;
+}
+
+/** The responsibilities one step of a Story holds, as the obligation graph pinned at its start says. */
+export function stepResponsibilities(workflow, phaseId) {
+  return acceptedResponsibilities.get(workflow)?.[phaseId]
+    ?? workflow?.resolution?.obligationGraph?.nodes?.find((node) => node.id === phaseId)?.responsibilities ?? [];
+}
+
+/** Scope guidance follows verified responsibilities, with the same explicit legacy fallback. */
+export function phaseOwnsScope(workflow, phase) {
+  if (stepResponsibilities(workflow, phase?.id).includes('scope')) return true;
+  return !workflow?.resolution?.obligationGraph
+    && phase?.kind !== 'skill' && phase?.skillBinding == null
+    && ['requirements', 'implementation-spec'].includes(artifactKindOf(phase));
+}
+
+/** The latest step before `phaseId` in the Story's order that passes `test`, or null. */
+export function latestStepBefore(workflow, phaseId, test) {
+  const order = workflow?.phaseOrder ?? [];
+  const end = order.indexOf(phaseId);
+  for (let index = (end < 0 ? order.length : end) - 1; index >= 0; index -= 1) {
+    const phase = workflow.phases?.[order[index]];
+    if (phase && test(phase)) return phase;
+  }
+  return null;
+}
+
+/**
+ * What a source review of a step checks: a step that defines the scope is reviewed as a
+ * specification, one that plans the claims as a plan, and any other step has no source review.
+ */
+export function reviewKindForResponsibilities(responsibilities = []) {
+  if (responsibilities.includes('scope')) return 'specification';
+  if (responsibilities.includes('plan')) return 'planning';
+  return null;
+}
+
+/** The source-review kind of one step of a Story, from its pinned responsibilities. */
+export function sourceReviewKind(workflow, phaseId) {
+  return workflow?.phases?.[phaseId] ? reviewKindForResponsibilities(stepResponsibilities(workflow, phaseId)) : null;
+}
+
+/** The id of the step that defines a Story's scope: the first step that holds it, whatever it is called. */
+function scopeStepIdOf(workflow) {
+  return (workflow?.phaseOrder ?? []).find((id) => stepResponsibilities(workflow, id).includes('scope')) ?? null;
+}
+
+/** The step that defines a Story's scope. */
+export function scopeStepOf(workflow) {
+  const id = scopeStepIdOf(workflow);
+  return id ? workflow.phases?.[id] ?? null : null;
+}
+
+/**
+ * Any active step may propose a reviewed amendment to its approved scope. This is a kernel
+ * capability, not a work-type opt-in: no convergence finding or configured rework loop is needed.
+ * Before scope approval, edit/review its draft instead; closed or cancelled Stories must use their
+ * ordinary reopen route. A proposal never approves itself or silently changes pinned policy.
+ */
+export function intentAmendmentSource(workflow, phaseId = workflow?.currentPhase) {
+  const scope = scopeStepOf(workflow);
+  const phase = workflow?.phases?.[phaseId];
+  const order = workflow?.phaseOrder ?? [];
+  return Boolean(scope && phase && phaseId === workflow.currentPhase
+    && !['completed', 'complete', 'cancelled', 'archived'].includes(workflow.status)
+    && scope.status === 'approved' && Number(scope.generation) >= 1
+    && ['in_progress', 'awaiting_approval'].includes(phase.status)
+    && order.indexOf(phaseId) > order.indexOf(scope.id)
+    && order.includes(scope.id));
+}
+
+/** A step whose output is a conformance report, whatever it is called. */
+export function isConformancePhase(phase) {
+  return interpretedKind(phase) === CONFORMANCE_ARTIFACT_KIND;
+}
+
+/** Every conformance step of a Story, in order. */
+export function conformancePhasesOf(workflow) {
+  return (workflow?.phaseOrder ?? []).map((id) => workflow.phases?.[id]).filter(isConformancePhase);
+}
+
+/** A Story's final conformance step: the last one in order. */
+export function conformancePhaseOf(workflow) {
+  return conformancePhasesOf(workflow).filter((phase) => phase.status !== 'skipped').at(-1) ?? null;
+}
+
+/** A step that verifies screens against declared profiles, whatever it is called. */
+export function isVisualVerificationPhase(phase) {
+  return interpretedKind(phase) === VISUAL_EVIDENCE_ARTIFACT_KIND;
+}
+
+/** A Story's visual verification step, or null. */
+export function visualVerificationPhaseOf(workflow, phaseId = workflow?.currentPhase) {
+  if (phaseId && isVisualVerificationPhase(workflow.phases?.[phaseId])) return workflow.phases[phaseId];
+  const phases = (workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {}))
+    .map((id) => workflow.phases?.[id]).filter((phase) => isVisualVerificationPhase(phase) && phase.status !== 'skipped');
+  // Older pins may have multiple stages. Never silently borrow one stage's evidence for another.
+  return phases.length === 1 ? phases[0] : null;
+}
+
+/** A step whose output is test evidence, the record that the change was verified. */
+export function isTestEvidencePhase(phase) {
+  return TEST_EVIDENCE_KINDS.has(interpretedKind(phase));
+}
+
+/** Pure publication authorship rules shared by the SDK and legacy host compatibility APIs. */
+
+export const AUTHORSHIP_PRODUCERS = Object.freeze([
+  'human', 'governed-agent', 'deterministic', 'external-tool', 'legacy-unspecified'
+]);
+
+export const AUTHORSHIP_CHANNELS = Object.freeze([
+  'manual-in-place', 'manual-import', 'copilot-host', 'kernel-model', 'kernel-generator', 'external-tool', 'legacy'
+]);
+
+export const CHANGE_ORIGINS = Object.freeze([
+  'human', 'copilot', 'mixed', 'formatter', 'compiler', 'migration-tool',
+  'test-generator', 'code-generator', 'external-tool'
+]);
+
+const CHANNELS_BY_PRODUCER = Object.freeze({
+  human: new Set(['manual-in-place', 'manual-import']),
+  'governed-agent': new Set(['copilot-host', 'kernel-model']),
+  deterministic: new Set(['kernel-generator']),
+  'external-tool': new Set(['external-tool']),
+  'legacy-unspecified': new Set(['legacy'])
+});
+
+function defaultChannel(producer, imported) {
+  if (producer === 'human') return imported ? 'manual-import' : 'manual-in-place';
+  if (producer === 'governed-agent') return 'copilot-host';
+  if (producer === 'deterministic') return 'kernel-generator';
+  if (producer === 'external-tool') return 'external-tool';
+  return 'legacy';
+}
+
+function configuredPublicationProducer(phase) {
+  const policy = phase?.generationPolicy;
+  const legacy = policy?.producer;
+  return policy?.defaultProducer
+    ?? (legacy === 'agent' ? 'governed-agent' : legacy === 'manual' ? 'human' : legacy)
+    ?? 'governed-agent';
+}
+
+export function allowedPublicationProducers(phase) {
+  const policy = phase?.generationPolicy;
+  if (policy?.allowedProducers?.length) return policy.allowedProducers;
+  // Historical Story snapshots stored only the legacy `producer` field. Match the configuration
+  // normalizer exactly so an upgraded in-flight `producer: agent` phase retains its long-standing
+  // governed-agent *and* human routes instead of silently losing manual recovery.
+  if (policy?.producer === 'manual') return ['human'];
+  if (policy?.producer === 'deterministic') return ['deterministic'];
+  if (policy?.producer === 'agent') return ['governed-agent', 'human'];
+  if (policy?.defaultProducer === 'governed-agent') return ['governed-agent', 'human'];
+  if (policy?.defaultProducer) return [configuredPublicationProducer(phase)];
+  return ['governed-agent', 'human'];
+}
+
+/** The exact producer/channel pair pinned by a phase's generation contract. */
+export function phasePublicationAuthorship(phase, { producer = null, imported = false } = {}) {
+  const selected = producer ?? configuredPublicationProducer(phase);
+  assertProducerAllowed(phase, selected);
+  return Object.freeze({ producer: selected, channel: defaultChannel(selected, imported) });
+}
+
+export function phaseUsesDeterministicGeneration(phase) {
+  return phasePublicationAuthorship(phase).producer === 'deterministic';
+}
+
+/** One producer resolver for next, nextsteps, fast-path, prompts, and publication guidance. */
+export function effectivePhasePublicationProducer(phase, {
+  modelEnabled = true, requestedProducer = null
+} = {}) {
+  if (isConvergencePhase(phase)) {
+    const allowed = allowedPublicationProducers(phase);
+    if (allowed.length !== 1 || allowed[0] !== 'deterministic') {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' is a convergence phase and must permit only deterministic authorship because its artifact is a kernel-owned projection.`,
+        { code: 'CONVERGENCE_GENERATION_POLICY_INVALID' }
+      );
+    }
+    if (requestedProducer != null && requestedProducer !== 'deterministic') {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate records.`,
+        { code: 'CONVERGENCE_AUTHORSHIP_INVALID' }
+      );
+    }
+    return 'deterministic';
+  }
+  if (requestedProducer != null) return phasePublicationAuthorship(phase, { producer: requestedProducer }).producer;
+  const configured = configuredPublicationProducer(phase);
+  if (modelEnabled !== false) return phasePublicationAuthorship(phase, { producer: configured }).producer;
+  const allowed = allowedPublicationProducers(phase);
+  // The convergence artifact remains a deterministic kernel projection even when an optional
+  // assisted pass supplied candidates. Prefer it over a manual/external fallback in no-model mode.
+  if (['human', 'deterministic', 'external-tool'].includes(configured)) return configured;
+  const fallback = allowed.find((producer) => ['human', 'deterministic', 'external-tool'].includes(producer));
+  return fallback ?? configured;
+}
+
+/**
+ * What an agent's own publication records: governed-agent wherever the phase permits it, in every
+ * model mode. `--no-model` turns off the kernel's model, not the host's agent, so the manual
+ * fallback above had Copilot publish its own draft as `--authored human` and skip the checks an
+ * agent's draft gets: the clarification record and the agent's session (live reruns, 2026-11-01).
+ * Null where the phase permits no agent authorship, which stays the person's to publish.
+ */
+export function agentPublicationProducer(phase) {
+  if (isConvergencePhase(phase)) return null;
+  return allowedPublicationProducers(phase).includes('governed-agent') ? 'governed-agent' : null;
+}
+
+function defaultChangeOrigins(producer) {
+  if (producer === 'human') return ['human'];
+  if (producer === 'governed-agent') return ['copilot'];
+  if (producer === 'deterministic') return ['code-generator'];
+  if (producer === 'external-tool') return ['external-tool'];
+  return [];
+}
+
+export function normalizeAuthorshipOptions({
+  producer, channel, imported = false, externalAiUse = null, changeOrigins = null
+} = {}) {
+  const normalizedProducer = producer ?? 'legacy-unspecified';
+  if (!AUTHORSHIP_PRODUCERS.includes(normalizedProducer)) {
+    throw new SingularityFlowError(`Unknown authorship producer '${normalizedProducer}'. Expected ${AUTHORSHIP_PRODUCERS.join(', ')}.`, { code: 'MANUAL_AUTHORSHIP_REQUIRED' });
+  }
+  const normalizedChannel = channel ?? defaultChannel(normalizedProducer, imported);
+  if (!AUTHORSHIP_CHANNELS.includes(normalizedChannel) || !CHANNELS_BY_PRODUCER[normalizedProducer].has(normalizedChannel)) {
+    throw new SingularityFlowError(`Authorship channel '${normalizedChannel}' is incompatible with producer '${normalizedProducer}'.`, { code: 'MANUAL_AUTHORSHIP_REQUIRED' });
+  }
+  if (externalAiUse != null && !['none', 'assisted'].includes(externalAiUse)) {
+    throw new SingularityFlowError('--external-ai must be none or assisted when supplied.');
+  }
+  const origins = [...new Set((changeOrigins ?? defaultChangeOrigins(normalizedProducer))
+    .map((value) => String(value).trim()).filter(Boolean))];
+  const unknownOrigins = origins.filter((value) => !CHANGE_ORIGINS.includes(value));
+  if (unknownOrigins.length) {
+    throw new SingularityFlowError(
+      `Unknown change origin '${unknownOrigins[0]}'. Expected ${CHANGE_ORIGINS.join(', ')}.`,
+      { code: 'MANUAL_AUTHORSHIP_REQUIRED' }
+    );
+  }
+  return Object.freeze({
+    producer: normalizedProducer, channel: normalizedChannel, externalAiUse,
+    changeOrigins: Object.freeze(origins)
+  });
+}
+
+export function assertProducerAllowed(phase, producer) {
+  const allowed = allowedPublicationProducers(phase);
+  if (isConvergencePhase(phase) && producer !== 'deterministic') {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate records.`,
+      { code: 'CONVERGENCE_AUTHORSHIP_INVALID', details: { phase: phase.id, producer } }
+    );
+  }
+  // Historical unspecified provenance remains readable for upgraded agent/manual phases. It must
+  // never authorize a new deterministic-only publication, because that would also bypass the
+  // exact deterministic convergence integrity path selected by the producer contract.
+  const legacyCompatible = producer === 'legacy-unspecified'
+    && configuredPublicationProducer(phase) !== 'deterministic';
+  if (!allowed.includes(producer) && !legacyCompatible) {
+    throw new SingularityFlowError(`Phase '${phase.id}' does not permit '${producer}' authorship. Allowed producers: ${allowed.join(', ')}.`, {
+      code: 'MANUAL_ARTIFACT_INVALID', details: { phase: phase.id, producer, allowedProducers: allowed }
+    });
+  }
+}
+
+/** Pure selection, shared with the persistence API without importing that API. */
+export function currentPhase(workflow) {
+  if (!workflow.currentPhase) return null;
+  const phase = workflow.phases[workflow.currentPhase];
+  if (!phase) throw new SingularityFlowError(`Unknown current phase ${workflow.currentPhase}.`);
+  return phase;
+}
+
+/**
+ * Whether a consumed generation intent is simply the receipt of the step's current published
+ * generation: the state a return for rework leaves. Any other consumed intent is reviewed through
+ * recovery first.
+ */
+export function consumedByPublishedGeneration(phase) {
+  const intent = phase?.generationIntent;
+  return intent?.status === 'consumed' && Number(phase.generation) > 0
+    && Number(intent.generation) === Number(phase.generation);
+}
+
+/**
+ * A restored checkpoint selects earlier evidence; it does not make later publication identities
+ * reusable. Keep the allocation watermark separate from the generation currently being reviewed.
+ */
+export function nextPhaseGeneration(phase) {
+  const values = [phase?.generation, phase?.generationHighWatermark].map((value) => value === undefined ? 0 : value);
+  const counters = values.map((value) => typeof value === 'string' && /^(0|[1-9]\d*)$/u.test(value)
+    ? Number(value) : value);
+  if (counters.some((value) => !Number.isSafeInteger(value) || value < 0)
+      || Math.max(...counters) >= Number.MAX_SAFE_INTEGER) {
+    throw new SingularityFlowError('Phase generation counters must be nonnegative safe integers with room for a new generation.', {
+      code: 'GENERATION_COUNTER_INVALID'
+    });
+  }
+  return Math.max(...counters) + 1;
+}
+
+export function buildGenerationAuthorship({
+  options, actor, governedAgentContext, source, kernelInvocationIds = [], kernelInvocations = [], generation = null
+}) {
+  const kernelInvoked = kernelInvocationIds.length > 0;
+  return Object.freeze({
+    schemaVersion: 1,
+    producer: options.producer,
+    channel: options.channel,
+    actor: structuredClone(actor),
+    governedAgentContext: governedAgentContext == null
+      ? null
+      : typeof governedAgentContext === 'string'
+        ? { agentId: governedAgentContext }
+        : structuredClone(governedAgentContext),
+    kernelModel: {
+      invoked: kernelInvoked, status: 'exact', invocationIds: [...kernelInvocationIds],
+      ...(kernelInvocations.length ? {
+        observations: kernelInvocations.map((record) => ({
+          invocationId: record.id,
+          task: record.routing?.task ?? null,
+          mappingRevision: record.routing?.mappingRevision ?? null,
+          provider: record.provider ?? null,
+          requestedModel: null,
+          resolvedModel: record.routing?.resolvedModel ?? record.model ?? null,
+          assurance: record.observationIntegrity !== 'external-host-attested'
+            ? 'unavailable'
+            : record.routing?.task ? 'policy-selected'
+              : record.status === 'completed' && record.provider && record.model ? 'host-observed' : 'unavailable',
+          observationIntegrity: record.observationIntegrity ?? 'unverified-local',
+          host: 'singularity-flow-kernel',
+          source: 'model-invocation-audit',
+          observedAt: record.completedAt ?? record.startedAt ?? null,
+          generation
+        }))
+      } : {})
+    },
+    externalAiUse: options.externalAiUse == null
+      ? { value: 'unknown', status: 'unavailable' }
+      : { value: options.externalAiUse, status: 'self-reported' },
+    changeOrigins: [...(options.changeOrigins ?? [])],
+    source: structuredClone(source),
+    // SF Guard: the author's presence signature over this claim, or the exception that covers them.
+    ...(options.presence ? { presence: structuredClone(options.presence) } : {})
+  });
+}

@@ -1,6 +1,6 @@
 import { submitRoute } from './submit-route.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -21,7 +21,8 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { applicationChangeSetProjection, applicationPathContext, verifyWorkIntervalBaseline } from './work-intervals.mjs';
 import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
-import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
+import { phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import { generationSkillForPhase, storyTestScope } from './code-delivery-policy.mjs';
 import { unreconciledCandidatePaths } from './candidate-scope.mjs';

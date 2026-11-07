@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsScope, stepResponsibilities } from './phase-roles.mjs';
+import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsScope, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
 import { REPAIR_CONTINUATION_CONTRACT, REPAIR_CONTINUATION_PROTOCOL, phaseRepairCapabilities } from './phase-finding-policy.mjs';
 import { REQUIREMENT_COVERAGE, REQUIREMENT_AUTHORING_PROTOCOL } from './requirement-coverage.mjs';

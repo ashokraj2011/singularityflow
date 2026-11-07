@@ -20,7 +20,7 @@ import { witnessContextBindings, applicationReviewWitnesses } from './witness-re
 import { approvedInputPhases } from '../phase-input-policy.mjs';
 import {
   isConformancePhase, isTestEvidencePhase, isVisualVerificationPhase, stepResponsibilities
-} from '../phase-roles.mjs';
+} from '../kernel/phase-policy.mjs';
 
 export const WITNESS_DECISIONS_REVISION = 'recorded-visual-reviews-v1';
 export const WITNESS_DECISIONS_HEADING = '# Recorded human visual reviews';

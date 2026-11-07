@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 

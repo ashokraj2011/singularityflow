@@ -16,7 +16,7 @@
 import path from 'node:path';
 import { approvalRequirementsMet } from './approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { stepResponsibilities } from './phase-roles.mjs';
+import { stepResponsibilities } from './kernel/phase-policy.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { authoredInputsUnchanged, verifyInputsIntegrity } from './inputs.mjs';
 import { authoredEquivalence, changedUpstream, phaseUpstream } from './phase-upstream.mjs';

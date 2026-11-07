@@ -1,4 +1,4 @@
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import path from 'node:path';
 import { findingOwnedByPhase } from './phase-finding-policy.mjs';
 import { pathToFileURL } from 'node:url';
@@ -8,9 +8,8 @@ const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verificati
 const REMEDIATION_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/governance-remediation.mjs')).href;
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
-import {
-  effectivePhasePublicationProducer, phasePublicationCommandForProducer
-} from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
+import { phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, otherStoryTagsNote, phaseRequiresCodeDelivery,

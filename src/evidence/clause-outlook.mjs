@@ -25,7 +25,7 @@ export async function clausesReadSatisfied(root, definition, workflow) {
  */
 export async function clauseOutlookForStep(root, definition, workflow, phase) {
   try {
-    const [{ isTestEvidencePhase }, { endsStory }] = await Promise.all([import('../phase-roles.mjs'), import('../upstream-entry-summary.mjs')]);
+    const [{ isTestEvidencePhase }, { endsStory }] = await Promise.all([import('../kernel/phase-policy.mjs'), import('../upstream-entry-summary.mjs')]);
     if (!isTestEvidencePhase(phase) || endsStory(workflow, phase)) return [];
     const open = (await evaluatedRows(root, definition, workflow)).filter((row) => OPEN_RESULTS.has(row.result));
     if (!open.length) return [];

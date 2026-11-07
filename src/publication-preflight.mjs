@@ -1,6 +1,6 @@
 import { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, artifactBytesAreText, authoredArtifactText, inspectManagedArtifactMetadata, authoredArtifactFingerprint, requiredArtifactRepoPath, readReviewArtifact, readReviewArtifactBytes, reviewableMarkdownPath } from './artifact-review-read.mjs';
 export { reviewArtifactIdentityDecision, reviewArtifactBytesStable, authoredArtifactText, authoredArtifactFingerprint, requiredArtifactRepoPath, phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import path from 'node:path';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';

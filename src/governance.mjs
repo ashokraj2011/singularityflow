@@ -1,4 +1,4 @@
-import { conformancePhasesOf } from './phase-roles.mjs';
+import { conformancePhasesOf } from './kernel/phase-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { activeQualityRisks } from './phase-quality-risk.mjs';
@@ -7,7 +7,7 @@ import { approvedArtifactQualityFindings } from './phase-artifact-risk.mjs';
 import { terminalTransitionAt } from './workflow-terminal-time.mjs';
 export { terminalTransitionAt } from './workflow-terminal-time.mjs';
 import path from 'node:path';
-import { currentPhase } from './phase-generation.mjs';
+import { currentPhase } from './kernel/phase-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { believedProducer, countedApprovals, countedRecords } from './presence/counted.mjs';
 import { sourceTreeHash, validateWorkflow, workflowPublicationBranch } from './state-stores.mjs';

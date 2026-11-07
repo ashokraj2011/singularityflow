@@ -1,10 +1,10 @@
-import { isVisualVerificationPhase, visualVerificationPhaseOf } from './phase-roles.mjs';
+import { isVisualVerificationPhase, visualVerificationPhaseOf } from './kernel/phase-policy.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { countedRecords } from './presence/counted.mjs';
-import { phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { decodePngRgba8, readPngHeader } from './png-rgba8.mjs';
 import { secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
 

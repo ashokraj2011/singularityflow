@@ -8,7 +8,7 @@
  * last approval. Readiness, the approval review and later steps' entry packets now list each with
  * its exact command. Nothing here blocks, records or decides: only the authorized person may.
  */
-import { stepResponsibilities } from './phase-roles.mjs';
+import { stepResponsibilities } from './kernel/phase-policy.mjs';
 import { retainedEvidenceDelivered, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';

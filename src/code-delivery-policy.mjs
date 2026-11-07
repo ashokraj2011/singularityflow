@@ -1,8 +1,8 @@
 import { SingularityFlowError } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
-import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
+import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);

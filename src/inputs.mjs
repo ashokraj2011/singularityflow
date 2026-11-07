@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { workflowInputsMode, resolvedPhaseInputs } from './phase-input-policy.mjs';
 export { workflowInputsMode, resolvedPhaseInputs, approvedInputPhases } from './phase-input-policy.mjs';
 import { createHash } from 'node:crypto';

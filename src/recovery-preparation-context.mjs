@@ -1,7 +1,7 @@
 /** Recognize current-generation preparation bytes, never publication or adoption authority. */
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { readPromptGeneration } from './inject.mjs';
 import { clarificationRecordRelative, verifyClarificationRecord } from './clarifications.mjs';
 import { resolveRepositoryManifest } from './repository-manifest.mjs';
@@ -9,7 +9,7 @@ import { readBoundSpecificationClaimMap } from './specifications.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { snapshot } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import YAML from 'yaml';
 
 /** knowledge/confirm.mjs CONFIRMATIONS_PATH, kept here so recovery does not load the knowledge model. */

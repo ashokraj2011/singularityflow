@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';

@@ -2,9 +2,9 @@
 import { PROSPECTIVE_SKILL_AMENDMENT, committedResolutionPolicySha256, currentPhasePolicy, initialWorkflowRecord, resolutionPolicySha256, resolvedPhasePolicy } from "./story-policy-anchor.mjs";
 import { branch } from "./git.mjs";
 import { canonicalJson } from "./records.mjs";
-import { currentPhase } from "./phase-generation.mjs";
+import { currentPhase } from './kernel/phase-policy.mjs';
 import { exists } from "./util.mjs";
-import { isConvergencePhase } from "./phase-roles.mjs";
+import { isConvergencePhase } from "./kernel/phase-policy.mjs";
 import { ledgerStatus, refreshLedgerRemoteView } from "./ledger.mjs";
 import { normalizeContextPolicy } from "./context-policy.mjs";
 import { normalizeLedgerConfig } from "./ledger-config.mjs";

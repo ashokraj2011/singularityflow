@@ -1,4 +1,4 @@
-import { conformancePhaseOf, isVisualVerificationPhase } from './phase-roles.mjs';
+import { conformancePhaseOf, isVisualVerificationPhase } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

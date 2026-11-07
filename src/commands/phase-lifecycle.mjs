@@ -1,42 +1,28 @@
-/** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { requirePositional, SingularityFlowError, optionString, optionBoolean, readJson, optionStrings } from '../util.mjs';
+import { requirePositional, SingularityFlowError, optionString, optionBoolean, optionStrings } from '../util.mjs';
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { generationRecovery } from '../recovery-plan.mjs';
-import { workDir } from '../story-paths.mjs';
-import { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft, prefetchStoryPublicationObservation, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
+import { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft } from '../state-stores.mjs';
 import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
-import { nextPhaseGeneration } from '../phase-generation.mjs';
+import { nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
-import { verifyOpenGenerationIntent, generationStartPublicationBinding } from '../generation-boundary.mjs';
+import { verifyOpenGenerationIntent } from '../generation-boundary.mjs';
 // Load the full document renderer only when a caller actually requests that projection.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 import { loadSession } from '../session.mjs';
-import { phaseAgentMutationRestriction } from '../phase-actor-policy.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepublish.mjs';
-import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
 import { operationContext } from '../operation-context.mjs';
-import { phaseRequiresCodeDelivery, generationSkillForPhase, applicationReviewOffer, codeOutcomeReviewOffer } from '../code-delivery-policy.mjs';
-import { agentPublicationProducer, effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
-import { isConvergencePhase } from '../phase-roles.mjs';
-import { actionActor } from './kernel.mjs';
+import { applicationReviewOffer, codeOutcomeReviewOffer } from '../code-delivery-policy.mjs';
+import { agentPublicationProducer } from '../kernel/phase-policy.mjs';
 import path from 'node:path';
-import { directCopilotSkill } from '../copilot-guidance.mjs';
-import { assertConvergencePublicationReady } from '../convergence-context.mjs';
-import { currentInteractiveRevisionPublication } from '../revision/publication-adapter.mjs';
-import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { applicationPathContext, applicationChangeSetProjection } from '../work-intervals.mjs';
-import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
-import { observeAutoCandidateWorktree, assertAutoCandidateMatches } from '../auto/auto-candidate.mjs';
 import * as style from '../style.mjs';
 import { pendingTelemetryNote } from '../telemetry.mjs';
 import { postPublicationStep } from './shared/post-publication-step.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
-import { measureCommandSpan } from '../dx-timing-context.mjs';
 
 /**
  * The advisory lines a draft check or prepublish prints. Coverage, doc-comment and every other
@@ -81,6 +67,7 @@ export async function phaseCommand(positionals, options) {
   if (subcommand === 'prepublish' && options['publish-if-ready'] === true) return (await import('./phase-publish-if-ready.mjs')).run({ positionals, options });
   if (subcommand === 'show') return (await import('./phase-show.mjs')).phaseShowCommand(positionals, options);
   const root = repoRoot();
+  if (subcommand === 'publish') return phasePublishCommand(root, positionals, options);
   const accepted = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? null);
   const config = accepted.definition;
   const workflow = accepted.workflow;
@@ -243,317 +230,57 @@ export async function phaseCommand(positionals, options) {
     }
     return;
   }
-  if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
-  const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
-  const phaseId = positionals[2] ?? workflow.currentPhase;
-  const requestedPhase = workflow.phases[phaseId];
-  if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-  if (phaseRequiresCodeDelivery(requestedPhase)
-      && requestedPhase.generationIntent?.status === 'consumed'
-      && Number(requestedPhase.generationIntent.generation) === Number(requestedPhase.generation)) {
-    if (!(await generationResultMatches(root, config, workflow, requestedPhase))) {
-      throw new SingularityFlowError(
-        `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phaseId} to preview the exact guarded next-generation command.`,
-        { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: `singularity-flow phase rollover ${phaseId}` } }
-      );
-    }
-    if (optionBoolean(options, 'json')) {
-      console.log(JSON.stringify({
-        schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'retained',
-        workId: workflow.workItem.id, phase: requestedPhase.id, generation: requestedPhase.generation,
-        commit: publishedGenerationCommit(root, workflow, requestedPhase),
-        pushed: false, effects: { committed: false, pushed: false },
-        remoteSynchronization: 'not-checked', artifact: requestedPhase.requiredArtifact.path
-      }));
-      return;
-    }
-    console.log(`Published ${requestedPhase.id} generation ${requestedPhase.generation} already exists; the idempotent retry created no commit.`);
-    printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
-    return;
-  }
-  const sourcePath = optionString(options, 'from');
-  // A publish after a publish: planning went 1, 2, 3, 4 on one real run, each pair seconds apart. A
-  // document unchanged since its publication already is that publication, so nothing is recorded.
-  // A read-only agent may not publish at all, so it goes on to the refusal in its own words.
-  if (!sourcePath && await (await import('../phase-publication-unchanged.mjs')).documentUnchangedSincePublication(root, config, workflow, requestedPhase)
-    && !phaseAgentMutationRestriction(config, workflow, requestedPhase, await loadSession(root, { required: false }), 'publish')) {
-    if (optionBoolean(options, 'json')) {
-      console.log(JSON.stringify({
-        schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'retained',
-        workId: workflow.workItem.id, phase: requestedPhase.id, generation: requestedPhase.generation,
-        commit: publishedGenerationCommit(root, workflow, requestedPhase),
-        pushed: false, effects: { committed: false, pushed: false },
-        remoteSynchronization: 'not-checked', artifact: requestedPhase.requiredArtifact.path,
-        message: `Already published as generation ${requestedPhase.generation}; nothing changed since, so nothing was recorded.`
-      }));
-      return;
-    }
-    console.log(`Already published as generation ${requestedPhase.generation}; nothing changed since, so nothing was recorded.`);
-    printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
-    return;
-  }
-  const explicitAuthored = optionString(options, 'authored');
-  const implicitProducer = effectivePhasePublicationProducer(requestedPhase, {
-    modelEnabled: operationContext()?.modelMode.enabled !== false
-  });
-  // A deterministic default is an exact contract, not legacy provenance. Preserve the historical
-  // omission warning elsewhere while preventing a missing flag from disabling deterministic
-  // publication checks.
-  const authored = explicitAuthored ?? (implicitProducer === 'deterministic' ? 'deterministic' : null);
-  const requestedChangeOrigins = optionStrings(options, 'change-origin');
-  let authorshipOptions = normalizeAuthorshipOptions({
-    producer: authored,
-    channel: optionString(options, 'channel'),
-    imported: Boolean(sourcePath),
-    externalAiUse: optionString(options, 'external-ai'),
-    changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
-  });
-  if (!explicitAuthored && authored !== 'deterministic') console.warn('Deprecation warning: phase publish without --authored records legacy-unspecified. Pass --authored human or --authored governed-agent.');
-  if (isConvergencePhase(requestedPhase) && sourcePath) {
-    throw new SingularityFlowError(
-      `The convergence artifact is a kernel-owned deterministic projection and cannot be imported. Run singularity-flow prepare ${requestedPhase.id}.`,
-      { details: { nextAction: { executable: 'singularity-flow', argv: ['prepare', requestedPhase.id], label: 'Inspect or continue the retained operation; recheck before retrying.' } },  code: 'CONVERGENCE_ARTIFACT_KERNEL_OWNED' }
-    );
-  }
-  if (sourcePath && !['human', 'external-tool'].includes(authorshipOptions.producer)) {
-    throw new SingularityFlowError('--from requires --authored human or --authored external-tool.', { code: 'MANUAL_AUTHORSHIP_REQUIRED' });
-  }
-  if (usageFile && authorshipOptions.producer !== 'governed-agent') {
-    throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
-  }
-  assertProducerAllowed(requestedPhase, authorshipOptions.producer);
-  // Ask for the remote tip now; it arrives while publication checks run.
-  prefetchStoryPublicationObservation(root, config, workflow);
-  const deterministicPublication = authorshipOptions.producer === 'deterministic';
-  const session = deterministicPublication
-    ? { actor: actionActor(root), agent: null }
-    : await loadSession(root);
-  const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
-  const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
-  const generation = nextPhaseGeneration(requestedPhase);
-  const publicationArtifactContract = {
-    ...requestedPhase.requiredArtifact,
-    generation: nextPhaseGeneration(requestedPhase)
-  };
-  const publicationAuthoringOptions = {
-    qualityContext: { root, config, workflow, phase: requestedPhase, generation },
-    baseline: requestedPhase.authoringBaseline ?? null,
-    retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase, workflow))
-  };
-  const deterministicConvergence = isConvergencePhase(requestedPhase);
-  const inspectPublicationArtifact = deterministicConvergence
-    ? (candidatePath) => inspectDeterministicInPlaceArtifact(candidatePath, publicationArtifactContract)
-    : (candidatePath) => inspectInPlaceArtifact(candidatePath, publicationArtifactContract, publicationAuthoringOptions);
-  // Refuse an incomplete in-place artifact before artifact discovery mutates even the in-memory
-  // aggregate. The transaction repeats this inspection to close the change-between-check-and-use
-  // window; this first read gives CLI and Copilot hosts the complete deterministic remediation
-  // without beginning publication work.
-  const preflight = sourcePath ? null : await measureCommandSpan('publication.preflight', () => inspectPublicationArtifact(targetPath));
-  // SF Guard: on a Story it requires, a person's or an external tool's authorship claim is believed only
-  // with its author's presence signature; an unsigned one is recorded and checked as the agent's. The
-  // claimant is the person running this, and a claim they sign records them as its actor.
-  let claimActor = null;
-  if (workflow.resolution?.presence) {
-    const claimant = actionActor(root);
-    const claimed = await (await import('../presence/authorship-claims.mjs')).prepareAuthorshipClaim(root, {
-      workflow, phase: requestedPhase, options: authorshipOptions, generation, artifactSha256: preflight?.sha256 ?? null,
-      actor: claimant, sourcePath: sourcePath ? path.resolve(sourcePath) : null,
-      asAgent: (candidate) => {
-        assertProducerAllowed(candidate, 'governed-agent');
-        return normalizeAuthorshipOptions({ producer: 'governed-agent', channel: 'copilot-host', externalAiUse: authorshipOptions.externalAiUse });
-      }
+  throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
+}
+
+export function phasePublicationJson(receipt, context) {
+  const { workflow, phase, warnings = [] } = context;
+  const result = { schemaVersion: 1, resultType: 'sflow-phase-publication', status: receipt.status,
+    workId: receipt.subject.id, phase: receipt.phase, generation: receipt.generation,
+    commit: receipt.revision, pushed: receipt.effects.pushed, effects: receipt.effects };
+  if (receipt.status === 'retained') return { ...result, remoteSynchronization: 'not-checked', artifact: receipt.artifact,
+    ...(receipt.retentionReason === 'unchanged-document' ? {message: `Already published as generation ${phase.generation}; nothing changed since, so nothing was recorded.`} : {}) };
+  const outcomeReview = codeOutcomeReviewOffer(workflow, phase), applicationReview = applicationReviewOffer(workflow, phase);
+  return { ...result, artifact: receipt.artifact, ...(outcomeReview ? {outcomeReview} : {}),
+    ...(applicationReview ? {applicationReview} : {}), ...(warnings.length ? {warnings} : {}) };
+}
+
+async function phasePublishCommand(root, positionals, options) {
+  const { createGitEngine } = await import('../engine-compatibility/git-publication.mjs');
+  const binding = createGitEngine({root, notice: event => {
+    if (event.code === 'publication.legacy-authorship') console.warn('Deprecation warning: phase publish without --authored records legacy-unspecified. Pass --authored human or --authored governed-agent.');
+    else if (event.message) console.warn(event.message);
+  }});
+  let receipt;
+  try {
+    receipt = await binding.engine.run('phase.publish', {
+      workId: optionString(options,'work-id') ?? null, phaseId: positionals[2] ?? null,
+      authored: optionString(options,'authored') ?? null, channel: optionString(options,'channel') ?? null,
+      from: optionString(options,'from') ? path.resolve(optionString(options,'from')) : null,
+      usageFile: optionString(options,'usage-json') ? path.resolve(optionString(options,'usage-json')) : null,
+      externalAiUse: optionString(options,'external-ai') ?? null, changeOrigins: optionStrings(options,'change-origin')
     });
-    authorshipOptions = claimed.options;
-    if (authorshipOptions.presence) claimActor = claimant;
-    if (claimed.notice) console.warn(claimed.notice);
-  }
-  if (deterministicConvergence) {
-    await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
-  }
-  // Discover the prospective generation's artifact set before opening the publication unit. This
-  // changes only the in-memory aggregate; the unit below still owns every durable write. Without
-  // this preflight, implementation source/tests first discovered inside `publishGeneration` were
-  // absent from the transaction's immutable path allowlist and therefore absent from the exact
-  // generation commit later used by governed references and review packets.
-  await measureCommandSpan('publication.discovery', () => scanArtifacts(root, config, workflow, phaseId));
-  // Attribute only invocations explicitly bound to this generation intent. Story-wide unclaimed
-  // audits may come from exploration, another phase, or an abandoned attempt and can never prove
-  // the model assurance of the generation being published.
-  const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
-    .flatMap((item) => item.authorship ?? [])
-    .flatMap((record) => record.kernelModel?.invocationIds ?? []));
-  const { listModelInvocations } = await import('../model-runner.mjs');
-  const kernelInvocations = (await listModelInvocations(root, {
-    subjectId: workflow.workItem.id,
-    phase: requestedPhase.id,
-    generationIntentId: requestedPhase.generationIntent?.id ?? null,
-    generation,
-    task: 'code',
-    startedAfter: requestedPhase.generationIntent?.startedAt ?? null
-  }))
-    .filter((record) => !attributedInvocations.has(record.id));
-  const kernelInvocationIds = kernelInvocations.map((record) => record.id);
-  const generationStart = await generationStartPublicationBinding(root, workflow, requestedPhase);
-  // A code phase with no REV loop keeps the ordinary publication path. Once the guarded REV flow
-  // has established any private pointer/journal state, publication may proceed only through its
-  // exact current prechecked selected head; missing, stale, abandoned, or uncertain state refuses
-  // instead of silently publishing whatever happens to be in the worktree.
-  const revisionPublication = phaseRequiresCodeDelivery(requestedPhase)
-    ? await currentInteractiveRevisionPublication(root, accepted)
-    : null;
-  let phase = requestedPhase;
-  let publicationStabilityGuard = null;
-  await (await import('../workflow-task-store.mjs')).observeWorkflowTask(root, workflow, phase,
-    { state: 'publication-requested', checkpoint: 'publication-requested' }, { generation });
-  const result = await commitAndPublish(
-    root,
-    config,
-    workflow,
-    {
-      type: LIFECYCLE_EVENT.ARTIFACT_GENERATED,
-      phaseId,
-      generation,
-      payload: generationStart ?? {}
-    },
-    `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
-    [...new Set([...requestedPhase.artifacts.map((item) => item.path), targetRelative])],
-    {
-      beforeStateWrite: async (publicationEvent, transactionContext) => {
-        const source = sourcePath
-          ? await importManualArtifact({
-              sourcePath: path.resolve(sourcePath), targetPath,
-              contract: publicationArtifactContract,
-              baseline: publicationAuthoringOptions.baseline,
-              retrySkill: publicationAuthoringOptions.retrySkill
-            })
-          : await inspectPublicationArtifact(targetPath);
-        const authorship = buildGenerationAuthorship({
-          options: authorshipOptions,
-          actor: claimActor ?? session.actor,
-          governedAgentContext: session.agent,
-          source,
-          kernelInvocationIds,
-          kernelInvocations,
-          generation
-        });
-        // The initial discovery owns the transaction allowlist. publishGeneration refreshes
-        // registrations after its managed writes; repeating discovery here observes no new scope.
-        phase = await measureCommandSpan('publication.validation', () => publishGeneration(root, config, workflow, {
-          phaseId,
-          usage,
-          authorship,
-          persist: false,
-          publicationTransaction: {
-            publicationEvent,
-            transactionId: transactionContext.transactionId,
-            expectedHead: transactionContext.expectedHead
-          }
-        }));
-        // Deterministic phases may legitimately replace their prepared scaffold during
-        // `publishGeneration`; all phases also receive engine-owned metadata. The stability
-        // boundary therefore begins from the validated post-transition artifact, not from the
-        // pre-transition author/import source.
-        const expectedArtifactSha256 = (await inspectPublicationArtifact(targetPath)).sha256;
-        const expectedConvergenceSnapshotSha256 = deterministicConvergence
-          ? (await assertConvergencePublicationReady(root, config, workflow, phase)).snapshotSha256
-          : null;
-        const deliveryBaseline = phase.deliveryEvidence?.baselineCommit ?? null;
-        const pathContext = applicationPathContext(config, workflow);
-        const expectedApplicationDigest = phase.deliveryEvidence?.changeSet
-          ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet, pathContext).digest
-          : null;
-        publicationStabilityGuard = async () => {
-          const artifact = await inspectPublicationArtifact(targetPath);
-          if (artifact.sha256 !== expectedArtifactSha256) {
-            throw new SingularityFlowError(
-              `The authored ${phase.id} artifact changed while publication was running. Nothing was committed; retry after the editor is stable.`,
-              {
-                code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                details: { expectedArtifactSha256, currentArtifactSha256: artifact.sha256 }
-              }
-            );
-          }
-          if (expectedConvergenceSnapshotSha256) {
-            const currentConvergence = await assertConvergencePublicationReady(root, config, workflow, phase);
-            if (currentConvergence.snapshotSha256 !== expectedConvergenceSnapshotSha256) {
-              throw new SingularityFlowError(
-                `The reviewed convergence projection or one of its exact inputs changed while publication was running. Nothing was committed; run singularity-flow prepare ${phase.id} again.`,
-                {
-                  code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                  details: { nextAction: { executable: 'singularity-flow', argv: ['prepare', phase.id], label: 'Inspect or continue the retained operation; recheck before retrying.' },
-                    expectedConvergenceSnapshotSha256,
-                    currentConvergenceSnapshotSha256: currentConvergence.snapshotSha256
-                  }
-                }
-              );
-            }
-          }
-          let applicationDigest = null;
-          if (deliveryBaseline && expectedApplicationDigest) {
-            const current = await buildRepositoryChangeSet(root, {
-              baseCommit: deliveryBaseline,
-              subject: {
-                workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-                generationIntentId: phase.generationIntent?.id ?? null
-              }
-            });
-            applicationDigest = applicationChangeSetProjection(current, pathContext).digest;
-            if (applicationDigest !== expectedApplicationDigest) {
-              throw new SingularityFlowError(
-                'Application source or test bytes changed after validation and before the commit. '
-                + 'Nothing was committed; wait for editor, formatter, generator, and test writes to finish, then retry.',
-                {
-                  code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                  details: { expectedApplicationDigest, currentApplicationDigest: applicationDigest }
-                }
-              );
-            }
-          }
-          // The generic delivery digest closes ordinary editor/test races. Auto publication has a
-          // stronger one-Candidate law: immediately before and after the isolated Git index is
-          // staged, reproduce the exact frozen Candidate resource identity as well. This keeps
-          // the lifecycle commit/event/trailer bound to the same Candidate that was verified even
-          // when a concurrent writer changes source after the earlier generation preflight.
-          let autoCandidateDigest = null;
-          if (phase.deliveryEvidence?.autoCandidate) {
-            const candidate = phase.deliveryEvidence.autoCandidate;
-            const observation = await observeAutoCandidateWorktree(root, candidate, pathContext);
-            assertAutoCandidateMatches(candidate, observation);
-            autoCandidateDigest = `${candidate.bindingSha256}:${observation.applicationResourceDigest}`;
-          }
-          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}`;
-        };
-      },
-      worktreeGuard: async () => {
-        if (!publicationStabilityGuard) {
-          throw new SingularityFlowError('Publication stability guard was not initialized.', {
-            code: 'PUBLICATION_SNAPSHOT_CHANGED'
-          });
-        }
-        return publicationStabilityGuard();
-      },
-      revisionPublication
+  } catch (error) {
+    if (error.code === 'CONVERGENCE_ARTIFACT_KERNEL_OWNED' && error.details?.phase) {
+      const id = error.details.phase;
+      error.message = `The convergence artifact is a kernel-owned deterministic projection and cannot be imported. Run singularity-flow prepare ${id}.`;
+      error.details = { nextAction: { executable: 'singularity-flow', argv: ['prepare', id], label: 'Inspect or continue the retained operation; recheck before retrying.' } };
     }
-  );
-  // Never blocks: an earlier approved artifact that changed is named now, not only at the final check.
-  const approvedDrift = await (await import('./input-restore.mjs')).approvedArtifactDriftWarnings(root, config, workflow, phase).catch(() => []);
-  const applicationReview = applicationReviewOffer(workflow, phase);
-  const outcomeReview = codeOutcomeReviewOffer(workflow, phase);
-  if (optionBoolean(options, 'json')) {
-    // Publication is complete here. A GUI needs the exact receipt, not a second expensive review
-    // projection before it can acknowledge success. Documents remain available on explicit request.
-    console.log(JSON.stringify({
-      schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'published',
-      workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-      commit: result.sha, pushed: result.pushed === true,
-      effects: { committed: true, pushed: result.pushed === true },
-      artifact: phase.requiredArtifact.path,
-      ...(outcomeReview ? { outcomeReview } : {}),
-      ...(applicationReview ? { applicationReview } : {}),
-      ...(approvedDrift.length ? { warnings: approvedDrift } : {})
-    }));
+    throw error;
+  }
+  const context = binding.presentation();
+  const {config, workflow, phase} = context;
+  if (optionBoolean(options,'json')) { console.log(JSON.stringify(phasePublicationJson(receipt, context))); return; }
+  if (receipt.status === 'retained') {
+    console.log(receipt.retentionReason === 'consumed-intent'
+      ? `Published ${phase.id} generation ${phase.generation} already exists; the idempotent retry created no commit.`
+      : `Already published as generation ${phase.generation}; nothing changed since, so nothing was recorded.`);
+    printPhaseReview(await phaseReview(root, config, workflow, phase), {showArtifact:optionBoolean(options,'show-artifact')});
     return;
   }
+  const result = context.publication;
+  const approvedDrift = context.warnings ?? [];
+  const applicationReview = applicationReviewOffer(workflow, phase), outcomeReview = codeOutcomeReviewOffer(workflow, phase);
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
   if (outcomeReview) for (const line of commandGuidanceLines(outcomeReview, 'Try and review this Story')) console.log(line);
   if (applicationReview) for (const line of commandGuidanceLines(applicationReview, 'Review application')) console.log(line);

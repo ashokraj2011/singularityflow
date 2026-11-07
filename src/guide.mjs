@@ -1,10 +1,10 @@
-import { intentAmendmentSource, isConvergencePhase } from './phase-roles.mjs';
+import { intentAmendmentSource, isConvergencePhase } from './kernel/phase-policy.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';

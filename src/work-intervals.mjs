@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import path from 'node:path';
 import { lstat, readFile } from 'node:fs/promises';
 import { branch, changedFiles, gitDir, head } from './git.mjs';

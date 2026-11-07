@@ -1,5 +1,5 @@
 /** Deterministic structural scenarios only. No receipts, permissions or runtime effects are minted. */
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { recordSha256 } from './records.mjs';
 import { evaluateSequence, phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';

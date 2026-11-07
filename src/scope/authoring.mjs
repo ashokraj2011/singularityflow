@@ -1,6 +1,6 @@
 /** Early repair guidance, never a new publication/approval gate or an automatic scope decision. */
 import path from 'node:path';
-import { phaseOwnsScope } from '../phase-roles.mjs';
+import { phaseOwnsScope } from '../kernel/phase-policy.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { scopeAuthorities } from './decisions.mjs';
 import { scopeDecisionArgv } from './extract.mjs';

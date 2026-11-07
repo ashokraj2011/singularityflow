@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { open, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

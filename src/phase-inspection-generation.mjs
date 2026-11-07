@@ -1,6 +1,6 @@
 /** Pure inspection labels shared by authoring and read-only review. */
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 
 export function hasPublishedPhaseGeneration(phase) {
   const generation = Number(phase?.generation);

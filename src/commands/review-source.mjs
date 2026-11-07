@@ -2,7 +2,7 @@
 import { requirePositional, SingularityFlowError, optionString, optionBoolean } from '../util.mjs';
 import { repoRoot, branch, gitDir, identity } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { sourceReviewKind } from '../phase-roles.mjs';
+import { sourceReviewKind } from '../kernel/phase-policy.mjs';
 import { workflowBranchAllowed } from '../story-paths.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';

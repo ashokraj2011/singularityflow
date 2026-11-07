@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { listMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';

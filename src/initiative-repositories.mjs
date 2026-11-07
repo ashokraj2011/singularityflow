@@ -1,4 +1,4 @@
-import { conformancePhaseOf, isConformancePhase, isTestEvidencePhase, stepResponsibilities } from './phase-roles.mjs';
+import { conformancePhaseOf, isConformancePhase, isTestEvidencePhase, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { storyPlanPhaseOf, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';

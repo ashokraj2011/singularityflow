@@ -1,4 +1,4 @@
-import { isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
@@ -6,13 +6,12 @@ import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, applicationReviewOffer } from './code-delivery-policy.mjs';
-import {
-  effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
-} from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
+import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { modelOffCause, operationContext } from './operation-context.mjs';
 import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, upstreamIssueStates } from './upstream-routes.mjs';

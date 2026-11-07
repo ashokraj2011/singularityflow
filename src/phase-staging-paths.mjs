@@ -9,7 +9,7 @@
  */
 import path from 'node:path';
 import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
-import { sourceReviewKind } from './phase-roles.mjs';
+import { sourceReviewKind } from './kernel/phase-policy.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 
 const STAGING_DIRECTORIES = Object.freeze({ clarification: 'clarification-responses', 'source-review': 'source-reviews' });

@@ -13,7 +13,7 @@ import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundar
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { recordPlanAmendment, planAuthorities } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';

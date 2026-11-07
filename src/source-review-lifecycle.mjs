@@ -1,5 +1,5 @@
 /** Durable, read-only source packet and append-only review evidence for published Story generations. */
-import { latestStepBefore, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
+import { latestStepBefore, sourceReviewKind, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';

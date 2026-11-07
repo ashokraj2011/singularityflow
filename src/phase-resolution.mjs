@@ -8,7 +8,7 @@ import { repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phas
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
-import { latestStepBefore } from './phase-roles.mjs';
+import { latestStepBefore } from './kernel/phase-policy.mjs';
 
 const UPSTREAM_INPUT_CODES = new Set(['phase_inputs_not_ready', 'phase.inputs.not-ready',
   'specification_index_untrusted', 'convergence_upstream_artifact_stale']);

@@ -10,7 +10,7 @@ import { renderPlatformCommand } from './safe-command-guidance.mjs';
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
 import { phaseRequiresCodeDelivery, storyTestScope } from './code-delivery-policy.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import {
   configuredTestModuleOverrides, isAllowedTestAutomationPath, isExecutableTestSourcePath,
   isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, prepareTestReportReader, readDurableTestObservation, replayTestReports,

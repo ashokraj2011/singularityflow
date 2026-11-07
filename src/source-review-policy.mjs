@@ -1,5 +1,5 @@
 import { SingularityFlowError } from './util.mjs';
-import { sourceReviewKind } from './phase-roles.mjs';
+import { sourceReviewKind } from './kernel/phase-policy.mjs';
 
 /** A pinned, opt-in gate. Older Story resolutions without this field stay unchanged. */
 /**

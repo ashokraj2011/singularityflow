@@ -7,13 +7,13 @@ import { applicationPathContext, isApplicationPath } from './application-paths.m
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
-import { sourceReviewKind } from './phase-roles.mjs';
+import { sourceReviewKind } from './kernel/phase-policy.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
-import { phasePublicationContract } from './manual-authorship.mjs';
-import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
+import { phasePublicationContract } from './phase-publication-guidance.mjs';
+import { consumedByPublishedGeneration, nextPhaseGeneration } from './kernel/phase-policy.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
 /**

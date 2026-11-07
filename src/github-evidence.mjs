@@ -1,4 +1,4 @@
-import { conformancePhaseOf } from './phase-roles.mjs';
+import { conformancePhaseOf } from './kernel/phase-policy.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { branch, identity } from './git.mjs';

@@ -4,7 +4,7 @@ import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { branch, identity } from './git.mjs';
-import { currentPhase } from './phase-generation.mjs';
+import { currentPhase } from './kernel/phase-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';

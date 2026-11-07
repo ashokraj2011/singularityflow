@@ -8,7 +8,7 @@ import { assertPhaseSequence } from '../../sequence.mjs';
 import { assertApprovalSubmitted } from '../../approval-submitted.mjs';
 import { assertLifecycleWorktreeClean, withSetAsideRoute } from '../../lifecycle-worktree.mjs';
 import { resolveSelectionReceipt } from '../../choices.mjs';
-import { phaseUsesDeterministicGeneration } from '../../manual-authorship.mjs';
+import { phaseUsesDeterministicGeneration } from '../../kernel/phase-policy.mjs';
 import { actionActor, activatePhaseAgent } from '../kernel.mjs';
 
 export async function decisionWorkflow(positionals, options, action) {

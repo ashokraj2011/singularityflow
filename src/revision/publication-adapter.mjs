@@ -6,7 +6,7 @@
  * pointer, append-only journal, content-addressed precheck input, and retained Candidate store.
  */
 import { recordSha256 } from '../records.mjs';
-import { nextPhaseGeneration } from '../phase-generation.mjs';
+import { nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { head } from '../git.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';

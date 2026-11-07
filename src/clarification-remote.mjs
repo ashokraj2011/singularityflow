@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 
 export const ANSWER_PACKET_KIND = 'clarification-answer';

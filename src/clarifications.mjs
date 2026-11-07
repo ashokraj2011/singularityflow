@@ -7,14 +7,14 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
-import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
+import {markerQuestionHash} from './clarification-markers.mjs';
+import {normalizeClarificationPolicy,clarificationCheckpointState} from './kernel/phase-inputs.mjs';
+export {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
 
-const CLARIFICATION_MODES = new Set(['off', 'when-needed', 'required']);
-const DEFAULT_MAX_QUESTIONS = 5;
 
 /**
  * The pinned clarification policy for a phase.
@@ -340,10 +340,7 @@ async function pinnedSpecificationSlices(root, definition, workflow) {
 /** Conversation permission is not artifact-authoring or publication permission. No model call. `slices` are settled too. */
 export function clarificationCheckpoint(policy, verification, { slices = [] } = {}) {
   const { mode, maxQuestions, topics } = normalizeClarificationPolicy(policy);
-  const missing = verification.recordState === 'missing';
-  const stage = mode === 'off' ? 'off' : missing ? mode === 'required' ? 'derive-questions' : 'assess-ambiguity'
-    : verification.errors.length ? 'inspect-binding' : 'complete';
-  const questioningAllowed = ['derive-questions', 'assess-ambiguity'].includes(stage);
+  const {stage,questioningAllowed}=clarificationCheckpointState(mode,verification.recordState,verification.errors.length);
   return {
     stage, questioningAllowed, maxQuestions, topics,
     requiresHumanResponse: stage === 'derive-questions',
@@ -426,39 +423,6 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
     path: relative,
     sha256: info.sha256
   };
-}
-
-export function normalizeClarificationPolicy(value = {}) {
-  if (value == null) value = {};
-  if (typeof value === 'string') value = { mode: value };
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError('clarification must be an object or mode string.');
-  }
-  for (const key of Object.keys(value)) {
-    // `markers` is the marker policy, pinned separately from the conversational mode above
-    // [SPK:REQ-064]: one governs whether the agent asks questions, the other governs what happens
-    // to an unanswered `[NEEDS CLARIFICATION: ...]` left in the artifact.
-    if (!['mode', 'maxQuestions', 'topics', 'markers'].includes(key)) {
-      throw new SingularityFlowError(`clarification contains unknown field '${key}'.`);
-    }
-  }
-  const mode = value.mode ?? 'off';
-  if (!CLARIFICATION_MODES.has(mode)) {
-    throw new SingularityFlowError('clarification.mode must be off, when-needed, or required.');
-  }
-  const maxQuestions = value.maxQuestions ?? DEFAULT_MAX_QUESTIONS;
-  if (!Number.isInteger(maxQuestions) || maxQuestions < 1 || maxQuestions > 10) {
-    throw new SingularityFlowError('clarification.maxQuestions must be an integer from 1 through 10.');
-  }
-  const topics = value.topics ?? [];
-  if (!Array.isArray(topics) || topics.some((topic) => typeof topic !== 'string' || !topic.trim())) {
-    throw new SingularityFlowError('clarification.topics must contain non-empty strings.');
-  }
-  const normalizedTopics = [...new Set(topics.map((topic) => topic.trim()))];
-  if (normalizedTopics.length !== topics.length) {
-    throw new SingularityFlowError('clarification.topics must not contain duplicates.');
-  }
-  return { mode, maxQuestions, topics: normalizedTopics, markers: markerPolicy(value.markers) };
 }
 
 export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSource = false } = {}) {

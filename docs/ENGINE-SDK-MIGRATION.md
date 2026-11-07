@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and its document manifest, document body reads, convergence advancement and shared post-transition effects extracted; authoring context manifests, remaining queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and preparation/code-generation/prepublish admission remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -91,6 +91,11 @@ distinct from matched bindings. CLI rendering and terminal confirmation remain h
 The [document body query](ENGINE-SDK-DOCUMENT-READ.md) resolves those retained references and the
 existing catalog lookups through one registered reader. Local attachments remain local; query
 results distinguish retained, catalog, snapshot and external provenance without laptop paths.
+
+The [phase-entry operation](ENGINE-SDK-PHASE-ENTRY.md) coordinates binding, semantic admission,
+optional composition, clarification and local task progress through the registry. Its public
+manifest describes what an author should read; prompt wording and native command guidance remain
+private integration presentation. A manifest is not a record that its resources were consumed.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -627,3 +632,47 @@ Phase 5 still requires phase entry, its authoring-context manifest and remaining
 coordination. Phases 6–9 retain their complete filesystem/database adapter, portable runtime and
 cross-agent resume, explicit verified authority migration, and final removal/distribution/
 performance scope. This delivery does not complete or narrow those remaining milestones.
+
+## Phase 5 phase-entry and context-admission delivery
+
+The registered [phase-entry operation](ENGINE-SDK-PHASE-ENTRY.md) owns the ordered binding,
+inspection, optional composition, clarification and local-checkpoint stages. Kernel policy owns
+composition admission and the entry/clarification outcome. The private native port retains
+observation, prompt delivery, exact issued staging paths, task records and the original CLI
+presentation. Public results contain semantic admission facts and a versioned read plan, with
+captured upstream generations/hashes, local-document availability and clarification answer
+bindings. They contain no prompt bodies, laptop paths or shell-command wording. Explicit SDK
+roots cannot be redirected by the machine's selected workspace.
+
+The original entry and authoring-entry exports forward through this operation. Paused and
+unbound requests stay lightweight. Complete clarification records are reused; missing answers,
+stale bindings, interrupted tasks, exhausted budgets and missing local documents retain their
+existing repair/human routes. Native errors preserve identity, cause and recovery, with optional
+stage/effect diagnostics for interrupted entry. No stage is automatically retried or treated as
+rolled back. Entry does not execute tests, publish, approve or advance a Story.
+
+Pure input policy also owns clarification normalization and checkpoint classification.
+Configuration and SKP validation no longer import native clarification-record I/O to normalize
+that policy. Compatibility aliases retain the same constructor, defaults, values and messages.
+The installed Git authorities, native records/hashes and public CLI meanings remain unchanged.
+
+Mac qualification on Node 26.12.0 passes 330 checks with zero failures, cancellations or skips:
+223 native/integration checks and 107 SDK/policy/boundary/startup and Git-compatibility checks.
+The native run covers source and genuinely bundled CLI parity, explicit-root isolation,
+required/stale/malformed clarification records, retained generations, task progress/interruption,
+budget recovery, local-document takeover and configuration/SKP/input validation. The existing
+Git-compatibility suites also pass their concurrent-write, cancellation, lost-response, integrity,
+review-confirmation and dirty-application preservation cases.
+
+`npm run check` passes 3,617 checks; VS Code typechecking, all 13 unchanged bundle budgets,
+Git ownership audit (2,010 existing sites), dry-run packaging and whitespace checks pass. The
+pure SDK closure is 15 modules / 187,008 input bytes with zero external imports. The gateway
+remains 852 modules / 6,739,652 bytes; no ceiling is raised. The dry-run package contains 9,476
+files, including the new owners and documentation and excluding tests. All repositories and
+remotes are isolated local fixtures. No Windows, hosted CI, live provider, merge, push or
+real-project authority migration ran.
+
+This delivery does not finish Phase 5. The portable prompt/asset inventory, preparation/code-
+generation/prepublish admission, remaining queries and native-rule extraction remain. Phases
+6–9 retain their full filesystem/database adapter, installable headless runtime and cross-agent
+resume, verified authority migration, and final removal/distribution/performance scope.

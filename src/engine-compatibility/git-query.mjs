@@ -8,7 +8,7 @@ import {withoutConfigurationReadScope} from '../configuration-read-scope.mjs';
 export function createGitQueryEngine({root,presentation=null}={}) {
   if(typeof root!=='string'||!path.isAbsolute(root))throw new SingularityFlowError(
     'Git query composition requires an explicit absolute checkout root.',{code:'ENGINE_INPUT_INVALID'});
-  let owner,documentOwner,context=null;
+  let owner,documentOwner,entryOwner,context=null;
   const preferences=presentation?Object.freeze({includeContinuation:presentation.includeContinuation===true,
     includeApprovalCheck:presentation.includeApprovalCheck!==false,includeSheet:presentation.includeSheet===true}):null;
   const phaseReview={};
@@ -29,7 +29,16 @@ export function createGitQueryEngine({root,presentation=null}={}) {
       return (await documentOwner)[stage](...args);
     };
   }
-  const engine=createEngine({ports:{phaseReview,documentRead,invocation:{
+  const phaseEntry={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='phaseEntry').stages) {
+    phaseEntry[stage]=async(...args)=>{
+      entryOwner??=import('./git-phase-entry.mjs').then(({createGitPhaseEntryPort})=>
+        createGitPhaseEntryPort({root,onContext:value=>{context=value;}}))
+        .catch(error=>{entryOwner=undefined;throw error;});
+      return (await entryOwner)[stage](...args);
+    };
+  }
+  const engine=createEngine({ports:{phaseReview,documentRead,phaseEntry,invocation:{
     run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
   }}});
   return Object.freeze({engine,presentation:()=>context});

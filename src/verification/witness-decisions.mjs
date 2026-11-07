@@ -17,7 +17,7 @@ import { recordSha256 } from '../records.mjs';
 import { countedRecords } from '../presence/counted.mjs';
 import { secureRepositoryPath } from '../util.mjs';
 import { witnessContextBindings, applicationReviewWitnesses } from './witness-records.mjs';
-import { approvedInputPhases } from '../phase-input-policy.mjs';
+import {approvedInputPhases} from '../kernel/phase-inputs.mjs';
 import {
   isConformancePhase, isTestEvidencePhase, isVisualVerificationPhase, stepResponsibilities
 } from '../kernel/phase-policy.mjs';

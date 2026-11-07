@@ -19,7 +19,8 @@ import { ignoredRanges, isIgnored } from './specifications.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /** How a phase reacts to an unresolved marker. Pinned separately from the conversational mode. */
-export const MARKER_MODES = Object.freeze(['off', 'warn', 'block']);
+import {markerPolicy} from './kernel/phase-inputs.mjs';
+export {markerPolicy,MARKER_MODES} from './kernel/phase-inputs.mjs';
 
 export const MARKER_LIMITS = Object.freeze({
   maxQuestionChars: 300,
@@ -104,14 +105,6 @@ export function extractMarkers(markdown, { limits = MARKER_LIMITS } = {}) {
 }
 
 /** Normalize a pinned marker policy. Absent means `off`, because a gate nobody asked for is a trap. */
-export function markerPolicy(value) {
-  const mode = typeof value === 'string' ? value : value?.mode ?? 'off';
-  if (!MARKER_MODES.includes(mode)) {
-    throw new SingularityFlowError(`clarification.markers.mode must be one of ${MARKER_MODES.join(', ')}; got '${mode}'.`);
-  }
-  return { mode };
-}
-
 /**
  * Which markers are still open, which were resolved, and which merely disappeared. `[SPK:REQ-067]`
  *

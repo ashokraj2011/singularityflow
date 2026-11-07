@@ -9,15 +9,15 @@ import { effectiveDocumentMimeType } from './source-text.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError, writeAtomic, ensureSecureRepositoryDirectory, secureRepositoryPath } from './util.mjs';
 
-async function localDocuments(root, definition, workflow, phaseId) {
+async function localDocuments(root, definition, workflow, phaseId, manifest = null) {
   // Read only the supporting-document manifest. Building the full artifact/system catalog here
   // would add unrelated file hashing to every phase, next-step and publication command.
-  return (await loadManifest(root, definition, workflow)).documents.filter(record =>
+  return (manifest ?? await loadManifest(root, definition, workflow)).documents.filter(record =>
     isLocalDocument(record) && evidenceIsActive(record) && documentOfferedToPhase(record, phaseId));
 }
 
-export async function phaseDocumentReadiness(root, definition, workflow, phaseId = workflow.currentPhase, { includeReferences = false } = {}) {
-  const records = await localDocuments(root, definition, workflow, phaseId);
+export async function phaseDocumentReadiness(root, definition, workflow, phaseId = workflow.currentPhase, { includeReferences = false, manifest = null } = {}) {
+  const records = await localDocuments(root, definition, workflow, phaseId, manifest);
   const missing = [];
   for (const record of records) {
     const availability = await localDocumentAvailability(root, workflow.workItem.id, record, { verify: true });

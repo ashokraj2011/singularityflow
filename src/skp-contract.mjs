@@ -16,7 +16,7 @@ import path from 'node:path';
 import { normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { normalizeArtifactSet } from './artifact-sets.mjs';
 import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
-import { normalizeClarificationPolicy } from './clarifications.mjs';
+import {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';

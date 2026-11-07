@@ -29,7 +29,7 @@ import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import { normalizeApprovalAuthorities, normalizeApprovalPolicy, normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
-import { normalizeClarificationPolicy } from './clarifications.mjs';
+import {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';

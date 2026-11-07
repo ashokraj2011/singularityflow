@@ -12,6 +12,9 @@ import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
+import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
+import {phaseEntrySelection,phaseEntryInspection,phaseEntryComposition,phaseEntryClarification,
+  phaseEntryPlan,phaseEntryManifest} from '../kernel/phase-entry.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -90,13 +93,77 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:phaseReviewInput,execute:inspectPhaseReview},
   {id:'document.read',version:1,effect:'read',humanDecision:false,
     inputFields:Object.freeze(['workId','reference','includeDetached','maximumBytes']),port:'documentRead',
-    stages:Object.freeze(['load','resolve','read']),validate:documentReadInput,execute:readDocument}
+    stages:Object.freeze(['load','resolve','read']),validate:documentReadInput,execute:readDocument},
+  {id:'phase.enter',version:1,effect:'context-entry',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId','compose']),port:'phaseEntry',
+    stages:Object.freeze(['load','inspect','compose','clarify','finish']),validate:phaseEntryInput,execute:enterPhase}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function phaseEntryInput(value,operation) {
+  const input=data(value);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
+    ||['workId','phaseId'].some(key=>input[key]!=null&&typeof input[key]!=='string')
+    ||input.compose!=null&&typeof input.compose!=='boolean')invalid('Invalid phase entry selection or composition request.');
+  return input;
+}
+
+async function enterPhase(port,inputs,signal) {
+  const compose=inputs.compose===true,completedStages=[];
+  let binding=null,pendingStage='load',composition=null,clarification=null,finished=null;
+  const copy=value=>{
+    try{return data(value);}catch(cause){throw new SingularityFlowError('The phase entry port returned non-JSON facts.',{
+      code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  };
+  try {
+    notCancelled(signal);
+    const context=await port.load(inputs,{signal});completedStages.push('load');notCancelled(signal);
+    if(typeof context?.paused!=='boolean')throw new SingularityFlowError('The phase entry port did not report its pause state.',{code:'ENGINE_PORT_RESULT_INVALID'});
+    let inspection=null,admission=null,plan={status:'paused',authoringAllowed:false,codeAuthoringReady:false,
+      contextComposition:compose?'not-admitted':'not-requested',compositionRequested:compose},manifest=null;
+    if(!context.paused) {
+      binding=data(phaseEntrySelection(context,inputs));
+      if(!binding.ready) {
+        admission=data(phaseCompositionAdmission({ready:false}));plan={...plan,status:'binding-required'};
+      } else {
+        pendingStage='inspect';
+        const inspected=await port.inspect(context,binding,{signal});completedStages.push('inspect');notCancelled(signal);
+        inspection=data(phaseEntryInspection(binding,copy(inspected)));admission=inspection.admission;
+        if(compose&&admission.allowed) {
+          pendingStage='compose';
+          const facts=await port.compose(context,binding,{signal});completedStages.push('compose');notCancelled(signal);
+          composition=data(phaseEntryComposition(binding,copy(facts)));
+        }
+        pendingStage='clarify';
+        const facts=await port.clarify(context,binding,{signal});completedStages.push('clarify');notCancelled(signal);
+        clarification=data(phaseEntryClarification(binding,copy(facts)));
+        plan=data(phaseEntryPlan(binding,inspection,composition,clarification,{compose}));
+      }
+      pendingStage='finish';
+      const facts=await port.finish(context,binding,{admission,plan},{signal});completedStages.push('finish');notCancelled(signal);
+      finished=copy(facts);manifest=data(phaseEntryManifest(binding,inspection,composition,clarification,plan,finished));
+    }
+    const interrupted=finished?.task?.state==='inspect-interrupted-operation';
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.enter',status:interrupted?'attention-required':plan.status,
+      subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,
+      generation:binding?.inspectionGeneration??null,revision:binding?.revision??null,admission,
+      authoringAllowed:plan.authoringAllowed&&!interrupted,codeAuthoringReady:plan.codeAuthoringReady&&!interrupted,
+      contextComposition:plan.contextComposition,manifest,
+      effects:{contextCompositionRequested:compose,contextDelivered:Boolean(composition),clarificationStagingIssued:clarification?.stagingIssued??false,
+        taskCheckpointUpdated:Boolean(finished?.task),testsRun:false,modelInvocations:0,storyAdvanced:false,
+        committed:false,pushed:false,approvalRecorded:false}});
+  } catch(error) {
+    if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePhaseEntry=data({operation:'phase.enter',
+      subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,generation:binding?.inspectionGeneration??null,
+      completedStages,pendingStage,localEffectsMayExist:completedStages.some(stage=>['inspect','compose','clarify','finish'].includes(stage))
+        ||pendingStage!=='load',committed:false,pushed:false,approvalRecorded:false});
+    throw error;
+  }
 }
 
 function documentReadInput(value,operation) {

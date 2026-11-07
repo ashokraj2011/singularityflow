@@ -11,7 +11,7 @@ import { resolvePersonalization } from './personalization.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from './workspace-context.mjs';
 import { contextBoundaryPresentation, pendingContextBoundary } from './context-policy.mjs';
 import { storyRequestSummary } from './story-request-summary.mjs';
-import { approvedInputPhases } from './phase-input-policy.mjs';
+import { approvedInputPhases } from './kernel/phase-inputs.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
@@ -20,13 +20,14 @@ import { assertStoryNotArchived } from './governance-archive.mjs';
 import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
+import {currentEntryPhase} from './kernel/phase-admission.mjs';
 
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
-  allowTerminal = false, turnMode = 'authoring' } = {}) {
+  allowTerminal = false, turnMode = 'authoring', root: explicitRoot = null } = {}) {
   const mode = readCopilotMode();
   if (mode.paused) return { packet: copilotModePresentation(mode) };
-  const selected = await resolveWorkspaceExecutionContext(activeWorkspaceFile(), workspaceRegistryFile(), { cwd });
-  const root = path.resolve(selected?.repositoryPath ?? repoRoot(cwd));
+  const selected = explicitRoot ? null : await resolveWorkspaceExecutionContext(activeWorkspaceFile(), workspaceRegistryFile(), { cwd });
+  const root = path.resolve(explicitRoot ?? selected?.repositoryPath ?? repoRoot(cwd));
   // Keep the exact effective definition: operation-local catalog verification is reusable.
   // Explicit ids verify, never silently select a different Story in this checkout.
   const accepted = await loadAcceptedStoryExecution(root);
@@ -41,11 +42,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   // Entry grants authoring guidance; archived Stories remain inspectable through phase show,
   // but must not hand an agent permission to edit their preserved application or draft files.
   assertStoryNotArchived(root, workflow);
-  const phase = workflow.phases?.[phaseId ?? workflow.currentPhase];
-  if ((!phase && !(allowTerminal && !workflow.currentPhase && !phaseId))
-      || (phase && phase.id !== workflow.currentPhase)) throw new SingularityFlowError(
-    'Phase entry must name the current Story phase; historical inspection uses phase show.',
-    { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } });
+  const phase = currentEntryPhase(workflow,phaseId,{allowTerminal});
   const session = await agentSessionStatus(root, definition, workflow);
   const ready = (selected?.selectionStatus ?? 'ready') === 'ready' && (phase ? session.ready : true);
   // The request near the top, so an agent that reads only the start of the packet still has it,

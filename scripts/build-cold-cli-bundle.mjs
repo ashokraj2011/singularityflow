@@ -60,7 +60,7 @@ const FAMILIES = Object.freeze([
   // Its actual installer dependencies are lazy; share this existing bounded local-gate slot.
   ['publication', ['commands/git-policy.mjs', 'story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs',
     'publication-unit-of-work.mjs']],
-  ['hook-context', ['commands/documents.mjs', 'commands/documents-view.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs', 'commands/phase-show.mjs', 'engine-compatibility/git-query.mjs', 'engine-compatibility/git-phase-review.mjs', 'engine-compatibility/native-phase-review.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
+  ['hook-context', ['engine-compatibility/git-phase-entry.mjs', 'commands/documents.mjs', 'commands/documents-view.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs', 'commands/phase-show.mjs', 'engine-compatibility/git-query.mjs', 'engine-compatibility/git-phase-review.mjs', 'engine-compatibility/native-phase-review.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load
   // only where a gate maps a changed path to its command, which already loads every static import of this
@@ -71,7 +71,7 @@ const FAMILIES = Object.freeze([
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
-  ['phases', ['phase-entry-authoring.mjs', 'phase-prompt-composer.mjs', 'document-runtime.mjs',
+  ['phases', ['engine-compatibility/native-phase-entry.mjs', 'phase-entry-authoring.mjs', 'phase-prompt-composer.mjs', 'document-runtime.mjs',
     'copilot-story-follow.mjs',
     'evidence-consistency-read.mjs', 'scope/authoring.mjs', 'owed-decisions.mjs',
     'phase-repair-journal.mjs', 'phase-appeals.mjs', 'phase-quality-risk.mjs', 'source-review-lifecycle.mjs',

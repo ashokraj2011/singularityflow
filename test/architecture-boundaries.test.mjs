@@ -113,6 +113,8 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const nativeReview=path.join(packageRoot,'src/engine-compatibility/native-phase-review.mjs');
   const documentPort=path.join(packageRoot,'src/engine-compatibility/git-document-read.mjs');
   const documentReferences=path.join(packageRoot,'src/engine-compatibility/native-document-references.mjs');
+  const entryPort=path.join(packageRoot,'src/engine-compatibility/git-phase-entry.mjs');
+  const nativeEntry=path.join(packageRoot,'src/engine-compatibility/native-phase-entry.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -136,7 +138,9 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===reviewPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
         if(target===nativeReview&&!['src/engine-compatibility/git-phase-review.mjs','src/commands/shared/phase-review.mjs'].includes(relative))problems.push(relative);
         if(target===documentPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
-        if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs'].includes(relative))problems.push(relative);
+        if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs','src/engine-compatibility/native-phase-entry.mjs'].includes(relative))problems.push(relative);
+        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs'].includes(relative))problems.push(relative);
+        if(target===nativeEntry&&relative!=='src/engine-compatibility/git-phase-entry.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -151,7 +155,8 @@ test('extracted native decision writers do not import command handlers or host p
     'git-decisions.mjs','git-decision-record.mjs','git-test-decision-record.mjs','record-decision-context.mjs',
     'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs',
     'git-upstream.mjs','native-forward-amendments.mjs','upstream-artifact-issues.mjs',
-    'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs'];
+    'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs',
+    'git-phase-entry.mjs','native-phase-entry.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);
@@ -197,6 +202,27 @@ test('document view owns grammar and rendering, with a single registered byte-re
   const documents=cli.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='documentsCommand');
   assert.match(documents.body.getText(cli),/subcommand === 'view'\) return \(await import\('\.\/commands\/documents-view.mjs'\)\)/);
   assert.doesNotMatch(documents.body.getText(cli),/await viewDocument\(/);
+});
+
+test('entry wrappers use the registry; native composition does not decide admission or plan readiness',async()=>{
+  for(const file of ['src/phase-entry.mjs','src/phase-entry-authoring.mjs']) {
+    const source=await readFile(path.join(packageRoot,file),'utf8');
+    assert.match(source,/binding\.engine\.run\('phase.enter'/);
+    assert.doesNotMatch(source,/recoveryPlan\(|composePhasePrompt\(|verifyClarificationRecord\(|resumeWorkflowTask\(/);
+  }
+  const native=await readFile(path.join(packageRoot,'src/engine-compatibility/native-phase-entry.mjs'),'utf8');
+  assert.doesNotMatch(native,/phaseContextAdmission\(|const preparationAdmitted =|const authoringAllowed =|const status =/);
+  assert.match(native,/const \{preparationAdmitted,status\} = plan/);
+  const inputs=await readFile(path.join(packageRoot,'src/phase-input-policy.mjs'),'utf8');
+  assert.match(inputs,/export \{workflowInputsMode,resolvedPhaseInputs,approvedInputPhases\} from '\.\/kernel\/phase-inputs.mjs'/);
+});
+
+test('configuration and SKP validation use pure clarification policy instead of native record I/O',async()=>{
+  for(const file of ['src/config.mjs','src/skp-contract.mjs']) {
+    const source=await readFile(path.join(packageRoot,file),'utf8');
+    assert.match(source,/import \{normalizeClarificationPolicy\} from '\.\/kernel\/phase-inputs.mjs'/);
+    assert.doesNotMatch(source,/from '\.\/clarifications.mjs'/);
+  }
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

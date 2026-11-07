@@ -582,7 +582,9 @@ export async function load(url, context, next) {
     const log = path.join(base, `modules-${bundle ? 'bundle' : 'source'}.log`);
     await rm(log, { force: true });
     const result = spawnSync(process.execPath, ['--import', pathToFileURL(hook).href, cli, ...args], {
-      cwd: repo, encoding: 'utf8', env: { ...env, MODULE_LOG: log, ...(bundle ? { SINGULARITY_FLOW_BUNDLE_DIR: outdir } : { SINGULARITY_FLOW_BUNDLE: 'off' }) }
+      cwd: repo, encoding: 'utf8', env: { ...env, MODULE_LOG: log,
+        // This comparison owns both execution modes, including under a source-only test runner.
+        SINGULARITY_FLOW_BUNDLE: bundle ? 'auto' : 'off', ...(bundle ? { SINGULARITY_FLOW_BUNDLE_DIR: outdir } : {}) }
     });
     const modules = (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
     return { status: result.status, stdout: result.stdout, modules };

@@ -73,11 +73,12 @@ failure does not change a successful decision record.
 
 ## Compatibility work that remains
 
-The Git port calls native exported writer functions that still reside in several
-`commands/decision-*.mjs` modules. It does not invoke CLI dispatch, argument parsers or subprocesses.
-Those native writer bodies and the legacy partial-failure formatter still need their own extraction
-before the decision boundary is fully independent of command modules. This explicit bridge does not
-claim completion of Phase 5, a new storage backend, public package extraction or project migration.
+The Git port still calls native exported writers in the evidence-reuse, visual-profile,
+test-command, test-narrowing, test-risk and upstream-issue command modules. It does not invoke CLI
+dispatch, argument parsers or subprocesses. Those remaining writer bodies and the legacy
+partial-failure formatter still need extraction before the decision boundary is fully independent
+of command modules. This bridge does not claim completion of Phase 5, a new storage backend, public
+package extraction or project migration.
 
 The pure SDK closure contains 11 source modules, 92,591 source bytes and no external imports. The
 gateway adds exactly three extracted pure owners: the decision planner, limits and coordinator
@@ -100,3 +101,41 @@ ship; tests and fixtures remain excluded. The native effect dispatcher, record I
 planner and plan executor were compared with their previous implementations using normalized syntax
 trees; their bodies are unchanged apart from rebased imports. Windows, hosted CI and live providers
 are not part of this delivery.
+
+## Native scope, routing, plan and risk writers
+
+The next slice moves three writer modules into the native compatibility owner:
+
+| Owner | Operations |
+|---|---|
+| `native-story-decisions.mjs` | Scope disposition, completeness review, responsibility applicability and human routing choices |
+| `native-plan-decisions.mjs` | Plan amendments, their content bindings and installed Node pins |
+| `native-obligation-risk.mjs` | Acceptance and revocation of an evidence obligation's risk |
+
+The existing command helper paths remain compatible exports. Production consumers use the native
+owners directly, including the registered decision port, CLI decision adapters and phase appeals.
+Dependency guards refuse new production imports of the old helper paths and refuse command-handler
+or presentation imports in these native owners. Development identity and cold phase-chunk ownership
+include the extracted files; no bundle ceiling is raised.
+
+Seven native function bodies are unchanged under normalized syntax-tree comparison, preserving
+their actor/group checks, record bytes, content hashes, history and conditional transactions. The
+routing writer changes only its local tail: it returns the native `postReport` and notifies the
+trusted host. SDK execution emits no CLI warnings. The old command helper still presents the same
+warning and returns exactly its original three fields. A failed local session activation, including
+a failed diagnostic observer, cannot undo a committed route or cause it to be recorded twice.
+
+The 34-test focused Mac run passes, including actual SDK and legacy routing with injected local
+session failures, existing export identity, CLI receipt parity, unauthorized scope refusal and
+architecture/startup guards. A 54-test regression run passes across scope/completeness, plan
+amendment and content settlement, risk acceptance/revocation, branching, bounded loops, early
+completion, reopen and cancellation. Three selected Node-pin journeys also pass. Those selected
+tests use the fixture executables; they do not claim real Vitest/alternate-Node qualification.
+
+The CLI bundle comparison now explicitly selects source and bundle modes, so an inherited
+source-only test setting cannot silently make both sides execute source code. Its four tests pass
+with the existing cold-start and module-open limits (24.2 seconds). Together the writer slice has
+95 passing component tests and no skipped cases. Source checks pass 3,560 checks; VS Code
+typechecking, all 13 rebuilt runtime budgets and package inclusion/exclusion also pass. Neither byte
+nor module ceilings change for this writer extraction. These component checks do not complete the
+remaining writer extractions or later migration phases.

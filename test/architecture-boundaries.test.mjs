@@ -94,7 +94,8 @@ test('Git compatibility composes existing owners without introducing another per
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
-    'src/approval-authority.mjs','src/approval-fallback.mjs'].map(file=>path.join(packageRoot,file)));
+    'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
+    'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs'].map(file=>path.join(packageRoot,file)));
   const transitions=new Set(['src/engine-compatibility/generation-publication.mjs',
     'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs'].map(file=>path.join(packageRoot,file)));
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
@@ -118,6 +119,26 @@ test('production consumers use kernel phase rules and only the compatibility agg
     };visit(source);
   }
   assert.deepEqual(problems,[],'old paths are compatibility exports, not another internal policy or write path');
+});
+
+test('extracted native decision writers do not import command handlers or host presentation',async()=>{
+  const owners=['native-story-decisions.mjs','native-plan-decisions.mjs','native-obligation-risk.mjs'];
+  const problems=[];
+  for(const name of owners) {
+    const file=path.join(packageRoot,'src/engine-compatibility',name);
+    const source=ts.createSourceFile(file,await readFile(file,'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      const specifier=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)) {
+        const target=path.resolve(path.dirname(file),specifier.text);
+        if(target.startsWith(path.join(packageRoot,'src/commands')+path.sep)
+          || target===path.join(packageRoot,'src/phase-post-transition-guidance.mjs'))problems.push(`${name}: ${specifier.text}`);
+      }
+      ts.forEachChild(node,visit);
+    };visit(source);
+  }
+  assert.deepEqual(problems,[],'native decisions return local effect reports; command helpers only project them');
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

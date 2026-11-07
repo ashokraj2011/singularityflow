@@ -5,7 +5,7 @@
  * the file is class build-configuration, so a person can account for it in the plan. On the real run that
  * took a question, two refused appeals, a turn of /sf-decide and a sentence typed by hand. Here it is one
  * choice: only an installed version is offered, the choice is a person's, and recording it creates the
- * file and the plan amendment together (src/commands/decision-plan-amendment.mjs).
+ * file and the plan amendment together (src/engine-compatibility/native-plan-decisions.mjs).
  *
  * Reads only. An answer here informs, and refuses nothing. A value reaches this module as a version or not
  * at all, and never becomes a path: `.nvmrc` is the only file it names.

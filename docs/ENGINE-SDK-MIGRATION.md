@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination and shared post-transition effects extracted; native decision writers, advancement, manifests and remaining admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination, scope/plan/risk writers and shared post-transition effects extracted; remaining decision writers, advancement, manifests and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -339,3 +339,14 @@ no external imports. Gateway source-map inspection
 identifies exactly the three extracted pure owners (849 to 852 modules); byte and other runtime
 ceilings are unchanged. Native writer ownership, remaining Phase 5 operations and all of phases
 6–9 remain required; this delivery neither migrates storage authority nor completes the objective.
+
+The next decision slice moves scope, completeness, applicability, routing, plan amendment, Node-pin
+and obligation-risk writes out of command modules. Existing command paths remain aliases; native
+and CLI hosts share the same record functions. Routing returns a structured local-effect report,
+while its legacy adapter retains existing warnings and result fields. Real fault-injected SDK and
+legacy routing both preserve their committed route when session activation fails. Its 34 focused,
+54 regression and three selected fixture Node-pin tests pass on Mac with no failures or skips.
+The four source/bundle parity tests also pass after making execution-mode selection independent of
+inherited test settings. Source checks pass 3,560 checks; typechecking, packaging and all 13 runtime
+budgets pass with no ceiling increases in this writer slice.
+The remaining mixed decision handlers, advancement, manifests/queries and phases 6–9 are still open.

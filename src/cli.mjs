@@ -7,7 +7,7 @@ import { printCommandRoutes } from './commands/shared/print-command-routes.mjs';
 import { sessionRepositoryAuthority } from './commands/shared/session-repository-authority.mjs';
 import { gitAnswer } from './commands/shared/git-answer.mjs';
 import { sessionDiscoveryConfiguration } from './commands/shared/session-discovery-configuration.mjs';
-import { postPublicationStep } from './phase-post-transition-guidance.mjs';
+import { postPublicationStep, presentPostPublicationNotice } from './phase-post-transition-guidance.mjs';
 import { pathForDisplay } from './commands/shared/path-for-display.mjs';
 import { storyDraftTransaction } from './commands/shared/story-draft-transaction.mjs';
 import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
@@ -4146,7 +4146,7 @@ async function decisionApplicabilityCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitApplicabilityDecision } = await import('./commands/decision-story-records.mjs');
+  const { commitApplicabilityDecision } = await import('./engine-compatibility/native-story-decisions.mjs');
   const { decision, publication } = await commitApplicabilityDecision(root, config, workflow, { responsibility, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${responsibility} does not apply to ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
@@ -4191,7 +4191,7 @@ async function decisionScopeCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitScopeDecision } = await import('./commands/decision-story-records.mjs');
+  const { commitScopeDecision } = await import('./engine-compatibility/native-story-decisions.mjs');
   const { decision, publication } = await commitScopeDecision(root, config, workflow, { item, disposition, clauseIds, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
@@ -4233,7 +4233,7 @@ async function decisionRiskCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitRiskDecision } = await import('./commands/decision-obligation-risk.mjs');
+  const { commitRiskDecision } = await import('./engine-compatibility/native-obligation-risk.mjs');
   const { record, publication } = await commitRiskDecision(root, config, workflow, { obligationId, revoke, category: optionString(options, 'category') ?? null,
     transitions: optionStrings(options, 'transition').length ? optionStrings(options, 'transition') : ['terminal'],
     expires: optionString(options, 'expires') ?? null, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
@@ -4394,7 +4394,7 @@ async function decisionPlanCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitPlanAmendment } = await import('./commands/decision-plan-amendment.mjs');
+  const { commitPlanAmendment } = await import('./engine-compatibility/native-plan-decisions.mjs');
   const { amendment, publication } = await commitPlanAmendment(root, config, workflow, { changes, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded plan amendment ${amendment.id} for ${id} through ${amendment.authorityGroup}.`);
@@ -4431,7 +4431,7 @@ async function decisionCompletenessCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const { commitCompletenessReview } = await import('./commands/decision-story-records.mjs');
+  const { commitCompletenessReview } = await import('./engine-compatibility/native-story-decisions.mjs');
   const { review, publication } = await commitCompletenessReview(root, config, workflow,
     { confirm: optionString(options, 'confirm') ?? null, checklist: await checklistDecisions(options), reason: optionString(options, 'reason') ?? '' }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
@@ -4470,9 +4470,10 @@ async function decisionChooseCommand(positionals, options) {
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === workflow.workItem.id ? loadedSession.agent ?? null : null;
-  const { commitRoutingChoice } = await import('./commands/decision-story-records.mjs');
+  const { commitRoutingChoice } = await import('./engine-compatibility/native-story-decisions.mjs');
   const { result, publication, authority } = await commitRoutingChoice(root, config, workflow,
-    { option, to, reason: optionString(options, 'reason') ?? '', expected: optionString(options, 'expected') ?? pending.key }, { actor, agent });
+    { option, to, reason: optionString(options, 'reason') ?? '', expected: optionString(options, 'expected') ?? pending.key },
+    { actor, agent, notice: presentPostPublicationNotice });
   const outcome = result.outcome;
   const where = outcome.kind === 'loop' ? `back to ${workflow.phases[outcome.target]?.label ?? outcome.target}`
     : outcome.kind === 'end' ? 'the end of the Story' : workflow.phases[outcome.target]?.label ?? outcome.target;

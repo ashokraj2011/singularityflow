@@ -10,7 +10,7 @@ import {legacyDecisionPlan,effectWords} from '../decision-list.mjs';
 import {nowIso} from '../util.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 
-async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent }) {
+async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent, notice }) {
   if (effect.kind === 'upstream-issue') {
     const { commitUpstreamIssue } = await import('../commands/upstream-issue.mjs');
     return commitUpstreamIssue(root, config, workflow, { phase: effect.phase, about: effect.about, problem: effect.problem,
@@ -22,16 +22,16 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
       reason: step.values.reason }, { actor, agent })).record;
   }
   if (effect.kind === 'plan-amendment') {
-    const { commitPlanAmendment } = await import('../commands/decision-plan-amendment.mjs');
+    const { commitPlanAmendment } = await import('./native-plan-decisions.mjs');
     const changes = (effect.changes ?? [effect.change]).map((change) => (change.kind === 'add-supporting' ? { ...change, reason: step.values.reason } : change));
     return (await commitPlanAmendment(root, config, workflow, { changes, reason: step.values.reason }, { actor, agent })).amendment;
   }
   if (effect.kind === 'node-pin') {
-    const { commitNodePin } = await import('../commands/decision-plan-amendment.mjs');
+    const { commitNodePin } = await import('./native-plan-decisions.mjs');
     return commitNodePin(root, config, workflow, { version: effect.version, replaces: effect.replaces ?? null, reason: step.values.reason }, { actor, agent });
   }
   if (effect.kind === 'obligation-risk') {
-    const { commitRiskDecision } = await import('../commands/decision-obligation-risk.mjs');
+    const { commitRiskDecision } = await import('./native-obligation-risk.mjs');
     return (await commitRiskDecision(root, config, workflow, { obligationId: effect.obligation, category: effect.category,
       expires: step.values.expires, reason: step.values.reason }, { actor, agent })).record;
   }
@@ -41,7 +41,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
       reason: step.values.reason }, { actor, agent })).record;
   }
   if (['scope-disposition', 'completeness-review', 'applicability', 'routing'].includes(effect.kind)) {
-    const records = await import('../commands/decision-story-records.mjs');
+    const records = await import('./native-story-decisions.mjs');
     if (effect.kind === 'scope-disposition') return (await records.commitScopeDecision(root, config, workflow, { item: effect.item, disposition: effect.disposition,
       clauseIds: step.values.clause ?? [], reason: step.values.reason }, { actor, agent })).decision;
     if (effect.kind === 'completeness-review') return (await records.commitCompletenessReview(root, config, workflow, { confirm: effect.inventorySha256,
@@ -49,7 +49,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     if (effect.kind === 'applicability') return (await records.commitApplicabilityDecision(root, config, workflow, { responsibility: effect.responsibility,
       reason: step.values.reason }, { actor, agent })).decision;
     return (await records.commitRoutingChoice(root, config, workflow, { option: effect.option ?? null, to: effect.to ?? null, reason: step.values.reason, expected: effect.key },
-      { actor, agent })).result.outcome;
+      { actor, agent, notice })).result.outcome;
   }
   if (effect.kind === 'test-command') {
     const { recordStoryTestCommand } = await import('../commands/decision-test-command.mjs');
@@ -109,7 +109,7 @@ export function createGitDecisionPort({root,interaction=null,onContext=()=>{},no
         const actor=actionActor(root),session=await loadSession(root,{required:false});
         context.who={actor,agent:session?.workId===context.workflow.workItem.id ? session.agent ?? null : null};
       }
-      return applyEffect(root,context.config,context.workflow,effect,step,produced,context.who);
+      return applyEffect(root,context.config,context.workflow,effect,step,produced,{...context.who,notice});
     },
     async finish(context,plan,outcome) {
       const {config,workflow,phaseId}=context;

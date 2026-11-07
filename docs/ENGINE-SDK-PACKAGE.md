@@ -42,17 +42,25 @@ refuse changed operation intent and verify persisted data. The application entry
 versioned port and shared pure reducer without choosing a database. NodeNext compilation verifies
 all installed declaration entries and negative operation, field and scalar-type examples.
 
-The combined qualification passes 156 checks across 13 files on managed Node 26.12.0 with no
+The initial package qualification passed 156 checks across 13 files on managed Node 26.12.0 with no
 failures, cancellations or skips. It includes real source/bundled CLI/SDK publication, submission,
 approval and preparation parity, plus filesystem/SQLite/application conformance and architecture
 guards. The final seven-case tarball rerun also passes after tightening the witness-binding
 declaration. Source validation passes 3,663 checks across 191 skills; VS Code typechecking and all
 13 unchanged bundle budgets pass. The gateway remains 851 modules / 6,744,793 bytes. The build
-contains 36 operations, 40 owned modules and 253,951 runtime bytes; the 24-file archive is about
+contained 36 operations, 40 owned modules and 253,951 runtime bytes; the 24-file archive was about
 63 KB compressed. These are artifact measurements, not complete-command latency claims. No
 Windows, hosted CI, live provider, install, push, merge or real-project authority migration ran.
 
-This closes the installable explicit-port package slice of Phase 7. Portable lifecycle ports
+The later [content and read-host delivery](NAMESPACE-CONTENT-AND-READ-HOST.md) adds explicit
+`content`, `storage/sqlite-content` and `hosts/namespace-reader` entries. It exercises real
+namespace-backed phase/document reads with native reference/result parity and installed archive
+resumption in a second process. Its partial read projection cannot provide approval proof or
+publish/submit/approve ports. The application owns the content database connection and its durability
+settings; local attachments still need matching device-local bytes. It does not import a CLI or
+Git implementation into the core.
+
+This closes the installable explicit-port package slice of Phase 7. Portable lifecycle writer ports
 backed by namespace storage and a complete cross-agent Story remain required. Phase 5 policy/query
 extraction, Phase 8 export/fencing/verified authority cutover and Phase 9 cleanup/distribution/
 performance qualification retain their full scope. The ordinary installed CLI is still the Git

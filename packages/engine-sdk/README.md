@@ -47,10 +47,33 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `storage/application`: bind an application's qualified atomic journal port.
 - `storage/journal`: versioned journal-port constant and shared pure transaction reducer.
 - `errors`: the same error constructor used by the engine and every bundled storage entry.
+- `content`: draft immutable byte/reference contract, separate from metadata transaction limits.
+- `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
+- `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
+
+The read host needs one explicit Story scope, a metadata store, a content store and a previously
+saved read head. It implements `phase.review` and `document.read`; its other operation ports remain
+unavailable. It has no Git or provider fallback and never supplies a fresh approval binding. The
+repository guide `docs/NAMESPACE-CONTENT-AND-READ-HOST.md` describes host binding and qualification.
+
+```js
+import { createNamespaceReadEngine } from '@singularity-flow/engine-sdk/hosts/namespace-reader';
+
+// These stores and the saved read head are explicitly supplied by the application.
+const reader = createNamespaceReadEngine({ records, content, scope: { projectId }, workId });
+const review = await reader.run('phase.review', { phaseId });
+const document = await reader.run('document.read', { reference: review.manifest.items[0].reference });
+```
+
+The content connection needs durable SQLite journaling and FULL/EXTRA synchronous writes. The
+application chooses its bounded lock-wait policy and closes the connection. Content tables need
+a separate database from the exclusive SQLite namespace journal. Missing local attachments ask
+for matching reupload on that device; they are never read from shared content instead.
 
 Node 22 or later is required for the core and filesystem/application backends. SQLite is loaded
-only when its factory is called and requires the native capabilities qualified on managed Node
+only when the namespace factory is called and requires the native capabilities qualified on managed Node
 26.12.0. An incompatible SQLite runtime fails explicitly; there is no hidden package download.
+The content entry imports no SQLite runtime: the application supplies its connection explicitly.
 
 Storage uses `sda-namespace-store/draft-1`; the engine vocabulary is `sflow-engine/v1`. The package
 is `1.0.0-alpha.0`, not a product 1.0 release or a stable storage-contract announcement. Its

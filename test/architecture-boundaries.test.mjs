@@ -27,6 +27,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
   const foundation = await sourceFiles('src/foundation');
   const contracts = ['src/sda/shared-state-contract.mjs', 'src/sda/lifecycle-authority-contract.mjs'];
   const namespaces = await sourceFiles('src/sda/namespace');
+  const content = await sourceFiles('src/sda/content');
   const compatibilityContract = ['src/sda/git-compatibility-contract.mjs'];
   const kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk');
@@ -34,6 +35,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
     { entries: foundation, allowed: foundation },
     { entries: contracts, allowed: [...foundation, ...contracts] },
     { entries: namespaces, allowed: [...foundation, ...namespaces] },
+    { entries: content, allowed: [...foundation, ...namespaces, ...content] },
     { entries: compatibilityContract, allowed: [...foundation, ...contracts, ...namespaces, ...compatibilityContract] },
     { entries: kernel, allowed: [...foundation, ...kernel] },
     { entries: sdk, allowed: [...foundation, ...kernel, ...sdk] }
@@ -46,10 +48,10 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
-  const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace');
-  const entries = ['index', 'errors', 'namespace', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
+  const entries = ['index', 'errors', 'namespace', 'content', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
-    allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...entries] });
+    allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries] });
   assert.deepEqual(report.problems, []);
 });
 
@@ -60,7 +62,9 @@ test('only explicit storage adapters consume namespace contracts outside their p
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
   const namespaceAdapters = new Set(['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
-    'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs']);
+    'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
+    'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',
+    'src/engine-storage/namespace-reader.mjs', 'src/engine-storage/namespace-read-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -81,10 +85,28 @@ test('only explicit storage adapters consume namespace contracts outside their p
   assert.deepEqual(violations, [], 'new namespace backends must not change installed Git routing');
 });
 
+test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
+  const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
+    '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',
+    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs']);
+  const file = 'src/engine-storage/namespace-reader.mjs', text = await readFile(path.join(packageRoot, file), 'utf8');
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const visit = node => {
+    if (ts.isImportDeclaration(node)) assert.ok(allowed.has(node.moduleSpecifier.text), node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+      || ts.isIdentifier(node.expression) && ['require','eval','Function'].includes(node.expression.text)), false);
+    if (ts.isIdentifier(node) && node.text === 'process') assert.fail('The read host must not discover ambient machine state.');
+    ts.forEachChild(node, visit);
+  }; visit(source);
+  const identity = await inspectPureModuleGraph({ root: packageRoot, entries: ['src/document-identity.mjs'],
+    allowed: ['src/document-identity.mjs', ...await sourceFiles('src/foundation')] });
+  assert.deepEqual(identity.problems, []);
+});
+
 test('namespace backends do not import lifecycle, Git, command or approval owners', async () => {
   const owners = ['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
-    'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs'];
+    'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs', 'src/sda/sqlite-content-adapter.mjs'];
   for (const owner of owners) {
     const source = ts.createSourceFile(owner, await readFile(path.join(packageRoot, owner), 'utf8'), ts.ScriptTarget.Latest, true);
     const visit = node => {
@@ -94,7 +116,7 @@ test('namespace backends do not import lifecycle, Git, command or approval owner
         assert.equal(ts.isStringLiteralLike(specifier), true);
         const name = specifier.text;
         assert.ok(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite'].includes(name)
-          || name.startsWith('./namespace/') || ['./filesystem-namespace-journal.mjs',
+          || name.startsWith('./namespace/') || name.startsWith('./content/') || name === '../foundation/record-schema.mjs' || ['./filesystem-namespace-journal.mjs',
             './sqlite-namespace-journal.mjs', './namespace-journal-adapter.mjs', './sqlite-native.mjs'].includes(name), `${owner}: ${name}`);
       }
       ts.forEachChild(node, visit);

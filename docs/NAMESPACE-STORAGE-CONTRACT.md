@@ -2,7 +2,8 @@
 
 Phase 2 of [the engine migration](ENGINE-SDK-MIGRATION.md) defines a storage-neutral protocol and
 reusable conformance suite. Its internal source entry is `src/sda/namespace/index.mjs`; its identity
-is `sda-namespace-store/draft-1`. It is not a public package export or an installed authority.
+is `sda-namespace-store/draft-1`. The later [SDK preview](ENGINE-SDK-PACKAGE.md) exports it through
+the opt-in `namespace` entry. It remains a draft contract and is not installed project authority.
 
 Existing shared-state/lifecycle SDA v1 contracts, CLI routes, Git writes, configuration authority,
 Story branches, hashes and records are unchanged. The Phase 2 reference implementation is under

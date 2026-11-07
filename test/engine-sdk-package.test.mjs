@@ -139,6 +139,47 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       assert.equal(state.records.size,0,'pure reducer never commits the supplied state');
     `);
   });
+  await t.test('installed namespace read hosts resume snapshots without source checkout or lifecycle permissions', async () => {
+    const source = `
+      import assert from 'node:assert/strict';
+      import {mkdir} from 'node:fs/promises';
+      import path from 'node:path';
+      import {DatabaseSync} from 'node:sqlite';
+      import {SingularityFlowError} from '${packageName}';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceReadEngine,namespaceStoryReadKey,projectNamespaceReadState,namespaceReadRecord} from '${packageName}/hosts/namespace-reader';
+      const directory=process.argv[2],create=process.argv[3]==='create';await mkdir(directory,{recursive:true});
+      const db=new DatabaseSync(path.join(directory,'objects.db'));db.enableDefensive(true);db.enableLoadExtension(false);
+      const scope={projectId:'headless-application'},workId='example',binding={kind:'shared'};
+      const records=await createFilesystemNamespaceStore({root:path.join(directory,'records'),binding,create});
+      const content=createSqliteContentStore({database:db,binding,create});
+      try{
+        if(create){
+          const body=Buffer.from('Retained custom-phase output.\\n'),artifact=(await content.put(scope,'evidence',body)).reference;
+          const sourceKey='singularity/work-items/example/artifacts/custom/summary.md';
+          const workflow={workItem:{id:workId,branch:'team/branch'},currentPhase:'custom',phases:{custom:{id:'custom',generation:1,status:'in_progress',
+            requiredArtifact:{path:'artifacts/custom/summary.md',kind:'custom-report'},artifacts:[{path:sourceKey,sha256:artifact.sha256,size:artifact.bytes}],agentBriefs:[]}}};
+          const state=projectNamespaceReadState(workflow),policy=namespaceReadRecord('policy',{workItemRoot:'singularity/work-items',maximumPreviewBytes:1048576});
+          const documents=namespaceReadRecord('documents',{documents:[{id:'PHASE-CUSTOM',phase:'custom',generation:1,sourceKey,role:'artifact',name:null,
+            kind:'custom-report',mimeType:'text/markdown',encoding:'utf8',locality:'project',status:'active',aliases:[],content:artifact}]});
+          const json=async(namespace,value)=>(await content.put(scope,namespace,Buffer.from(JSON.stringify(value)+'\\n'))).reference;
+          const head=namespaceReadRecord('head',{projectId:scope.projectId,workId,state:await json('state',state),policy:await json('config',policy),documents:await json('state',documents)});
+          const key=namespaceStoryReadKey(workId);
+          await records.transact(scope,{operationId:'fixture-read-head',preconditions:[{namespace:'state',key,version:null}],
+            changes:[{op:'put',namespace:'state',key,immutable:false,value:head}],events:[]});
+        }
+        const engine=createNamespaceReadEngine({records,content,scope,workId});
+        const review=await engine.run('phase.review',{phaseId:'custom'});assert.equal(review.manifest.integrity,'matched');
+        assert.equal(review.manifest.reviewBinding,null);
+        const read=await engine.run('document.read',{reference:review.manifest.items[0].reference});
+        assert.equal(read.document.content.text,'Retained custom-phase output.\\n');
+        await assert.rejects(engine.approvePhase({}),error=>error instanceof SingularityFlowError&&error.code==='ENGINE_PORT_UNAVAILABLE');
+      }finally{db.close();}
+    `;
+    const data = path.join(directory, 'namespace-data');
+    await run('reader.mjs', source, [data, 'create']); await run('reader.mjs', source, [data, 'resume']);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -146,6 +187,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createFilesystemNamespaceStore } from '${packageName}/storage/filesystem';
       import { createSqliteNamespaceStore } from '${packageName}/storage/sqlite';
       import { createApplicationNamespaceStore } from '${packageName}/storage/application';
+      import { createSqliteContentStore } from '${packageName}/storage/sqlite-content';
+      import { createNamespaceReadEngine, namespaceReadRecord } from '${packageName}/hosts/namespace-reader';
+      import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       const engine=createEngine({ports:{publication:{load:async()=>{throw new Error('host');},retained:async()=>null,
@@ -169,7 +213,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const filesystem:Promise<NamespaceStore>=createFilesystemNamespaceStore({root:'/application',binding:{kind:'shared'}});
       const database=createSqliteNamespaceStore({filename:'/application/records.db',binding:{kind:'shared'}});
       const unavailable=new SingularityFlowError('missing',{code:'UNAVAILABLE',cause:new Error('detail')});
+      const reference:ContentReference={namespace:'state',sha256:'a'.repeat(64),bytes:1};
+      const head=namespaceReadRecord('head',{projectId:'example',workId:'example',state:reference,policy:{...reference,namespace:'config'},documents:reference});
+      function readHost(records:NamespaceStore,content:ContentStore){return createNamespaceReadEngine({records,content,scope:{projectId:'example'},workId:'example'});}
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
+      void [head,readHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],

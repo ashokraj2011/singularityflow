@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA } from '../src/foundation/record-schema.mjs';
+import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS } from '../src/foundation/record-schema.mjs';
 import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
   admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
@@ -36,5 +36,15 @@ test('filesystem durable families have one frozen registry owner and never migra
     assert.deepEqual(readRecord(definition.id, value), { record: value, storedVersion: 1, migratedThrough: [] });
     assert.throws(() => admit(kind, { schemaVersion: 2 }), error =>
       error.code === 'SDA_NAMESPACE_UNSUPPORTED' && error.cause.code === 'SCHEMA_VERSION_FUTURE');
+  }
+});
+
+test('content and namespace read projections share frozen schema metadata without changing legacy workflow readers', () => {
+  for (const entry of [CONTENT_STORAGE_SCHEMA, ...Object.values(NAMESPACE_READER_SCHEMAS)]) {
+    const registered = schemaFamily(entry.id);
+    for (const key of ['currentVersion','minimumReadableVersion','maximumReadableVersion','migrationPolicy','immutable']) assert.equal(registered[key], entry[key]);
+    const value = { schemaVersion: entry.currentVersion };
+    assert.deepEqual(readRecord(entry.id, value), { record: value, storedVersion: 1, migratedThrough: [] });
+    assert.throws(() => admitRecordSchemaVersion(entry, { schemaVersion: 2 }), { code: 'SCHEMA_VERSION_FUTURE' });
   }
 });

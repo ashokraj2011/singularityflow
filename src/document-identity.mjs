@@ -5,7 +5,7 @@
  * reader share these rules, so the name accepted at upload is the name every later lookup, prompt
  * and citation resolves, and a document offered to a phase is offered the same way everywhere.
  */
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
 
 export const DOCUMENT_NAME_MAXIMUM_LENGTH = 120;
 /** Package members are named "<package name>/<relative path>", which can be longer. */

@@ -1432,5 +1432,94 @@
         "events": []
       }
     }
+  ],
+  "content-sqlite-manifest": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-sqlite-content/v1",
+      "storeId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "kind": "shared"
+      },
+      "maximumBytes": 134217728
+    }
+  ],
+  "namespace-story-read-head": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-read-head/v1",
+      "projectId": "fixture-project",
+      "workId": "STORY-1",
+      "state": {
+        "namespace": "state",
+        "sha256": "73824749312b0f775b18389112873c722c78fbc6274a2d26dd4d73e6e0428a66",
+        "bytes": 491
+      },
+      "policy": {
+        "namespace": "config",
+        "sha256": "e55bc884bcfd3907ffe68802d8bc5c1367e231c7f38ed153309c9b879fec5071",
+        "bytes": 132
+      },
+      "documents": {
+        "namespace": "state",
+        "sha256": "649ec291ddda92df414d826d7379319c3ee3dd339f53e2a8e6119d2882d3438b",
+        "bytes": 80
+      }
+    }
+  ],
+  "namespace-story-read-state": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-read-state/v1",
+      "workItem": {
+        "id": "STORY-1",
+        "branch": "feature"
+      },
+      "currentPhase": "example",
+      "phases": {
+        "example": {
+          "id": "example",
+          "generation": 0,
+          "status": "in_progress",
+          "requiredArtifact": {
+            "path": null,
+            "kind": null
+          },
+          "artifacts": [],
+          "agentBriefs": []
+        }
+      },
+      "lineage": {
+        "canonicalBranch": null,
+        "childBranches": [],
+        "submissions": []
+      },
+      "resolution": {
+        "documents": {
+          "maxPreviewBytes": null
+        },
+        "codeDelivery": {
+          "display": {
+            "previewBytes": 4096,
+            "fullDocumentMaximumBytes": 65536
+          }
+        }
+      }
+    }
+  ],
+  "namespace-story-read-policy": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-read-policy/v1",
+      "workItemRoot": "singularity/work-items",
+      "maximumPreviewBytes": 1048576
+    }
+  ],
+  "namespace-story-document-index": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-read-documents/v1",
+      "documents": []
+    }
   ]
 }

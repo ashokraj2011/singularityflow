@@ -17,6 +17,11 @@ export const NAMESPACE_READER_SCHEMAS = Object.freeze({
   head: frozenFamily('namespace-story-read-head'), state: frozenFamily('namespace-story-read-state'),
   policy: frozenFamily('namespace-story-read-policy'), documents: frozenFamily('namespace-story-document-index')
 });
+export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
+  authority: frozenFamily('namespace-lifecycle-authority'), configuration: frozenFamily('namespace-lifecycle-configuration'),
+  head: frozenFamily('namespace-lifecycle-head'), state: frozenFamily('namespace-lifecycle-state'),
+  prepared: frozenFamily('namespace-lifecycle-prepared'), manifest: frozenFamily('namespace-lifecycle-manifest')
+});
 // Historical view records retain their original schema and compatibility export indefinitely.
 export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = frozenFamily('world-model-view-contract').currentVersion;
 // Writers need the current wire stamp, not every historical migration function.

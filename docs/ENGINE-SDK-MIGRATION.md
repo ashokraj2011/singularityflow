@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port and namespace-backed phase/document read host implemented; portable lifecycle writers and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host and internal conditional lifecycle committer implemented; production portable lifecycle ports and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -151,6 +151,12 @@ storage-backed `phase.review` and `document.read` ports. Large histories and fil
 separate content contract instead of exceeding metadata limits. The shared kernel preserves native
 reference identities and read results; moved-head, missing-evidence and local-reupload conditions
 remain explicit. Its projection is read-only and never becomes approval or migration authority.
+
+The [namespace lifecycle committer](NAMESPACE-LIFECYCLE-COMMIT.md) adds a durable prepared intent,
+exact configuration/authority binding and one conditional state/evidence/event/receipt commit.
+It is an internal persistence port for already-admitted transitions, with real filesystem/SQLite
+recovery qualification. Production policy ports and complete headless execution remain required;
+installed Git authority and public SDK exports are unchanged.
 
 The [workflow asset inventory](ENGINE-SDK-WORKFLOW-ASSETS.md) exposes the native compiler's
 dependency names and digests through the registry. The same captured compiler result serves CLI

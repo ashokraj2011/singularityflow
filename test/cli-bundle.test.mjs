@@ -453,7 +453,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), namedFunction('enterPhase'),
     'phase binding must not fall through to the compatibility/admin bundle');
   const phaseCode = await readFile(path.join(outdir, 'cold-phases.mjs'), 'utf8');
-  assert.match(phaseCode, namedFunction('completePhaseEntry'));
+  for (const name of ['inspectNativePhaseEntry', 'checkpointNativePhaseEntry']) {
+    assert.match(phaseCode, namedFunction(name), 'the registered phase-entry native stages must stay in the prepared phase family');
+  }
   assert.match(phaseCode, namedFunction('composePhasePrompt'),
     'passive composition belongs in the existing prepared phase family, not the model/admin dispatcher');
   for (const name of ['readPendingList', 'pendingSummary', 'approvalAdvisories']) {

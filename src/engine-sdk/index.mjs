@@ -10,7 +10,8 @@ import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmissio
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest,phaseBeginSelection,phaseBeginResult,
-  phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation} from '../kernel/phase-policy.mjs';
+  phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
+  storyStatusSelection,storyStatusManifest} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
@@ -104,6 +105,8 @@ const definitions = [
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
   ...UPSTREAM_OPERATIONS,
+  {id:'story.status',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyStatus',
+    stages:Object.freeze(['load','read']),validate:storyStatusInput,execute:inspectStoryStatus},
   {id:'workflow.assets',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workflowIds']),port:'workflowAssets',
     stages:Object.freeze(['load','read']),validate:workflowAssetsInput,execute:inspectWorkflowAssets},
   {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
@@ -158,6 +161,30 @@ async function inspectWorkflowAssets(port, inputs, signal) {
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function storyStatusInput(value, operation) {
+  const input = phaseReviewInput(value, operation);
+  if (input.workId != null && (!input.workId.trim() || input.workId.length > 512)) invalid('Invalid Story status identifier.');
+  return input;
+}
+
+async function inspectStoryStatus(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, { signal }); notCancelled(signal);
+  let binding;
+  try { binding = data(storyStatusSelection(context, inputs)); } catch (cause) {
+    if (cause?.code !== 'ENGINE_INPUT_INVALID') throw cause;
+    throw new SingularityFlowError('The status port returned an invalid record binding.', { code: 'ENGINE_PORT_RESULT_INVALID', cause });
+  }
+  const observed = await port.read(context, binding, { signal }); notCancelled(signal);
+  let facts;
+  try { facts = data(observed); } catch (cause) {
+    throw new SingularityFlowError('The status port returned non-JSON facts.', { code: 'ENGINE_PORT_RESULT_INVALID', cause });
+  }
+  return data({ schemaVersion: 1, contract: ENGINE_CONTRACT, operation: 'story.status', status: 'inspected',
+    subject: { kind: 'story', id: binding.workId }, manifest: storyStatusManifest(binding, facts),
+    effects: { committed: false, pushed: false, testsRun: false, modelInvocations: 0, approvalRecorded: false, storyAdvanced: false } });
 }
 
 function phaseInputsInput(value, operation) {

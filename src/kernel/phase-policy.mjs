@@ -3,6 +3,83 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
+/** Recorded counts only. No execution, freshness, quorum or acceptance is implied. */
+export function recordedEvidenceSummary(workflow) {
+  const phases = (workflow.phaseOrder ?? []).map(id => workflow.phases?.[id]).filter(Boolean);
+  const artifacts = phases.flatMap(phase => phase.artifacts ?? []);
+  const checks = phases.flatMap(phase => phase.checks ?? []);
+  const approvals = phases.flatMap(phase => phase.approvals ?? []).filter(entry => !entry.invalidatedAt);
+  return {
+    artifacts: { recorded: artifacts.filter(entry => entry.sha256 || entry.recordedAt || entry.status === 'recorded').length, total: artifacts.length },
+    checks: { passed: checks.filter(entry => ['passed', 'pass'].includes(entry.status)).length,
+      failed: checks.filter(entry => ['failed', 'blocked', 'fail'].includes(entry.status)).length, total: checks.length },
+    approvals: { approved: approvals.filter(entry => entry.decision === 'approved').length, total: approvals.length }
+  };
+}
+
+/** Ordinary status is a diagnostic record read, including incomplete legacy records. */
+export function storyStatusSelection(context, inputs) {
+  const workflow = context?.workflow, rawId = workflow?.workItem?.id;
+  // Native subject indexing canonicalizes legacy scalar IDs while its diagnostic display stays raw.
+  const id = ['string', 'number', 'boolean'].includes(typeof rawId) ? String(rawId).trim() : null;
+  if (context?.subject?.kind !== 'story' || typeof id !== 'string' || !id || context.subject.id !== id) {
+    throw new SingularityFlowError('The status port did not bind a Story.', { code: 'ENGINE_PORT_RESULT_INVALID' });
+  }
+  if (inputs.workId != null && inputs.workId !== id) throw new SingularityFlowError(
+    'Requested Story does not match the status record.', { code: 'ACTIVE_SUBJECT_MISMATCH',
+      details: { expectedWorkId: inputs.workId, actualWorkId: id } });
+  const diagnostics = [], phases = [], observed = Object.create(null), seen = new Set();
+  const order = Array.isArray(workflow.phaseOrder) ? workflow.phaseOrder : [];
+  if (!Array.isArray(workflow.phaseOrder)) diagnostics.push({ code: 'status.phase-order.unavailable' });
+  for (const phaseId of order) {
+    if (typeof phaseId !== 'string' || !phaseId || seen.has(phaseId)) {
+      diagnostics.push({ code: 'status.phase-order.invalid' }); continue;
+    }
+    seen.add(phaseId);
+    const phase = Object.hasOwn(workflow.phases ?? {}, phaseId) ? workflow.phases[phaseId] : null;
+    if (!phase || typeof phase !== 'object' || Array.isArray(phase)) {
+      diagnostics.push({ code: 'status.phase.unavailable', phase: phaseId });
+      phases.push({ id: phaseId, status: null, generation: null }); continue;
+    }
+    const safe = {};
+    for (const field of ['artifacts', 'checks', 'approvals']) {
+      const entries = Array.isArray(phase[field]) ? phase[field] : [];
+      safe[field] = entries.filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry));
+      if (!Array.isArray(phase[field]) || safe[field].length !== entries.length) {
+        diagnostics.push({ code: 'status.evidence.incomplete', phase: phaseId, field });
+      }
+    }
+    Object.defineProperty(observed, phaseId, { value: safe, enumerable: true });
+    phases.push({ id: phaseId, status: typeof phase.status === 'string' ? phase.status : null,
+      generation: Number.isSafeInteger(phase.generation) && phase.generation >= 0 ? phase.generation : null });
+  }
+  const currentPhase = typeof workflow.currentPhase === 'string' ? workflow.currentPhase : null;
+  if (currentPhase != null && !seen.has(currentPhase)) diagnostics.push({ code: 'status.current-phase.unlisted', phase: currentPhase });
+  return { workId: id, source: context.source, status: typeof workflow.status === 'string' ? workflow.status : null,
+    currentPhase, phases, evidence: recordedEvidenceSummary({ phaseOrder: phases.map(phase => phase.id), phases: observed }),
+    inventoryComplete: diagnostics.length === 0, diagnostics };
+}
+
+/** No retained local publication marker is not proof that a remote accepted a transition. */
+export function storyStatusManifest(binding, facts) {
+  const bad = () => { throw new SingularityFlowError('The status port returned invalid or differently bound facts.', { code: 'ENGINE_PORT_RESULT_INVALID' }); };
+  const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key));
+  const source = binding.source, publication = facts?.publication;
+  if (!exact(source, ['kind', 'revision']) || !['working-tree', 'ref', 'namespace-snapshot'].includes(source.kind)
+    || source.revision !== null && (typeof source.revision !== 'string' || !source.revision)
+    || source.kind !== 'working-tree' && source.revision === null
+    || !exact(facts, ['workId', 'source', 'publication']) || facts.workId !== binding.workId
+    || !exact(facts.source, ['kind', 'revision']) || facts.source.kind !== source.kind || facts.source.revision !== source.revision
+    || !exact(publication, ['state', 'commit', 'error']) || !['pending', 'unreadable', 'not-retained'].includes(publication.state)
+    || publication.commit !== null && (typeof publication.commit !== 'string' || !publication.commit)
+    || publication.state !== 'pending' && publication.commit !== null
+    || publication.state === 'unreadable' && (!publication.error || typeof publication.error.message !== 'string' || !publication.error.message)
+    || publication.state !== 'unreadable' && publication.error !== null) bad();
+  return { schemaVersion: 1, contract: 'sflow-story-status/v1', ...binding, publication,
+    authorityVerified: false, finalBindingChecked: false, acceptanceChecked: false };
+}
+
 export function generationTask(phase) {
   return phase?.generationPolicy?.task ?? phase?.generation?.task ?? null;
 }

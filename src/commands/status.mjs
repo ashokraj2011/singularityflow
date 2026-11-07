@@ -1,7 +1,7 @@
 /** Dispatch status-only JSON without importing submission or human presentation code. */
-import { galStatusRepositoryRoot, readStatus } from './status-read.mjs';
+import { galStatusRepositoryRoot, readStatus } from '../engine-compatibility/git-story-status.mjs';
 import { optionBoolean } from '../util.mjs';
-export { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus } from './status-read.mjs';
+export { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus } from '../engine-compatibility/git-story-status.mjs';
 const ordinary = options => optionBoolean(options, 'json') && !optionBoolean(options, 'submission-readiness')
   && !optionBoolean(options, 'submit-if-ready') && !optionBoolean(options, 'git-shadow');
 export async function load({ options }) {

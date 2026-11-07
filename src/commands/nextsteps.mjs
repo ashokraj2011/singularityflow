@@ -33,29 +33,7 @@ function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
 }
 
-/** Evidence already present in durable lifecycle state; this performs no test or tool invocation. */
-function evidenceSummary(workflow) {
-  const phases = (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id]).filter(Boolean);
-  const artifacts = phases.flatMap((phase) => phase.artifacts ?? []);
-  const checks = phases.flatMap((phase) => phase.checks ?? []);
-  const approvals = phases.flatMap((phase) => phase.approvals ?? [])
-    .filter((entry) => !entry.invalidatedAt);
-  return {
-    artifacts: {
-      recorded: artifacts.filter((entry) => entry.sha256 || entry.recordedAt || entry.status === 'recorded').length,
-      total: artifacts.length
-    },
-    checks: {
-      passed: checks.filter((entry) => ['passed', 'pass'].includes(entry.status)).length,
-      failed: checks.filter((entry) => ['failed', 'blocked', 'fail'].includes(entry.status)).length,
-      total: checks.length
-    },
-    approvals: {
-      approved: approvals.filter((entry) => entry.decision === 'approved').length,
-      total: approvals.length
-    }
-  };
-}
+import { recordedEvidenceSummary as evidenceSummary } from '../kernel/phase-policy.mjs';
 
 async function initiativeSnapshot(root, selected) {
   const { initiativeNextActions } = await import('../initiative-report.mjs');

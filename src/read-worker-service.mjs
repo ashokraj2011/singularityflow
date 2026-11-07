@@ -26,7 +26,7 @@ async function reset(full = false) {
 
 /** Definition preparation only: no handler, repository read, model or receipt is executed. */
 export async function prepareReadWorkerDefinitions({ policy = false } = {}) {
-  await Promise.all([import('./commands/status.mjs'), import('./commands/progress.mjs'),
+  await Promise.all([import('./engine-compatibility/git-story-status.mjs'), import('./commands/progress.mjs'),
     import('./commands/report.mjs')]);
   if (policy) {
     await Promise.all([import('./commands/nextsteps.mjs'), import('./phase-entry-context.mjs'),
@@ -55,7 +55,7 @@ export async function readWorkerValue(root, args) {
         return readSnapshot(root, request);
       }
       if (request.method === 'status') {
-        const { readStatus } = await import('./commands/status.mjs');
+        const { readStatus } = await import('./engine-compatibility/git-story-status.mjs');
         return readStatus(root, request.workId);
       }
       if (request.method === 'progress') {

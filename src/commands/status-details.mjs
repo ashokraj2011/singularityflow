@@ -8,6 +8,7 @@ import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
 import { noCurrentPhaseLabel, storyStatusLabel } from '../progress.mjs';
 import { storyLineageLines } from '../story-base-lineage.mjs';
 import { openUpstreamIssues } from '../upstream-issues.mjs';
+import { createGitStoryStatusEngine } from '../engine-compatibility/git-story-status.mjs';
 
 function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
@@ -41,7 +42,7 @@ function summary(workflow) {
  * Do not replace this with the general repository facade: status needs only one worktree-local
  * symbolic ref, and paying discovery plus HEAD stability probes was a measured 10x regression.
  */
-import { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus, retainedStoryPublication } from './status-read.mjs';
+import { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus } from '../engine-compatibility/git-story-status.mjs';
 export { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus };
 
 export async function run(_argv, { positionals, options }) {
@@ -94,8 +95,9 @@ export async function run(_argv, { positionals, options }) {
     kind: 'story',
     required: true
   });
-  const workflow = selected.state;
-  const retained = await retainedStoryPublication(root, selected);
+  const statusBinding = createGitStoryStatusEngine({root,reference,initialSelection:selected});
+  await statusBinding.engine.run('story.status', {});
+  const {workflow,publication:retained} = statusBinding.presentation();
   let gitShadowSummary = null;
   if (gitShadow) {
     const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');

@@ -150,7 +150,7 @@ test('Git compatibility composes existing owners without introducing another per
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
   const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
-    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs',
+    'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs','src/commands/status-read.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
     'src/commands/shared/story-draft-transaction.mjs','src/commands/shared/convergence-preparation-state.mjs'].map(file=>path.join(packageRoot,file)));
@@ -215,6 +215,21 @@ test('production consumers use kernel phase rules and only the compatibility agg
     };visit(source);
   }
   assert.deepEqual(problems,[],'old paths are compatibility exports, not another internal policy or write path');
+});
+
+test('ordinary status commands and warm reads use one native registry observer and shared evidence rules', async () => {
+  const read = relative => readFile(path.join(packageRoot, relative), 'utf8');
+  const native = await read('src/engine-compatibility/git-story-status.mjs');
+  assert.match(native, /binding\.engine\.run\('story\.status', \{\}\)/);
+  assert.doesNotMatch(native, /loadAcceptedStoryExecution|submissionReadiness|actionActor|transactStory|withoutReadScope/);
+  const shim = ts.createSourceFile('status-read.mjs', await read('src/commands/status-read.mjs'), ts.ScriptTarget.Latest, true);
+  assert.ok(shim.statements.every(node => ts.isExportDeclaration(node)), 'the old reader is a compatibility export only');
+  const worker = await read('src/read-worker-service.mjs');
+  assert.match(worker, /import\('\.\/engine-compatibility\/git-story-status\.mjs'\)/);
+  assert.doesNotMatch(worker, /import\('\.\/commands\/status\.mjs'\)/);
+  const next = await read('src/commands/nextsteps.mjs');
+  assert.match(next, /recordedEvidenceSummary as evidenceSummary/);
+  assert.doesNotMatch(next, /function evidenceSummary\(/);
 });
 
 test('rejection host uses the registry and only the compatibility aggregate calls its native transition', async () => {

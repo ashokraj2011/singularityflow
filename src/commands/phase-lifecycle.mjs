@@ -11,12 +11,8 @@ import { verifyOpenGenerationIntent } from '../generation-boundary.mjs';
 // Load the full document renderer only when a caller actually requests that projection.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
-import { loadSession } from '../session.mjs';
 import { prepublishTestExecutionLines } from '../phase-prepublish.mjs';
-import { phaseDraftCheck } from '../phase-draft-check.mjs';
-import { operationContext } from '../operation-context.mjs';
 import { applicationReviewOffer, codeOutcomeReviewOffer } from '../code-delivery-policy.mjs';
-import { agentPublicationProducer } from '../kernel/phase-policy.mjs';
 import path from 'node:path';
 import * as style from '../style.mjs';
 import { pendingTelemetryNote } from '../telemetry.mjs';
@@ -70,6 +66,7 @@ export async function phaseCommand(positionals, options) {
   if (subcommand === 'publish') return phasePublishCommand(root, positionals, options);
   if (subcommand === 'begin') return phaseBeginCommand(root, positionals, options);
   if (subcommand === 'prepublish') return phasePrepublishCommand(root, positionals, options);
+  if (subcommand === 'draft-check') return phaseDraftCheckCommand(root, positionals, options);
   const accepted = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? null);
   const config = accepted.definition;
   const workflow = accepted.workflow;
@@ -150,29 +147,6 @@ export async function phaseCommand(positionals, options) {
     else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
     return;
   }
-  if (subcommand === 'draft-check') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    if (phaseId !== workflow.currentPhase && !['in_progress', 'awaiting_approval'].includes(phase.status)) {
-      throw new SingularityFlowError(
-        `Phase '${phaseId}' is not the active review draft. Check '${workflow.currentPhase ?? 'none'}' instead.`,
-        { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } }
-      );
-    }
-    const session = await loadSession(root, { required: false });
-    // An agent's read names its own authorship, never a person's: see agentPublicationProducer.
-    const result = await phaseDraftCheck(root, config, workflow, phase, {
-      modelEnabled: operationContext()?.modelMode.enabled !== false, session,
-      requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
-    });
-    const { observeWorkflowTaskCheck, readWorkflowTaskResume } = await import('../workflow-task-store.mjs');
-    await observeWorkflowTaskCheck(root, workflow, phase, result);
-    const taskResume = await readWorkflowTaskResume(root, workflow, phase, { generation: result.generation,
-      progress: { state: result.status === 'ready' ? 'publish-ready' : result.correction?.sameTurn ? 'repair-draft' : 'blocked',
-        nextAction: result.commandGuidance?.next ?? result.commandGuidance?.publish } });
-    return renderPhaseCheckResult(root,phase,result,taskResume,subcommand,options);
-  }
   throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
 }
 
@@ -182,6 +156,14 @@ async function phasePrepublishCommand(root,positionals,options) {
   await binding.engine.run('phase.prepublish',{workId:optionString(options,'work-id')??null,phaseId:positionals[2]??null});
   const {phase,result,taskResume}=binding.presentation();
   return renderPhaseCheckResult(root,phase,result,taskResume,'prepublish',options);
+}
+
+async function phaseDraftCheckCommand(root,positionals,options) {
+  const {createGitPhaseDraftCheckEngine}=await import('../engine-compatibility/git-phase-entry.mjs');
+  const binding=createGitPhaseDraftCheckEngine({root,authoringAgent:optionBoolean(options,'for-agent')});
+  await binding.engine.run('phase.draft-check',{workId:optionString(options,'work-id')??null,phaseId:positionals[2]??null});
+  const {phase,result,taskResume}=binding.presentation();
+  return renderPhaseCheckResult(root,phase,result,taskResume,'draft-check',options);
 }
 
 async function renderPhaseCheckResult(root,phase,result,taskResume,subcommand,options) {

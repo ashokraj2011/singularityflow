@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin, prepublication inspection, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and draft-check/preparation/rollover admission remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin, draft and prepublication inspection, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and preparation/rollover admission remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -105,6 +105,10 @@ The [prepublication inspection](ENGINE-SDK-PREPUBLISH.md) uses the registry for 
 and pure readiness/finding rules. Readiness admits an attempt; final publication bindings and
 required tests are still checked by publication. Advisory owner/issue links and approval deadlines
 remain explicit without becoming publication blockers.
+
+The [draft inspection](ENGINE-SDK-DRAFT-CHECK.md) shares that inspection boundary and pure finding
+rules. Its ready result describes authored-draft health, not publication admission; final worktree,
+test and transaction checks stay with prepublish and publication.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -760,3 +764,32 @@ Phase 5 still includes registered draft-check, preparation/rollover, the remaini
 portable asset inventory/native policy extraction. Phases 6–9 retain their full filesystem/database
 adapter, headless package/resume, verified authority-cutover and final removal/distribution/
 performance scope. This inspection does not complete or narrow those remaining milestones.
+
+## Phase 5 draft inspection delivery
+
+`phase.draft-check` now uses one registered coordinator and the native Git inspection port for
+CLI and SDK. It shares finding policy and observation projection with prepublish, while retaining
+a distinct draft-health manifest. Ready draft health does not claim publication admission, fresh
+tests, a verified transaction, human review or edit authority. Retained/submitted generations and
+unknown upstream owners keep their original bindings; advisories and spent task budgets remain
+observations. Prepublish keeps its existing check and task-observation sequence.
+
+Mac qualification on Node 26.12.0 passes 336 focused checks across 23 files with no failures,
+cancellations or skips. Real source and bundled CLI receipts agree with SDK execution. A native
+fixture proves that a healthy draft stays distinct from a publication hold on staged files.
+Existing Git compatibility tests retain concurrent-writer, lost-response, cancellation, integrity,
+configuration review and dirty-worktree preservation coverage. Broader tests cover all-phase
+draft/prepublish checks, repair loops, mutation guards, source review and a complete honest-
+partial-verdict Story. The CLI renderer's 483 syntax tokens are unchanged.
+
+`npm run check` passes 3,626 checks. VS Code typechecking, all 13 unchanged bundle budgets, the
+Git ownership audit (2,010 existing sites), dry-run packaging and whitespace checks pass. The
+pure SDK remains 17 modules / 211,450 input bytes with zero external imports. The gateway remains
+851 modules / 6,742,680 bytes, without a ceiling increase. The package contains 9,482 files and
+excludes tests. All machine state and Git repositories/remotes are isolated fixtures; no Windows,
+hosted CI, live provider, merge, push or real-project migration ran.
+
+Preparation/rollover, remaining queries and portable asset/native-policy extraction remain in
+Phase 5. Phases 6–9 retain their full filesystem/database adapter, headless package/resume,
+verified authority cutover and final removal/distribution/performance scope. This draft-check
+delivery does not complete or narrow those remaining milestones.

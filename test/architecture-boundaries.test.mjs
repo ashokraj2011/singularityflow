@@ -256,6 +256,17 @@ test('prepublish host delegates one inspection and the native checker shares its
   assert.match(compatibility,/export \{phaseFindingCode,phaseFindingIdentity,phaseFindingPolicy,isArtifactQualityFinding\} from '\.\/kernel\/phase-findings\.mjs'/u);
 });
 
+test('draft-check host uses registry inspection and shares the installed pure draft-health rule',async()=>{
+  const host=await readFile(path.join(packageRoot,'src/commands/phase-lifecycle.mjs'),'utf8');
+  const source=ts.createSourceFile('phase-lifecycle.mjs',host,ts.ScriptTarget.Latest,true);
+  const check=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='phaseDraftCheckCommand');
+  assert.ok(check);assert.match(check.getText(source),/\.engine\.run\('phase\.draft-check'/u);
+  assert.doesNotMatch(check.getText(source),/\b(phaseDraftCheck|loadSession|loadAcceptedStoryExecution|readWorkflowTaskResume)\s*\(/u);
+  const native=await readFile(path.join(packageRoot,'src/phase-draft-check.mjs'),'utf8');
+  assert.match(native,/const clean = phaseDraftCheckReady\(/u);
+  assert.doesNotMatch(host,/import \{ phaseDraftCheck \} from/u);
+});
+
 test('native transition extraction keeps every operation binding declared',async()=>{
   const files=[...await sourceFiles('src/engine-compatibility'),...await sourceFiles('src/engine-sdk'),
     ...await sourceFiles('src/kernel'),'src/state.mjs'].map(file=>path.join(packageRoot,file));

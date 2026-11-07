@@ -24,6 +24,7 @@ export function createSflow({ root = repoRoot(), faultRepairPolicy = {}, executi
     run: executeOperation, publishPhase: (inputs, options) => executeOperation('phase.publish', inputs, options),
     beginPhase: (inputs, options) => executeOperation('phase.begin', inputs, options),
     prepublishPhase: (inputs, options) => executeOperation('phase.prepublish', inputs, options),
+    draftCheckPhase: (inputs, options) => executeOperation('phase.draft-check', inputs, options),
     submitPhase: (inputs, options) => executeOperation('phase.submit', inputs, options),
     submitConvergence: (inputs, options) => executeOperation('convergence.submit', inputs, options),
     approvePhase:(inputs,options)=>executeOperation('phase.approve',inputs,options),

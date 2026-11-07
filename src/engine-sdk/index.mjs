@@ -15,7 +15,7 @@ import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
 import {phaseEntrySelection,phaseEntryInspection,phaseEntryComposition,phaseEntryClarification,
   phaseEntryPlan,phaseEntryManifest} from '../kernel/phase-entry.mjs';
-import {phasePrepublishSelection,phasePrepublishManifest} from '../kernel/phase-prepublish.mjs';
+import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelection,phaseDraftCheckManifest} from '../kernel/phase-prepublish.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -103,7 +103,10 @@ const definitions = [
     stages:Object.freeze(['load','verify','begin']),validate:phaseBeginInput,execute:beginPhase},
   {id:'phase.prepublish',version:1,effect:'inspection',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phasePrepublish',
-    stages:Object.freeze(['load','inspect']),validate:phaseReviewInput,execute:inspectPrepublication}
+    stages:Object.freeze(['load','inspect']),validate:phaseReviewInput,execute:inspectPhaseCheck},
+  {id:'phase.draft-check',version:1,effect:'inspection',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId']),port:'phaseDraftCheck',
+    stages:Object.freeze(['load','inspect']),validate:phaseReviewInput,execute:inspectPhaseCheck}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -117,26 +120,29 @@ function attachDiagnostic(error,key,value) {
   catch{ /* Optional diagnostics cannot replace a native refusal. */ }
 }
 
-async function inspectPrepublication(port,inputs,signal) {
+async function inspectPhaseCheck(port,inputs,signal,operation) {
+  const prepublish=operation.id==='phase.prepublish';
+  const selection=prepublish?phasePrepublishSelection:phaseDraftCheckSelection;
+  const project=prepublish?phasePrepublishManifest:phaseDraftCheckManifest;
   let binding=null,pendingStage='load';const completedStages=[];
   try {
     notCancelled(signal);
     const context=await port.load(inputs,{signal});completedStages.push('load');notCancelled(signal);
-    binding=data(phasePrepublishSelection(context?.workflow,inputs));pendingStage='inspect';
+    binding=data(selection(context?.workflow,inputs));pendingStage='inspect';
     const facts=await port.inspect(context,binding,{signal});completedStages.push('inspect');notCancelled(signal);
     let manifest;
-    try{manifest=data(phasePrepublishManifest(binding,data(facts)));}catch(error){
-      if(error?.code==='ENGINE_INPUT_INVALID')throw new SingularityFlowError('The prepublication port returned non-JSON facts.',{
+    try{manifest=data(project(binding,data(facts)));}catch(error){
+      if(error?.code==='ENGINE_INPUT_INVALID')throw new SingularityFlowError(`The ${prepublish?'prepublication':'draft-check'} port returned non-JSON facts.`,{
         code:'ENGINE_PORT_RESULT_INVALID',cause:error});
       throw error;
     }
-    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.prepublish',
-      status:manifest.admittedForAttempt?'ready':'correction-required',subject:{kind:'story',id:binding.workId},
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
+      status:(prepublish?manifest.admittedForAttempt:manifest.draftReady)?'ready':'correction-required',subject:{kind:'story',id:binding.workId},
       phase:binding.phase,generation:binding.generation,manifest,
       effects:{localProgressMayBeWritten:true,draftChanged:false,testsRun:false,modelInvocations:0,
         committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false,finalBindingChecked:false}});
   }catch(error){
-    attachDiagnostic(error,'enginePhasePrepublish',{operation:'phase.prepublish',
+    attachDiagnostic(error,prepublish?'enginePhasePrepublish':'enginePhaseDraftCheck',{operation:operation.id,
       subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,generation:binding?.generation??null,
       completedStages,pendingStage,localProgressMayBeWritten:pendingStage==='inspect',committed:false,pushed:false,approvalRecorded:false});
     throw error;
@@ -985,6 +991,7 @@ export function createEngine({ ports } = {}) {
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
     beginPhase: (inputs, options) => execute('phase.begin', inputs, options),
     prepublishPhase: (inputs, options) => execute('phase.prepublish', inputs, options),
+    draftCheckPhase: (inputs, options) => execute('phase.draft-check', inputs, options),
     submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
     submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options),
     approvePhase:(inputs,options)=>execute('phase.approve',inputs,options),

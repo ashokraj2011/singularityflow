@@ -128,8 +128,8 @@ export function createGitPhaseBeginEngine({root}={}) {
   return Object.freeze({engine,presentation:()=>context});
 }
 
-/** Native prepublication observation. CLI-only authorship presentation is trusted host context. */
-export function createGitPhasePrepublishPort({root,authoringAgent=false,onContext=()=>{}}) {
+/** Native draft observations. Authorship presentation is trusted host context, not operation input. */
+function createGitPhaseCheckPort({root,kind,authoringAgent=false,onContext=()=>{}}) {
   return {
     async load(inputs) {
       const {loadAcceptedStoryExecution}=await import('../accepted-story-execution.mjs');
@@ -138,22 +138,24 @@ export function createGitPhasePrepublishPort({root,authoringAgent=false,onContex
     },
     async inspect(context,binding) {
       const {loadSession}=await import('../session.mjs');
-      const {phasePrepublish}=await import('../phase-prepublish.mjs');
+      const check=kind==='prepublish'?(await import('../phase-prepublish.mjs')).phasePrepublish
+        :(await import('../phase-draft-check.mjs')).phaseDraftCheck;
       const {operationContext}=await import('../operation-context.mjs');
       const {agentPublicationProducer}=await import('../kernel/phase-policy.mjs');
       const phase=context.workflow.phases[binding.phase];context.phase=phase;
       const session=await loadSession(root,{required:false});
-      const result=await phasePrepublish(root,context.config,context.workflow,phase,{
+      const result=await check(root,context.config,context.workflow,phase,{
         modelEnabled:operationContext()?.modelMode.enabled!==false,session,
         requestedProducer:authoringAgent?agentPublicationProducer(phase):null
       });
-      const {readWorkflowTaskResume}=await import('../workflow-task-store.mjs');
+      const {observeWorkflowTaskCheck,readWorkflowTaskResume}=await import('../workflow-task-store.mjs');
+      if(kind==='draft-check')await observeWorkflowTaskCheck(root,context.workflow,phase,result);
       const task=await readWorkflowTaskResume(root,context.workflow,phase,{generation:result.generation,
         progress:{state:result.status==='ready'?'publish-ready':result.correction?.sameTurn?'repair-draft':'blocked',
           nextAction:result.commandGuidance?.next??result.commandGuidance?.publish}});
       context.result=result;context.taskResume=task;
       return {workId:result.workId,phase:result.phase,generation:result.generation,phaseStatus:result.phaseStatus,
-        inspectionStage:result.inspectionStage,readiness:result.readiness,producer:result.producer??null,
+        inspectionStage:result.inspectionStage,...(kind==='prepublish'?{readiness:result.readiness}:{}),producer:result.producer??null,
         qualityDisposition:result.qualityDisposition,draftFingerprint:result.draftFingerprint??null,
         findings:result.findings.map(finding=>{
           const details=finding.details??{},coverage=details.coverage;
@@ -182,13 +184,29 @@ export function createGitPhasePrepublishPort({root,authoringAgent=false,onContex
   };
 }
 
-export function createGitPhasePrepublishEngine({root,authoringAgent=false}={}) {
+export function createGitPhasePrepublishPort(options) {
+  return createGitPhaseCheckPort({...options,kind:'prepublish'});
+}
+
+export function createGitPhaseDraftCheckPort(options) {
+  return createGitPhaseCheckPort({...options,kind:'draft-check'});
+}
+
+function createGitPhaseCheckEngine({root,authoringAgent=false,kind}) {
   if(typeof root!=='string'||!path.isAbsolute(root)||typeof authoringAgent!=='boolean')throw new SingularityFlowError(
-    'Git prepublication inspection requires an absolute checkout and a host presentation mode.',{code:'ENGINE_INPUT_INVALID'});
+    `Git ${kind==='prepublish'?'prepublication':'draft-check'} inspection requires an absolute checkout and a host presentation mode.`,{code:'ENGINE_INPUT_INVALID'});
   let context;
-  const phasePrepublish=createGitPhasePrepublishPort({root,authoringAgent,onContext:value=>{context=value;}});
-  const engine=createEngine({ports:{phasePrepublish,invocation:{
+  const port=createGitPhaseCheckPort({root,kind,authoringAgent,onContext:value=>{context=value;}});
+  const engine=createEngine({ports:{[kind==='prepublish'?'phasePrepublish':'phaseDraftCheck']:port,invocation:{
     run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
   }}});
   return Object.freeze({engine,presentation:()=>context});
+}
+
+export function createGitPhasePrepublishEngine({root,authoringAgent=false}={}) {
+  return createGitPhaseCheckEngine({root,authoringAgent,kind:'prepublish'});
+}
+
+export function createGitPhaseDraftCheckEngine({root,authoringAgent=false}={}) {
+  return createGitPhaseCheckEngine({root,authoringAgent,kind:'draft-check'});
 }

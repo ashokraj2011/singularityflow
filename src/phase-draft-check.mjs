@@ -1,4 +1,5 @@
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
+import {phaseDraftCheckReady} from './kernel/phase-prepublish.mjs';
 import path from 'node:path';
 import { findingOwnedByPhase } from './phase-finding-policy.mjs';
 import { pathToFileURL } from 'node:url';
@@ -343,7 +344,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     : deterministicCode ? 'agent-authoring' : correctionClass(producer));
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
-  const clean = findings.length === 0;
+  const clean = phaseDraftCheckReady(findings);
   const commands = Object.freeze({
     recheck: `singularity-flow phase draft-check ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,
     recover: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json${modelEnabled === false ? ' --no-model' : ''}`,

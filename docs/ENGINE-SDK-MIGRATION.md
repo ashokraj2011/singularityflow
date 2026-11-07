@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: ordinary/confirmed convergence submission and approval extracted; decisions, advancement, manifests and shared helper ownership remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval and shared post-transition effects extracted; decisions, advancement, manifests and remaining admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -309,3 +309,16 @@ passed 3,547 checks; typechecking, rebuilt runtime budgets and package admission
 The gateway allowance admits exactly its one extracted native transition owner (848 to 849),
 with all byte and other module ceilings unchanged. Phase 5's remaining operations and helper ownership, followed by all
 of phases 6–9, remain part of the migration objective.
+
+## Phase 5 shared post-transition delivery
+
+The [post-transition slice](ENGINE-SDK-POST-TRANSITION.md) separates native effect reports from CLI
+warnings and recovery rendering. Approval and submission no longer import their command-layer
+receipt, specification-usage or post-publication helpers. The existing helper paths remain aliases
+for CLI compatibility. Headless Git hosts can observe and inspect bounded native diagnostics.
+
+The 92-test Mac regression run passed with no failures or skips, including required receipt retry,
+lost-outbox recovery, specification usage and an approval whose session refresh and notice observer
+both fail after the exact approval commit. The source gate passed 3,550 checks; typechecking and
+all rebuilt runtime budgets passed without raising a ceiling. This completes the shared effect
+helper ownership, while decision admission, remaining operations/manifests and phases 6–9 remain.

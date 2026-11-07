@@ -159,7 +159,7 @@ async function publishStory(root, explicit, options, say) {
       : `Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
   }
   if (result.stepActions?.delivered?.length) {
-    const { recordRequiredReceiptsAfterTransition } = await import('./shared/record-required-receipts-after-transition.mjs');
+    const { recordRequiredReceiptsAfterTransition } = await import('../phase-post-transition-guidance.mjs');
     const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
     if (receiptsLine) say.text(receiptsLine);
   }

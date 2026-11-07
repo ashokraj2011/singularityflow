@@ -11,10 +11,7 @@ import {consumeSelectionReceipt,removeApprovalReceipts} from '../choices.mjs';
 import {forgetTerminalReview} from '../terminal-review.mjs';
 import {loadAcceptedStoryExecution} from '../accepted-story-execution.mjs';
 import {activateWorkItemSession} from '../session.mjs';
-// Compatibility tails are shared with submission until the post-transition owner is extracted.
-import {postPublicationStep} from '../commands/shared/post-publication-step.mjs';
-import {recordRequiredReceiptsAfterTransition} from '../commands/shared/record-required-receipts-after-transition.mjs';
-import {recordSpecUsageAfterTransition} from '../commands/shared/record-spec-usage-after-transition.mjs';
+import {postPublicationStep,collectRequiredReceiptsAfterTransition,collectSpecUsageAfterTransition} from './post-transition.mjs';
 
 async function withApprovalDecisions(aggregate,decisions,approve) {
   if(!decisions)return approve();
@@ -46,7 +43,7 @@ async function defaultPreparation(context,input) {
     actionContext:receipt?.approvalContext ?? null};
 }
 
-export function createGitApprovalPort({root,interaction=null,onContext=()=>{}}) {
+export function createGitApprovalPort({root,interaction=null,onContext=()=>{},notice=()=>{}}) {
   // Only trusted composition supplies these callbacks; operation inputs can never provide them.
   const load=typeof interaction?.load==='function' ? interaction.load.bind(interaction) : null;
   const prepare=typeof interaction?.prepare==='function' ? interaction.prepare.bind(interaction) : defaultPreparation;
@@ -182,11 +179,11 @@ export function createGitApprovalPort({root,interaction=null,onContext=()=>{}}) 
       await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
         const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
         return activateWorkItemSession(root, accepted.config, accepted.workflow);
-      });
-      const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
-      const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
+      }, {notice});
+      const receiptsReport = await collectRequiredReceiptsAfterTransition(root, workflow, {notice});
+      const usageReport = await collectSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next, notice });
 
-      Object.assign(context,{receiptsLine,usageLine,presenceModule});
+      Object.assign(context,{receiptsReport,usageReport,presenceModule});
       return {workId:workflow.workItem.id,phase:phase.id,generation:approvedGeneration,revision:publication.sha,
         pushed:publication.pushed===true,reviewPacket:result.approval.reviewPacketSha256,
         artifactSet:result.approval.artifactSetSha256,actorId:result.approval.approvedBy,

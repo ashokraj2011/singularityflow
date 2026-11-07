@@ -11,7 +11,8 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, noop, noEffects, succeeded, effects } from '../narration/command-result.mjs';
 
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
-import { postPublicationStep } from './shared/post-publication-step.mjs';
+import { postPublicationStep } from '../phase-post-transition-guidance.mjs';
+import {presentPostTransitionNotice,requiredReceiptsLine} from '../phase-post-transition-guidance.mjs';
 import { renderEvidenceReceipt } from '../evidence-receipt.mjs';
 
 import { phaseReview } from './shared/phase-review.mjs';
@@ -34,6 +35,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const confirmation = submitContext?.convergenceConfirmation ?? null;
   const { createGitEngine } = await import('../engine-compatibility/git-publication.mjs');
   const binding = createGitEngine({root,notice(event) {
+    if (event.code.startsWith('transition.')) return presentPostTransitionNotice(event);
     if (event.code === 'submission.decision-values-ignored') console.warn(`Phase '${event.phase}' is already submitted; the decision values recorded then stand. Request changes to record different ones.`);
     if (event.code === 'submission.review-packet-missing') {
       console.warn('Warning: the submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
@@ -44,7 +46,8 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     ? await binding.engine.run('phase.submit',input)
     : await binding.engine.run('convergence.submit',{...input,confirmation});
   const context = binding.presentation();
-  const {config,workflow,phase,publication,reviewPacket,registrationRepairs,evidenceReceipt,receiptsLine} = context;
+  const {config,workflow,phase,publication,reviewPacket,registrationRepairs,evidenceReceipt} = context;
+  const receiptsLine=await requiredReceiptsLine(context.receiptsReport);
   if (receipt.status === 'retained') {
     emitCommandResult(phaseSubmissionCommandResult(receipt, context), {json:optionBoolean(options,'json'),postState:workflow});
     return;

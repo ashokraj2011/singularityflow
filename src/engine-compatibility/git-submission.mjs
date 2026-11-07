@@ -7,14 +7,12 @@ import { prefetchStoryPublicationObservation, storyPublicationPending, assertNoP
 import { assertConvergencePublicationReady } from '../convergence-context.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { withRefusalMemory } from '../evidence/refusal-memory.mjs';
-import { actionActor } from '../commands/kernel.mjs';
+import { actionActor } from '../git.mjs';
 import { createStoryReviewPacket } from '../story-lineage.mjs';
 import { composeEvidenceReceipt } from '../evidence-receipt.mjs';
 import { activateWorkItemSession } from '../session.mjs';
-// These post-commit compatibility tails still own their existing local receipts and warning rendering.
-// Their extraction is shared with the upcoming approval slice; they cannot authorize a transition.
-import { postPublicationStep } from '../commands/shared/post-publication-step.mjs';
-import { recordRequiredReceiptsAfterTransition } from '../commands/shared/record-required-receipts-after-transition.mjs';
+// Native post-commit effects return facts; the host observes and renders any recovery notice.
+import { postPublicationStep, collectRequiredReceiptsAfterTransition } from './post-transition.mjs';
 
 function submissionFacts(context, publication = null) {
   const {workflow,phase,reviewPacket} = context;
@@ -155,7 +153,7 @@ export function createGitSubmissionPort({ root, notice = () => {}, onContext = (
       const evidenceReceiptResult = reviewPacket
         ? await postPublicationStep(
             'the evidence-receipt projection', workflow.workItem.id,
-            () => composeEvidenceReceipt(root, config, workflow, reviewPacket.packet)
+            () => composeEvidenceReceipt(root, config, workflow, reviewPacket.packet), {notice}
           )
         : { ok: false, value: null };
       const evidenceReceipt = evidenceReceiptResult.value;
@@ -167,11 +165,11 @@ export function createGitSubmissionPort({ root, notice = () => {}, onContext = (
         await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
           const afterSubmission = await loadAcceptedStoryExecution(root, workflow.workItem.id);
           return activateWorkItemSession(root, afterSubmission.config, afterSubmission.workflow);
-        });
+        }, {notice});
       }
-      const receiptsLine = phase.status === 'approved' ? await recordRequiredReceiptsAfterTransition(root, workflow) : null;
+      const receiptsReport = phase.status === 'approved' ? await collectRequiredReceiptsAfterTransition(root, workflow, {notice}) : null;
 
-      Object.assign(context,{registrationRepairs,evidenceReceipt,receiptsLine});
+      Object.assign(context,{registrationRepairs,evidenceReceipt,receiptsReport});
       return submissionFacts(context,publication);
     }
   };

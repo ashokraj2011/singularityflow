@@ -136,3 +136,38 @@ test('the SDK derives reviewer authority from the native identity instead of its
   assert.equal(approved.approval.authorityGroup, 'engine-reviewers');
   assert.equal(approved.approval.actorId, 'approved.reviewer@example.com');
 });
+
+test('an SDK approval remains committed when session refresh and the headless notice observer fail', async t => {
+  const id = 'ENGINE-POST-FAILURE';
+  const f = await submittedPlanningStory(t, id);
+  const root = path.resolve(f.item, '../../..');
+  const sessionUrl = new URL('../src/session.mjs', import.meta.url).href;
+  const apiUrl = new URL('../src/api.mjs', import.meta.url).href;
+  const acceptedUrl = new URL('../src/accepted-story-execution.mjs', import.meta.url).href;
+  const policyUrl = new URL('../src/kernel/approval-policy.mjs', import.meta.url).href;
+  const script = `import {mock} from 'node:test';
+    const session=await import(${JSON.stringify(sessionUrl)});
+    mock.module(${JSON.stringify(sessionUrl)},{namedExports:{...session,
+      activateWorkItemSession:async()=>{throw Object.assign(new Error('session refresh fixture'),{code:'LOCAL_SESSION_FIXTURE'});}}});
+    const {createSflow}=await import(${JSON.stringify(apiUrl)});
+    const {loadAcceptedStoryExecution}=await import(${JSON.stringify(acceptedUrl)});
+    const {submittedApprovalBinding}=await import(${JSON.stringify(policyUrl)});
+    const root=${JSON.stringify(root)},id=${JSON.stringify(id)};
+    const accepted=await loadAcceptedStoryExecution(root,id);
+    const api=createSflow({root,notice:()=>{throw new Error('observer fixture');}});
+    const receipt=await api.approvePhase({workId:id,phaseId:'planning',
+      confirmation:submittedApprovalBinding(accepted.workflow,accepted.workflow.phases.planning)});
+    const notices=await api.notifications();
+    console.log(JSON.stringify({receipt,notices:notices.map(n=>({code:n.code,workId:n.workId,errorCode:n.error?.code}))}));`;
+  const response = run(process.execPath, ['--experimental-test-module-mocks', '--no-warnings', '--input-type=module', '-e', script],
+    {cwd: root, env: {...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester'}, allowFailure: true});
+  assert.equal(response.status, 0, response.stdout+'\n'+response.stderr);
+  const result = lastJson(response.stdout);
+  assert.equal(result.receipt.status, 'recorded');
+  assert.equal(result.receipt.approval.thresholdReached, true);
+  assert.equal(f.git('rev-parse', 'HEAD'), result.receipt.revision);
+  assert.deepEqual(result.notices, [{code: 'transition.tail-failed', workId: id, errorCode: 'LOCAL_SESSION_FIXTURE'}]);
+  const accepted = await loadAcceptedStoryExecution(root, id);
+  assert.equal(accepted.workflow.phases.planning.status, 'approved');
+  assert.equal(accepted.workflow.currentPhase, 'implementation');
+});

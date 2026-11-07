@@ -37,6 +37,17 @@ function publicationFacts(context, phase, result, status, retentionReason = null
 export function createGitEngine({ root, notice = () => {}, approvalInteraction = null } = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
     'Git engine composition requires an explicit absolute checkout root.', { code: 'ENGINE_INPUT_INVALID' });
+  if (typeof notice !== 'function') throw new SingularityFlowError(
+    'Git engine notices require a trusted observer function.', {code: 'ENGINE_INPUT_INVALID'});
+  const notifications = [];
+  const observer = notice;
+  notice = event => {
+    // Advisory diagnostics are bounded machine-local observations, never lifecycle authority.
+    if (notifications.length === 256) notifications.shift();
+    const captured = Object.freeze({...event});
+    notifications.push(captured);
+    return observer(captured);
+  };
   let presentation = null;
   const port = {
     notice,
@@ -328,7 +339,7 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
   for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='approval').stages) {
     approval[stage]=async(...args)=>{
       approvalOwner ??= import('./git-approval.mjs')
-        .then(({createGitApprovalPort})=>createGitApprovalPort({root,interaction,onContext:context=>{presentation=context;}}))
+        .then(({createGitApprovalPort})=>createGitApprovalPort({root,interaction,notice,onContext:context=>{presentation=context;}}))
         .catch(error=>{approvalOwner=undefined;throw error;});
       const owner=await approvalOwner;
       return owner[stage](...args);
@@ -339,5 +350,5 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))
   }}});
-  return Object.freeze({ engine, presentation: () => presentation });
+  return Object.freeze({ engine, presentation: () => presentation, notifications: () => Object.freeze([...notifications]) });
 }

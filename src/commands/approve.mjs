@@ -21,6 +21,7 @@ import { stepActionHoldAfterTransition } from './shared/step-action-hold-after-t
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { recordTerminalReview, terminalReviewBinding, terminalReviewShown } from '../terminal-review.mjs';
+import {presentPostTransitionNotice,requiredReceiptsLine,specUsageLine} from '../phase-post-transition-guidance.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -92,7 +93,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   }
   const root=repoRoot();
   const {createGitEngine}=await import('../engine-compatibility/git-publication.mjs');
-  const binding=createGitEngine({root,approvalInteraction:{
+  const binding=createGitEngine({root,notice:presentPostTransitionNotice,approvalInteraction:{
     load:()=>decisionWorkflow(positionals,options,'approve',{root}),
     async prepare(context) {
       const {config,workflow,phase,session,receipt,requestedPhase}=context;
@@ -180,7 +181,9 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     workId:optionString(options,'work-id') ?? null,phaseId:optionString(options,'phase') ?? null
   });
   const context=binding.presentation();
-  const {config,workflow,result,publication,receiptsLine,usageLine,presenceModule}=context;
+  const {config,workflow,result,publication,presenceModule}=context;
+  const receiptsLine=await requiredReceiptsLine(context.receiptsReport);
+  const usageLine=specUsageLine(context.usageReport);
   if (!forAgent) console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);

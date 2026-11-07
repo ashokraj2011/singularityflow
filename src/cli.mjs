@@ -7,7 +7,7 @@ import { printCommandRoutes } from './commands/shared/print-command-routes.mjs';
 import { sessionRepositoryAuthority } from './commands/shared/session-repository-authority.mjs';
 import { gitAnswer } from './commands/shared/git-answer.mjs';
 import { sessionDiscoveryConfiguration } from './commands/shared/session-discovery-configuration.mjs';
-import { postPublicationStep } from './commands/shared/post-publication-step.mjs';
+import { postPublicationStep } from './phase-post-transition-guidance.mjs';
 import { pathForDisplay } from './commands/shared/path-for-display.mjs';
 import { storyDraftTransaction } from './commands/shared/story-draft-transaction.mjs';
 import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';

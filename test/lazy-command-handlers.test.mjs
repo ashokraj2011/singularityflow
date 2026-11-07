@@ -556,6 +556,7 @@ test('extracted legacy helpers remain part of the development build identity', a
     'engine-compatibility/submission-transition.mjs',
     'kernel/approval-policy.mjs', 'kernel/approval-fallback.mjs', 'engine-compatibility/decision-context.mjs',
     'engine-compatibility/git-approval.mjs', 'engine-compatibility/approval-transition.mjs',
+    'engine-compatibility/post-transition.mjs', 'phase-post-transition-guidance.mjs',
     'engine-compatibility/git-publication.mjs', 'engine-compatibility/generation-publication.mjs',
     'phase-publication-guidance.mjs']) {
     assert.ok(identity.includes(`'${owner}'`), `${owner} must invalidate a receipt made before its rules changed`);

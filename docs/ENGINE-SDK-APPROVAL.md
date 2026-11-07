@@ -85,9 +85,11 @@ pending or unknown effect is preserved. A failure after commit retains the origi
 attaches `enginePublication` so an embedding host can reconcile the committed effect. Native
 refusal codes, causes, recovery records and routes are preserved.
 
-The native admission service and post-transition receipt/session helpers remain shared with other
-legacy operations. Their extraction is remaining Phase 5 work; the SDK core itself has no Git,
-filesystem, process, provider or command-rendering dependency.
+The native admission service remains shared with other legacy operations. The subsequent
+[post-transition slice](ENGINE-SDK-POST-TRANSITION.md) separates receipt/session/usage effect reports
+from host wording and keeps their existing compatibility exports. Remaining admission extraction is
+Phase 5 work; the SDK core itself has no Git, filesystem, process, provider or command-rendering
+dependency.
 
 ## Mac qualification
 

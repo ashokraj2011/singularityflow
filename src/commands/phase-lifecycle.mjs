@@ -20,7 +20,7 @@ import { agentPublicationProducer } from '../kernel/phase-policy.mjs';
 import path from 'node:path';
 import * as style from '../style.mjs';
 import { pendingTelemetryNote } from '../telemetry.mjs';
-import { postPublicationStep } from './shared/post-publication-step.mjs';
+import { postPublicationStep } from '../phase-post-transition-guidance.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 

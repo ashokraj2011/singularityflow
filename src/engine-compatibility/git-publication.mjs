@@ -357,7 +357,14 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await decisionOwner)[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, decisions, invocation: {
+  let advancementOwner;
+  const advancement={notice,async withReview(...args){
+    advancementOwner ??= import('./git-advancement.mjs')
+      .then(({createGitAdvancementPort})=>createGitAdvancementPort({root,notice,onContext:context=>{presentation=context;}}))
+      .catch(error=>{advancementOwner=undefined;throw error;});
+    return (await advancementOwner).withReview(...args);
+  }};
+  const engine = createEngine({ports:{publication:port, submission, approval, decisions, advancement, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

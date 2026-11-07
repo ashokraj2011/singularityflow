@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination, registered decision writers and shared post-transition effects extracted; individual routes/amendments, advancement, manifests and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination, registered decision writers, convergence advancement and shared post-transition effects extracted; individual routes/amendments, manifests/queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -362,3 +362,32 @@ or skips. A final four-case writer run also passes, including actual bundled tes
 without execution or phase advancement. Source checks pass 3,567 checks; typechecking and all 13
 rebuilt runtime budgets pass without ceiling changes. Individual command routes, amendment
 orchestration, advancement, manifests/queries, admission helpers and all of phases 6–9 remain open.
+
+## Phase 5 advancement delivery
+
+The [advancement slice](ENGINE-SDK-ADVANCEMENT.md) registers `convergence.advance` for CLI and Node
+hosts. A read-only preview returns semantic review facts; exact consent coordinates the existing
+`convergence.submit` operation under the same native Story lease. The source/fact/presence and
+terminal gates, immutable submission binding and separate required human approval remain intact.
+The CLI retains its text, preview JSON, malformed-flag error order and shared submission presenter.
+The pure blocker rule and installed-layout readers retain their original function bodies.
+
+Mac qualification passes 49 focused SDK/source/startup checks and 27 additional native CLI,
+approval, decision and submission checks. The final 13-case run passes the complete fresh-clone
+specification-to-release journey (98.9 seconds), including actual SDK/CLI preview parity, the
+CLI's observed submission envelope, exact consent, rework, intent amendment, retained retry and
+the native lease boundary. All these runs have zero skipped or cancelled tests. The two source
+guards that still inspected pre-extraction owners now follow the actual publication/advancement
+owners without weakening their obligations.
+
+The full source gate, typechecking, all 13 rebuilt runtime budgets and package admission pass.
+Gateway modules remain 852, the SDK remains 11 pure modules (100,909 source bytes, zero external
+imports), and no startup or bundle ceiling increased. Keeping the blocker rule in the existing
+pure phase-policy owner avoids adding a module to the common session read path. Test capture
+only observes actual SDK and host results; it does not replace a domain outcome or change output.
+No Windows, hosted CI, live provider, merge, push or real-project migration ran.
+
+Individual command routes, amendment orchestration, manifests/queries and admission helpers are
+still required for Phase 5. Filesystem storage, application/database embedding and packaging,
+verified authority migration, obsolete-path removal and distribution/performance qualification
+remain required in phases 6–9; advancement alone does not complete the objective.

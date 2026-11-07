@@ -44,6 +44,7 @@ const DECIDING_MODULES = Object.freeze([
   'engine-compatibility/post-transition.mjs', 'phase-post-transition-guidance.mjs',
   'engine-compatibility/git-publication.mjs', 'engine-compatibility/generation-publication.mjs',
   'engine-compatibility/git-submission.mjs', 'engine-compatibility/submission-transition.mjs',
+  'engine-compatibility/git-advancement.mjs', 'engine-compatibility/convergence-projection-read.mjs',
   'engine-compatibility/git-approval.mjs', 'engine-compatibility/approval-transition.mjs',
   'engine-compatibility/decision-context.mjs',
   'phase-publication-guidance.mjs',

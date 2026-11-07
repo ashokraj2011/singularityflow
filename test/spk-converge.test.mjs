@@ -618,6 +618,7 @@ test('same-iteration convergence writes are serialized by the Story mutation lea
   assert.match(await commandFunction('storyAdjudicateCommand'), /writeAdjudications\(/);
   const adjudicate = await commandFunction('writeAdjudications');
   const advance = await commandFunction('storyAdvanceCommand');
+  const nativeAdvance = await readFile(new URL('../src/engine-compatibility/git-advancement.mjs', import.meta.url), 'utf8');
   assert.match(converge, /prepareDeterministicConvergence\(/);
   assert.match(converge, /loadAcceptedStoryExecution\(/,
     'direct convergence can still bootstrap from mutable live Story policy');
@@ -625,8 +626,9 @@ test('same-iteration convergence writes are serialized by the Story mutation lea
   assert.match(service, /await preparePhase\(/,
     'the shared service can emit a projection without refreshing managed phase inputs');
   assert.match(adjudicate, /withConvergenceDraft\(/);
-  assert.match(advance, /withSubjectLock\(root, \{ kind: 'story'/);
-  for (const source of [adjudicate, advance]) {
+  assert.match(advance, /engine\.run\('convergence\.advance'/);
+  assert.match(nativeAdvance, /withSubjectLock\(root, \{ kind: 'story'/);
+  for (const source of [adjudicate, nativeAdvance]) {
     assert.match(source, /currentBindings: bindings/, 'a human transition does not re-check current bindings');
     assert.match(source, /currentFacts: facts/, 'a human transition does not re-check deterministic facts');
     assert.match(source, /assertConvergenceSources/, 'a human transition does not re-check the complete candidate source');
@@ -636,10 +638,9 @@ test('same-iteration convergence writes are serialized by the Story mutation lea
 test('publication rechecks current bindings, facts, candidate sources, and canonical bytes before mutation', async () => {
   const source = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
   const guard = await readFile(new URL('../src/convergence-context.mjs', import.meta.url), 'utf8');
-  const publication = source.slice(
-    source.indexOf('export async function publishGeneration'),
-    source.indexOf('export async function submitPhase')
-  );
+  const publication = await readFile(new URL('../src/engine-compatibility/generation-publication.mjs', import.meta.url), 'utf8');
+  assert.match(source, /publishNativeGeneration\(root, config, workflow/,
+    'the public compatibility export no longer reaches the guarded native publication owner');
   assert.match(guard, /currentConvergenceContext\(root, config, workflow\)/);
   assert.match(guard, /currentBindings: current\.bindings/);
   assert.match(guard, /currentFacts: current\.facts/);

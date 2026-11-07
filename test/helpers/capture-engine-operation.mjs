@@ -1,6 +1,7 @@
 /** Observe the real SDK receipt in a fixture CLI process; never replace a domain result. */
 import {mock} from 'node:test';
 import {writeFile} from 'node:fs/promises';
+import {writeFileSync} from 'node:fs';
 import * as sdk from '../../src/engine-sdk/index.mjs';
 
 if(process.env.NODE_ENV!=='test' || !process.env.SINGULARITY_FLOW_TEST_ENGINE_CAPTURE) {
@@ -17,3 +18,15 @@ mock.module(new URL('../../src/engine-sdk/index.mjs',import.meta.url).href,{name
     }});
   }
 }});
+
+// Some legacy hosts render words even with --json. Observe the real completed envelope without
+// changing that output contract, the continuation planner, or any engine/domain result.
+if(process.env.SINGULARITY_FLOW_TEST_COMMAND_CAPTURE) {
+  const uri=new URL('../../src/narration/emit.mjs',import.meta.url).href;
+  const host=await import(uri);
+  mock.module(uri,{namedExports:{...host,emitCommandResult(...args) {
+    const result=host.emitCommandResult(...args);
+    writeFileSync(process.env.SINGULARITY_FLOW_TEST_COMMAND_CAPTURE,JSON.stringify(result)+'\n',{mode:0o600});
+    return result;
+  }}});
+}

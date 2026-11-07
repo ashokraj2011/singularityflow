@@ -31,3 +31,13 @@ export function assertSubmissionIntent(workflow, phase, { confirmedConvergence =
     `Convergence phase '${phase.id}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
     { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED' });
 }
+
+/** Confirm the exact reviewed convergence result; no actor or approval is supplied by this claim. */
+export function assertConvergenceAdvanceConfirmation(workId, supplied, expected) {
+  if (supplied !== expected) throw new SingularityFlowError(
+    `The convergence result changed after preview. Review it again and confirm ${expected}.`, {
+      code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
+      details: {workId, supplied, expected}
+    }
+  );
+}

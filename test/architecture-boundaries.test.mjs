@@ -101,6 +101,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
   const approvalPort=path.join(packageRoot,'src/engine-compatibility/git-approval.mjs');
   const decisionPort=path.join(packageRoot,'src/engine-compatibility/git-decisions.mjs');
+  const advancementPort=path.join(packageRoot,'src/engine-compatibility/git-advancement.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -114,6 +115,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===submissionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===approvalPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===decisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===advancementPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -125,7 +127,7 @@ test('extracted native decision writers do not import command handlers or host p
   const owners=['native-story-decisions.mjs','native-plan-decisions.mjs','native-obligation-risk.mjs',
     'native-evidence-decisions.mjs','native-visual-decisions.mjs','native-test-command-decisions.mjs',
     'native-test-narrowing-decisions.mjs','native-test-risk-decisions.mjs','native-upstream-decisions.mjs',
-    'git-decisions.mjs'];
+    'git-decisions.mjs','git-advancement.mjs','convergence-projection-read.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);

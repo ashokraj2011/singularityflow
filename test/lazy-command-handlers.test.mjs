@@ -564,6 +564,7 @@ test('extracted legacy helpers remain part of the development build identity', a
     'commands/decision-story-records.mjs','commands/decision-plan-amendment.mjs','commands/decision-obligation-risk.mjs',
     'kernel/decision-inputs.mjs', 'kernel/submission-intent.mjs', 'engine-compatibility/git-submission.mjs',
     'engine-compatibility/submission-transition.mjs',
+    'engine-compatibility/git-advancement.mjs', 'engine-compatibility/convergence-projection-read.mjs',
     'kernel/approval-policy.mjs', 'kernel/approval-fallback.mjs', 'engine-compatibility/decision-context.mjs',
     'engine-compatibility/git-approval.mjs', 'engine-compatibility/approval-transition.mjs',
     'engine-compatibility/post-transition.mjs', 'phase-post-transition-guidance.mjs',

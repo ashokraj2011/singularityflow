@@ -81,6 +81,7 @@ const FAMILIES = Object.freeze([
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',
+    'engine-compatibility/git-advancement.mjs', 'engine-compatibility/convergence-projection-read.mjs',
     // What the plan already answered, imported only when a convergence step reads its inputs. Unclaimed,
     // every prepare, submit and approval of that step loaded compatibility and models.
     'plan-accounts.mjs',

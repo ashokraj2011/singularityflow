@@ -34,18 +34,26 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     runChecks:!optionBoolean(options,'skip-checks'),decisionValues:parseDecisionAssignments(optionStrings(options,'decision'))};
   const confirmation = submitContext?.convergenceConfirmation ?? null;
   const { createGitEngine } = await import('../engine-compatibility/git-publication.mjs');
-  const binding = createGitEngine({root,notice(event) {
-    if (event.code.startsWith('transition.')) return presentPostTransitionNotice(event);
-    if (event.code === 'submission.decision-values-ignored') console.warn(`Phase '${event.phase}' is already submitted; the decision values recorded then stand. Request changes to record different ones.`);
-    if (event.code === 'submission.review-packet-missing') {
-      console.warn('Warning: the submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
-      printCommandRoutes(`singularity-flow recover ${event.workId} --phase ${event.phase} --json`, {label:'Inspect committed submission evidence'});
-    }
-  }});
+  const binding = createGitEngine({root,notice:presentSubmissionNotice});
   const receipt = confirmation === null
     ? await binding.engine.run('phase.submit',input)
     : await binding.engine.run('convergence.submit',{...input,confirmation});
   const context = binding.presentation();
+  return presentSubmissionResult(receipt,context,options);
+}
+
+/** Shared host presentation; registered operations return native facts without printing. */
+export function presentSubmissionNotice(event) {
+  if (event.code.startsWith('transition.')) return presentPostTransitionNotice(event);
+  if (event.code === 'submission.decision-values-ignored') console.warn(`Phase '${event.phase}' is already submitted; the decision values recorded then stand. Request changes to record different ones.`);
+  if (event.code === 'submission.review-packet-missing') {
+    console.warn('Warning: the submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
+    printCommandRoutes(`singularity-flow recover ${event.workId} --phase ${event.phase} --json`, {label:'Inspect committed submission evidence'});
+  }
+}
+
+export async function presentSubmissionResult(receipt,context,options) {
+  const {root}=context;
   const {config,workflow,phase,publication,reviewPacket,registrationRepairs,evidenceReceipt} = context;
   const receiptsLine=await requiredReceiptsLine(context.receiptsReport);
   if (receipt.status === 'retained') {

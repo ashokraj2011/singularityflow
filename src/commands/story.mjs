@@ -1,3 +1,4 @@
+import {convergenceRecordRelative,readConvergence} from '../engine-compatibility/convergence-projection-read.mjs';
 /**
  * The Story service: everything `sflow story` does.
  *
@@ -35,15 +36,14 @@ import {
 } from '../configuration-branch.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import {
-  adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
+  adjudicatedConvergenceProjection, assertConvergenceIntegrity,
   convergenceProjection, DISPOSITIONS, decodeConvergenceRecord, findingAdjudication, replacedAnswers,
   renderConvergenceArtifact, serializeConvergence
 } from '../convergence.mjs';
 import {
   assertConvergencePublicationReady, assertConvergenceSources, assertLegacyConvergenceSourceIdentity,
-  currentConvergenceContext, loadVerifiedConvergenceProjection, missingConvergenceProjectionError
+  currentConvergenceContext, loadVerifiedConvergenceProjection
 } from '../convergence-context.mjs';
-import { convergenceReviewRoute } from '../convergence-review-route.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import {
   admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
@@ -83,7 +83,6 @@ import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { mkdir, readdir, readFile, realpath } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { extractInputsBlock } from '../inputs.mjs';
-import { withSubjectLock } from '../subject-lock.mjs';
 import {
   STORY_LINEAGE_PROPERTY, actionActor, activatePhaseAgent, activeActionContext, confirm, summary
 } from './kernel.mjs';
@@ -1255,10 +1254,6 @@ async function savedConvergenceCandidates(root, itemRelative, match) {
   return found.sort((a, b) => String(b.record.generatedAt).localeCompare(String(a.record.generatedAt)))[0] ?? null;
 }
 
-function convergenceRecordRelative(itemRelative, iteration) {
-  return posix(path.join(itemRelative, 'context', 'convergence', `iteration-${iteration}.json`));
-}
-
 function convergenceLegacyArchiveRelative(itemRelative, iteration, planSha256) {
   return posix(path.join(
     itemRelative,
@@ -1398,20 +1393,6 @@ async function migrateLegacyConvergenceDraft(root, workflow, subject, legacyRela
     await writeJson(archiveAbsolute, archive);
   }
   return { archiveRelative, planSha256, candidateBindings: planCandidateBindings, recordSha256: archive.recordSha256 };
-}
-
-async function readConvergence(root, itemRelative, iteration) {
-  const relative = convergenceRecordRelative(itemRelative, iteration);
-  if (!(await exists(path.join(root, relative)))) return null;
-  try {
-    return decodeConvergenceRecord(await readFile(path.join(root, relative)), { iteration });
-  } catch (error) {
-    if (['SCHEMA_VERSION_FUTURE', 'SCHEMA_VERSION_ARCHIVED'].includes(error?.code)) throw error;
-    throw new SingularityFlowError(
-      `Convergence record '${relative}' is corrupt and cannot authorize a decision: ${error.message}`,
-      { code: error.code ?? 'CONVERGENCE_RECORD_CORRUPT', details: { path: relative }, cause: error }
-    );
-  }
 }
 
 function currentConvergenceProjectionInputs(workflow, subject) {
@@ -2738,83 +2719,57 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
  */
 export async function storyAdvanceCommand(positionals, options) {
   const root = repoRoot();
-  const { config, workflow: selected } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  return withSubjectLock(root, { kind: 'story', id: selected.workItem.id }, async () => {
-    const workflow = await loadStoryAggregate(root, config, selected.workItem.id);
-    const subject = await convergenceSubject(root, config, workflow);
-    const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-    if (!projection) throw missingConvergenceProjectionError(workflow, subject);
-    if (projection) {
-      const { bindings, facts, settlement } = currentConvergenceProjectionInputs(workflow, subject);
-      assertConvergenceIntegrity(projection, {
-        workId: workflow.workItem.id,
-        iteration: subject.iteration,
-        currentBindings: bindings,
-        currentFacts: facts,
-        currentSettlement: settlement
-      });
-      await assertConvergenceSources(root, projection, { itemRelative: subject.itemRelative });
-    }
-    // SF Guard (SPEC-PSS-v1 §10.10): an unsigned adjudication on a Story it requires leaves its item undisposed.
-    const counted = (await import('../presence/counted-convergence.mjs')).countedConvergence(workflow, projection);
-    const blocked = advancementBlocked(counted);
-    if (blocked.length) {
-      const following = workflow.phaseOrder[workflow.phaseOrder.indexOf(subject.phase.id) + 1] ?? null;
-      const disposed = new Set((counted.findings ?? []).map((finding) => finding.itemId));
-      const error = new SingularityFlowError(`Convergence cannot advance${following ? ` to ${following}` : ''}:\n- ${blocked.join('\n- ')}`, {
-        code: 'CONVERGENCE_REVIEW_REQUIRED', details: {
-          workId: workflow.workItem.id, phase: subject.phase.id, iteration: subject.iteration,
-          allowedNext: counted.allowedNext ?? [], unresolvedBlockers: counted.unresolvedBlockers ?? [],
-          undisposedItemIds: [...(projection.facts ?? []), ...(projection.candidates ?? [])]
-            .filter((item) => !disposed.has(item.id)).map((item) => item.id)
-        }
-      });
-      const route = convergenceReviewRoute(error, workflow);
-      error.details.recoveryCommand = { command: route.command, skill: route.skill };
-      throw error;
-    }
-    const reviewed = await assertConvergencePublicationReady(root, config, workflow, subject.phase);
-    // When this step ends the Story the final check comes with it: a digest to confirm must never be one
-    // the check then refuses, so a preview says what is open first, in the check's own words and routes.
-    const { endsStory } = await import('../upstream-entry-summary.mjs');
-    if (endsStory(workflow, subject.phase)) await (await import('../evidence/terminal.mjs')).assertTerminalReadiness(root, config, workflow);
-    const confirmation = optionString(options, 'confirm');
-    if (!confirmation) {
-      if (optionBoolean(options, 'json')) {
-        const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`;
-        console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: workflow.workItem.id, phase: subject.phase.id,
-          iteration: projection.iteration, findings: projection.findings.length, reconciliation: projection.bindings.reconciliation.sha256,
-          confirmationDigest: reviewed.snapshotSha256, effects: { committed: false, pushed: false }, next: [{ command, skill: '/sf-submit', label: 'After reviewing this exact result, run it.' }] }, null, 2));
-        return;
-      }
-      console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
-      console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
-      console.log(`Confirmation digest: ${reviewed.snapshotSha256}`);
-      console.log('No lifecycle state, file, commit, or remote changed.');
-      printCommandRoutes(
-        `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`,
-        { skill: '/sf-submit', label: 'After reviewing this exact result, run' }
-      );
+  const { createGitEngine } = await import('../engine-compatibility/git-publication.mjs');
+  const { presentSubmissionNotice, presentSubmissionResult } = await import('./submit.mjs');
+  const { parseDecisionAssignments } = await import('../workflow-decisions.mjs');
+  const { selectedPhaseArgument } = await import('./shared/selected-phase-argument.mjs');
+  let confirmation = null, confirmationError = null;
+  // Preserve the old ordering: native review blockers precede a malformed confirmation flag.
+  try { confirmation = optionString(options, 'confirm') ?? null; }
+  catch (error) { confirmationError = error; }
+  let decisionValues = {}, decisionError = null;
+  // The old preview ignored submission flags. Keep syntax errors deferred until exact consent,
+  // while valid semantic values enter the SDK as bounded data rather than host callbacks.
+  try { decisionValues = parseDecisionAssignments(optionStrings(options, 'decision')); }
+  catch (error) { decisionError = error; }
+  const binding = createGitEngine({root, notice(event) {
+    if (event.code === 'advancement.confirmed') {
+      if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${event.iteration} (${event.confirmationDigest}) confirmed by an authorized human; submitting the phase for approval.`);
+      selectedPhaseArgument(['submit', event.phase], options, 'submit');
+      if (decisionError) throw decisionError;
       return;
     }
-    if (confirmation !== reviewed.snapshotSha256) {
-      throw new SingularityFlowError(
-        `The convergence result changed after preview. Review it again and confirm ${reviewed.snapshotSha256}.`,
-        {
-          code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
-          details: {
-            workId: workflow.workItem.id,
-            supplied: confirmation,
-            expected: reviewed.snapshotSha256
-          }
-        }
-      );
-    }
-    if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${projection.iteration} (${reviewed.snapshotSha256}) confirmed by an authorized human; submitting the phase for approval.`);
-    return (await router()).submitConfirmedConvergenceCommand(
-      ['submit', subject.phase.id],
-      { ...options, 'work-id': workflow.workItem.id },
-      reviewed.snapshotSha256
-    );
+    return presentSubmissionNotice(event);
+  }});
+  const receipt = await binding.engine.run('convergence.advance', {
+    workId: optionString(options, 'work-id') ?? null,
+    confirmation,
+    runChecks: !optionBoolean(options, 'skip-checks'), decisionValues
   });
+  if (confirmationError) throw confirmationError;
+  if (receipt.status === 'ready-to-confirm') {
+    if (optionBoolean(options, 'json')) {
+      console.log(JSON.stringify(convergenceAdvanceCommandResult(receipt), null, 2));
+      return;
+    }
+    console.log(`Convergence iteration ${receipt.iteration} has no unresolved blockers and every item is dispositioned.`);
+    console.log(`Findings: ${receipt.findings}. Bound to reconciliation ${receipt.reconciliation.slice(0, 12)}.`);
+    console.log(`Confirmation digest: ${receipt.confirmationDigest}`);
+    console.log('No lifecycle state, file, commit, or remote changed.');
+    printCommandRoutes(
+      `singularity-flow story advance --work-id ${receipt.subject.id} --confirm ${receipt.confirmationDigest}`,
+      { skill: '/sf-submit', label: 'After reviewing this exact result, run' }
+    );
+    return;
+  }
+  return presentSubmissionResult(receipt.submission, binding.presentation(), options);
+}
+
+/** Existing preview wire contract; host commands are rendered only after the SDK review. */
+export function convergenceAdvanceCommandResult(receipt) {
+  const command = `singularity-flow story advance --work-id ${receipt.subject.id} --confirm ${receipt.confirmationDigest}`;
+  return {schemaVersion:1,resultType:'sflow-convergence-advance',status:'ready-to-confirm',
+    workId:receipt.subject.id,phase:receipt.phase,iteration:receipt.iteration,findings:receipt.findings,
+    reconciliation:receipt.reconciliation,confirmationDigest:receipt.confirmationDigest,
+    effects:{committed:false,pushed:false},next:[{command,skill:'/sf-submit',label:'After reviewing this exact result, run it.'}]};
 }

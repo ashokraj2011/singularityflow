@@ -172,18 +172,30 @@ test('the agent running convergence cannot create rework or advance', async () =
   // boolean `--confirm` would merely prove that somebody supplied a flag; it would not prove what
   // they reviewed, and could survive source/evidence drift between preview and submission.
   const advance = await commandFunction('storyAdvanceCommand');
-  assert.match(advance, /advancementBlocked\(/, 'advancement does not check for unresolved blockers');
-  assert.match(advance,
+  const nativeAdvance = withoutComments(await readFile(new URL('engine-compatibility/git-advancement.mjs', SOURCE), 'utf8'));
+  const sdk = withoutComments(await readFile(new URL('engine-sdk/index.mjs', SOURCE), 'utf8'));
+  const intent = withoutComments(await readFile(new URL('kernel/submission-intent.mjs', SOURCE), 'utf8'));
+  assert.match(advance, /engine\.run\('convergence\.advance'/, 'the CLI bypasses the registered advancement operation');
+  assert.match(nativeAdvance, /advancementBlocked\(/, 'advancement does not check for unresolved blockers');
+  assert.match(nativeAdvance,
     /const reviewed = await assertConvergencePublicationReady\(root, config, workflow, subject\.phase\)/,
     'advancement does not compute the exact publishable convergence snapshot');
-  assert.match(advance, /const confirmation = optionString\(options, 'confirm'\)/,
+  assert.match(nativeAdvance, /if \(endsStory\(workflow, subject\.phase\)\)/,
+    'a custom terminal convergence phase lost its final Story check');
+  assert.ok(nativeAdvance.indexOf('await (await import(\'../evidence/terminal.mjs\')).assertTerminalReadiness')
+    < nativeAdvance.indexOf('return operation(context)'), 'terminal readiness ran after consent or submission');
+  assert.match(advance, /confirmation = optionString\(options, 'confirm'\)/,
     'advancement does not require a digest-valued confirmation');
-  assert.match(advance, /if \(confirmation !== reviewed\.snapshotSha256\)/,
+  assert.match(sdk, /assertConvergenceAdvanceConfirmation\(review\.workId,inputs\.confirmation,review\.confirmationDigest\)/,
     'advancement does not reject a stale or unrelated confirmation digest');
-  assert.match(advance, /--confirm \$\{reviewed\.snapshotSha256\}/,
+  assert.match(intent, /if \(supplied !== expected\)/,
+    'exact convergence consent was replaced by a truthy flag');
+  assert.match(advance, /--confirm \$\{receipt\.confirmationDigest\}/,
     'the no-confirm preview does not return the exact digest a human must review');
-  assert.match(advance, /submitConfirmedConvergenceCommand\([\s\S]*reviewed\.snapshotSha256/,
-    'the reviewed digest is not carried into the private confirmed-submission boundary');
+  assert.match(sdk, /executeOperation\('convergence\.submit',[\s\S]*confirmation:review\.confirmationDigest/,
+    'the reviewed digest is not carried into the registered confirmed-submission boundary');
+  assert.match(intent, /phase\.approvalPolicy\?\.mode !== 'required'/,
+    'convergence no longer requires a separate non-waivable human approval');
   assert.doesNotMatch(advance, /optionBoolean\(options, 'confirm'\)|options\.confirm\s*===\s*true/,
     'advancement still accepts a content-free boolean confirmation');
 

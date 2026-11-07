@@ -4,7 +4,7 @@
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
-import { submissionDecisionIntent, assertSubmissionIntent } from '../kernel/submission-intent.mjs';
+import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs';
 import {decisionRecordPlan,assertDecisionConfirmation} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
@@ -15,6 +15,7 @@ const PUBLISH_FIELDS = Object.freeze([
 ]);
 const SUBMIT_FIELDS = Object.freeze(['workId', 'phaseId', 'runChecks', 'decisionValues']);
 const CONVERGENCE_FIELDS = Object.freeze([...SUBMIT_FIELDS, 'confirmation']);
+const ADVANCE_FIELDS = Object.freeze(['workId','confirmation','runChecks','decisionValues']);
 const WRITE_STAGES = Object.freeze(['load', 'retained', 'prepare', 'commit', 'finish']);
 const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','selectionReceipt','fetch','agent',
   'checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason']);
@@ -33,7 +34,10 @@ const definitions = [
     validate:approvalInput,execute:approve },
   {id:'decisions.record',version:1,effect:'decision-records',inputFields:DECISION_FIELDS,port:'decisions',
     authority:'per-effect',humanDecision:true,stages:Object.freeze(['load','prepare','apply','finish']),
-    validate:decisionInput,execute:recordDecisions}
+    validate:decisionInput,execute:recordDecisions},
+  {id:'convergence.advance',version:1,effect:'submission',inputFields:ADVANCE_FIELDS,port:'advancement',
+    humanDecision:true,confirmation:'exact-reviewed-convergence-digest',delegatesTo:'convergence.submit',
+    stages:Object.freeze(['withReview']),validate:submissionInput,execute:advanceConvergence}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -349,6 +353,83 @@ async function recordDecisions(port, inputs, signal) {
   }
 }
 
+function advancementReview(context) {
+  let review;
+  try { review=data(context?.review); }
+  catch(cause) { throw new SingularityFlowError('The advancement port returned non-JSON review facts.',{
+    code:'ENGINE_PORT_RESULT_INVALID',cause
+  }); }
+  const fields=['workId','phase','generation','iteration','findings','reconciliation','confirmationDigest'];
+  const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
+  if(!review || Object.keys(review).some(key=>!fields.includes(key))
+    || !text(review.workId) || review.workId!==context.subject?.id
+    || !text(review.phase) || review.phase!==context.phase?.id
+    || !Number.isSafeInteger(review.generation) || review.generation<0
+    || review.generation!==(context.phase.generation ?? 0)
+    || !Number.isSafeInteger(review.iteration) || review.iteration<1
+    || !Number.isSafeInteger(review.findings) || review.findings<0
+    || !text(review.reconciliation) || !/^sha256:[a-f0-9]{64}$/u.test(review.confirmationDigest)) {
+    throw new SingularityFlowError('The advancement port returned an invalid or differently bound review.',{
+      code:'ENGINE_PORT_RESULT_INVALID'
+    });
+  }
+  return review;
+}
+
+/** Keep native review/locking in its port and exact consent/operation coordination in the SDK. */
+async function advanceConvergence(port,inputs,signal,operation,{executeOperation}) {
+  notCancelled(signal);
+  let entered=false,open=true,review=null,submission=null,receipt=null;
+  try {
+    const result=await port.withReview(inputs,async context=>{
+      if(!open || entered)throw new SingularityFlowError('The advancement review scope must be entered exactly once.',{
+        code:'ENGINE_PORT_RESULT_INVALID'
+      });
+      entered=true;
+      review=advancementReview(context);
+      if(inputs.workId!=null && inputs.workId!==review.workId)throw new SingularityFlowError(
+        'The advancement review does not match the requested Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+      notCancelled(signal);
+      const base={schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
+        subject:Object.freeze({kind:'story',id:review.workId}),phase:review.phase,
+        generation:review.generation,iteration:review.iteration,findings:review.findings,
+        reconciliation:review.reconciliation,confirmationDigest:review.confirmationDigest};
+      if(!inputs.confirmation) {
+        receipt=Object.freeze({...base,status:'ready-to-confirm',effects:Object.freeze({committed:false,pushed:false})});
+        return receipt;
+      }
+      assertConvergenceAdvanceConfirmation(review.workId,inputs.confirmation,review.confirmationDigest);
+      await port.notice?.({code:'advancement.confirmed',workId:review.workId,phase:review.phase,
+        iteration:review.iteration,confirmationDigest:review.confirmationDigest});
+      notCancelled(signal);
+      submission=await executeOperation('convergence.submit',{workId:review.workId,phaseId:review.phase,
+        confirmation:review.confirmationDigest,runChecks:inputs.runChecks!==false,
+        decisionValues:inputs.decisionValues ?? {}},{signal});
+      if(submission.subject.id!==review.workId || submission.phase!==review.phase
+        || submission.generation!==review.generation
+        || !['awaiting-approval','retained'].includes(submission.status)
+        || submission.submission.approvalMode!=='required') {
+        throw new SingularityFlowError('The submitted convergence no longer matches its reviewed binding.',{
+          code:'ENGINE_PORT_RESULT_INVALID'
+        });
+      }
+      receipt=Object.freeze({...base,status:submission.status,revision:submission.revision,
+        effects:submission.effects,submission});
+      return receipt;
+    },{signal});
+    open=false;
+    if(!entered || !receipt || result!==receipt)throw new SingularityFlowError(
+      'The advancement port did not return its scoped operation result.',{code:'ENGINE_PORT_RESULT_INVALID'});
+    return receipt;
+  } catch(error) {
+    open=false;
+    if(error&&typeof error==='object'&&Object.isExtensible(error)&&review) {
+      error.engineAdvancement=Object.freeze({operation:operation.id,review,submission});
+    }
+    throw error;
+  }
+}
+
 export function createEngine({ ports } = {}) {
   if (!ports || typeof ports !== 'object') invalid('Engine construction requires explicit trusted ports.');
   const bound = new Map();
@@ -377,12 +458,13 @@ export function createEngine({ ports } = {}) {
     if (!port) throw new SingularityFlowError('No port implements this engine operation in the current host.', {
       code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port}
     });
-    return invoke(() => definition.execute(port, input, signal, definition));
+    return invoke(() => definition.execute(port, input, signal, definition, {executeOperation:execute}));
   };
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
     submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
     submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options),
     approvePhase:(inputs,options)=>execute('phase.approve',inputs,options),
-    recordDecisions:(inputs,options)=>execute('decisions.record',inputs,options) });
+    recordDecisions:(inputs,options)=>execute('decisions.record',inputs,options),
+    advanceConvergence:(inputs,options)=>execute('convergence.advance',inputs,options) });
 }

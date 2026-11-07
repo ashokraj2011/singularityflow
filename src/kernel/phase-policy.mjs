@@ -411,3 +411,24 @@ export function buildGenerationAuthorship({
     ...(options.presence ? { presence: structuredClone(options.presence) } : {})
   });
 }
+
+/**
+ * Whether the Story may leave convergence `[SPK:REQ-183]`.
+ *
+ * Separated from the projection so the refusal can be raised at the transition rather than computed
+ * into a document nobody reads at the moment of advancing.
+ */
+export function advancementBlocked(projection) {
+  const reasons = [];
+  if (!projection) return ['convergence has not been run for the current implementation generation'];
+  for (const id of projection.unresolvedBlockers ?? []) {
+    const finding = (projection.findings ?? []).find((entry) => entry.id === id);
+    reasons.push(`${id} is dispositioned '${finding?.disposition ?? 'rework'}'${finding?.clauseIds?.length ? ` for ${finding.clauseIds.join(', ')}` : ''}`);
+  }
+  const disposed = new Set((projection.findings ?? []).map((finding) => finding.itemId));
+  const undisposed = [...(projection.facts ?? []), ...(projection.candidates ?? [])].filter((item) => !disposed.has(item.id));
+  if (undisposed.length) {
+    reasons.push(`${undisposed.length} convergence item${undisposed.length === 1 ? ' has' : 's have'} no recorded human disposition: ${undisposed.slice(0, 5).map((item) => item.id).join(', ')}`);
+  }
+  return reasons;
+}

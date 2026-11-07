@@ -30,6 +30,10 @@ import { serializeConvergence } from '../src/convergence.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { loadSession } from '../src/session.mjs';
+import { createSflow } from '../src/api.mjs';
+import { createGitEngine } from '../src/engine-compatibility/git-publication.mjs';
+import { convergenceAdvanceCommandResult } from '../src/commands/story.mjs';
+import { currentSubjectLockOwner } from '../src/subject-lock.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -42,10 +46,10 @@ const WORK = 'E2E-1';
  * load, between the convergence checkpoint and the drift commit. The person's own Git therefore
  * starts none.
  */
-function shell(command, args, cwd, { allowFailure = false } = {}) {
+function shell(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   if (command === 'git') args = ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args];
   const result = spawnSync(command, args, {
-    cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'E2E Tester', SINGULARITY_FLOW_LOG_CONSOLE: 'error' }
+    cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'E2E Tester', SINGULARITY_FLOW_LOG_CONSOLE: 'error', ...env }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')}\nexit ${result.status}\n${result.stdout}\n${result.stderr}`);
@@ -574,6 +578,8 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const refused = sflow(root, ['story', 'advance', '--confirm'], { allowFailure: true });
   assert.notEqual(refused.status, 0, 'advancement succeeded with an unresolved blocker');
   assert.match(refused.output, /cannot advance to verification/i);
+  await assert.rejects(createSflow({root}).advanceConvergence({workId:WORK,confirmation:`sha256:${'0'.repeat(64)}`}),
+    error=>error.code==='CONVERGENCE_REVIEW_REQUIRED' && typeof error.details.recoveryCommand.skill==='string');
 
   // ---- human-selected rework, through the existing governed change request `[SPK:AC-003]` -------
   // `story rework`, the one caller allowed to return an unsubmitted convergence phase, and only
@@ -854,18 +860,75 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const confirmation = advancePreview.output.match(/--confirm (sha256:[0-9a-f]{64})/)?.[1];
   assert.match(confirmation ?? '', /^sha256:[0-9a-f]{64}$/,
     'convergence preview omitted its exact confirmation digest');
+  const captureDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-advance-receipt-'));
+  t.after(() => rm(captureDirectory, { recursive: true, force: true, maxRetries: 6 }));
+  const receiptFile = path.join(captureDirectory, 'receipt.json');
+  const commandFile = path.join(captureDirectory, 'command.json');
+  const capturedAdvance = args => shell(process.execPath, [
+    '--experimental-test-module-mocks', '--no-warnings', '--import',
+    path.join(packageRoot, 'test/helpers/capture-engine-operation.mjs'), CLI,
+    'story', 'advance', '--work-id', WORK, '--json', ...args
+  ], root, { env: { SINGULARITY_FLOW_BUNDLE: 'off', SINGULARITY_FLOW_TEST_ENGINE_CAPTURE: receiptFile,
+    SINGULARITY_FLOW_TEST_COMMAND_CAPTURE: commandFile } });
+  const previewWire = JSON.parse(capturedAdvance([]).stdout);
+  const capturedPreview = JSON.parse(await readFile(receiptFile, 'utf8'));
+  const api = createSflow({root});
+  const sdkPreview = await api.advanceConvergence({workId:WORK});
+  assert.equal(capturedPreview.operation, 'convergence.advance');
+  assert.deepEqual(capturedPreview.result, sdkPreview, 'headless and CLI previews use the same reviewed facts');
+  assert.deepEqual(previewWire, convergenceAdvanceCommandResult(sdkPreview), 'the public preview JSON stays an exact host projection');
+  assert.equal(sdkPreview.confirmationDigest, confirmation);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDirectSubmit.head);
+  assert.equal(git(root, 'status', '--porcelain=v1'), beforeDirectSubmit.status);
+  const ignoredPreviewFlags = sflow(root, ['story','advance','--work-id',WORK,'--json',
+    '--phase','unrelated','--decision','malformed-assignment']);
+  assert.deepEqual(JSON.parse(ignoredPreviewFlags.stdout), previewWire,
+    'submission-only flag errors must not change the read-only preview');
+  const malformedConfirmation = sflow(root, ['story','advance','--work-id',WORK,'--confirm'], {allowFailure:true});
+  assert.notEqual(malformedConfirmation.status, 0);
+  assert.match(malformedConfirmation.output, /Option --confirm requires a value/);
+  const malformedDecision = sflow(root, ['story','advance','--work-id',WORK,'--confirm',confirmation,
+    '--decision','malformed-assignment'], {allowFailure:true});
+  assert.notEqual(malformedDecision.status, 0);
+  assert.match(malformedDecision.output, /--decision/);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDirectSubmit.head,
+    'malformed submission flags created a commit');
   const staleConfirmation = sflow(root, [
     'story', 'advance', '--work-id', WORK, '--confirm', `sha256:${'0'.repeat(64)}`
   ], { allowFailure: true });
   assert.notEqual(staleConfirmation.status, 0, 'a non-matching convergence review digest was accepted');
   assert.match(staleConfirmation.output, /CONVERGENCE_ADVANCE_CONFIRMATION_STALE|changed after preview/i);
-  sflow(root, ['story', 'advance', '--work-id', WORK, '--confirm', confirmation]);
+  await assert.rejects(api.advanceConvergence({workId:WORK,confirmation:`sha256:${'0'.repeat(64)}`}),
+    {code:'CONVERGENCE_ADVANCE_CONFIRMATION_STALE'});
+  const submittedWire = capturedAdvance(['--confirm', confirmation]);
+  const capturedSubmission = JSON.parse(await readFile(receiptFile, 'utf8'));
+  assert.equal(capturedSubmission.operation, 'convergence.advance');
+  assert.equal(capturedSubmission.result.status, 'awaiting-approval');
+  assert.equal(capturedSubmission.result.submission.operation, 'convergence.submit');
+  assert.equal(capturedSubmission.result.submission.submission.approvalMode, 'required');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), capturedSubmission.result.revision);
+  assert.match(submittedWire.stdout, /Submitted convergence phase for approval/,
+    'the extraction changed the existing confirmed-submission output');
+  const submittedEnvelope = JSON.parse(await readFile(commandFile, 'utf8'));
+  assert.equal(submittedEnvelope.data.commit, capturedSubmission.result.revision);
+  assert.equal(submittedEnvelope.data.pushed, capturedSubmission.result.effects.pushed);
+  assert.equal(submittedEnvelope.data.reviewPacket, capturedSubmission.result.submission.submission.reviewPacket);
   assert.equal((await workflowOf(root)).phases.convergence.status, 'awaiting_approval');
   // Convergence deliberately ends the author session. All approval surfaces must still preview
   // the human's real approval path, rather than inventing an author repair or a resume loop.
   assert.equal(await loadSession(root, { required: false }), null);
   const convergenceState = await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`));
   const convergenceHead = git(root, 'rev-parse', 'HEAD');
+  let leaseObserved = false;
+  const binding = createGitEngine({root,notice(event) {
+    if (event.code === 'advancement.confirmed') {
+      leaseObserved = Boolean(currentSubjectLockOwner(root, {kind:'story',id:WORK}));
+    }
+  }});
+  const retry = await binding.engine.advanceConvergence({workId:WORK,confirmation});
+  assert.equal(retry.status, 'retained', 'an exact retry must not submit twice');
+  assert.equal(leaseObserved, true, 'consent and submission left the existing native Story lease');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), convergenceHead);
   for (const args of [
     ['status', WORK, '--submission-readiness', '--json'],
     ['phase', 'show', 'convergence', '--json']

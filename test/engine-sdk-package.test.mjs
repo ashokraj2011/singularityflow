@@ -84,16 +84,21 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       assert.equal(calls, 0);
       await assert.rejects(engine.publishPhase({}), error => error === original);
       assert.equal(calls, 1);
-      const status = sdk.createEngine({ports:{storyStatus:{
+      const statusPort = {
         async load() { return {subject:{kind:'story',id:'example'},source:{kind:'namespace-snapshot',revision:'opaque-1'},
           workflow:{workItem:{id:'example'},status:'in_progress',currentPhase:'custom-review',phaseOrder:['custom-review'],
             phases:{'custom-review':{status:'in_progress',generation:0,artifacts:[],checks:[],approvals:[]}}}}; },
         async read(context) { return {workId:'example',source:context.source,publication:{state:'not-retained',commit:null,error:null}}; }
-      }}});
+      };
+      const status = sdk.createEngine({ports:{storyStatus:statusPort,storyGuide:{load:statusPort.load}}});
       const observation = await status.run('story.status',{workId:'example'});
       assert.equal(observation.manifest.currentPhase,'custom-review');
       assert.equal(observation.manifest.authorityVerified,false);
       assert.equal(observation.manifest.inventoryComplete,true);
+      const guide = await status.run('story.guide',{workId:'example'});
+      assert.equal(guide.manifest.actions[0].kind,'prepare-phase');
+      assert.equal(guide.manifest.actions[0].operation.id,'phase.prepare');
+      assert.equal(guide.manifest.authorityGranted,false);
       assert.deepEqual(blocked, []);
       hooks.deregister();
       for (const specifier of ['${packageName}/src/index.mjs', '${packageName}/dist/index.mjs'])
@@ -210,6 +215,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('phase.enter',input);
       engine.run('workflow.assets',{workflowIds:['story:feature']});
       engine.run('story.status',{workId:'example'});
+      engine.run('story.guide',{workId:'example'});
+      // @ts-expect-error Review and authoring observations come from the trusted port.
+      engine.run('story.guide',{sourceReviewEvidence:{status:'ready'}});
       // @ts-expect-error Native branch/Jira alias resolution belongs to the host composition.
       engine.run('story.status',{reference:'feature/example'});
       // @ts-expect-error Ordinary status cannot fetch or mutate the Story.

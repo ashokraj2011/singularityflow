@@ -1,139 +1,43 @@
-import { intentAmendmentSource, isConvergencePhase } from './kernel/phase-policy.mjs';
-import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
-import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseHandoffPlan, workflowGuidePlan } from './kernel/phase-policy.mjs';
+import { continuationActionPresentation } from './phase-transition-routes.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
-import { sourceReviewRequired } from './source-review-policy.mjs';
-import { decisionSubmitArguments } from './workflow-decisions.mjs';
-import { phaseGovernanceHold } from './phase-governance-routing.mjs';
-import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseAuthoringProgress } from './phase-authoring-progress.mjs';
-import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
+export { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 
-export { phaseNeedsGeneration } from './sequence.mjs';
-
-function currentPhase(workflow) {
-  return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+/** The host renders semantic actions; source-review/hold/transition priority stays in the kernel. */
+export function phaseHandoff(workflow, phase, options = {}) {
+  return phaseHandoffPlan(workflow, phase, options).actions
+    .map(action => copilotAction(continuationActionPresentation(action, { workflow, phase })));
 }
 
-/**
- * What comes after a step's publication: source review when it is enforced for the step, then
- * submission, which completes the step when it has no sign-off. The guide and `phase show` share
- * it, so a skill's closing handoff is the engine's own next action instead of text it hard-codes.
- */
-export function phaseHandoff(workflow, phase, {
-  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null
-} = {}) {
-  const hold = phaseGovernanceHold(workflow, phase);
-  if (hold) return hold.actions;
-  const view = hasDocuments ? copilotAction({
-    skill: '/sflow-phase-documents',
-    command: `singularity-flow phase show ${phase.id} --show-artifact`,
-    reason: `Optionally view the documents produced in ${phase.id} before submitting.`,
-    optional: true
-  }) : null;
-  const withView = (actions) => view ? [...actions, view] : actions;
-  const noApproval = phase.approvalPolicy?.mode === 'none';
-  const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
-  if (convergenceRoute) return withView([copilotAction(convergenceRoute)]);
-  // A phase document display must not send reopened authoring back to its old review.
-  if (workflow.currentPhase === phase.id && phase.status === 'in_progress'
-      && (phaseNeedsGeneration(workflow, phase) || sourceReviewEvidence)) {
-    return withView(sourceReviewContinuation(workflow, phase, sourceReviewEvidence).actions);
-  }
-  const submit = copilotAction({
-    skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
-    reason: noApproval
-      ? `Run configured checks, complete ${phase.id} without approval, and advance to the next phase.`
-      : `Run configured checks and submit ${phase.id} for approval.`
-  });
-  // A pinned independent source review must be ready before submission. Route there first: a
-  // submit that only refuses leaves an agent following this guide with no next action.
-  if (sourceReviewRequired(workflow, phase.id)) return withView([
-    copilotAction({
-      skill: '/sflow-review-source', command: `singularity-flow review-source status ${phase.id}`,
-      reason: `Check the independent source review of ${phase.id} and any human decisions it still needs, then submit.`
-    }),
-    submit
-  ]);
-  return withView([submit]);
-}
-
-function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
-  if (workflow.status === 'cancelled') return [
-    copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
-  ];
-  const hold = phaseGovernanceHold(workflow, phase);
-  if (hold) return hold.actions;
-  // A Story waiting for a person moves only by their choice; the approved phase has nothing to submit.
-  const pending = workflow.pendingDecision;
-  if (pending) return [
-    copilotAction({ skill: '/sflow-decide', command: `singularity-flow decision show ${workflow.workItem.id}`, reason: `See what '${pending.label}' offers and who may choose.` }),
-    ...pending.options.map((option) => copilotAction({
-      skill: '/sflow-decide',
-      command: `singularity-flow decision choose ${workflow.workItem.id} --option ${option.id} --reason <reason> --expected ${pending.key}`,
-      reason: `Choose '${option.label}' for '${pending.label}'.`
-    }))
-  ];
-  if (!phase) return [
-    copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' })
-  ];
-  if (phase.status === 'awaiting_approval') return [
-    copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
-    ...(phaseCorrectionTargets(phase).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason <reason>`,
-      reason: `Request an authorized correction within ${phase.id}; prior phase approvals remain unchanged.` })] : [])
-  ];
-  const regenerate = phaseNeedsGeneration(workflow, phase);
-  if (regenerate && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {
-    const progress = authoringProgress ?? phaseAuthoringProgress(workflow, phase);
-    return [copilotAction({ ...progress.next, reason: progress.instruction,
-      authoringStage: progress.stage, preserveExistingWork: true })];
-  }
-  if (regenerate) return [
-    copilotAction({
-      skill: generationSkillForPhase(phase, workflow),
-      command: `singularity-flow prepare ${phase.id}`,
-      reason: isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase)
-        ? 'Compute the deterministic convergence projection, then follow its returned adjudication, rework, amendment, or publication action.'
-        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
-    })
-  ];
-  return phaseHandoff(workflow, phase, { sourceReviewEvidence });
-}
-
-export function workflowGuide(workflow, { sourceReviewEvidence = null, authoringProgress = null } = {}) {
-  const active = currentPhase(workflow);
+/** Project the exact SDK plan without re-running routing or admitting any mutation. */
+export function workflowGuidePresentation(workflow, plan, { authoringProgress = null } = {}) {
+  const active = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+  let capturedProgress = authoringProgress;
   return {
     workId: workflow.workItem.id,
     template: { id: workflow.workItem.workType, label: workflow.workItem.workTypeLabel },
     source: workflow.workItem.source ?? { type: 'unknown', key: null, url: null },
-    status: workflow.status,
-    currentPhase: active?.id ?? null,
+    status: workflow.status, currentPhase: active?.id ?? null,
     phases: workflow.phaseOrder.map((id, index) => {
       const phase = workflow.phases[id];
-      return {
-        number: index + 1,
-        id,
-        label: phase.label,
-        status: phase.status,
-        artifact: phase.requiredArtifact?.path ?? null,
-        agent: phase.defaultAgent ?? null,
-        approvalAuthorities: phase.approvalPolicy?.authorities ?? [],
-        approvalsRequired: phase.approvalPolicy?.minimum ?? 0
-      };
+      return { number: index + 1, id, label: phase.label, status: phase.status,
+        artifact: phase.requiredArtifact?.path ?? null, agent: phase.defaultAgent ?? null,
+        approvalAuthorities: phase.approvalPolicy?.authorities ?? [], approvalsRequired: phase.approvalPolicy?.minimum ?? 0 };
     }),
-    nextActions: [
-      ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress),
-      ...(intentAmendmentSource(workflow) ? [copilotAction({
-        skill: '/sflow-reject',
-        command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,
-        reason: 'If the approved intent must change, propose a reviewed amendment; no convergence finding or revision loop is required. Existing intent stays approved until the scope authority decides.',
-        optional: true
-      })] : [])
-    ]
+    nextActions: plan.actions.map(action => {
+      if (action.kind === 'resume-phase-authoring') capturedProgress ??= phaseAuthoringProgress(workflow, active);
+      return copilotAction(continuationActionPresentation(action, { workflow, phase: active, authoringProgress: capturedProgress }));
+    })
   };
+}
+
+export function workflowGuide(workflow, { sourceReviewEvidence = null, authoringProgress = null } = {}) {
+  const authoringState = authoringProgress == null ? null : { available: Boolean(authoringProgress.next),
+    stage: authoringProgress.stage ?? null, generation: authoringProgress.generation ?? null };
+  const plan = workflowGuidePlan(workflow, { sourceReviewEvidence, authoringState });
+  return workflowGuidePresentation(workflow, plan, { authoringProgress });
 }
 
 export function guideText(guide) {

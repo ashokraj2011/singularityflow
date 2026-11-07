@@ -1,0 +1,160 @@
+{
+  "baseline": "4425a3be8",
+  "cases": {
+    "document-unpublished": {
+      "sha256": "549b4cd6c1c586f4e36effc3bc78902dcac74bf4ea960c5c642c3ea343e50be5",
+      "firstCommand": "singularity-flow prepare team-step",
+      "reviewClassification": "successor-publication-required"
+    },
+    "document-published-review-pin": {
+      "sha256": "3505ee2a7185b3bc941ebccd8b52953dc7381b03ff7cd50d06403d33eb0ad560",
+      "firstCommand": "singularity-flow review-source status team-step",
+      "reviewClassification": "source-review-required"
+    },
+    "document-published-no-review": {
+      "sha256": "f4a36757a605b97e14076964c0e432558866fd006ea8bd701add570a8063e3b9",
+      "firstCommand": "singularity-flow submit team-step",
+      "reviewClassification": "source-review-required"
+    },
+    "document-no-approval": {
+      "sha256": "91e7ef93b1d327c254a8735ea01790907735ac0559e849acec7e0da97c127847",
+      "firstCommand": "singularity-flow submit team-step",
+      "reviewClassification": "source-review-required"
+    },
+    "review-ready": {
+      "sha256": "a2218d7be825b0b1ffb71a071c813d22e2f587f6e15f049c741c8c591eacf40d",
+      "firstCommand": "singularity-flow submit team-step --work-id CONT-1",
+      "reviewClassification": "submission-required"
+    },
+    "review-missing": {
+      "sha256": "b4ce0aab424e42ffaa656e2fecb44f83625586ae2a8585a029056838f6532bd7",
+      "firstCommand": "singularity-flow review-source context team-step --json",
+      "reviewClassification": "source-review-required"
+    },
+    "review-stale": {
+      "sha256": "b4ce0aab424e42ffaa656e2fecb44f83625586ae2a8585a029056838f6532bd7",
+      "firstCommand": "singularity-flow review-source context team-step --json",
+      "reviewClassification": "source-review-required"
+    },
+    "review-human-disposition": {
+      "sha256": "f33ce5bfc9dacf03ffc29d1ffff71e7feb5f5b4d87f0ee95d9a286ccf0c4c8af",
+      "firstCommand": "singularity-flow review-source decision-context team-step --work-id CONT-1 --finding exclusion:SRI-1 --reason <TEXT> --json",
+      "reviewClassification": "human-disposition-required"
+    },
+    "review-author-correction": {
+      "sha256": "1451e66b73d9877b2e96c5406afaf21fdd6f11a7735d2297287b071f71c21538",
+      "firstCommand": "singularity-flow prepare team-step",
+      "reviewClassification": "successor-publication-required"
+    },
+    "submitted-review-correction": {
+      "sha256": "0a0680467860540312b6630e8850485c8b5d07c4f8ae030fc62d8e840b96fb5c",
+      "firstCommand": "singularity-flow approve team-step --work-id CONT-1 --fetch",
+      "reviewClassification": "lifecycle-review-required"
+    },
+    "author-is-reviewer": {
+      "sha256": "dde44e26373e61b78f0f934f61981fb5b2448dbf155977639341e81659c42bf1",
+      "firstCommand": "singularity-flow agent --agent writer",
+      "reviewClassification": "source-review-author-conflict"
+    },
+    "submitted-author-is-reviewer": {
+      "sha256": "20db933c2fc9c2e957ab0c106c8791d89c619bc8724d419ec380d87dd3b60756",
+      "firstCommand": "singularity-flow agent --agent writer",
+      "reviewClassification": "source-review-author-conflict"
+    },
+    "amendment-acknowledgement-first": {
+      "sha256": "8d587300edc0d719dedbdc46db46b213f7e7a7beef7e48c62c94833909087049",
+      "firstCommand": "singularity-flow story intent-amendment acknowledge AMD-1 --work-id CONT-1",
+      "reviewClassification": "amendment-acknowledgement-required"
+    },
+    "acknowledged-amendment": {
+      "sha256": "3505ee2a7185b3bc941ebccd8b52953dc7381b03ff7cd50d06403d33eb0ad560",
+      "firstCommand": "singularity-flow review-source status team-step",
+      "reviewClassification": "source-review-required"
+    },
+    "pending-routing-decision": {
+      "sha256": "ecac367783da0412a4d321259e03794a95f49eaab3c8053069b7f961606b8b25",
+      "firstCommand": "singularity-flow decision show CONT-1",
+      "reviewClassification": "source-review-required"
+    },
+    "closed": {
+      "sha256": "66b81e70ca907b859a9f3d839eb7e482fb5ddca861263304e79d4efa9eb56fa9",
+      "firstCommand": "singularity-flow progress CONT-1",
+      "reviewClassification": "lifecycle-review-required"
+    },
+    "cancelled-with-decision": {
+      "sha256": "bf4c40bb82379617f6757050e651a3a412af189d2afffa0c4d713eb4eaa4afae",
+      "firstCommand": "singularity-flow documents list CONT-1",
+      "reviewClassification": "source-review-required"
+    },
+    "code-generation-not-open": {
+      "sha256": "bb29bd0e7de97b50acc5418d3223562bc33d6e807eabc68bedf257255d816214",
+      "firstCommand": "singularity-flow prepare team-step",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-generation-open": {
+      "sha256": "517cb797dfa5f3308c4acde2d9cf10150f1cdf128a1d51a15faa0abfed1047c5",
+      "firstCommand": "singularity-flow prepare team-step",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-draft-missing": {
+      "sha256": "ecbaca204bde40a2df96bf55e0667612ec9fe6b211e16b3ab7a51a3f5f654f4c",
+      "firstCommand": "singularity-flow prepare team-step",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-draft-authored": {
+      "sha256": "be021a20a2442e2d6ed4a82ef4be0ea372775da9e7a0d5fa565c8c83cc60051e",
+      "firstCommand": "singularity-flow phase prepublish team-step --for-agent --json",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-consumed-unpublished": {
+      "sha256": "a12d8e107a9de7fc3584a1a0070f76dd1357c8accb842151299b4cad3e6e995e",
+      "firstCommand": "singularity-flow recover CONT-1 --phase team-step --json",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-reviewed-rejection": {
+      "sha256": "e49d35f33bcbacee8049c486c68dcc6c9cfdfa70e4f0bae149de059a09394651",
+      "firstCommand": "singularity-flow phase begin team-step --json",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-source-review-correction": {
+      "sha256": "2fccf34f6bdd160cff93cb436ef2c6eb1c6514ca98cebeeb886b3ec4d1eae8e4",
+      "firstCommand": "singularity-flow phase rollover team-step --json",
+      "reviewClassification": "successor-publication-required"
+    },
+    "code-skill-amendment": {
+      "sha256": "e49d35f33bcbacee8049c486c68dcc6c9cfdfa70e4f0bae149de059a09394651",
+      "firstCommand": "singularity-flow phase begin team-step --json",
+      "reviewClassification": "successor-publication-required"
+    },
+    "convergence-unpublished": {
+      "sha256": "c6227d8a53882a5eb8fe000322ff2fac9fa2b23aff04cfaa66a58eeba41f1bc8",
+      "firstCommand": "singularity-flow prepare team-step",
+      "reviewClassification": "successor-publication-required"
+    },
+    "convergence-no-record": {
+      "sha256": "acde0ae522b4d69d38432b0bb6a271b32ecb98727492385283e1cd47243bc5c7",
+      "firstCommand": "singularity-flow recover CONT-1 --phase team-step --json",
+      "reviewClassification": "source-review-required"
+    },
+    "convergence-retained": {
+      "sha256": "4c126984bb7b58509d0ed259ea7128db04fbebb5024b664761144ff6f6746816",
+      "firstCommand": "singularity-flow story advance --work-id CONT-1",
+      "reviewClassification": "source-review-required"
+    },
+    "convergence-unsafe-record": {
+      "sha256": "acde0ae522b4d69d38432b0bb6a271b32ecb98727492385283e1cd47243bc5c7",
+      "firstCommand": "singularity-flow recover CONT-1 --phase team-step --json",
+      "reviewClassification": "source-review-required"
+    },
+    "convergence-duplicate-record": {
+      "sha256": "acde0ae522b4d69d38432b0bb6a271b32ecb98727492385283e1cd47243bc5c7",
+      "firstCommand": "singularity-flow recover CONT-1 --phase team-step --json",
+      "reviewClassification": "source-review-required"
+    },
+    "intent-amendment-alternative": {
+      "sha256": "bc20c2ee6f7702390450cdc65fa2f73e88795f27e3f5a14bc53be8a507282a31",
+      "firstCommand": "singularity-flow submit team-step",
+      "reviewClassification": "source-review-required"
+    }
+  }
+}

@@ -232,6 +232,27 @@ test('ordinary status commands and warm reads use one native registry observer a
   assert.doesNotMatch(next, /function evidenceSummary\(/);
 });
 
+test('guide and handoff hosts render shared kernel decisions and the CLI uses the registered query',async()=>{
+  const sources={
+    'guide.mjs':['phaseHandoffPlan','workflowGuidePlan'],
+    'source-review-continuation.mjs':['sourceReviewContinuationPlan'],
+    'phase-governance-routing.mjs':['phaseGovernancePlan'],
+    'phase-authoring-progress.mjs':['phaseAuthoringPlan']
+  };
+  for(const [file,functions] of Object.entries(sources)) {
+    const source=await readFile(path.join(packageRoot,'src',file),'utf8');
+    for(const name of functions)assert.ok(source.includes(name+'('),file+' must use '+name);
+    assert.doesNotMatch(source,/phaseNeedsGeneration\(|sourceReviewAuthorConflict\(|consumedByPublishedGeneration\(/);
+  }
+  const command=await readFile(path.join(packageRoot,'src/commands/guide.mjs'),'utf8');
+  assert.match(command,/\.engine\.run\('story\.guide'/);
+  assert.doesNotMatch(command,/loadAcceptedStoryExecution|workflowGuide\(/);
+  const presentation=ts.createSourceFile('phase-transition-routes.mjs',await readFile(path.join(packageRoot,'src/phase-transition-routes.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  const transition=presentation.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='convergenceTransitionRoute');
+  assert.match(transition.getText(presentation),/convergenceTransitionPlan\(/);
+  assert.doesNotMatch(transition.getText(presentation),/generationPublications|record\.sha256|recorded =/);
+});
+
 test('rejection host uses the registry and only the compatibility aggregate calls its native transition', async () => {
   const cli = ts.createSourceFile('cli.mjs', await readFile(path.join(packageRoot, 'src/cli.mjs'), 'utf8'), ts.ScriptTarget.Latest, true);
   const command = cli.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'rejectCommand');

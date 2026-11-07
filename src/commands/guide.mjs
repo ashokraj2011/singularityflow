@@ -1,7 +1,7 @@
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { repoRoot } from '../git.mjs';
-import { guideText, workflowGuide } from '../guide.mjs';
+import { guideText, workflowGuidePresentation } from '../guide.mjs';
 import { action as narrationAction, commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import * as style from '../style.mjs';
@@ -64,10 +64,11 @@ export async function guideCommand(positionals, options) {
     }));
     return;
   }
-  const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+  const { createGitQueryEngine } = await import('../engine-compatibility/git-query.mjs');
   const root = repoRoot();
-  const { workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
-  const guide = workflowGuide(workflow);
+  const binding = createGitQueryEngine({root,storyReference:positionals[1]??null});
+  const result = await binding.engine.run('story.guide',{});
+  const guide = workflowGuidePresentation(binding.presentation().workflow,result.manifest);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(guide, null, 2));
   else process.stdout.write(guideText(guide));
 }

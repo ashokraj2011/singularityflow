@@ -48,19 +48,7 @@ export function sequenceGateMode(workflow, gate) {
   return (gates?.[gate] ?? gates?.default) === 'soft' ? 'soft' : 'hard';
 }
 
-/**
- * A step sent back for rework (an open change request, a rework revalidation that needs a new
- * generation, or an unrevalidated intent amendment). Its published bytes may be unchanged, so the
- * successor starts with `prepare`, not a code rollover, which needs changed bytes.
- */
-export function phaseExplicitlyReopened(workflow, phase) {
-  return (workflow?.changeRequests ?? []).some((request) => request.status === 'open' && request.targetPhase === phase?.id)
-    || Boolean(phase?.reworkRevalidation && phaseNeedsGeneration(workflow, phase))
-    // A reviewed skill amendment reopens its affected steps the same way: the consumed intent
-    // belongs to the generation before the amendment, so the next one is prepared, not rolled over.
-    || Boolean(phase?.skillAmendmentRevalidation?.state === 'affected' && phaseNeedsGeneration(workflow, phase))
-    || Boolean(phase?.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
-}
+export { phaseExplicitlyReopened } from './kernel/phase-policy.mjs';
 
 
 export function sequenceGuidance(workflow) {

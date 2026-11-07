@@ -1,5 +1,6 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
+import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -78,6 +79,164 @@ export function storyStatusManifest(binding, facts) {
     || publication.state !== 'unreadable' && publication.error !== null) bad();
   return { schemaVersion: 1, contract: 'sflow-story-status/v1', ...binding, publication,
     authorityVerified: false, finalBindingChecked: false, acceptanceChecked: false };
+}
+
+/** Latest approved intent change whose contributor acknowledgement is still owed. */
+export function pendingIntentAmendmentAcknowledgement(workflow) {
+  return [...(workflow?.intentAmendments ?? [])].reverse()
+    .find(entry => entry.status === 'approved' && !entry.acknowledgedAt) ?? null;
+}
+
+/** Rework and reviewed amendments reopen a phase without relabelling its old publication. */
+export function phaseExplicitlyReopened(workflow, phase) {
+  return (workflow?.changeRequests ?? []).some(request => request.status === 'open' && request.targetPhase === phase?.id)
+    || Boolean(phase?.reworkRevalidation && phaseNeedsGeneration(workflow, phase))
+    || Boolean(phase?.skillAmendmentRevalidation?.state === 'affected' && phaseNeedsGeneration(workflow, phase))
+    || Boolean(phase?.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
+}
+
+function continuationAction(workflow, phase, kind, fields = {}) {
+  return { kind, workId: workflow.workItem.id, phaseId: phase?.id ?? null, ...fields };
+}
+
+/** Guidance prerequisites describe obligations; they do not authenticate or authorize execution. */
+export function phaseGovernancePlan(workflow, phase) {
+  if (!phase) return null;
+  const action = (kind, fields) => continuationAction(workflow, phase, kind, fields);
+  const amendment = pendingIntentAmendmentAcknowledgement(workflow);
+  if (amendment) return { code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED',
+    classification: 'amendment-acknowledgement-required', amendmentId: amendment.id,
+    actions: [action('acknowledge-intent-amendment', { amendmentId: amendment.id, requires: ['explicit-human-choice'] })] };
+  if (!sourceReviewAuthorConflict(workflow, phase)) return null;
+  return { code: 'SOURCE_REVIEW_AUTHOR_COLLISION', classification: 'source-review-author-conflict',
+    generation: phase.generation, generatedAgent: phase.generatedAgent,
+    actions: [
+      ...(phase.defaultAgent ? [action('select-phase-author', { agentId: phase.defaultAgent })] : []),
+      ...(phase.status === 'awaiting_approval' ? [action('return-phase', { purpose: 'reviewer-authored-generation',
+        targetPhase: phase.id, requires: ['authorized-human', 'explicit-reason'] })] : []),
+      ...(phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed'
+        ? [action('review-code-successor', { purpose: 'reviewer-authored-generation', requires: ['reviewed-draft-digest'] })] : []),
+      action('prepare-phase', { purpose: 'reviewer-authored-generation' })
+    ] };
+}
+
+/** Exact retained Convergence publication shape, independent of source-control or command syntax. */
+export function convergenceTransitionPlan(workflow, phase, { needsGeneration = false } = {}) {
+  if (!isConvergencePhase(phase) || phase.status !== 'in_progress') return null;
+  const action = kind => continuationAction(workflow, phase, kind);
+  if (needsGeneration) return { classification: 'generation-required', lifecycleReady: false,
+    reasonCode: 'PHASE_GENERATION_REQUIRED', actions: [action('prepare-convergence')] };
+  const publications = (phase.generationPublications ?? []).filter(entry => Number(entry?.generation) === phase.generation);
+  const publication = publications.length === 1 ? publications[0] : null;
+  const relative = publication?.record?.path;
+  const recorded = typeof relative === 'string' && relative.length <= 4096
+    && !relative.includes('\\') && !relative.startsWith('/') && !/^[A-Za-z]:/u.test(relative)
+    && relative.split('/').every(segment => segment && segment !== '.' && segment !== '..')
+    && /^sha256:[a-f0-9]{64}$/u.test(publication?.record?.sha256 ?? '');
+  if (!recorded) return { classification: 'publication-record-missing', lifecycleReady: false,
+    reasonCode: 'PHASE_PUBLICATION_RECORD_MISSING', actions: [action('recover-publication-record')] };
+  return { classification: 'convergence-advance-required', lifecycleReady: true,
+    reasonCode: 'CONVERGENCE_ADVANCE_REQUIRED', actions: [{ ...action('advance-convergence'), requires: ['reviewed-result-digest', 'explicit-human-choice'] }] };
+}
+
+/** Structural authoring milestones contain no model instruction or executable command. */
+export function phaseAuthoringPlan(workflow, phase, { draftEvidence = null } = {}) {
+  if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id
+      || !phaseNeedsGeneration(workflow, phase) || phaseUsesDeterministicGeneration(phase)) return null;
+  const code = phaseRequiresCodeDelivery(phase), generation = nextPhaseGeneration(phase);
+  const open = code && phase.generationIntent?.status === 'open' && Number(phase.generationIntent.generation) === generation;
+  let stage;
+  if (code && phase.generationIntent?.status === 'consumed' && !consumedByPublishedGeneration(phase)) stage = 'review-successor';
+  else if (code && !open) stage = 'open-code-generation';
+  else if (draftEvidence?.draftExists && draftEvidence.draftModified) stage = 'validate-existing-draft';
+  else stage = draftEvidence?.draftExists ? 'complete-draft' : draftEvidence ? 'create-missing-draft' : 'resume-draft';
+  return { stage, generation, codeGenerationOpen: open, code,
+    draft: draftEvidence ?? { draftExists: null, draftModified: null } };
+}
+
+/** A retained independent review never grants authoring, submission or approval authority. */
+export function sourceReviewContinuationPlan(workflow, phase, review = null) {
+  const hold = phaseGovernancePlan(workflow, phase);
+  const action = (kind, fields) => continuationAction(workflow, phase, kind, fields);
+  let classification, actions, generation = Number(phase.generation ?? 0);
+  if (hold) { classification = hold.classification; actions = hold.actions; }
+  else if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress') {
+    classification = 'lifecycle-review-required'; actions = [action('inspect-lifecycle')];
+  } else if (phaseNeedsGeneration(workflow, phase) || (review?.status === 'correction-required'
+      && (review.findings ?? []).some(finding => finding.code !== 'human-disposition-required'))) {
+    classification = 'successor-publication-required'; generation = nextPhaseGeneration(phase);
+    actions = phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !phaseExplicitlyReopened(workflow, phase)
+      ? [action('review-code-successor', { purpose: 'source-review-correction', requires: ['reviewed-draft-digest'] })]
+      : [action('prepare-phase', { purpose: 'source-review-correction', targetGeneration: generation,
+        sourceReviewRequired: sourceReviewRequired(workflow, phase.id) })];
+  } else if (review?.pendingDispositions?.length) {
+    classification = 'human-disposition-required';
+    actions = [action('decide-source-review-finding', { findingId: review.pendingDispositions[0].id,
+      requires: ['authorized-human', 'explicit-reason'] })];
+  } else if (review?.status === 'ready') {
+    classification = 'submission-required'; actions = [action('submit-phase', { purpose: 'reviewed-source' })];
+  } else { classification = 'source-review-required'; actions = [action('review-published-source')]; }
+  return { classification, publishedGeneration: Number(phase.generation ?? 0), targetGeneration: generation,
+    automaticAdvance: false, actions };
+}
+
+/** Handoff order is policy; host adapters add the wording and their command surfaces. */
+export function phaseHandoffPlan(workflow, phase, {
+  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null
+} = {}) {
+  const hold = phaseGovernancePlan(workflow, phase);
+  if (hold) return { classification: hold.classification, actions: hold.actions };
+  const view = hasDocuments ? [continuationAction(workflow, phase, 'view-phase-documents', { optional: true })] : [];
+  const transition = convergenceTransitionPlan(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
+  if (transition) return { classification: transition.classification, actions: [
+    ...transition.actions.map(action => ({...action,transition:{classification:transition.classification,
+      lifecycleReady:transition.lifecycleReady,reasonCode:transition.reasonCode}})), ...view] };
+  if (workflow.currentPhase === phase.id && phase.status === 'in_progress'
+      && (phaseNeedsGeneration(workflow, phase) || sourceReviewEvidence)) {
+    const review = sourceReviewContinuationPlan(workflow, phase, sourceReviewEvidence);
+    return { classification: review.classification, actions: [...review.actions, ...view] };
+  }
+  return { classification: sourceReviewRequired(workflow, phase.id) ? 'source-review-status-required' : 'submission-required',
+    actions: [
+      ...(sourceReviewRequired(workflow, phase.id) ? [continuationAction(workflow, phase, 'check-source-review-status')] : []),
+      continuationAction(workflow, phase, 'submit-phase', { purpose: 'published-generation', approvalRequired: phase.approvalPolicy?.mode !== 'none' }),
+      ...view
+    ] };
+}
+
+/** Every guide route is chosen here; supplied progress is a read observation, not permission. */
+export function workflowGuidePlan(workflow, { sourceReviewEvidence = null, authoringState = null } = {}) {
+  const phase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+  const action = (kind, fields) => continuationAction(workflow, phase, kind, fields);
+  let classification, actions;
+  if (workflow.status === 'cancelled') { classification = 'archived'; actions = [action('view-archived-documents')]; }
+  else {
+    const hold = phaseGovernancePlan(workflow, phase), pending = workflow.pendingDecision;
+    if (hold) { classification = hold.classification; actions = hold.actions; }
+    else if (pending) { classification = 'workflow-decision-required'; actions = [
+      action('inspect-workflow-decision', { label: pending.label }),
+      ...pending.options.map(option => action('choose-workflow-route', { label: pending.label, optionId: option.id,
+        optionLabel: option.label, expected: pending.key, requires: ['authorized-human', 'explicit-reason'] }))
+    ]; }
+    else if (!phase) { classification = 'workflow-inspection'; actions = [action('inspect-workflow-progress')]; }
+    else if (phase.status === 'awaiting_approval') { classification = 'approval-required'; actions = [
+      action('approve-phase', { requires: ['authorized-human', 'reviewed-submission-binding'] }),
+      ...(phaseCorrectionTargets(phase).length ? [action('return-phase', { purpose: 'phase-correction', targetPhase: phase.id,
+        requires: ['authorized-human', 'explicit-reason'] })] : [])
+    ]; }
+    else if (phaseNeedsGeneration(workflow, phase)) {
+      const progress = authoringState ?? (phase.generationIntent ? phaseAuthoringPlan(workflow, phase) : null);
+      if (progress && progress.available !== false) {
+        classification = 'authoring-continuation'; actions = [action('resume-phase-authoring', { stage: progress.stage, generation: progress.generation })];
+      } else { classification = 'generation-required'; actions = [action('prepare-phase', { purpose: 'required-generation',
+        regenerate: phase.generation > 0, deterministicConvergence: isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase) })]; }
+    } else ({ classification, actions } = phaseHandoffPlan(workflow, phase, { sourceReviewEvidence }));
+  }
+  if (intentAmendmentSource(workflow)) actions = [...actions, action('propose-intent-amendment', { optional: true,
+    requires: ['amended-source', 'explicit-reason', 'scope-authority-review'] })];
+  return { schemaVersion: 1, contract: 'sflow-workflow-continuation/v1', workId: workflow.workItem.id,
+    phaseId: phase?.id ?? null, classification, actions, authorityGranted: false, finalBindingChecked: false,
+    automaticAdvance: false, approvalRecorded: false };
 }
 
 export function generationTask(phase) {

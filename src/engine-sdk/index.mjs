@@ -11,7 +11,7 @@ import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmissio
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest,phaseBeginSelection,phaseBeginResult,
   phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
-  storyStatusSelection,storyStatusManifest} from '../kernel/phase-policy.mjs';
+  storyStatusSelection,storyStatusManifest,workflowGuidePlan} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
@@ -105,6 +105,8 @@ const definitions = [
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
   ...UPSTREAM_OPERATIONS,
+  {id:'story.guide',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyGuide',
+    stages:Object.freeze(['load']),validate:storyGuideInput,execute:inspectStoryGuide},
   {id:'story.status',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyStatus',
     stages:Object.freeze(['load','read']),validate:storyStatusInput,execute:inspectStoryStatus},
   {id:'workflow.assets',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workflowIds']),port:'workflowAssets',
@@ -167,6 +169,64 @@ function storyStatusInput(value, operation) {
   const input = phaseReviewInput(value, operation);
   if (input.workId != null && (!input.workId.trim() || input.workId.length > 512)) invalid('Invalid Story status identifier.');
   return input;
+}
+
+function storyGuideInput(value, operation) {
+  const input = phaseReviewInput(value, operation);
+  if (input.workId != null && (!input.workId.trim() || input.workId.length > 512)) invalid('Invalid Story guide identifier.');
+  return input;
+}
+
+async function inspectStoryGuide(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, {signal}); notCancelled(signal);
+  const id = context?.workflow?.workItem?.id;
+  if (context?.subject?.kind !== 'story' || typeof id !== 'string' || !id || context.subject.id !== id
+    || !Array.isArray(context.workflow.phaseOrder) || !context.workflow.phases || typeof context.workflow.phases !== 'object'
+    || Array.isArray(context.workflow.phases)) {
+    throw new SingularityFlowError('The guide port did not bind a Story.', {code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  if (inputs.workId != null && inputs.workId !== id) throw new SingularityFlowError(
+    'Requested Story does not match the guide record.', {code:'ACTIVE_SUBJECT_MISMATCH',
+      details:{expectedWorkId:inputs.workId,actualWorkId:id}});
+  let manifest;
+  try {
+    const plan = workflowGuidePlan(context.workflow);
+    manifest = data({...plan,actions:plan.actions.map(action=>({...action,operation:continuationOperation(action)}))});
+  } catch (cause) {
+    if (cause?.code !== 'ENGINE_INPUT_INVALID') throw cause;
+    throw new SingularityFlowError('The guide port returned invalid continuation facts.', {code:'ENGINE_PORT_RESULT_INVALID',cause});
+  }
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'story.guide',status:'inspected',
+    subject:{kind:'story',id},manifest,
+    effects:{committed:false,pushed:false,testsRun:false,modelInvocations:0,humanReviewRecorded:false,approvalRecorded:false,storyAdvanced:false}});
+}
+
+/** The registry owns operation names; kernel action kinds do not embed a host command language. */
+function continuationOperation(action) {
+  const inputs={workId:action.workId,...action.phaseId==null?{}:{phaseId:action.phaseId}};
+  let id;
+  switch(action.kind) {
+    case 'prepare-phase': case 'prepare-convergence': id='phase.prepare';break;
+    case 'return-phase': id='phase.reject';inputs.target=action.targetPhase;break;
+    case 'review-code-successor': id='phase.rollover';break;
+    case 'submit-phase': id='phase.submit';break;
+    case 'advance-convergence': id='convergence.advance';delete inputs.phaseId;break;
+    case 'approve-phase': id='phase.approve';break;
+    case 'view-phase-documents': id='phase.review';break;
+    case 'choose-workflow-route': id='decision.choose';delete inputs.phaseId;inputs.option=action.optionId;inputs.expected=action.expected;break;
+    case 'resume-phase-authoring':
+      if(action.stage==='open-code-generation')id='phase.begin';
+      else if(action.stage==='validate-existing-draft')id='phase.prepublish';
+      else if(['complete-draft','create-missing-draft','resume-draft'].includes(action.stage))id='phase.prepare';
+      else return null;
+      break;
+    default:return null;
+  }
+  const descriptor=registry.get(id);
+  if(!descriptor||Object.keys(inputs).some(key=>!descriptor.inputFields.includes(key)))throw new SingularityFlowError(
+    'The continuation refers to an unavailable registry operation.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return {id,inputs,port:descriptor.port};
 }
 
 async function inspectStoryStatus(port, inputs, signal) {

@@ -37,10 +37,8 @@ export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workfl
 
 export { sourceReviewRequired, sourceReviewAuthorConflict } from './kernel/phase-policy.mjs';
 
-export function pendingIntentAmendmentAcknowledgement(workflow) {
-  return [...(workflow?.intentAmendments ?? [])].reverse()
-    .find((entry) => entry.status === 'approved' && !entry.acknowledgedAt) ?? null;
-}
+import { pendingIntentAmendmentAcknowledgement } from './kernel/phase-policy.mjs';
+export { pendingIntentAmendmentAcknowledgement };
 
 export function assertIntentAmendmentAcknowledged(workflow) {
   const amendment = pendingIntentAmendmentAcknowledgement(workflow);

@@ -99,6 +99,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
     'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs'].map(file=>path.join(packageRoot,file)));
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
   const approvalPort=path.join(packageRoot,'src/engine-compatibility/git-approval.mjs');
+  const decisionPort=path.join(packageRoot,'src/engine-compatibility/git-decisions.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -111,6 +112,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(oldRules.has(target)||(transitions.has(target)&&relative!=='src/state.mjs'))problems.push(relative);
         if(target===submissionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===approvalPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===decisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);

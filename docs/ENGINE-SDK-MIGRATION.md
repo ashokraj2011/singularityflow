@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval and shared post-transition effects extracted; decisions, advancement, manifests and remaining admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination and shared post-transition effects extracted; native decision writers, advancement, manifests and remaining admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -322,3 +322,20 @@ lost-outbox recovery, specification usage and an approval whose session refresh 
 both fail after the exact approval commit. The source gate passed 3,550 checks; typechecking and
 all rebuilt runtime budgets passed without raising a ceiling. This completes the shared effect
 helper ownership, while decision admission, remaining operations/manifests and phases 6–9 remain.
+
+## Phase 5 decision recording delivery
+
+The [decision slice](ENGINE-SDK-DECISIONS.md) registers `decisions.record` for CLI and Node hosts.
+Choice validation and batching have pure kernel owners; the SDK coordinates native effects and
+preserves partial outcomes. The CLI keeps its answers-file, interactive confirmation, errors and
+wire projection. Exact consent, per-effect identity and group checks remain mandatory. The native
+writer functions still under command modules are explicit compatibility debt for the next slice.
+
+The 68-test focused run and 33-test native journey run pass on Mac with no failures or skips,
+including real SDK writes, CLI receipt parity, multi-phase decisions, plan amendment and the
+existing approval/submission/publication integrations. The source gate passes 3,556 checks;
+typechecking, all 13 rebuilt runtime budgets and packaging pass. The SDK's 11-module closure has
+no external imports. Gateway source-map inspection
+identifies exactly the three extracted pure owners (849 to 852 modules); byte and other runtime
+ceilings are unchanged. Native writer ownership, remaining Phase 5 operations and all of phases
+6–9 remain required; this delivery neither migrates storage authority nor completes the objective.

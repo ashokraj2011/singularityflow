@@ -6,6 +6,8 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs';
+import {decisionRecordPlan,assertDecisionConfirmation} from '../kernel/decision-plan.mjs';
+import {runDecisionPlan} from './decision-execution.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -16,6 +18,7 @@ const CONVERGENCE_FIELDS = Object.freeze([...SUBMIT_FIELDS, 'confirmation']);
 const WRITE_STAGES = Object.freeze(['load', 'retained', 'prepare', 'commit', 'finish']);
 const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','selectionReceipt','fetch','agent',
   'checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason']);
+const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const definitions = [
   { id: 'phase.publish', version: 1, effect: 'publication',
     inputFields: PUBLISH_FIELDS, port: 'publication',
@@ -27,7 +30,10 @@ const definitions = [
     validate:submissionInput, execute:submit },
   { id:'phase.approve',version:1,effect:'approval',inputFields:APPROVAL_FIELDS,port:'approval',
     humanDecision:true,stages:Object.freeze(['load','prepare','commit','finish']),
-    validate:approvalInput,execute:approve }
+    validate:approvalInput,execute:approve },
+  {id:'decisions.record',version:1,effect:'decision-records',inputFields:DECISION_FIELDS,port:'decisions',
+    authority:'per-effect',humanDecision:true,stages:Object.freeze(['load','prepare','apply','finish']),
+    validate:decisionInput,execute:recordDecisions}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -118,6 +124,21 @@ function approvalInput(value) {
   }
   if(input.decisions!=null && (Object.keys(input.decisions).some(key=>!['answers','digest'].includes(key))
       || input.decisions.digest!=null && typeof input.decisions.digest!=='string'))invalid('Approval decisions require answers and a list digest.');
+  return input;
+}
+
+function decisionInput(value) {
+  const input = data(value);
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+      || Object.keys(input).some(key => !DECISION_FIELDS.includes(key))) invalid('Unknown decision input field.');
+  for (const key of ['workId','phaseId','confirmation']) {
+    if (input[key] != null && typeof input[key] !== 'string') invalid(`Decision ${key} must be a string or null.`);
+  }
+  if (input.fetch != null && typeof input.fetch !== 'boolean') invalid('Decision fetch must be a boolean.');
+  if (input.answers != null && (typeof input.answers !== 'object' || Array.isArray(input.answers)
+      || Object.keys(input.answers).some(key => !['choose','reason','expires','cause','clause','article'].includes(key)))) {
+    invalid('Decision answers must contain only choices and their declared values.');
+  }
   return input;
 }
 
@@ -255,6 +276,79 @@ async function approve(port,inputs,signal) {
   }
 }
 
+function decisionResult(binding, facts, accepted, refused) {
+  const fields = ['workId','phase','recorded','refused','remaining','packetSha256'];
+  const record = (value, fields) => value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key));
+  const text = value => typeof value === 'string' && value.length > 0;
+  let result;
+  try { result = data(facts); }
+  catch (cause) { throw new SingularityFlowError('The decision port returned non-JSON records.', {code:'ENGINE_PORT_RESULT_INVALID',cause}); }
+  if (!result || Object.keys(result).some(key => !fields.includes(key))
+      || result.workId !== binding.workId || result.phase !== binding.phase
+      || !Array.isArray(result.recorded) || result.recorded.length !== accepted.length
+      || result.recorded.some((entry,index) => !record(entry, ['item','kind','record','value'])
+        || entry.item !== accepted[index].item || entry.kind !== accepted[index].kind
+        || entry.record !== null && !text(entry.record)
+        || entry.value === null || typeof entry.value !== 'object' || Array.isArray(entry.value))
+      || !Array.isArray(result.refused) || result.refused.length !== refused.length
+      || result.refused.some((entry,index) => !record(entry, ['item','title','option','groups'])
+        || ['item','title','option'].some(key => entry[key] !== refused[index][key])
+        || !Array.isArray(entry.groups) || entry.groups.length !== refused[index].groups.length
+        || entry.groups.some((group,at) => group !== refused[index].groups[at]))
+      || result.remaining !== null && (!Array.isArray(result.remaining) || result.remaining.some(entry =>
+        !record(entry, ['id','kind','title']) || !['id','kind','title'].every(key => text(entry[key]))))
+      || result.packetSha256 !== null && !/^sha256:[a-f0-9]{64}$/u.test(result.packetSha256)
+      || (result.remaining === null) !== (result.packetSha256 === null)) {
+    throw new SingularityFlowError('The decision port returned an invalid or differently bound outcome.', {code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'decisions.record',status:'recorded',
+    subject:Object.freeze({kind:'story',id:binding.workId}),phase:binding.phase,
+    effects:Object.freeze({recordedEntries:result.recorded.length}),recorded:result.recorded,refused:result.refused,
+    remaining:result.remaining,packetSha256:result.packetSha256});
+}
+
+async function recordDecisions(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, {signal});
+  const packet = data(context.policy);
+  const at = context.at;
+  if (!packet || typeof packet.workId !== 'string' || packet.workId !== context.subject?.id
+      || !/^sha256:[a-f0-9]{64}$/u.test(packet.packetSha256)
+      || packet.phase !== null && typeof packet.phase !== 'string') {
+    throw new SingularityFlowError('The decision port loaded an invalid list binding.', {code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  notCancelled(signal);
+  const prepared = await port.prepare(context, inputs, {signal});
+  if (prepared?.cancelled === true) return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,
+    operation:'decisions.record',status:'not-recorded',subject:Object.freeze({kind:'story',id:packet.workId}),
+    phase:packet.phase,effects:Object.freeze({recordedEntries:0})});
+  if (!(prepared?.answers?.choose instanceof Map) || !prepared.answers.choose.size) {
+    throw new SingularityFlowError('Choose at least one item from the current decision list.', {code:'DECISIONS_CHOICE_REQUIRED'});
+  }
+  assertDecisionConfirmation(packet.packetSha256, prepared.confirmation);
+  const plan = data(decisionRecordPlan(packet, prepared.answers, {at}));
+  if (!plan.steps.length) throw new SingularityFlowError('The chosen decisions are not authorized for this identity.', {
+    code:'DECISIONS_NOT_YOURS',details:{refused:plan.refused}
+  });
+  notCancelled(signal);
+  // Once the first native effect starts, preserve accepted/unknown outcomes instead of claiming
+  // that a later cancellation unwound the plan. The coordinator reports its exact stopped suffix.
+  const outcome = await runDecisionPlan(plan, (effect,step,produced) => port.apply(context,effect,step,produced));
+  const accepted = outcome.recorded.map(({item,kind}) => ({item,kind}));
+  try {
+    const facts = await port.finish(context,plan,outcome);
+    // Presentation or after-state inspection cannot turn a failed/unknown native effect into
+    // successful recording. Keep the confirmed prefix and the original failure for recovery.
+    if (outcome.failed) throw outcome.failed.error;
+    return decisionResult(packet, facts, accepted, plan.refused);
+  }
+  catch (error) {
+    if (error && typeof error === 'object' && Object.isExtensible(error)) error.engineDecisionEffects = outcome;
+    throw error;
+  }
+}
+
 export function createEngine({ ports } = {}) {
   if (!ports || typeof ports !== 'object') invalid('Engine construction requires explicit trusted ports.');
   const bound = new Map();
@@ -289,5 +383,6 @@ export function createEngine({ ports } = {}) {
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
     submitPhase: (inputs, options) => execute('phase.submit', inputs, options),
     submitConvergence: (inputs, options) => execute('convergence.submit', inputs, options),
-    approvePhase:(inputs,options)=>execute('phase.approve',inputs,options) });
+    approvePhase:(inputs,options)=>execute('phase.approve',inputs,options),
+    recordDecisions:(inputs,options)=>execute('decisions.record',inputs,options) });
 }

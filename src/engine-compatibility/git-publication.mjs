@@ -1,4 +1,4 @@
-/** Git/installed-owner composition for the SDK publication operation. No CLI dispatch. */
+/** Git/installed-owner composition for registered SDK operations. No CLI dispatch. */
 import path from 'node:path';
 import { createEngine, ENGINE_OPERATIONS } from '../engine-sdk/index.mjs';
 import { SingularityFlowError, readJson } from '../util.mjs';
@@ -34,7 +34,7 @@ function publicationFacts(context, phase, result, status, retentionReason = null
     artifact: phase.requiredArtifact.path, ...(retentionReason ? {retentionReason} : {}) });
 }
 
-export function createGitEngine({ root, notice = () => {}, approvalInteraction = null } = {}) {
+export function createGitEngine({ root, notice = () => {}, approvalInteraction = null, decisionInteraction = null } = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
     'Git engine composition requires an explicit absolute checkout root.', { code: 'ENGINE_INPUT_INVALID' });
   if (typeof notice !== 'function') throw new SingularityFlowError(
@@ -345,7 +345,19 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return owner[stage](...args);
     };
   }
-  const engine = createEngine({ports:{publication:port, submission, approval, invocation: {
+  let decisionOwner;
+  const decisionPreparation=typeof decisionInteraction?.prepare==='function'
+    ? Object.freeze({prepare:decisionInteraction.prepare.bind(decisionInteraction)}) : null;
+  const decisions={};
+  for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='decisions').stages) {
+    decisions[stage]=async(...args)=>{
+      decisionOwner ??= import('./git-decisions.mjs')
+        .then(({createGitDecisionPort})=>createGitDecisionPort({root,notice,interaction:decisionPreparation,onContext:context=>{presentation=context;}}))
+        .catch(error=>{decisionOwner=undefined;throw error;});
+      return (await decisionOwner)[stage](...args);
+    };
+  }
+  const engine = createEngine({ports:{publication:port, submission, approval, decisions, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

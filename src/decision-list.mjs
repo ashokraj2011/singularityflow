@@ -17,7 +17,12 @@
  */
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
 import { ISSUE_ONLY_OPTIONS } from './person-step-catalog.mjs';
-import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
+import { planAuthorities } from './plan-amendments.mjs';
+import {DECISION_CAUSE_LIMITS as CAUSE} from './kernel/decision-limits.mjs';
+import {parseDecisionAnswers,decisionRecordPlan as buildDecisionRecordPlan} from './kernel/decision-plan.mjs';
+export {parseDecisionAnswers};
+export {planBatches} from './kernel/decision-plan.mjs';
+export {runDecisionPlan} from './engine-sdk/decision-execution.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
@@ -42,7 +47,6 @@ const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-ru
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
-const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 // `decision plan`'s own limits: a supporting change states its reason in at most 500 characters.
 const PLAN_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const SUPPORTING_REASON = Object.freeze({ minimum: 20, maximum: 500 });
@@ -53,18 +57,12 @@ const SCOPE_CHOICES = Object.freeze([['included', 'Included: named clauses carry
   ['excluded', 'Exclude it from this Story', false], ['deferred', 'Defer it to later work', false], ['informative', 'It informs; it is not a requirement', false],
   ['duplicate', 'It duplicates another statement', false], ['superseded', 'A later statement replaces it', false]]);
 
-function refused(message, code, details = undefined) {
-  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
-}
-
-
 /** "A", "A and B", "A, B and C". */
 export function listWords(values) {
   const items = [...values];
   if (items.length < 2) return items.join('');
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
-
 
 /** A clause as people say it: without its Story's own prefix. */
 export function clauseName(workflow, clauseId) {
@@ -1113,137 +1111,6 @@ export function pendingSummary(packet) {
   };
 }
 
-/** A real YYYY-MM-DD day after today and no later than the option's own last day. */
-function validDate(value, at, latest) {
-  const text = String(value ?? '');
-  const day = /^\d{4}-\d{2}-\d{2}$/u.test(text) ? Date.parse(`${text}T00:00:00.000Z`) : Number.NaN;
-  if (!Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== text) return false;
-  return text > String(at).slice(0, 10) && text <= latest;
-}
-
-/**
- * The person's answers from `--choose d1=reuse` style values (repeatable) or an answers file:
- * { choose: { d1: 'reuse' }, reason: { d1: 'TEXT' }, expires: { d1: 'YYYY-MM-DD' }, cause: { ... }, clause: { d1: 'A,B' },
- * article: { d1: [{ article, decision, reason }] } }. The checklist has one answer per article, so it comes only from a file or a form.
- */
-export function parseDecisionAnswers({ choose = [], reason = [], expires = [], cause = [], clause = [], article = {} } = {}) {
-  const read = (flag, values) => {
-    const entries = Array.isArray(values) ? values.map((value) => {
-      const text = String(value);
-      const split = text.indexOf('=');
-      if (split < 1) refused(`--${flag} takes <ITEM>=<VALUE>, such as d1=${flag === 'choose' ? 'reuse' : 'TEXT'}; got '${text}'.`, 'DECISIONS_ANSWER_INVALID');
-      return [text.slice(0, split).trim(), text.slice(split + 1)];
-    }) : Object.entries(values ?? {}).map(([item, value]) => [item, String(value)]);
-    const map = new Map();
-    for (const [item, value] of entries) {
-      if (!/^d\d{1,3}$/u.test(item)) refused(`--${flag} names '${item}', which is not an item of the list (d1, d2, ...).`, 'DECISIONS_ANSWER_INVALID');
-      if (map.has(item)) refused(`--${flag} names ${item} twice.`, 'DECISIONS_ANSWER_INVALID');
-      map.set(item, value);
-    }
-    return map;
-  };
-  const articles = new Map();
-  for (const [item, value] of Object.entries(article ?? {})) {
-    if (!/^d\d{1,3}$/u.test(item) || !Array.isArray(value)) refused(`The article answers name '${item}': each item of the list holds a list of { article, decision, reason }.`, 'DECISIONS_ANSWER_INVALID');
-    articles.set(item, value);
-  }
-  return { choose: read('choose', choose), reason: read('reason', reason), expires: read('expires', expires), cause: read('cause', cause), clause: read('clause', clause), article: articles };
-}
-
-/** The clauses a person named for an item, spelled as the Story's index spells them. */
-function namedClauses(item, text, known) {
-  const named = String(text ?? '').split(/[\s,]+/u).filter(Boolean).map((entry) => {
-    const upper = entry.toUpperCase();
-    return known.find((id) => id === upper || id.endsWith(`:${upper}`)) ?? upper;
-  });
-  if (!named.length) refused(`Name the clauses that carry ${item.id}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
-  const unknown = known.length ? named.filter((id) => !known.includes(id)) : [];
-  if (unknown.length) refused(`${item.id} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'is not a clause' : 'are not clauses'} of this Story. Its clauses: ${known.slice(0, 12).join(', ')}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id, unknown });
-  return [...new Set(named)];
-}
-
-/** One answer per article, and a reason for anything but satisfied: the rule the review's own record applies. */
-function checkedArticles(item, given, need) {
-  const answers = Array.isArray(given) ? given : [];
-  const problem = need.articles.find(({ id }) => answers.filter((entry) => entry?.article === id).length !== 1)
-    ? 'Answer every checklist article once'
-    : answers.find((entry) => !need.decisions.includes(entry?.decision)) ? `Each article is ${need.decisions.join(', ')}`
-      : answers.find((entry) => entry.decision !== 'satisfied' && !String(entry.reason ?? '').trim()) ? 'An article that is not satisfied needs its own reason'
-        : answers.length !== need.articles.length ? 'Those are not this checklist\'s articles' : null;
-  if (problem) refused(`${item.id}: ${problem}. A terminal asks each one with singularity-flow decisions record.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
-  return answers.map(({ article, decision, reason }) => ({ article, decision, ...(decision === 'satisfied' ? {} : { reason: String(reason).trim() }) }));
-}
-
-/**
- * What recording these answers would write, item by item, in the packet's order, with every value
- * resolved (an answer, or the default the packet showed). Items this identity may not decide are
- * returned in `refused` with who may; nothing is written for them. Pure; never writes.
- */
-export function decisionRecordPlan(packet, answers, { at }) {
-  const steps = [];
-  const refusedItems = [];
-  for (const item of [...packet.items, ...(packet.offered ?? [])]) {
-    const chosen = answers.choose.get(item.id);
-    if (!chosen) {
-      for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
-        if (answers[flag]?.has(item.id)) refused(`--${flag} ${item.id}=... is given, but ${item.id} is not chosen with --choose.`, 'DECISIONS_ANSWER_INVALID');
-      }
-      continue;
-    }
-    const selected = item.options.find((entry) => entry.id === chosen);
-    if (!selected) {
-      refused(`${item.id} has no option '${chosen}'; its options are ${item.options.map((entry) => entry.id).join(', ')}.`, 'DECISIONS_ANSWER_INVALID',
-        { item: item.id, options: item.options.map((entry) => entry.id) });
-    }
-    for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
-      if (answers[flag]?.has(item.id) && !selected.needs[flag]) refused(`${item.id}=${chosen} takes no --${flag}.`, 'DECISIONS_ANSWER_INVALID');
-    }
-    if (selected.recordable === false) {
-      refused(selected.action
-        ? item.kind === 'visual-profile'
-          ? `${item.id}=${chosen} is your action, not a recorded decision: take the screenshot and run ${selected.action.command}`
-          : `${item.id}=${chosen} is your own step, not a recorded decision: ${selected.words} Run: ${selected.action.command}`
-        : `${item.id}=${chosen} is not available: ${selected.words}`, 'DECISIONS_OPTION_NOT_RECORDABLE', { item: item.id, option: chosen, command: selected.action?.command ?? null });
-    }
-    if (!selected.decidedBy.allowed) {
-      refusedItems.push({ item: item.id, title: item.title, option: chosen, words: selected.decidedBy.words, groups: selected.decidedBy.groups,
-        share: selected.decidedBy.share ?? `/sf-decide ${packet.workId}` });
-      continue;
-    }
-    const values = {};
-    if (selected.needs.reason) {
-      const reason = String(answers.reason.get(item.id) ?? selected.needs.reason.default).trim();
-      const { minimum, maximum } = selected.needs.reason;
-      if (reason.length < minimum || reason.length > maximum) {
-        refused(`The reason for ${item.id} must be ${minimum} to ${maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
-      }
-      values.reason = reason;
-    }
-    if (selected.needs.cause) {
-      const cause = String(answers.cause.get(item.id) ?? selected.needs.cause.default).trim();
-      if (cause.length < CAUSE.minimum || cause.length > CAUSE.maximum) {
-        refused(`The cause for ${item.id} must be ${CAUSE.minimum} to ${CAUSE.maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
-      }
-      values.cause = cause;
-    }
-    if (selected.needs.expires) {
-      const expires = String(answers.expires.get(item.id) ?? selected.needs.expires.default).trim();
-      if (!validDate(expires, at, selected.needs.expires.latest)) {
-        refused(`The date for ${item.id} must be YYYY-MM-DD, after today and no later than ${selected.needs.expires.latest}.`,
-          'DECISIONS_ANSWER_INVALID', { item: item.id });
-      }
-      values.expires = expires;
-    }
-    if (selected.needs.clause) values.clause = namedClauses(item, answers.clause?.get(item.id), selected.needs.clause.known ?? []);
-    if (selected.needs.article) values.article = checkedArticles(item, answers.article?.get(item.id), selected.needs.article);
-    steps.push({ item: item.id, title: item.title, option: chosen, label: selected.label, values,
-      effects: selected.effects.map((effect) => ({ ...effect })) });
-  }
-  // A route moves the Story on, so everything else on this list is written first.
-  const routes = (step) => step.effects.some((effect) => effect.kind === 'routing');
-  return { steps: [...steps.filter((step) => !routes(step)), ...steps.filter(routes)], refused: refusedItems };
-}
-
 /** One record a plan writes, in plain words with its record kind, for summaries and reports. */
 export function effectWords(workflow, effect, values = {}) {
   if (effect.kind === 'evidence-reuse') {
@@ -1268,57 +1135,35 @@ export function effectWords(workflow, effect, values = {}) {
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;
 }
 
-/**
- * Write a plan's effects in order through `apply(effect, step, produced)`, which records one effect
- * with its existing function and returns the record. A failure stops there: the result says exactly
- * which records were written and which remain, so nothing is guessed and a rerun lists only what
- * remains.
- */
-export async function runDecisionPlan(plan, apply) {
-  const recorded = [];
-  const batches = planBatches(plan);
-  const after = (index) => batches.slice(index + 1).flat().flatMap((later) => later.effects.map((entry) => ({ item: later.item, kind: entry.kind, effect: entry })));
-  for (const [batchIndex, batch] of batches.entries()) {
-    if (batch.length > 1) {
-      const effect = { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
-      try {
-        const record = await apply(effect, batch[0], {});
-        recorded.push(...batch.map((step) => ({ item: step.item, kind: effect.kind, record })));
-      } catch (error) {
-        return { recorded, failed: { item: batch[0].item, kind: effect.kind, error }, remaining: [...batch.map((step) => ({ item: step.item, kind: effect.kind, effect: step.effects[0] })), ...after(batchIndex)] };
-      }
-      continue;
-    }
-    const [step] = batch;
-    const produced = {};
-    for (const [effectIndex, effect] of step.effects.entries()) {
-      try {
-        const record = await apply(effect, step, produced);
-        if (effect.kind === 'upstream-issue') produced.issue = record?.id ?? null;
-        recorded.push({ item: step.item, kind: effect.kind, record });
-      } catch (error) {
-        return { recorded, failed: { item: step.item, kind: effect.kind, error },
-          remaining: [...step.effects.slice(effectIndex).map((entry) => ({ item: step.item, kind: entry.kind, effect: entry })), ...after(batchIndex)] };
-      }
-    }
-  }
-  return { recorded, failed: null, remaining: [] };
+/** Host compatibility projection; selection and validation have one pure implementation. */
+export function decisionRecordPlan(packet, answers, options) {
+  try { return legacyDecisionPlan(packet, buildDecisionRecordPlan(packet, answers, options)); }
+  catch (error) { throw legacyDecisionPlanError(error, packet); }
 }
 
-/**
- * The plan in the order it is written, with plan paths given the same reason together: one amendment, one
- * record and one commit, which a plan amendment's format has always held. A different reason is its own.
- */
-export function planBatches(plan) {
-  const batches = [];
-  const byReason = new Map();
-  for (const step of plan.steps) {
-    const amends = step.effects.length === 1 && step.effects[0].kind === 'plan-amendment';
-    const open = amends ? byReason.get(step.values.reason) : null;
-    if (open && open.length < MAX_PLAN_AMENDMENT_CHANGES) { open.push(step); continue; }
-    const batch = [step];
-    batches.push(batch);
-    if (amends) byReason.set(step.values.reason, batch);
+export function legacyDecisionPlan(packet, plan) {
+  return {...plan, refused: plan.refused.map(entry => {
+    const item = [...packet.items, ...(packet.offered ?? [])].find(item => item.id === entry.item);
+    const selected = item.options.find(option => option.id === entry.option);
+    return {item:entry.item,title:entry.title,option:entry.option,words:selected.decidedBy.words,groups:entry.groups,
+      share:selected.decidedBy.share ?? `/sf-decide ${packet.workId}`};
+  })};
+}
+
+export function legacyDecisionPlanError(error, packet) {
+  if (error.code === 'DECISIONS_OPTION_NOT_RECORDABLE') {
+    const {item:id,option:chosen} = error.details;
+    const item = [...packet.items, ...(packet.offered ?? [])].find(item => item.id === id);
+    const selected = item.options.find(option => option.id === chosen);
+    error.message = selected.action
+      ? item.kind === 'visual-profile'
+        ? `${item.id}=${chosen} is your action, not a recorded decision: take the screenshot and run ${selected.action.command}`
+        : `${item.id}=${chosen} is your own step, not a recorded decision: ${selected.words} Run: ${selected.action.command}`
+      : `${item.id}=${chosen} is not available: ${selected.words}`;
+    error.details = {item:id,option:chosen,command:selected.action?.command ?? null};
+  } else if (error.code === 'DECISIONS_ANSWER_INVALID' && error.details?.condition === 'checklist') {
+    error.message = `${error.details.item}: ${error.details.problem}. A terminal asks each one with singularity-flow decisions record.`;
+    error.details = {item:error.details.item};
   }
-  return batches;
+  return error;
 }

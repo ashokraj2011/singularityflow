@@ -49,7 +49,7 @@ export function specification(WORK, value) {
  * once the repository is pushed, and `startArguments` are added to the start command
  * (test/spec-slices.test.mjs publishes a specification and starts with --spec).
  */
-export async function startedSpecificationStory(t, WORK, { configure = null, beforeStart = null, startArguments = [] } = {}) {
+export async function startedSpecificationStory(t, WORK, { configure = null, beforeStart = null, startArguments = [], description = 'Return an approved value.' } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -84,7 +84,7 @@ export async function startedSpecificationStory(t, WORK, { configure = null, bef
   await beforeStart?.({ directory, root, remote, run, git, cli });
 
   cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
-    '--title', 'Validate a value', '--description', 'Return an approved value.', ...startArguments);
+    '--title', 'Validate a value', '--description', description, ...startArguments);
   const item = path.join(root, 'singularity/work-items', WORK);
   return { directory, root, remote, run, git, cli, item };
 }

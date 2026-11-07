@@ -1,0 +1,153 @@
+/** Pure decision answer validation, authority selection and stable plan batching. */
+import {SingularityFlowError} from '../foundation/failures.mjs';
+import {MAX_PLAN_AMENDMENT_CHANGES,DECISION_CAUSE_LIMITS as CAUSE} from './decision-limits.mjs';
+function refused(message, code, details = undefined) {
+  throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
+}
+
+/** The policy data a planner consumes; host commands and display-only authority prose stay out. */
+export function decisionPolicyPacket(packet) {
+  const item = entry => ({id: entry.id, kind: entry.kind, title: entry.title,
+    options: entry.options.map(option => ({id: option.id, label: option.label,
+      recordable: option.recordable !== false, needs: option.needs ?? {}, effects: option.effects ?? [],
+      decidedBy: {allowed: option.decidedBy?.allowed === true, groups: option.decidedBy?.groups ?? []}}))});
+  return {workId: packet.workId, phase: packet.phase ?? null, packetSha256: packet.packetSha256,
+    items: packet.items.map(item), offered: (packet.offered ?? []).map(item)};
+}
+
+export function assertDecisionConfirmation(expected, actual) {
+  if (actual == null) refused('Recording decisions requires confirmation of the exact reviewed list.',
+    'DECISIONS_CONFIRMATION_REQUIRED', {packetSha256: expected});
+  if (typeof actual !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(actual)) {
+    refused('Decision confirmation must be an exact SHA-256 digest.', 'DECISIONS_OPTIONS_INVALID');
+  }
+  if (actual !== expected) refused('The decision list changed after it was reviewed. Review the current list again.',
+    'DECISIONS_PACKET_CHANGED', {expected, confirmed: actual});
+}
+
+function validDate(value, at, latest) {
+  const text = String(value ?? '');
+  const day = /^\d{4}-\d{2}-\d{2}$/u.test(text) ? Date.parse(`${text}T00:00:00.000Z`) : Number.NaN;
+  if (!Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== text) return false;
+  return text > String(at).slice(0, 10) && text <= latest;
+}
+
+export function parseDecisionAnswers({ choose = [], reason = [], expires = [], cause = [], clause = [], article = {} } = {}) {
+  const read = (flag, values) => {
+    const entries = Array.isArray(values) ? values.map((value) => {
+      const text = String(value);
+      const split = text.indexOf('=');
+      if (split < 1) refused(`--${flag} takes <ITEM>=<VALUE>, such as d1=${flag === 'choose' ? 'reuse' : 'TEXT'}; got '${text}'.`, 'DECISIONS_ANSWER_INVALID');
+      return [text.slice(0, split).trim(), text.slice(split + 1)];
+    }) : Object.entries(values ?? {}).map(([item, value]) => [item, String(value)]);
+    const map = new Map();
+    for (const [item, value] of entries) {
+      if (!/^d\d{1,3}$/u.test(item)) refused(`--${flag} names '${item}', which is not an item of the list (d1, d2, ...).`, 'DECISIONS_ANSWER_INVALID');
+      if (map.has(item)) refused(`--${flag} names ${item} twice.`, 'DECISIONS_ANSWER_INVALID');
+      map.set(item, value);
+    }
+    return map;
+  };
+  const articles = new Map();
+  for (const [item, value] of Object.entries(article ?? {})) {
+    if (!/^d\d{1,3}$/u.test(item) || !Array.isArray(value)) refused(`The article answers name '${item}': each item of the list holds a list of { article, decision, reason }.`, 'DECISIONS_ANSWER_INVALID');
+    articles.set(item, value);
+  }
+  return { choose: read('choose', choose), reason: read('reason', reason), expires: read('expires', expires), cause: read('cause', cause), clause: read('clause', clause), article: articles };
+}
+
+function namedClauses(item, text, known) {
+  const named = String(text ?? '').split(/[\s,]+/u).filter(Boolean).map((entry) => {
+    const upper = entry.toUpperCase();
+    return known.find((id) => id === upper || id.endsWith(`:${upper}`)) ?? upper;
+  });
+  if (!named.length) refused(`Name the clauses that carry ${item.id}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
+  const unknown = known.length ? named.filter((id) => !known.includes(id)) : [];
+  if (unknown.length) refused(`${item.id} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'is not a clause' : 'are not clauses'} of this Story. Its clauses: ${known.slice(0, 12).join(', ')}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id, unknown });
+  return [...new Set(named)];
+}
+
+function checkedArticles(item, given, need) {
+  const answers = Array.isArray(given) ? given : [];
+  const problem = need.articles.find(({ id }) => answers.filter((entry) => entry?.article === id).length !== 1)
+    ? 'Answer every checklist article once'
+    : answers.find((entry) => !need.decisions.includes(entry?.decision)) ? `Each article is ${need.decisions.join(', ')}`
+      : answers.find((entry) => entry.decision !== 'satisfied' && !String(entry.reason ?? '').trim()) ? 'An article that is not satisfied needs its own reason'
+        : answers.length !== need.articles.length ? 'Those are not this checklist\'s articles' : null;
+  if (problem) refused(`${item.id}: ${problem}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id, condition: 'checklist', problem });
+  return answers.map(({ article, decision, reason }) => ({ article, decision, ...(decision === 'satisfied' ? {} : { reason: String(reason).trim() }) }));
+}
+
+export function decisionRecordPlan(packet, answers, { at }) {
+  const steps = [];
+  const refusedItems = [];
+  for (const item of [...packet.items, ...(packet.offered ?? [])]) {
+    const chosen = answers.choose.get(item.id);
+    if (!chosen) {
+      for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
+        if (answers[flag]?.has(item.id)) refused(`--${flag} ${item.id}=... is given, but ${item.id} is not chosen with --choose.`, 'DECISIONS_ANSWER_INVALID');
+      }
+      continue;
+    }
+    const selected = item.options.find((entry) => entry.id === chosen);
+    if (!selected) {
+      refused(`${item.id} has no option '${chosen}'; its options are ${item.options.map((entry) => entry.id).join(', ')}.`, 'DECISIONS_ANSWER_INVALID',
+        { item: item.id, options: item.options.map((entry) => entry.id) });
+    }
+    for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
+      if (answers[flag]?.has(item.id) && !selected.needs[flag]) refused(`${item.id}=${chosen} takes no --${flag}.`, 'DECISIONS_ANSWER_INVALID');
+    }
+    if (selected.recordable === false) {
+      refused('This option requires an action and cannot be recorded as a decision.', 'DECISIONS_OPTION_NOT_RECORDABLE', { item: item.id, option: chosen });
+    }
+    if (!selected.decidedBy.allowed) {
+      refusedItems.push({ item: item.id, title: item.title, option: chosen, groups: selected.decidedBy.groups });
+      continue;
+    }
+    const values = {};
+    if (selected.needs.reason) {
+      const reason = String(answers.reason.get(item.id) ?? selected.needs.reason.default).trim();
+      const { minimum, maximum } = selected.needs.reason;
+      if (reason.length < minimum || reason.length > maximum) {
+        refused(`The reason for ${item.id} must be ${minimum} to ${maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
+      }
+      values.reason = reason;
+    }
+    if (selected.needs.cause) {
+      const cause = String(answers.cause.get(item.id) ?? selected.needs.cause.default).trim();
+      if (cause.length < CAUSE.minimum || cause.length > CAUSE.maximum) {
+        refused(`The cause for ${item.id} must be ${CAUSE.minimum} to ${CAUSE.maximum} characters.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
+      }
+      values.cause = cause;
+    }
+    if (selected.needs.expires) {
+      const expires = String(answers.expires.get(item.id) ?? selected.needs.expires.default).trim();
+      if (!validDate(expires, at, selected.needs.expires.latest)) {
+        refused(`The date for ${item.id} must be YYYY-MM-DD, after today and no later than ${selected.needs.expires.latest}.`,
+          'DECISIONS_ANSWER_INVALID', { item: item.id });
+      }
+      values.expires = expires;
+    }
+    if (selected.needs.clause) values.clause = namedClauses(item, answers.clause?.get(item.id), selected.needs.clause.known ?? []);
+    if (selected.needs.article) values.article = checkedArticles(item, answers.article?.get(item.id), selected.needs.article);
+    steps.push({ item: item.id, title: item.title, option: chosen, label: selected.label, values,
+      effects: selected.effects.map((effect) => ({ ...effect })) });
+  }
+  // A route moves the Story on, so everything else on this list is written first.
+  const routes = (step) => step.effects.some((effect) => effect.kind === 'routing');
+  return { steps: [...steps.filter((step) => !routes(step)), ...steps.filter(routes)], refused: refusedItems };
+}
+
+export function planBatches(plan) {
+  const batches = [];
+  const byReason = new Map();
+  for (const step of plan.steps) {
+    const amends = step.effects.length === 1 && step.effects[0].kind === 'plan-amendment';
+    const open = amends ? byReason.get(step.values.reason) : null;
+    if (open && open.length < MAX_PLAN_AMENDMENT_CHANGES) { open.push(step); continue; }
+    const batch = [step];
+    batches.push(batch);
+    if (amends) byReason.set(step.values.reason, batch);
+  }
+  return batches;
+}

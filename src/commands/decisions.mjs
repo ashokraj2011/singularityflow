@@ -311,79 +311,6 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
   };
 }
 
-/** Write one effect with the function its own command uses; returns the record it wrote. */
-async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent }) {
-  if (effect.kind === 'upstream-issue') {
-    const { commitUpstreamIssue } = await import('./upstream-issue.mjs');
-    return commitUpstreamIssue(root, config, workflow, { phase: effect.phase, about: effect.about, problem: effect.problem,
-      assumption: null, impact: null, proposed: 'unknown', source: null, supersedes: null }, { actor, agent });
-  }
-  if (effect.kind === 'evidence-reuse') {
-    const { recordEvidenceReuseDecision } = await import('./decision-evidence-reuse.mjs');
-    return (await recordEvidenceReuseDecision(root, config, workflow, { phaseId: effect.phase, attemptId: effect.attemptId,
-      reason: step.values.reason }, { actor, agent })).record;
-  }
-  if (effect.kind === 'plan-amendment') {
-    const { commitPlanAmendment } = await import('./decision-plan-amendment.mjs');
-    const changes = (effect.changes ?? [effect.change]).map((change) => (change.kind === 'add-supporting' ? { ...change, reason: step.values.reason } : change));
-    return (await commitPlanAmendment(root, config, workflow, { changes, reason: step.values.reason }, { actor, agent })).amendment;
-  }
-  if (effect.kind === 'node-pin') {
-    const { commitNodePin } = await import('./decision-plan-amendment.mjs');
-    return commitNodePin(root, config, workflow, { version: effect.version, replaces: effect.replaces ?? null, reason: step.values.reason }, { actor, agent });
-  }
-  if (effect.kind === 'obligation-risk') {
-    const { commitRiskDecision } = await import('./decision-obligation-risk.mjs');
-    return (await commitRiskDecision(root, config, workflow, { obligationId: effect.obligation, category: effect.category,
-      expires: step.values.expires, reason: step.values.reason }, { actor, agent })).record;
-  }
-  if (effect.kind === 'visual-profile') {
-    const { recordVisualProfileDecisionFor } = await import('./decision-visual-profile.mjs');
-    return (await recordVisualProfileDecisionFor(root, config, workflow, { phaseId: effect.phase, profileId: effect.profileId,
-      reason: step.values.reason }, { actor, agent })).record;
-  }
-  if (['scope-disposition', 'completeness-review', 'applicability', 'routing'].includes(effect.kind)) {
-    const records = await import('./decision-story-records.mjs');
-    if (effect.kind === 'scope-disposition') return (await records.commitScopeDecision(root, config, workflow, { item: effect.item, disposition: effect.disposition,
-      clauseIds: step.values.clause ?? [], reason: step.values.reason }, { actor, agent })).decision;
-    if (effect.kind === 'completeness-review') return (await records.commitCompletenessReview(root, config, workflow, { confirm: effect.inventorySha256,
-      checklist: step.values.article, reason: step.values.reason }, { actor, agent })).review;
-    if (effect.kind === 'applicability') return (await records.commitApplicabilityDecision(root, config, workflow, { responsibility: effect.responsibility,
-      reason: step.values.reason }, { actor, agent })).decision;
-    return (await records.commitRoutingChoice(root, config, workflow, { option: effect.option ?? null, to: effect.to ?? null, reason: step.values.reason, expected: effect.key },
-      { actor, agent })).result.outcome;
-  }
-  if (effect.kind === 'test-command') {
-    const { recordStoryTestCommand } = await import('./decision-test-command.mjs');
-    return (await recordStoryTestCommand(root, config, workflow, { accept: effect.request, reason: step.values.reason ?? '' }, { actor, agent })).record;
-  }
-  if (effect.kind === 'test-narrowing') {
-    const { recordTestNarrowingDecision } = await import('./decision-test-narrowing.mjs');
-    return (await recordTestNarrowingDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,
-      reason: step.values.reason }, { actor, agent })).record;
-  }
-  if (effect.kind === 'test-run-risk') {
-    const { recordTestRunRiskDecision } = await import('./decision-test-risk.mjs');
-    return (await recordTestRunRiskDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,
-      cause: step.values.cause, reason: step.values.reason, expires: step.values.expires }, { actor, agent })).record;
-  }
-  const { decideUpstreamIssueRecord } = await import('./upstream-issue.mjs');
-  const issueId = effect.issue ?? produced.issue;
-  const { value } = await decideUpstreamIssueRecord(root, config, workflow, issueId, { outcome: effect.outcome, reason: step.values.reason,
-    expires: effect.outcome === 'accept-risk' ? step.values.expires : null }, { actor, agent });
-  const { changeRequest, ...decision } = value;
-  return { ...decision, ...(changeRequest ? { changeRequestId: changeRequest.id } : {}) };
-}
-
-function recordId(kind, record) {
-  if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
-  if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
-  if (kind === 'completeness-review') return 'completeness review';
-  if (kind === 'applicability') return `${record?.responsibility} does not apply`;
-  if (kind === 'routing') return `route ${record?.route}`;
-  return record?.id ?? record?.accepts ?? record?.revokes ?? null;
-}
-
 function changedList(packet, confirm, phaseId) {
   refused(`The decision list changed since it was reviewed (it was ${confirm.slice(0, 19)}…, it is ${packet.packetSha256.slice(0, 19)}…). Nothing was recorded. `
     + 'Review the current list and choose again.', 'DECISIONS_PACKET_CHANGED', { packet, packetSha256: packet.packetSha256,
@@ -391,96 +318,82 @@ function changedList(packet, confirm, phaseId) {
 }
 
 async function record(root, options, workId, io) {
-  const { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
-  if (workflow.status !== 'in_progress') {
-    refused(`Story ${workflow.workItem.id} is ${workflow.status}; decisions are recorded while it is in progress.`, 'DECISIONS_STORY_CLOSED');
-  }
-  const phaseId = optionString(options, 'phase') ?? null;
-  const at = nowIso();
-  const packet = await readDecisionPacket(root, config, workflow, { phaseId, at });
-  let answers = await answersFrom(options);
-  let confirm = answers.confirm ?? optionString(options, 'confirm') ?? null;
-  const interactive = !answered(answers) && !confirm && !optionBoolean(options, 'json') && io.input.isTTY === true && io.output.isTTY === true;
-  const { decisionRecordPlan, runDecisionPlan, effectWords } = await import('../decision-list.mjs');
-  let prompt = null;
-  if (interactive) {
-    if (!packet.items.length && !packet.offered?.length) {
-      console.log(packet.headline);
-      return;
-    }
-    prompt = await promptDecisionAnswers(packet, io);
-    if (!prompt) return;
-    answers = prompt.answers;
-  }
-  try {
-    if (!answered(answers)) {
-      refused(`Choose at least one item with --choose ITEM=OPTION. ${packet.headline}`, 'DECISIONS_CHOICE_REQUIRED',
-        { packet, record: packet.record });
-    }
-    // Before the answers are read against this list: an item's number means something else on a changed one.
-    if (confirm && DIGEST.test(confirm) && confirm !== packet.packetSha256) changedList(packet, confirm, phaseId);
-    const plan = decisionRecordPlan(packet, answers, { at });
-    const preview = await previewOf(workflow, packet, plan);
-    if (prompt) {
-      if (!plan.steps.length || !await prompt.confirm(preview.summary)) {
-        console.log('Nothing was recorded.');
-        return;
+  const {createGitEngine}=await import('../engine-compatibility/git-publication.mjs');
+  const binding=createGitEngine({root,decisionInteraction:{async prepare(context) {
+    const {workflow,phaseId,at,packet}=context;
+      let answers = await answersFrom(options);
+      let confirm = answers.confirm ?? optionString(options, 'confirm') ?? null;
+      const interactive = !answered(answers) && !confirm && !optionBoolean(options, 'json') && io.input.isTTY === true && io.output.isTTY === true;
+      const { decisionRecordPlan } = await import('../decision-list.mjs');
+      let prompt = null;
+      if (interactive) {
+        if (!packet.items.length && !packet.offered?.length) {
+          console.log(packet.headline);
+          return {cancelled:true};
+        }
+        prompt = await promptDecisionAnswers(packet, io);
+        if (!prompt) return {cancelled:true};
+        answers = prompt.answers;
       }
-      confirm = packet.packetSha256;
-    }
-    if (!confirm) {
-      refused(`Recording needs the confirmation of the list it was chosen from. Review the summary, then run: ${preview.record?.command ?? packet.record.form}`,
-        'DECISIONS_CONFIRMATION_REQUIRED', { summary: preview.summary, record: preview.record, packetSha256: packet.packetSha256,
-          nextAction: { command: `singularity-flow decisions ${packet.workId}`, skill: '/sf-decide', label: 'Review the decision list and the summary of your choices.' } });
-    }
-    if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest: sha256:<64 hexadecimal characters>.', 'DECISIONS_OPTIONS_INVALID');
-    if (!plan.steps.length) {
-      const only = plan.refused.map((entry) => `${entry.item} (${entry.title}): ${entry.words} Share this with them: ${entry.share}`).join(' ');
-      refused(`Nothing was recorded: you may not decide what you chose. ${only}`, 'DECISIONS_NOT_YOURS', { refused: plan.refused });
-    }
-    const { actionActor } = await import('./kernel.mjs');
-    const { loadSession } = await import('../session.mjs');
-    const actor = actionActor(root);
-    const session = await loadSession(root, { required: false });
-    const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-    const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent }));
-    const recorded = outcome.recorded.map((entry) => ({ item: entry.item, kind: entry.kind, record: recordId(entry.kind, entry.record), value: entry.record }));
-    const remaining = outcome.remaining.map((entry) => ({ item: entry.item, kind: entry.kind, words: effectWords(workflow, entry.effect,
-      plan.steps.find((step) => step.item === entry.item)?.values ?? {}) }));
-    if (outcome.failed) {
-      const error = outcome.failed.error;
-      const list = `singularity-flow decisions ${workflow.workItem.id}`;
-      throw new SingularityFlowError(
-        `${recorded.length ? `Recorded ${recorded.map((entry) => `${entry.item}: ${entry.record}`).join(', ')}; then ` : ''}`
-          + `${outcome.failed.item} stopped: ${error.message} Not recorded: ${remaining.map((entry) => `${entry.item}: ${entry.words}`).join('; ')}. `
-          + `List what remains with: ${list}`,
-        { code: recorded.length ? 'DECISIONS_PARTLY_RECORDED' : error.code ?? 'DECISIONS_RECORD_FAILED',
-          details: { recorded, remaining, failed: { item: outcome.failed.item, kind: outcome.failed.kind, code: error.code ?? null, message: error.message },
-            cause: error.details ?? null, nextAction: { command: list, skill: '/sf-decide', label: 'List what remains to decide.' } } });
-    }
-    const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
-    // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
-    const decided = plan.steps.map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}` }));
-    if (!optionBoolean(options, 'json')) {
-      for (const entry of plan.refused) console.log(`Not recorded: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
-      for (const entry of decided) console.log(`Recorded ${entry.item}, ${entry.words}.`);
-      if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
-    }
-    const next = after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
-      skill: '/sf-decide', rank: 'NOW', kind: 'workflow' }] : [];
-    emitCommandResult(commandResult({
-      operation: { id: 'decisions.record', classification: 'mutation' },
-      subject: { kind: 'story', id: workflow.workItem.id },
-      outcome: succeeded('decisions.record.succeeded', { count: String(plan.steps.length), records: String(recorded.length),
-        refused: String(plan.refused.length) }),
-      effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-      next: next.map((entry) => action(entry)),
-      data: { recorded, decided, refused: plan.refused, remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null,
-        packetSha256: after?.packetSha256 ?? null }
-    }), { json: optionBoolean(options, 'json'), postState: workflow });
-  } finally {
-    prompt?.close();
+      try {
+        if (!answered(answers)) {
+          refused(`Choose at least one item with --choose ITEM=OPTION. ${packet.headline}`, 'DECISIONS_CHOICE_REQUIRED',
+            { packet, record: packet.record });
+        }
+        // Before the answers are read against this list: an item's number means something else on a changed one.
+        if (confirm && DIGEST.test(confirm) && confirm !== packet.packetSha256) changedList(packet, confirm, phaseId);
+        const plan = decisionRecordPlan(packet, answers, { at });
+        const preview = await previewOf(workflow, packet, plan);
+        if (prompt) {
+          if (!plan.steps.length || !await prompt.confirm(preview.summary)) {
+            console.log('Nothing was recorded.');
+            return {cancelled:true};
+          }
+          confirm = packet.packetSha256;
+        }
+        if (!confirm) {
+          refused(`Recording needs the confirmation of the list it was chosen from. Review the summary, then run: ${preview.record?.command ?? packet.record.form}`,
+            'DECISIONS_CONFIRMATION_REQUIRED', { summary: preview.summary, record: preview.record, packetSha256: packet.packetSha256,
+              nextAction: { command: `singularity-flow decisions ${packet.workId}`, skill: '/sf-decide', label: 'Review the decision list and the summary of your choices.' } });
+        }
+        if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest: sha256:<64 hexadecimal characters>.', 'DECISIONS_OPTIONS_INVALID');
+        if (!plan.steps.length) {
+          const only = plan.refused.map((entry) => `${entry.item} (${entry.title}): ${entry.words} Share this with them: ${entry.share}`).join(' ');
+          refused(`Nothing was recorded: you may not decide what you chose. ${only}`, 'DECISIONS_NOT_YOURS', { refused: plan.refused });
+        }
+        return {answers,confirmation:confirm};
+      } finally {
+        prompt?.close();
+      }
+
+  }}});
+  const receipt=await binding.engine.run('decisions.record',{workId,
+    phaseId:optionString(options,'phase') ?? null,fetch:optionBoolean(options,'fetch')});
+  if(receipt.status==='not-recorded')return;
+  const context=binding.presentation();
+  const {workflow,legacyPlan:plan,after}=context;
+  const {effectWords}=await import('../decision-list.mjs');
+  const decided=plan.steps.map(step=>({item:step.item,words:`${step.label}: ${step.effects.map(effect=>effectWords(workflow,effect,step.values)).join('; then ')}`}));
+  context.decided=decided;
+  if(!optionBoolean(options,'json')) {
+    for(const entry of plan.refused)console.log(`Not recorded: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
+    for(const entry of decided)console.log(`Recorded ${entry.item}, ${entry.words}.`);
+    if(after)console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
   }
+  emitCommandResult(decisionRecordingCommandResult(receipt,context),{json:optionBoolean(options,'json'),postState:workflow});
+}
+
+/** Existing CLI wire projection of the actual registered decision outcome. */
+export function decisionRecordingCommandResult(receipt,context) {
+  const {legacyPlan:plan,after,decided}=context;
+  const next=after?.items.length ? [{id:'decision-list',label:after.headline,
+    command:`singularity-flow decisions ${receipt.subject.id}`,skill:'/sf-decide',rank:'NOW',kind:'workflow'}] : [];
+  return commandResult({
+    operation:{id:'decisions.record',classification:'mutation'},subject:receipt.subject,
+    outcome:succeeded('decisions.record.succeeded',{count:String(plan.steps.length),records:String(receipt.effects.recordedEntries),refused:String(plan.refused.length)}),
+    effects:effects({stateChanged:true,filesChanged:true,publicationCreated:true}),next:next.map(entry=>action(entry)),
+    data:{recorded:receipt.recorded,decided,refused:plan.refused,remaining:receipt.remaining,packetSha256:receipt.packetSha256}
+  });
 }
 
 async function show(root, options, workId) {

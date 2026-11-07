@@ -552,6 +552,8 @@ test('extracted legacy helpers remain part of the development build identity', a
     assert.ok(identity.includes(`'${helper}'`), `${helper} no longer invalidates a pre-extraction build receipt`);
   }
   for (const owner of ['engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/publication-intent.mjs',
+    'kernel/decision-plan.mjs','kernel/decision-limits.mjs','engine-sdk/decision-execution.mjs',
+    'engine-compatibility/git-decisions.mjs','decision-list.mjs','plan-amendments.mjs','commands/decisions.mjs',
     'kernel/decision-inputs.mjs', 'kernel/submission-intent.mjs', 'engine-compatibility/git-submission.mjs',
     'engine-compatibility/submission-transition.mjs',
     'kernel/approval-policy.mjs', 'kernel/approval-fallback.mjs', 'engine-compatibility/decision-context.mjs',

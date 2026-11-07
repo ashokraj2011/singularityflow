@@ -19,32 +19,16 @@ test('durable writer literals outside the registry fail', () => {
   assert.match(violations[0].message, /currentSchemaVersion/);
 });
 
-test('only the registered frozen v1 world-model view contract may use its shared durable constant', () => {
+test('the legacy view constant is an alias of the shared owner; duplicate durable literals are refused', () => {
   const file = 'src/world-model/view-contract-schema-version.mjs';
+  const alias = "export { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from '../foundation/record-schema.mjs';\n";
+  assert.deepEqual(schemaMigrationLint(new Map([[file, alias]])), []);
   const declaration = 'export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = 1;\n';
-  const migration = [
-    "import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './world-model/view-contract-schema-version.mjs';",
-    "family({ id: 'world-model-view-contract', currentVersion: WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, immutable: true, migrationPolicy: 'frozen-identity' });"
-  ].join('\n');
-  const sources = (name = file, text = declaration, registry = migration) => new Map([
-    ['src/schema-migrations.mjs', registry], [name, text]
-  ]);
-
-  assert.deepEqual(schemaMigrationLint(sources()), []);
-  for (const [name, text, registry] of [
-    ['src/other-view-contract-schema-version.mjs', declaration, migration],
-    [file, 'export const OTHER_FAMILY_SCHEMA_VERSION = 1;\n', migration],
-    [file, 'export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = 2;\n', migration],
-    [file, declaration, migration.replace("'frozen-identity'", "'migrate-on-read'")],
-    [file, declaration, migration.replace("'world-model-view-contract'", "'other-family'")]
-  ]) {
-    const violations = schemaMigrationLint(sources(name, text, registry));
-    assert.equal(violations.length, 1, `${name}: ${text.trim()}`);
-    assert.match(violations[0].message, /durable schema constants/);
+  for (const name of [file, 'src/other-view-contract-schema-version.mjs']) {
+    assert.match(schemaMigrationLint(new Map([[name, declaration]]))[0].message, /durable schema constants/);
   }
-
   const ordinary = schemaMigrationLint(new Map([
-    ...sources(),
+    [file, alias],
     ['src/ordinary-family.mjs', 'export const ORDINARY_SCHEMA_VERSION = 1;\n'],
     ['src/ordinary-writer.mjs', 'await writeJson(file, { schemaVersion: 1 });\n']
   ]));
@@ -73,6 +57,16 @@ test('registry-owned version branching is accepted', () => {
   assert.deepEqual(schemaMigrationLint(new Map([
     ['src/schema-migrations.mjs', 'if (record.schemaVersion > family.currentVersion) refuse();\n']
   ])), []);
+});
+
+test('the extracted pure version-admission owner is allowed while concrete storage readers still fail', () => {
+  const source = 'if (record.schemaVersion > entry.maximumReadableVersion) refuse();\n';
+  assert.deepEqual(schemaMigrationLint(new Map([['src/foundation/record-schema.mjs', source]])), []);
+  for (const file of ['src/sda/filesystem-namespace-journal.mjs', 'src/sda/namespace/storage-schemas.mjs']) {
+    const result = schemaMigrationLint(new Map([[file, source]]));
+    assert.equal(result.length, 1);
+    assert.match(result[0].message, /branching belongs/);
+  }
 });
 
 test('with no registered historical reader left, a file enforcing its own frozen version is refused', () => {

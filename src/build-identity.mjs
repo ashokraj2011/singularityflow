@@ -15,6 +15,7 @@ import { versionLine } from './build-info.mjs';
 
 const DECIDING_MODULES = Object.freeze([
   'cli.mjs', 'capability-start.mjs', 'configuration-branch.mjs', 'story-intake-receipt.mjs',
+  'schema-migrations.mjs', 'foundation/record-schema.mjs', 'foundation/failures.mjs',
   'story-intake-verification.mjs', 'build-info.mjs', 'version.mjs',
   'configuration-state-service.mjs', 'configuration-state-git.mjs', 'configuration-proposal.mjs',
   'configuration-definition-cache.mjs', 'configuration-object-store.mjs',

@@ -420,6 +420,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
   // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
   assert.ok(root.bytes <= 858_820, `root dispatch loads ${root.bytes} source bytes`);
+  assert.equal(root.files.has(path.join(sourceRoot, 'schema-migrations.mjs')), false,
+    'stamping command timings must not eagerly load every durable migration');
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -553,7 +555,8 @@ test('extracted legacy helpers remain part of the development build identity', a
   for (const helper of helpers) {
     assert.ok(identity.includes(`'${helper}'`), `${helper} no longer invalidates a pre-extraction build receipt`);
   }
-  for (const owner of ['engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/publication-intent.mjs',
+  for (const owner of ['schema-migrations.mjs', 'foundation/record-schema.mjs', 'foundation/failures.mjs',
+    'engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/publication-intent.mjs',
     'kernel/decision-plan.mjs','kernel/decision-limits.mjs','engine-sdk/decision-execution.mjs',
     'engine-compatibility/git-decisions.mjs','decision-list.mjs','plan-amendments.mjs','commands/decisions.mjs',
     'engine-compatibility/git-decision-record.mjs','commands/decision-record.mjs',

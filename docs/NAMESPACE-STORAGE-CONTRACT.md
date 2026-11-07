@@ -5,8 +5,10 @@ reusable conformance suite. Its internal source entry is `src/sda/namespace/inde
 is `sda-namespace-store/draft-1`. It is not a public package export or an installed authority.
 
 Existing shared-state/lifecycle SDA v1 contracts, CLI routes, Git writes, configuration authority,
-Story branches, hashes and records are unchanged. The only implementation in this phase is under
+Story branches, hashes and records are unchanged. The Phase 2 reference implementation is under
 `test/helpers/namespace-memory-adapter.mjs`, declares `test-only`, and is excluded from distribution.
+The later [filesystem backend](FILESYSTEM-NAMESPACE-ADAPTER.md) reuses these contracts for explicitly
+created stores; it does not select a backend for an existing Git project.
 
 ## Scope, namespace and binding
 

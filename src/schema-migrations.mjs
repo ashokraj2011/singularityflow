@@ -6,8 +6,9 @@
  * functions in this module deliberately have no access to I/O, clocks, Git, or model runners.
  */
 import { recordSha256 } from './records.mjs';
-import { SingularityFlowError } from './util.mjs';
-import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './world-model/view-contract-schema-version.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
+import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, COMMAND_TIMING_SCHEMA,
+  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './foundation/record-schema.mjs';
 
 function plainObject(value) {
   if (value == null || typeof value !== 'object' || Array.isArray(value) || value instanceof Uint8Array) return false;
@@ -3396,7 +3397,7 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
   }),
   family({
-    id: 'dx-command-timing', currentVersion: 6,
+    id: COMMAND_TIMING_SCHEMA.id, currentVersion: COMMAND_TIMING_SCHEMA.currentVersion,
     steps: [
       migration(1, 2, dxCommandTimingV1ToV2),
       migration(2, 3, dxCommandTimingV2ToV3),
@@ -4008,7 +4009,8 @@ const families = [
     paths: [/^singularity\/ledger\/.+\.json$/, /^\$state\/ledger\/.+\.json$/],
     immutable: true, migrationPolicy: 'frozen-identity'
   }),
-  family({ id: 'ledger-archive-manifest', currentVersion: 1, immutable: true })
+  family({ id: 'ledger-archive-manifest', currentVersion: 1, immutable: true }),
+  ...Object.values(NAMESPACE_STORAGE_SCHEMAS).map(entry => family(entry))
 ];
 
 for (const entry of families) {
@@ -4087,28 +4089,7 @@ function parsedRecord(rawBytes) {
  */
 export function readRecord(familyId, rawBytes) {
   const entry = schemaFamily(familyId);
-  let record = parsedRecord(rawBytes);
-  const storedVersion = Number.isInteger(record.schemaVersion) && record.schemaVersion > 0
-    ? record.schemaVersion
-    : entry.unversionedAs;
-  if (storedVersion != null && record.schemaVersion == null) record = { ...record, schemaVersion: storedVersion };
-  if (!Number.isInteger(storedVersion) || storedVersion < 1) {
-    throw new SingularityFlowError(`Durable record '${familyId}' has no valid schemaVersion.`, {
-      code: 'SCHEMA_VERSION_MISSING', details: { family: familyId, received: storedVersion ?? null }
-    });
-  }
-  if (storedVersion > entry.maximumReadableVersion) {
-    throw new SingularityFlowError(
-      `Durable record '${familyId}' is stored at schema version ${storedVersion} (v${storedVersion}), above this build's readable range v${entry.minimumReadableVersion}–v${entry.maximumReadableVersion}; it was written by a newer sflow — upgrade to read it.`,
-      { code: 'SCHEMA_VERSION_FUTURE', details: { family: familyId, storedVersion, readable: { minimum: entry.minimumReadableVersion, maximum: entry.maximumReadableVersion } } }
-    );
-  }
-  if (storedVersion < entry.minimumReadableVersion) {
-    throw new SingularityFlowError(
-      `Durable record '${familyId}' is stored at schema version ${storedVersion} (v${storedVersion}), below this build's readable range v${entry.minimumReadableVersion}–v${entry.maximumReadableVersion}; use the archival reader for that release or a republication with recorded lineage.`,
-      { code: 'SCHEMA_VERSION_ARCHIVED', details: { family: familyId, storedVersion, readable: { minimum: entry.minimumReadableVersion, maximum: entry.maximumReadableVersion } } }
-    );
-  }
+  let { record, storedVersion } = admitRecordSchemaVersion(entry, parsedRecord(rawBytes));
   const migratedThrough = [];
   const steps = new Map(entry.steps.map((step) => [step.from, step]));
   for (let version = storedVersion; version < entry.currentVersion; version += 1) {

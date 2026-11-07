@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir } from './git-execution.mjs';
-import { currentSchemaVersion } from './schema-migrations.mjs';
+import { COMMAND_TIMING_SCHEMA } from './foundation/record-schema.mjs';
 export {
   incrementCommandCounter, markCommandFeedback, measureCommandSpan, withCommandTiming
 } from './dx-timing-context.mjs';
@@ -50,7 +50,7 @@ export function commandTimer(command, input = {}) {
     trace: options.trace ?? null,
     startEvent() {
       return {
-        schemaVersion: currentSchemaVersion('dx-command-timing'),
+        schemaVersion: COMMAND_TIMING_SCHEMA.currentVersion,
         event: 'dx.command-start', invocationId,
         commandClass: options.commandClass ?? 'unknown', command,
         operationId: options.operationId ?? null,
@@ -109,7 +109,7 @@ export function commandTimer(command, input = {}) {
       const ended = clock();
       const completedAt = new Date(wallClock()).toISOString();
       return {
-        schemaVersion: currentSchemaVersion('dx-command-timing'),
+        schemaVersion: COMMAND_TIMING_SCHEMA.currentVersion,
         event: 'dx.command-timing',
         invocationId,
         commandClass: options.commandClass ?? 'unknown',

@@ -44,11 +44,12 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
   }
 });
 
-test('only the explicit Git compatibility boundary may consume namespace contracts outside their pure directory', async () => {
+test('only explicit storage adapters consume namespace contracts outside their pure directory', async () => {
   const directory = path.join(packageRoot, 'src/sda/namespace') + path.sep;
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
+  const namespaceAdapters = new Set(['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -60,13 +61,32 @@ test('only the explicit Git compatibility boundary may consume namespace contrac
       if (specifier && ts.isStringLiteralLike(specifier) && specifier.text.startsWith('.')) {
         const target = path.resolve(path.dirname(absolute), specifier.text);
         if ((target.startsWith(directory) || [...compatibility].some(file => target === path.join(packageRoot, file)))
-          && !compatibility.has(relative)) violations.push(relative);
+          && !compatibility.has(relative) && !namespaceAdapters.has(relative)) violations.push(relative);
       }
       ts.forEachChild(node, visit);
     };
     visit(source);
   }
-  assert.deepEqual(violations, [], 'namespace contracts and the compatibility facade must not change existing production routing');
+  assert.deepEqual(violations, [], 'new namespace backends must not change installed Git routing');
+});
+
+test('the filesystem namespace backend does not import lifecycle, Git, command or approval owners', async () => {
+  const owners = ['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs'];
+  for (const owner of owners) {
+    const source = ts.createSourceFile(owner, await readFile(path.join(packageRoot, owner), 'utf8'), ts.ScriptTarget.Latest, true);
+    const visit = node => {
+      const specifier = (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ? node.moduleSpecifier
+        : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword ? node.arguments[0] : null;
+      if (specifier) {
+        assert.equal(ts.isStringLiteralLike(specifier), true);
+        const name = specifier.text;
+        assert.ok(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path'].includes(name)
+          || name.startsWith('./namespace/') || name === './filesystem-namespace-journal.mjs', `${owner}: ${name}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
 });
 
 test('Git compatibility composes existing owners without introducing another persistence or authorization path', async () => {

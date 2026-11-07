@@ -43,9 +43,10 @@ several repositories; a Story records its repository participants and their sour
 Stories pin the configuration closure they started with. Updating approved configuration affects
 future Stories; an active Story changes its binding only through an explicit recorded operation.
 
-The proposed store supports `read`, bounded snapshot `list`, `transact`, operation inspection,
-integrity verification and snapshot export. Its contract remains a draft until the next phase's
-conformance fixtures settle the exact names and shapes. It must preserve:
+The initial [namespace-store draft](NAMESPACE-STORAGE-CONTRACT.md) implements `read`, bounded
+snapshot `list`, `transact`, operation inspection and integrity verification contracts. Snapshot
+export/restore is a subsequent extension. This draft is exercised by conformance fixtures and
+remains separate from installed production authority. It preserves:
 
 - opaque revisions and explicit absent-record preconditions;
 - conditional acceptance, without overwriting a moved revision;
@@ -69,7 +70,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 |---|---|---|
 | 0 | Baseline the first extraction and identify existing ownership and compatibility contracts | First component baseline captured; the operation inventory grows with each later slice |
 | 1 | Pure shared errors/outcomes, compatibility exports and transitive import guards | Implemented; qualification recorded below |
-| 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Next; no production adapter selected by a draft contract |
+| 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Planned; existing records and authority stay intact |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Planned; one chosen transport per surface operation |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | Planned; extract each operation's rules alongside its orchestration |
@@ -152,3 +153,28 @@ The first delivery's local qualification passed:
   are included in the distributable package.
 
 This is component qualification rather than the full product suite or an alternate-backend rollout.
+
+## Phase 2 qualification
+
+The namespace contract is implemented independently in `src/sda/namespace/`. Its reference adapter
+is test-only, lives under `test/helpers/`, and is excluded from the npm distribution. It has no
+production registration, no CLI entry and no installed authority selection path. Existing
+production modules, SDA v1 contracts, Git/configuration stores and dependency locks are unchanged.
+
+Mac qualification on Node 26.12.0 passed 147 focused tests with zero failures or skips. This includes
+39 namespace contract/conformance tests, the existing Git ledger and lifecycle conformance cases,
+and the Phase 1 regression set. Architecture guards now check the namespace contracts' complete
+dependency closure and prevent production consumers from wiring this draft in prematurely.
+
+Additional checks passed: `npm run check` (3,518 checks), `npm run vscode:typecheck`, all 13 unchanged
+VS Code bundle budgets, and npm dry-run package inclusion/exclusion. The runtime bundles have the
+same bytes and module counts as Phase 1. No Windows, hosted CI or live model runs were started.
+
+Fast contract-only reproduction from the repository root:
+
+```sh
+node --test test/sda-namespace-contract.test.mjs test/sda-namespace-conformance.test.mjs
+```
+
+The next delivery is the Git compatibility adapter. Production admission and any future authority
+cutover remain explicitly separate from this draft and its in-process reference tests.

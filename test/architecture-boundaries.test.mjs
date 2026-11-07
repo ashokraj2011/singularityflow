@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import ts from 'typescript';
 import { inspectPureModuleGraph } from './helpers/pure-module-graph.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,14 +26,36 @@ async function sourceFiles(directory) {
 test('the shared foundation and SDA contracts have no infrastructure dependency closure', async () => {
   const foundation = await sourceFiles('src/foundation');
   const contracts = ['src/sda/shared-state-contract.mjs', 'src/sda/lifecycle-authority-contract.mjs'];
+  const namespaces = await sourceFiles('src/sda/namespace');
   for (const rule of [
     { entries: foundation, allowed: foundation },
-    { entries: contracts, allowed: [...foundation, ...contracts] }
+    { entries: contracts, allowed: [...foundation, ...contracts] },
+    { entries: namespaces, allowed: [...foundation, ...namespaces] }
   ]) {
     const report = await inspectPureModuleGraph({ root: packageRoot, ...rule });
     assert.deepEqual(report.problems, [],
       'foundation must not depend on SDA; contracts may use foundation, without host I/O or computed imports');
   }
+});
+
+test('namespace draft contracts are not wired into existing production operations', async () => {
+  const directory = path.join(packageRoot, 'src/sda/namespace') + path.sep;
+  const violations = [];
+  for (const relative of await sourceFiles('src')) {
+    const absolute = path.join(packageRoot, relative);
+    if (absolute.startsWith(directory)) continue;
+    const source = ts.createSourceFile(relative, await readFile(absolute, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const visit = node => {
+      const specifier = (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ? node.moduleSpecifier
+        : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword ? node.arguments[0] : null;
+      if (specifier && ts.isStringLiteralLike(specifier) && specifier.text.startsWith('.')) {
+        if (path.resolve(path.dirname(absolute), specifier.text).startsWith(directory)) violations.push(relative);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  assert.deepEqual(violations, [], 'Phase 2 adds contract definitions and fixtures; production wiring belongs to a later qualified adapter phase');
 });
 
 test('application surfaces cannot bypass the revisioned state-store boundary', async () => {

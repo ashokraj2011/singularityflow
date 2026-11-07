@@ -52,7 +52,7 @@ check or assert that its local observations were rolled back.
 
 This delivery preserves the installed Story-branch lifecycle authority, state proof/projection
 and approved configuration authority. It adds no storage cutover or alternate writer. Native
-finding collection, preparation and rollover remain explicit compatibility dependencies; the
+finding collection, preparation and generation recovery remain explicit compatibility dependencies; the
 [migration plan](ENGINE-SDK-MIGRATION.md) retains their complete remaining scope.
 
 ## Local qualification

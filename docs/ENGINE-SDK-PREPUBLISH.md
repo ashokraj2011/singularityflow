@@ -62,8 +62,9 @@ continuation wording and runtime attempt identifiers.
 ## Remaining scope
 
 [Draft-check](ENGINE-SDK-DRAFT-CHECK.md) now shares registered inspection coordination and finding
-policy, while keeping authored-draft health distinct from publication admission. Preparation and
-rollover still need registered coordination. Native finding
+policy, while keeping authored-draft health distinct from publication admission.
+[Reviewed rollover](ENGINE-SDK-GENERATION-ROLLOVER.md) also uses registered coordination;
+preparation remains. Native finding
 collection, storage and full repair orchestration retain explicit compatibility dependencies.
 This operation does not finish their extraction, authorize an alternate backend or migrate an
 existing project. Filesystem/database adapters, headless packaging/resume, verified authority

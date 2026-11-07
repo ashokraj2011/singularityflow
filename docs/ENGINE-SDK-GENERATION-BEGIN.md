@@ -57,8 +57,9 @@ are not added to either legacy envelope. Source and bundled CLI routes use the r
 
 ## Remaining scope
 
-Preparation, rollover, draft checks/prepublish and the remaining native policy helpers still need
-their own extractions. This operation adds no arbitrary storage writes, new Git layout, authority
+[Reviewed rollover](ENGINE-SDK-GENERATION-ROLLOVER.md), draft-check and prepublish now use their
+registered operations. Preparation and the remaining native policy helpers still need their own
+extractions. This operation adds no arbitrary storage writes, new Git layout, authority
 cutover, alternate backend or standalone SDK package. The full scope remains in the
 [migration plan](ENGINE-SDK-MIGRATION.md).
 

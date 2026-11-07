@@ -9,6 +9,7 @@ import {recoveryActionGuidance} from '../recovery-action-guidance.mjs';
 import {measureCommandSpan} from '../dx-timing-context.mjs';
 import {withoutReadScope} from '../read-scope.mjs';
 import {withoutConfigurationReadScope} from '../configuration-read-scope.mjs';
+import {nextPhaseGeneration} from '../kernel/phase-policy.mjs';
 
 export function createGitPhaseEntryPort({root=null,cwd=process.cwd(),modelEnabled=true,onContext=()=>{}}={}) {
   let owner;
@@ -82,10 +83,13 @@ export function createGitPhaseEntryEngine({root=null,cwd=process.cwd(),modelEnab
 }
 
 /** Local authoring boundary, using the installed admission and crash-recovery transaction. */
-export function createGitPhaseBeginPort({root,onContext=()=>{}}) {
-  const facts=(context,binding)=>({workId:binding.workId,phase:binding.phase,generation:binding.generation,
+function generationIntentFacts(context,binding) {
+  return {workId:binding.workId,phase:binding.phase,generation:binding.generation,
     intent:{id:context.result.id,sha256:context.result.receiptSha256,
-      baselineCommit:context.result.baseline?.commit,status:context.result.status}});
+      baselineCommit:context.result.baseline?.commit,status:context.result.status}};
+}
+
+export function createGitPhaseBeginPort({root,onContext=()=>{}}) {
   return {
     async load(inputs) {
       const {loadAcceptedStoryExecution}=await import('../accepted-story-execution.mjs');
@@ -97,7 +101,7 @@ export function createGitPhaseBeginPort({root,onContext=()=>{}}) {
       context.phase=context.workflow.phases[binding.phase];
       await verifyOpenGenerationIntent(root,context.workflow,context.phase);
       context.result=context.phase.generationIntent;context.retained=true;
-      return facts(context,binding);
+      return generationIntentFacts(context,binding);
     },
     async begin(context,binding,inputs) {
       const {beginPhaseGeneration,saveStoryDraft}=await import('../state-stores.mjs');
@@ -112,7 +116,7 @@ export function createGitPhaseBeginPort({root,onContext=()=>{}}) {
         await verifyOpenGenerationIntent(root,context.workflow,context.phase);
         return opened;
       });
-      context.retained=false;return facts(context,binding);
+      context.retained=false;return generationIntentFacts(context,binding);
     }
   };
 }
@@ -209,4 +213,71 @@ export function createGitPhasePrepublishEngine({root,authoringAgent=false}={}) {
 
 export function createGitPhaseDraftCheckEngine({root,authoringAgent=false}={}) {
   return createGitPhaseCheckEngine({root,authoringAgent,kind:'draft-check'});
+}
+
+/** Exact native successor preview and local transaction; the SDK never receives command prose. */
+export function createGitPhaseRolloverPort({root,onContext=()=>{}}) {
+  return {
+    async load(inputs) {
+      const {loadAcceptedStoryExecution}=await import('../accepted-story-execution.mjs');
+      const accepted=await loadAcceptedStoryExecution(root,inputs.workId??null);
+      const context={root,config:accepted.definition,workflow:accepted.workflow};onContext(context);return context;
+    },
+    async inspect(context,binding,inputs) {
+      const {generationRecovery}=await import('../recovery-plan.mjs');
+      const {generationResultMatches,generationResultDigest}=await import('../state-stores.mjs');
+      const {safeCommandGuidance}=await import('../safe-command-guidance.mjs');
+      const {config,workflow}=context,phase=workflow.phases[binding.phase];context.phase=phase;
+      const plan=await generationRecovery(root,workflow,phase,async(repositoryRoot,selectedPhase)=>
+        await generationResultMatches(repositoryRoot,config,workflow,selectedPhase)
+          ?selectedPhase.generationIntent.publication.resultDigest
+          :generationResultDigest(repositoryRoot,config,workflow,selectedPhase));
+      if(plan?.action.id===`return-submitted-generation:${phase.id}`)throw new SingularityFlowError(
+        'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
+        {code:'GENERATION_ROLLOVER_REVIEW_REQUIRED',details:{actions:[plan.action]}});
+      if(!plan||plan.action.mode==='manual'||!plan.action.command)throw new SingularityFlowError(
+        plan?.action.detail??`Phase '${binding.phase}' has no changed consumed generation to roll over.`,
+        {code:'GENERATION_ROLLOVER_UNAVAILABLE',details:plan??null});
+      const route=safeCommandGuidance(plan.action);
+      if(!route)throw new SingularityFlowError(
+        'The reviewed rollover action has no validated Shell and Copilot route. Re-run recovery before changing state.',
+        {code:'GENERATION_ROLLOVER_ROUTE_UNAVAILABLE',details:{action:plan.action}});
+      const preview={schemaVersion:1,workId:workflow.workItem.id,phase:phase.id,
+        fromGeneration:phase.generation,toGeneration:nextPhaseGeneration(phase),
+        confirmation:plan.blocker.details.rolloverConfirmation,changeSetDigest:plan.blocker.details.changeSetDigest,
+        currentResultDigest:plan.blocker.details.currentResultDigest,
+        command:route.command,executable:route.executable,argv:route.argv,skill:route.skill,
+        copilotCommand:route.copilotCommand,platformCommands:route.platformCommands,mutates:Boolean(inputs.confirm)};
+      Object.assign(context,{plan,route,preview});
+      return {workId:preview.workId,phase:preview.phase,fromGeneration:Number(preview.fromGeneration),
+        toGeneration:preview.toGeneration,confirmation:preview.confirmation,
+        changeSetDigest:preview.changeSetDigest,currentResultDigest:preview.currentResultDigest};
+    },
+    async begin(context,binding,plan) {
+      const {beginPhaseGeneration,saveStoryDraft}=await import('../state-stores.mjs');
+      const {verifyOpenGenerationIntent}=await import('../generation-boundary.mjs');
+      const {storyDraftTransaction}=await import('./story-draft-transaction.mjs');
+      const {config,workflow,phase}=context;
+      context.result=await storyDraftTransaction(root,config,workflow,`phase-rollover:${binding.phase}`,async()=>{
+        const opened=await beginPhaseGeneration(root,config,workflow,{
+          phaseId:binding.phase,adoptExisting:Boolean(plan.changeSetDigest),confirm:plan.changeSetDigest
+        });
+        await saveStoryDraft(root,config,workflow);
+        await verifyOpenGenerationIntent(root,workflow,phase);
+        return opened;
+      });
+      return generationIntentFacts(context,binding);
+    }
+  };
+}
+
+export function createGitPhaseRolloverEngine({root}={}) {
+  if(typeof root!=='string'||!path.isAbsolute(root))throw new SingularityFlowError(
+    'Git generation rollover requires an explicit absolute checkout root.',{code:'ENGINE_INPUT_INVALID'});
+  let context;
+  const phaseRollover=createGitPhaseRolloverPort({root,onContext:value=>{context=value;}});
+  const engine=createEngine({ports:{phaseRollover,invocation:{
+    run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
+  }}});
+  return Object.freeze({engine,presentation:()=>context});
 }

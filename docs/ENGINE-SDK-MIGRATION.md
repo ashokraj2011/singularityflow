@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin, draft and prepublication inspection, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and preparation/rollover admission remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, draft and prepublication inspection, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and preparation admission remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -109,6 +109,10 @@ remain explicit without becoming publication blockers.
 The [draft inspection](ENGINE-SDK-DRAFT-CHECK.md) shares that inspection boundary and pure finding
 rules. Its ready result describes authored-draft health, not publication admission; final worktree,
 test and transaction checks stay with prepublish and publication.
+
+The [reviewed rollover operation](ENGINE-SDK-GENERATION-ROLLOVER.md) previews exact changed bytes
+and opens a local successor only for the matching current digest. Submitted generations retain
+their authorized-rejection requirement; the installed publication remains immutable.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -792,4 +796,39 @@ hosted CI, live provider, merge, push or real-project migration ran.
 Preparation/rollover, remaining queries and portable asset/native-policy extraction remain in
 Phase 5. Phases 6–9 retain their full filesystem/database adapter, headless package/resume,
 verified authority cutover and final removal/distribution/performance scope. This draft-check
+delivery does not complete or narrow those remaining milestones.
+
+## Phase 5 reviewed generation-rollover delivery
+
+`phase.rollover` coordinates a native preview and confirmed local successor through the registry.
+The kernel captures the selected Story/generations, validates the stripped digest plan and refuses
+a stale confirmation before any authoring write. Native recovery planning still authenticates
+the previous publication and routes submitted generations to authorized rejection. Previewing
+does not grant edit authority, record human evidence or approve a phase. Confirmed begin retains
+the installed draft transaction, source/protected-path checks, receipts and immutable publication.
+
+The phase CLI no longer imports accepted-Story loading or generation/draft writers. It renders
+the native preview and creation response and retains the existing filtered refusal envelope.
+The SDK returns semantic identities/digests and local-effect facts without command strings or
+model prose. Native errors keep identity, code, cause and recovery; interruption diagnostics
+never mask frozen errors, retry an unknown effect or assert rollback. Existing local begin,
+draft inspection and prepublish still agree across their source, bundled and SDK paths.
+
+Mac qualification on Node 26.12.0 passes 271 focused checks across 13 files with no failures,
+cancellations or skips. It covers genuine SDK/CLI rollover parity, changed current digests,
+native publication/recovery faults, submitted-generation refusal, test-command successors,
+mutation guards and unchanged published generation/index. Refusal checks preserve the existing
+presenter's public contract. Production refusal and rendering meanings are preserved; creation
+rendering retains its 57 syntax tokens.
+
+`npm run check` passes 3,628 checks. VS Code typechecking, all 13 unchanged bundle budgets,
+Git ownership audit (2,010 existing sites), npm dry-run packaging and whitespace checks pass.
+The pure SDK remains 17 modules / 215,956 input bytes with zero external imports. The gateway
+remains 851 modules / 6,744,101 bytes; no ceiling is raised. Packaging contains 9,483 files and
+excludes tests. All machine state and Git repositories/remotes are isolated fixtures. No Windows,
+hosted CI, live provider, merge, push or real-project authority migration ran.
+
+Phase 5 still includes preparation, remaining queries, portable asset inventory and native policy
+extraction. Phases 6–9 retain their full filesystem/database adapter, headless package/resume,
+verified authority cutover and final removal/distribution/performance scope. This local rollover
 delivery does not complete or narrow those remaining milestones.

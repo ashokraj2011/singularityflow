@@ -23,6 +23,7 @@ export function createSflow({ root = repoRoot(), faultRepairPolicy = {}, executi
     notifications: async () => (await native()).notifications(),
     run: executeOperation, publishPhase: (inputs, options) => executeOperation('phase.publish', inputs, options),
     beginPhase: (inputs, options) => executeOperation('phase.begin', inputs, options),
+    rolloverPhase: (inputs, options) => executeOperation('phase.rollover', inputs, options),
     prepublishPhase: (inputs, options) => executeOperation('phase.prepublish', inputs, options),
     draftCheckPhase: (inputs, options) => executeOperation('phase.draft-check', inputs, options),
     submitPhase: (inputs, options) => executeOperation('phase.submit', inputs, options),

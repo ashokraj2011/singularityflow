@@ -267,6 +267,15 @@ test('draft-check host uses registry inspection and shares the installed pure dr
   assert.doesNotMatch(host,/import \{ phaseDraftCheck \} from/u);
 });
 
+test('rollover host delegates inspection and mutation to the registry, retaining only command projection',async()=>{
+  const host=await readFile(path.join(packageRoot,'src/commands/phase-lifecycle.mjs'),'utf8');
+  const source=ts.createSourceFile('phase-lifecycle.mjs',host,ts.ScriptTarget.Latest,true);
+  const rollover=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='phaseRolloverCommand');
+  assert.ok(rollover);assert.match(rollover.getText(source),/\.engine\.run\('phase\.rollover'/u);
+  assert.doesNotMatch(host,/\b(loadAcceptedStoryExecution|generationRecovery|beginPhaseGeneration|saveStoryDraft|storyDraftTransaction|verifyOpenGenerationIntent)\s*\(/u);
+  assert.doesNotMatch(host,/import.*(?:state-stores|generation-boundary|accepted-story-execution)\.mjs/u);
+});
+
 test('native transition extraction keeps every operation binding declared',async()=>{
   const files=[...await sourceFiles('src/engine-compatibility'),...await sourceFiles('src/engine-sdk'),
     ...await sourceFiles('src/kernel'),'src/state.mjs'].map(file=>path.join(packageRoot,file));

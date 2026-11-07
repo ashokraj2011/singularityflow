@@ -83,6 +83,34 @@ export function phaseBeginResult(binding,facts) {
   return facts.intent;
 }
 
+/** A rollover selects a successor without yet authorizing adoption of its current bytes. */
+export function phaseRolloverSelection(workflow,inputs) {
+  const {workId,phase,generation}=phaseBeginSelection(workflow,inputs);
+  return {workId,phase,generation,fromGeneration:Number(workflow.phases[phase].generation??0)};
+}
+
+export function phaseRolloverPlan(binding,facts) {
+  const fields=['workId','phase','fromGeneration','toGeneration','confirmation','changeSetDigest','currentResultDigest'];
+  const digest=value=>typeof value==='string'&&/^sha256:[a-f0-9]{64}$/u.test(value);
+  if(!facts||typeof facts!=='object'||Array.isArray(facts)||Object.keys(facts).length!==fields.length
+    ||Object.keys(facts).some(key=>!fields.includes(key))||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||facts.fromGeneration!==binding.fromGeneration||facts.toGeneration!==binding.generation
+    ||!digest(facts.confirmation)||!digest(facts.currentResultDigest)
+    ||facts.changeSetDigest!==null&&!digest(facts.changeSetDigest)
+    ||facts.confirmation!==(facts.changeSetDigest??facts.currentResultDigest)) {
+    throw new SingularityFlowError('The rollover port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  return {schemaVersion:1,contract:'sflow-generation-rollover-plan/v1',...facts,
+    finalBindingChecked:false,mutationAuthorityGranted:false,approvalRecorded:false};
+}
+
+/** Confirming a local successor never constitutes phase or human-evidence approval. */
+export function assertPhaseRolloverConfirmation(plan,confirm) {
+  if(confirm&&confirm!==plan.confirmation)throw new SingularityFlowError(
+    `Generation rollover confirmation must equal the current digest ${plan.confirmation}. Re-run the preview if files are still changing.`,
+    {code:'GENERATION_ROLLOVER_STALE',details:plan});
+}
+
 /** Historical review is allowed; phase authoring admission is a separate operation. */
 export function phaseReviewSelection(workflow, requested=null) {
   const id=requested??workflow.currentPhase;

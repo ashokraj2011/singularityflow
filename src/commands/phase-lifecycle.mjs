@@ -1,13 +1,8 @@
 import { requirePositional, SingularityFlowError, optionString, optionBoolean, optionStrings } from '../util.mjs';
 import { repoRoot } from '../git.mjs';
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { generationRecovery } from '../recovery-plan.mjs';
-import { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft } from '../state-stores.mjs';
-import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
+import { commandGuidanceLines } from '../safe-command-guidance.mjs';
 import { nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
-import { storyDraftTransaction } from '../engine-compatibility/story-draft-transaction.mjs';
-import { verifyOpenGenerationIntent } from '../generation-boundary.mjs';
 // Load the full document renderer only when a caller actually requests that projection.
 async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
@@ -67,87 +62,37 @@ export async function phaseCommand(positionals, options) {
   if (subcommand === 'begin') return phaseBeginCommand(root, positionals, options);
   if (subcommand === 'prepublish') return phasePrepublishCommand(root, positionals, options);
   if (subcommand === 'draft-check') return phaseDraftCheckCommand(root, positionals, options);
-  const accepted = await loadAcceptedStoryExecution(root, optionString(options, 'work-id') ?? null);
-  const config = accepted.definition;
-  const workflow = accepted.workflow;
-  if (subcommand === 'rollover') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    const plan = await generationRecovery(
-      root, workflow, phase,
-      async (repositoryRoot, selectedPhase) => await generationResultMatches(
-        repositoryRoot, config, workflow, selectedPhase
-      )
-        ? selectedPhase.generationIntent.publication.resultDigest
-        : generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
-    );
-    if (plan?.action.id === `return-submitted-generation:${phase.id}`) throw new SingularityFlowError(
-      'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
-      { code: 'GENERATION_ROLLOVER_REVIEW_REQUIRED', details: { actions: [plan.action] } }
-    );
-    if (!plan || plan.action.mode === 'manual' || !plan.action.command) {
-      throw new SingularityFlowError(
-        plan?.action.detail ?? `Phase '${phaseId}' has no changed consumed generation to roll over.`,
-        { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: plan ?? null }
-      );
+  if (subcommand === 'rollover') return phaseRolloverCommand(root, positionals, options);
+  throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
+}
+
+async function phaseRolloverCommand(root,positionals,options) {
+  const {createGitPhaseRolloverEngine}=await import('../engine-compatibility/git-phase-entry.mjs');
+  const binding=createGitPhaseRolloverEngine({root});
+  const inputs={workId:optionString(options,'work-id')??null,phaseId:positionals[2]??null,confirm:optionString(options,'confirm')??null};
+  try {
+    await binding.engine.run('phase.rollover',inputs);
+  }catch(error){
+    // Native command routes stay in the host's existing refusal shape, never the SDK plan.
+    if(error?.code==='GENERATION_ROLLOVER_STALE'&&binding.presentation()?.preview) {
+      try{error.details=binding.presentation().preview;}catch{ /* Preserve an immutable native refusal. */ }
     }
-    const expected = plan.blocker.details.rolloverConfirmation;
-    const route = safeCommandGuidance(plan.action);
-    if (!route) throw new SingularityFlowError(
-      'The reviewed rollover action has no validated Shell and Copilot route. Re-run recovery before changing state.',
-      { code: 'GENERATION_ROLLOVER_ROUTE_UNAVAILABLE', details: { action: plan.action } }
-    );
-    const supplied = optionString(options, 'confirm');
-    const preview = {
-      schemaVersion: 1,
-      workId: workflow.workItem.id,
-      phase: phase.id,
-      fromGeneration: phase.generation,
-      toGeneration: nextPhaseGeneration(phase),
-      confirmation: expected,
-      changeSetDigest: plan.blocker.details.changeSetDigest,
-      currentResultDigest: plan.blocker.details.currentResultDigest,
-      command: route.command,
-      executable: route.executable,
-      argv: route.argv,
-      skill: route.skill,
-      copilotCommand: route.copilotCommand,
-      platformCommands: route.platformCommands,
-      mutates: Boolean(supplied)
-    };
-    if (!supplied) {
-      if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
-      else {
-        console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${nextPhaseGeneration(phase)}.`);
-        console.log(`Confirm exact current bytes: ${expected}`);
-        printCommandRoutes(route, { label: 'Continue' });
-        console.log('Nothing was changed.');
-      }
-      return;
+    throw error;
+  }
+  const {phase,preview,route,result:intent}=binding.presentation(),expected=preview.confirmation;
+  if(!inputs.confirm) {
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
+    else {
+      console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${nextPhaseGeneration(phase)}.`);
+      console.log(`Confirm exact current bytes: ${expected}`);
+      printCommandRoutes(route, { label: 'Continue' });
+      console.log('Nothing was changed.');
     }
-    if (supplied !== expected) {
-      throw new SingularityFlowError(
-        `Generation rollover confirmation must equal the current digest ${expected}. Re-run the preview if files are still changing.`,
-        { code: 'GENERATION_ROLLOVER_STALE', details: preview }
-      );
-    }
-    const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phaseId}`, async () => {
-      const opened = await beginPhaseGeneration(root, config, workflow, {
-        phaseId,
-        adoptExisting: Boolean(plan.blocker.details.changeSetDigest),
-        confirm: plan.blocker.details.changeSetDigest
-      });
-      await saveStoryDraft(root, config, workflow);
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      return opened;
-    });
-    const result = { ...preview, mutates: true, generationIntent: intent };
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
     return;
   }
-  throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
+  const result = { ...preview, mutates: true, generationIntent: intent };
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
 }
 
 async function phasePrepublishCommand(root,positionals,options) {

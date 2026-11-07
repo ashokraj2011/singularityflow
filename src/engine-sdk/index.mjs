@@ -9,7 +9,8 @@ import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs'
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
-import {phaseReviewSelection,phaseReviewManifest,phaseBeginSelection,phaseBeginResult} from '../kernel/phase-policy.mjs';
+import {phaseReviewSelection,phaseReviewManifest,phaseBeginSelection,phaseBeginResult,
+  phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
@@ -101,6 +102,9 @@ const definitions = [
   {id:'phase.begin',version:1,effect:'local-draft',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','adoptExisting','confirm']),port:'phaseBegin',
     stages:Object.freeze(['load','verify','begin']),validate:phaseBeginInput,execute:beginPhase},
+  {id:'phase.rollover',version:1,effect:'local-draft',humanDecision:false,
+    confirmation:'exact-current-draft-digest',inputFields:Object.freeze(['workId','phaseId','confirm']),port:'phaseRollover',
+    stages:Object.freeze(['load','inspect','begin']),validate:phaseBeginInput,execute:rolloverPhase},
   {id:'phase.prepublish',version:1,effect:'inspection',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phasePrepublish',
     stages:Object.freeze(['load','inspect']),validate:phaseReviewInput,execute:inspectPhaseCheck},
@@ -155,6 +159,42 @@ function phaseBeginInput(value,operation) {
     ||['workId','phaseId','confirm'].some(key=>input[key]!=null&&typeof input[key]!=='string')
     ||input.adoptExisting!=null&&typeof input.adoptExisting!=='boolean')invalid('Invalid generation selection or adoption request.');
   return input;
+}
+
+async function rolloverPhase(port,inputs,signal) {
+  let binding=null,pendingStage='load';const completedStages=[];
+  try {
+    notCancelled(signal);
+    const context=await port.load(inputs,{signal});completedStages.push('load');notCancelled(signal);
+    binding=data(phaseRolloverSelection(context?.workflow,inputs));pendingStage='inspect';
+    const facts=await port.inspect(context,binding,inputs,{signal});completedStages.push('inspect');notCancelled(signal);
+    let plan;
+    try{plan=data(phaseRolloverPlan(binding,data(facts)));}catch(error){
+      if(error?.code==='ENGINE_INPUT_INVALID')throw new SingularityFlowError('The rollover port returned non-JSON facts.',{
+        code:'ENGINE_PORT_RESULT_INVALID',cause:error});
+      throw error;
+    }
+    pendingStage='confirmation';assertPhaseRolloverConfirmation(plan,inputs.confirm);
+    let intent=null;
+    if(inputs.confirm) {
+      notCancelled(signal);pendingStage='begin';
+      const opened=await port.begin(context,binding,plan,{signal});completedStages.push('begin');notCancelled(signal);
+      try{intent=data(phaseBeginResult({...binding,retained:false},data(opened)));}catch(error){
+        if(error?.code==='ENGINE_INPUT_INVALID')throw new SingularityFlowError('The rollover port returned non-JSON intent facts.',{
+          code:'ENGINE_PORT_RESULT_INVALID',cause:error});
+        throw error;
+      }
+    }
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.rollover',status:intent?'begun':'preview',
+      subject:{kind:'story',id:binding.workId},phase:binding.phase,generation:binding.generation,plan,intent,
+      effects:{localOnly:true,generationOpened:Boolean(intent),draftSaved:Boolean(intent),
+        testsRun:false,modelInvocations:0,committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+  }catch(error){
+    attachDiagnostic(error,'enginePhaseRollover',{operation:'phase.rollover',
+      subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,generation:binding?.generation??null,
+      completedStages,pendingStage,localEffectsMayExist:pendingStage==='begin',committed:false,pushed:false,approvalRecorded:false});
+    throw error;
+  }
 }
 
 async function beginPhase(port,inputs,signal) {
@@ -990,6 +1030,7 @@ export function createEngine({ ports } = {}) {
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
     beginPhase: (inputs, options) => execute('phase.begin', inputs, options),
+    rolloverPhase: (inputs, options) => execute('phase.rollover', inputs, options),
     prepublishPhase: (inputs, options) => execute('phase.prepublish', inputs, options),
     draftCheckPhase: (inputs, options) => execute('phase.draft-check', inputs, options),
     submitPhase: (inputs, options) => execute('phase.submit', inputs, options),

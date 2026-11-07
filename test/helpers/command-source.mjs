@@ -16,6 +16,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import ts from 'typescript';
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
 
@@ -83,4 +84,13 @@ export async function commandFunction(name) {
     }
   }
   return source.slice(open, index + 1);
+}
+
+/** One named native owner's actual body, without matching an import or a neighbouring function. */
+export async function moduleFunction(file,name) {
+  const text=await readFile(path.join(SRC,file),'utf8');
+  const source=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);
+  const node=source.statements.find(item=>ts.isFunctionDeclaration(item)&&item.name?.text===name);
+  if(!node?.body)throw new Error(`${name} is not defined in ${file}.`);
+  return withoutComments(node.body.getText(source));
 }

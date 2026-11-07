@@ -117,6 +117,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const documentReferences=path.join(packageRoot,'src/engine-compatibility/native-document-references.mjs');
   const entryPort=path.join(packageRoot,'src/engine-compatibility/git-phase-entry.mjs');
   const nativeEntry=path.join(packageRoot,'src/engine-compatibility/native-phase-entry.mjs');
+  const nativeConvergence=path.join(packageRoot,'src/engine-compatibility/native-convergence.mjs');
   const generationBoundary=path.join(packageRoot,'src/generation-boundary.mjs');
   const problems=[];
   for(const relative of packageFiles){
@@ -144,6 +145,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs','src/engine-compatibility/native-phase-entry.mjs'].includes(relative))problems.push(relative);
         if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs'].includes(relative))problems.push(relative);
         if(target===nativeEntry&&relative!=='src/engine-compatibility/git-phase-entry.mjs')problems.push(relative);
+        if(target===nativeConvergence&&!['src/commands/story.mjs','src/commands/shared/prepare-configured-phase.mjs'].includes(relative))problems.push(relative);
         if(target===generationBoundary&&relative!=='src/state.mjs'&&ts.isImportDeclaration(node)
           &&node.importClause?.namedBindings&&ts.isNamedImports(node.importClause.namedBindings)
           &&node.importClause.namedBindings.elements.some(item=>(item.propertyName??item.name).text==='beginNativePhaseGeneration'))problems.push(relative);
@@ -162,7 +164,7 @@ test('extracted native decision writers do not import command handlers or host p
     'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs',
     'git-upstream.mjs','native-forward-amendments.mjs','upstream-artifact-issues.mjs',
     'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs',
-    'git-phase-entry.mjs','native-phase-entry.mjs','story-draft-transaction.mjs'];
+    'git-phase-entry.mjs','native-phase-entry.mjs','native-convergence.mjs','story-draft-transaction.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);

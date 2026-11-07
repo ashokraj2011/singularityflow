@@ -52,7 +52,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/phase-prepublish.mjs', 'kernel/phase-findings.mjs', 'phase-prepublish.mjs', 'phase-draft-check.mjs', 'phase-finding-policy.mjs',
   'source-review-policy.mjs', 'phase-inspection-generation.mjs', 'phase-generation-need.mjs',
   'phase-entry-admission.mjs', 'phase-entry-authoring.mjs', 'phase-input-policy.mjs', 'document-runtime.mjs',
-  'engine-compatibility/git-phase-entry.mjs', 'engine-compatibility/native-phase-entry.mjs',
+  'engine-compatibility/git-phase-entry.mjs', 'engine-compatibility/native-phase-entry.mjs', 'engine-compatibility/native-convergence.mjs',
   'kernel/document-read.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs',
   'commands/documents.mjs', 'commands/documents-view.mjs',
   'commands/shared/document-options.mjs', 'commands/shared/document-presentation.mjs',

@@ -22,7 +22,7 @@ import { STARTER_CHECKLIST } from '../src/specification-quality.mjs';
 import { policyValue, validateCitations } from '../src/constitution.mjs';
 
 const SOURCE = new URL('../src/', import.meta.url);
-import { commandFunction, commandLayerSource } from './helpers/command-source.mjs';
+import { commandFunction, commandLayerSource, moduleFunction } from './helpers/command-source.mjs';
 
 /**
  * Source with comments removed.
@@ -297,9 +297,10 @@ test('the deterministic paths never invoke a model', async () => {
 test('an assisted pass receives a bounded envelope, not the repository', async () => {
   // `[SPK:REQ-131]`. Enforced on what is *sent*, because once a model has the content no policy
   // downstream can un-send it.
-  const cli = withoutComments(await commandLayerSource());
-  for (const marker of ['runAssistedAnalysis', 'runAssistedConvergence']) {
-    const body = cli.slice(cli.indexOf(`async function ${marker}`), cli.indexOf(`async function ${marker}`) + 2200);
+  for (const [marker,body] of [
+    ['runAssistedAnalysis',await commandFunction('runAssistedAnalysis')],
+    ['runAssistedConvergence',await moduleFunction('engine-compatibility/native-convergence.mjs','runAssistedConvergence')]
+  ]) {
     assert.match(body, /tools: \{ mode: 'none' \}/, `${marker} grants the model tools`);
     assert.match(body, /limits: \{ timeoutMs/, `${marker} sends an unbounded request`);
   }

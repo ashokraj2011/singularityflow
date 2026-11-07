@@ -17,7 +17,7 @@ export async function prepareConfiguredPhase(root, config, workflow, phase) {
     modelEnabled: operationContext()?.modelMode.enabled !== false
   });
   if (isConvergencePhase(phase) && publicationProducer === 'deterministic') {
-    const { prepareDeterministicConvergence } = await import('../story.mjs');
+    const { prepareDeterministicConvergence } = await import('../../engine-compatibility/native-convergence.mjs');
     const prepared = await prepareDeterministicConvergence(root, config, workflow.workItem.id);
     return {
       artifact: prepared.artifactPath,

@@ -798,6 +798,39 @@ Phase 5. Phases 6–9 retain their full filesystem/database adapter, headless pa
 verified authority cutover and final removal/distribution/performance scope. This draft-check
 delivery does not complete or narrow those remaining milestones.
 
+## Phase 5 native convergence preparation boundary
+
+The deterministic convergence service and its draft, projection, candidate-reuse and legacy-
+migration helpers now have one native owner in `engine-compatibility/native-convergence.mjs`.
+Both configured preparation paths reach it without importing the Story command module. The
+Story service retains the same exported function identity and delegates its shared adjudication
+helpers to that owner. All twelve moved function parameter/body streams retain their original
+2,596 syntax tokens. Existing projection bytes, source seals, locked-state authority checks,
+exact legacy confirmation, candidate selection and rollback remain unchanged.
+
+This is a prerequisite boundary for registered preparation, not a new public operation or an
+alternate storage authority. Provider execution and native persistence stay outside the pure
+SDK; model wording, CLI rendering and human approval semantics do not move into it. Direct
+native-owner imports are guarded, and build identity includes the new runtime source.
+
+Mac qualification on Node 26.12.0 passes 158 distinct checks across 17 files with no failures,
+cancellations or skips. Coverage includes a complete convergence Story, locked adjudication
+authority, legacy source/archive seals, bounded assisted requests, candidate replacement,
+plan-settled findings, repair routing, a full honest-partial-verdict Story and combined publication.
+Structural guards now inspect the native function's actual syntax body rather than a stale
+slice in the command module; their authority, locking and provider-budget assertions are kept.
+
+Source validation passes 3,630 checks; VS Code typechecking, all 13 unchanged bundle budgets,
+Git ownership audit (2,010 existing sites), dry-run packaging and whitespace checks pass. The
+pure SDK remains 17 modules / 215,956 input bytes with zero external imports. The gateway stays
+851 modules / 6,744,147 bytes, without a ceiling increase. Packaging includes the native owner
+and excludes test helpers. All repositories, local remotes and machine state are isolated.
+No Windows, hosted CI, live provider, merge, push or real-project migration ran.
+
+Registered preparation, its portable result/asset inventory, remaining queries and native policy
+extraction still belong to Phase 5. Phases 6–9 retain their complete alternate-backend, headless
+runtime/resume, verified authority cutover and final removal/distribution/performance milestones.
+
 ## Phase 5 reviewed generation-rollover delivery
 
 `phase.rollover` coordinates a native preview and confirmed local successor through the registry.

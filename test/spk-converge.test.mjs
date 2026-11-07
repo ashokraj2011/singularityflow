@@ -28,6 +28,7 @@ import {
 } from '../src/convergence-context.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { readRecord, convergenceSealCore } from '../src/schema-migrations.mjs';
+import {moduleFunction} from './helpers/command-source.mjs';
 
 const RECONCILIATION = {
   reconciliationSha256: 'a'.repeat(64),
@@ -587,7 +588,7 @@ test('a migrated legacy projection stays bound to its lossless archive', async (
   );
 
   assert.match(
-    await readFile(new URL('../src/commands/story.mjs', import.meta.url), 'utf8'),
+    await moduleFunction('engine-compatibility/native-convergence.mjs','migrateLegacyConvergenceDraft'),
     /assertLegacyConvergenceSourceIdentity/,
     'the live migration command does not bind v1 source identity before archival'
   );
@@ -607,13 +608,14 @@ test('a migrated legacy projection stays bound to its lossless archive', async (
 });
 
 test('same-iteration convergence writes are serialized by the Story mutation lease', async () => {
-  const { commandFunction, commandLayerSource } = await import('./helpers/command-source.mjs');
+  const { commandFunction } = await import('./helpers/command-source.mjs');
   const converge = await commandFunction('storyConvergeCommand');
-  const source = await commandLayerSource();
-  const service = source.slice(
-    source.indexOf('export async function prepareDeterministicConvergence'),
-    source.indexOf('export async function storyConvergeCommand')
-  );
+  const service = await moduleFunction('engine-compatibility/native-convergence.mjs','prepareDeterministicConvergence');
+  const draft = await moduleFunction('engine-compatibility/native-convergence.mjs','withConvergenceDraft');
+  assert.match(draft,/runDraftTransaction\(/);
+  assert.match(draft,/const authority = authorize \? authorize\(workflow\) : null/);
+  assert.ok(draft.indexOf('authorize(workflow)')<draft.indexOf('await convergenceSubject('),
+    'the locked native draft must authorize before resolving convergence inputs');
   // Every adjudication writes through writeAdjudications, whichever way a person answered.
   assert.match(await commandFunction('storyAdjudicateCommand'), /writeAdjudications\(/);
   const adjudicate = await commandFunction('writeAdjudications');
@@ -656,12 +658,7 @@ test('publication rechecks current bindings, facts, candidate sources, and canon
 });
 
 test('an assisted rerun selects only its latest complete candidate source', async () => {
-  const { commandLayerSource } = await import('./helpers/command-source.mjs');
-  const source = await commandLayerSource();
-  const service = source.slice(
-    source.indexOf('export async function prepareDeterministicConvergence'),
-    source.indexOf('export async function storyConvergeCommand')
-  );
+  const service = await moduleFunction('engine-compatibility/native-convergence.mjs','prepareDeterministicConvergence');
   assert.match(service, /candidateRecords: assistedResult \? \[assistedResult\.path\] : \(previous\?\.candidateRecords \?\? \[\]\)/);
   assert.doesNotMatch(service, /\.\.\.\(previous\?\.candidateRecords/,
     'a new assisted snapshot retained stale candidate sources that can no longer equal it');

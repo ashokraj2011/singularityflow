@@ -18,9 +18,9 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { normalizeMarkdownHeading } from './markdown-structure.mjs';
+import { normalizeMarkdownHeading } from './kernel/artifact-content.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { renderClauseNamespaces } from './traceability-ids.mjs';
+import { renderClauseNamespaces } from './foundation/traceability-ids.mjs';
 
 /** Sections every enforced specification must have (specification-quality.mjs checks them). */
 export const SPECIFICATION_REQUIRED_SECTIONS = Object.freeze(['Actors', 'User scenarios', 'Requirements']);

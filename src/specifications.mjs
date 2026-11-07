@@ -13,7 +13,7 @@ import {
 } from './application-paths.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
-import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './traceability-ids.mjs';
+import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './foundation/traceability-ids.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';

@@ -1,5 +1,5 @@
-import { clauseMentionPattern, normalizeQualifiedClauseId } from './traceability-ids.mjs';
-import { parseMarkdownStructure } from './markdown-structure.mjs';
+import { clauseMentionPattern, normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
+import { parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { discrepancyItemSha256 } from './records.mjs';
 

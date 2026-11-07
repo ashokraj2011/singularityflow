@@ -1,6 +1,6 @@
 /** Structural scenario coverage, not a judgment that prose implements the requested behavior. */
-import { parseMarkdownStructure } from './markdown-structure.mjs';
-import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
+import { parseMarkdownStructure } from './kernel/artifact-content.mjs';
+import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
 import { shown } from './draft-diagnostics.mjs';
 
 const OUTCOMES = new Set(['success', 'failure', 'boundary', 'empty']);

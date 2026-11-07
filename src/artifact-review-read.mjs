@@ -5,14 +5,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
-
-export const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
-export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\r?\n[\s\S]*?\r?\n-->\s*/;
-export const MANAGED_METADATA_MARKER = /<!-- singularity-flow:(?:initiative-)?metadata/u;
-
-export function maskBlock(block) {
-  return '\n'.repeat((block.match(/\n/g) ?? []).length);
-}
+import { authoredArtifactFingerprintText } from './kernel/artifact-content.mjs';
+export { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, maskBlock, authoredArtifactText, artifactTextCheckoutMatches, inspectManagedArtifactMetadata } from './kernel/artifact-content.mjs';
 
 export function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -57,25 +51,11 @@ export function reviewArtifactBytesStable(opened, rebound) {
  * current producer completed the artifact. Publication, recovery, manual import and host guidance
  * all use this boundary so an artifact cannot look complete on one surface and fail on another.
  */
-export function authoredArtifactText(text, { preserveLines = false } = {}) {
-  const source = String(text ?? '');
-  const withoutMetadata = source.replace(MANAGED_METADATA, (block) => preserveLines ? maskBlock(block) : '');
-  return withoutMetadata.replace(MANAGED_INPUTS, (block) => preserveLines ? maskBlock(block) : '');
-}
-
 /**
  * Accept only the exact text or its uniform LF/CRLF checkout representation. The immutable Git
  * blob and the worktree keep their distinct raw hashes. No trimming, Unicode normalization,
  * arbitrary CR removal, mixed endings, BOM or missing final newline can establish equivalence.
  */
-export function artifactTextCheckoutMatches(published, current) {
-  if (published === current) return true;
-  const lf = published.replaceAll('\r\n', '\n');
-  if (lf.includes('\r')) return false;
-  const crlf = lf.replaceAll('\n', '\r\n');
-  return (published === lf || published === crlf) && (current === lf || current === crlf);
-}
-
 /** Match an approved raw snapshot without relabeling either raw hash as equal. */
 export function artifactSnapshotCheckoutMatches(expected, bytes) {
   if (!expected?.exists || !Buffer.isBuffer(bytes)) return false;
@@ -95,14 +75,7 @@ export function artifactSnapshotCheckoutMatches(expected, bytes) {
 
 /** Whitespace-only padding cannot make an untouched prepared template look authored. */
 export function authoredArtifactFingerprint(text) {
-  const normalized = authoredArtifactText(text)
-    .replaceAll('\r\n', '\n')
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return sha256(normalized);
+  return sha256(authoredArtifactFingerprintText(text));
 }
 
 export function requiredArtifactRepoPath(config, workflow, phase) {
@@ -303,31 +276,6 @@ export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase
 }
 
 /** Pure managed-envelope inspection; shared by prepublication and independent review. */
-function lineAt(text, index) { return text.slice(0, index).split('\n').length; }
-
-export function inspectManagedArtifactMetadata(text) {
-  const source = String(text ?? '');
-  const leading = source.match(MANAGED_METADATA)?.[0] ?? null;
-  const authoredRegion = (leading == null ? source : source.slice(leading.length))
-    // Keep offsets stable so the reported line still refers to the original artifact.
-    .replace(MANAGED_INPUTS, (block) => block.replace(/[^\n]/gu, ' '));
-  const markerIndex = authoredRegion.search(MANAGED_METADATA_MARKER);
-  if (leading != null && markerIndex < 0) {
-    return Object.freeze({ status: 'valid', line: null, leading });
-  }
-  if (leading == null && markerIndex < 0) {
-    return Object.freeze({ status: 'missing', line: 1, leading: null });
-  }
-  const absoluteIndex = leading == null
-    ? markerIndex
-    : leading.length + markerIndex;
-  return Object.freeze({
-    status: leading == null && absoluteIndex === 0 ? 'malformed' : 'duplicate-or-misplaced',
-    line: lineAt(source, Math.max(0, absoluteIndex)),
-    leading
-  });
-}
-
 /**
  * Whether a step artifact's bytes can carry the managed metadata comment: UTF-8 text with no NUL.
  * A PDF, DOCX or PNG artifact was read as UTF-8 and given a Markdown comment, which corrupted it on

@@ -92,6 +92,8 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/workflow-decisions.mjs',
   'src/kernel/workflow-decisions.mjs',
   'src/kernel/next-plan.mjs',
+  'src/kernel/artifact-content.mjs',
+  'src/foundation/traceability-ids.mjs',
   'src/kernel/package.json',
   'src/engine-compatibility/git-nextsteps.mjs',
   'src/engine-compatibility/nextsteps-deferred.mjs',

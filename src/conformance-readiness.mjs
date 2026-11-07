@@ -5,7 +5,7 @@ import {
   conformanceTableRows, conformanceVerdictGaps, contradictedConformanceVerdicts, duplicateQualifiedConformanceRows, missingQualifiedConformanceRows, unreadConformanceTables
 } from './conformance-verdicts.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
-import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
+import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
 import { conformanceGapDecisions } from './upstream-routes.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { shown } from './draft-diagnostics.mjs';

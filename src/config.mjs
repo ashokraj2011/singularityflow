@@ -80,12 +80,12 @@ import {
   hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
   isRetiredPackagedAsset, packagedAssetSha256
 } from './packaged-asset-history.mjs';
-import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import {
   loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
 } from './environment-declaration.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
-import { renderClauseNamespaces } from './traceability-ids.mjs';
+import { renderClauseNamespaces } from './foundation/traceability-ids.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';

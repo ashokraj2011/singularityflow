@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import { nowIso, posix, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 import {phaseReviewBriefRecords} from './kernel/phase-policy.mjs';
 

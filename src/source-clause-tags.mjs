@@ -6,7 +6,7 @@
  */
 import { javascriptSourceComments } from './javascript-source-comments.mjs';
 import { createSourceAnalysisCache } from './source-analysis-cache.mjs';
-import { clauseTagsInComment } from './traceability-ids.mjs';
+import { clauseTagsInComment } from './foundation/traceability-ids.mjs';
 
 const analyzedSourceTags = createSourceAnalysisCache();
 

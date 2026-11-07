@@ -1,7 +1,7 @@
 /** Prompt-only projection. Never rewrites approved inputs or their durable receipts; what it leaves out of the prompt stays in the composition record. */
 import { createHash } from 'node:crypto';
 import { renderInputsBlock } from './inputs.mjs';
-import { parseMarkdownStructure } from './markdown-structure.mjs';
+import { parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import { extractClauses } from './specifications.mjs';
 import { recordSha256 } from './records.mjs';
 

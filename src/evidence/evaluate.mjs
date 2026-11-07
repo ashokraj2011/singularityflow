@@ -13,7 +13,7 @@
  */
 import { approvalRequirementsMet } from '../kernel/approval-policy.mjs';
 import { countedApprovals } from '../presence/counted.mjs';
-import { qualifiedClauseIds } from '../traceability-ids.mjs';
+import { qualifiedClauseIds } from '../foundation/traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';

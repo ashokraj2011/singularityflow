@@ -125,6 +125,29 @@ test('next-step hosts execute one registered plan and keep native observations o
   }
 });
 
+test('artifact parsing and authoring rules are pure while native wrappers own bytes, hashing and I/O', async () => {
+  const read = relative => readFile(path.join(packageRoot, relative), 'utf8');
+  const core = await read('src/kernel/artifact-content.mjs');
+  assert.doesNotMatch(core, /node:|createHash|readFile|Buffer\.|process\.|singularity-flow (?:phase|recover)/);
+  const preflight = await read('src/publication-preflight.mjs');
+  assert.match(preflight, /artifactContentObservation\(text\)/);
+  assert.match(preflight, /sha256\(observation\.fingerprintText\)/);
+  assert.match(preflight, /inspectArtifactContentObservation\(observation,/);
+  assert.match(preflight, /sortArtifactFindings\(findings, \{ byPath: true \}\)/);
+  assert.doesNotMatch(preflight, /FINDING_PRIORITY/);
+  assert.doesNotMatch(preflight, /function (?:artifactPlaceholderFindings|repairPreparedArtifactMetadata|requiredHeadingFindings)\(/);
+  const native = await read('src/artifact-review-read.mjs');
+  assert.match(native, /createHash\('sha256'\)/);
+  assert.doesNotMatch(native, /function (?:authoredArtifactText|inspectManagedArtifactMetadata|artifactTextCheckoutMatches)\(/);
+  const document = await read('src/kernel/document-read.mjs');
+  assert.match(document, /import \{ utf8Bytes \} from '\.\/artifact-content\.mjs'/);
+  assert.doesNotMatch(document, /function utf8Bytes\(/);
+  for (const file of ['src/markdown-structure.mjs', 'src/traceability-ids.mjs']) {
+    const ast = ts.createSourceFile(file, await read(file), ts.ScriptTarget.Latest, true);
+    assert.ok(ast.statements.every(ts.isExportDeclaration), file);
+  }
+});
+
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',

@@ -1,3 +1,4 @@
+import { utf8Bytes } from './artifact-content.mjs';
 /** Document selection and bounded body contracts. Storage and rendering belong to trusted ports. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {phaseReviewSelection} from './phase-policy.mjs';
@@ -69,15 +70,6 @@ export function documentReadBinding(selection,facts) {
     provenance='external';
   } else if(facts.uri!==null||facts.locality==='external')bad();
   return {...facts,provenance};
-}
-
-function utf8Bytes(value) {
-  let count=0;
-  for(const character of value) {
-    const code=character.codePointAt(0);
-    count+=code<=0x7f?1:code<=0x7ff?2:code<=0xffff?3:4;
-  }
-  return count;
 }
 
 export function documentReadResult(binding,facts) {

@@ -57,7 +57,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/document-read.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs',
   'commands/documents.mjs', 'commands/documents-view.mjs',
   'commands/shared/document-options.mjs', 'commands/shared/document-presentation.mjs',
-  'engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/next-plan.mjs', 'kernel/publication-intent.mjs',
+  'engine-sdk/index.mjs', 'kernel/phase-policy.mjs', 'kernel/next-plan.mjs', 'kernel/artifact-content.mjs', 'foundation/traceability-ids.mjs', 'kernel/publication-intent.mjs',
   'kernel/workflow-assets.mjs', 'engine-compatibility/git-workflow-assets.mjs', 'workflow-transfer.mjs',
   'kernel/decision-inputs.mjs', 'kernel/workflow-decisions.mjs', 'kernel/submission-intent.mjs',
   'kernel/approval-policy.mjs', 'kernel/approval-fallback.mjs',

@@ -8,7 +8,7 @@
  * not directly above a declaration ties the criterion to nothing exact.
  */
 
-import { normalizeQualifiedClauseId, clauseTagsInComment } from '../traceability-ids.mjs';
+import { normalizeQualifiedClauseId, clauseTagsInComment } from '../foundation/traceability-ids.mjs';
 
 /** True for a namespace-qualified acceptance-criterion ID such as `PAY-1:AC-001`. */
 export function isQualifiedAcceptanceId(value) {

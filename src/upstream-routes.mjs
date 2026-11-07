@@ -12,7 +12,7 @@
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { intentAmendmentSource, latestStepBefore, scopeStepOf } from './kernel/phase-policy.mjs';
-import { clauseMentionPattern } from './traceability-ids.mjs';
+import { clauseMentionPattern } from './foundation/traceability-ids.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 
 /**

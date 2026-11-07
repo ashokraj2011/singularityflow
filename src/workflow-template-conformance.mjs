@@ -24,7 +24,7 @@ import path from 'node:path';
 import { isAgentTemplateReference } from './agent-document-parser.mjs';
 import { requiredArtifactSections } from './artifact-required-sections.mjs';
 import { renderArtifactTemplateText } from './config.mjs';
-import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import { scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { extractClauses, inspectPlannedClaimMap, normalizeSpecPolicy, plannedClaimSource } from './specifications.mjs';
 

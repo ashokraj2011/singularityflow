@@ -176,6 +176,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       // reason [TCE:REQ-024], each shown as what it is: acceptedRisks and acceptedNarrowings.
       ...await (await import('../../test-narrowing.mjs')).acceptedTestRunDecisions(workflow, phase, submittedDelivery),
       // What the approver is shown about acceptance criteria, stated at its real strength [E2G-017].
+      // Submission reuses a passing preflight run on unchanged code [TCE:REQ-080], so it is not said to run again [CQF:REQ-016].
       acceptance: {
         criteria: criteria.map((entry) => ({
           clauseId: entry.clauseId, status: entry.status, assurance: entry.assurance, identity: entry.identity, execution: entry.execution,
@@ -188,7 +189,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
         unattachedTags: phase.deliveryEvidence.acceptanceCriteria?.unattachedTags ?? [],
         skippedTests,
         statement: criteria.length
-          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; submission runs the tests again.'}`
+          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; a passing run stands for submission while nothing it ran on changes.'}`
           : 'No acceptance criterion is tagged on a test in this delivery.'
       },
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.',

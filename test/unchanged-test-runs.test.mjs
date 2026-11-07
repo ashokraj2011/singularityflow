@@ -130,6 +130,10 @@ test('tests run once on unchanged code, however many later steps need them, and 
   const start = await f.runs();
   f.publish();
   assert.equal(await f.runs(), start + 1, 'publication runs them');
+  // The review packet no longer says submission runs them again [CQF:REQ-016].
+  const preflight = JSON.parse(f.sflow('phase', 'show', 'implementation', '--json').stdout).testEvidence.acceptance.statement;
+  assert.match(preflight, /^In the preflight run, 2 of 2 acceptance criteria verified .*; a passing run stands for submission while nothing it ran on changes\.$/u);
+  assert.doesNotMatch(preflight, /runs the tests again/u);
   const submitted = f.sflow('submit', 'implementation');
   assert.equal(await f.runs(), start + 1, 'submission reuses the run');
   assert.match(submitted.stderr, /Not run again: \.-node-tests passed on this exact code \(TA-[a-f0-9]{20}, recorded by implementation\)/u);

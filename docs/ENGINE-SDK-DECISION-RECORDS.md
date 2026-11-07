@@ -6,6 +6,8 @@ These are individual human requests. The existing `decisions.record` operation r
 separate, digest-confirmed protocol for recording selections from a pending-decision list.
 The test/evidence extension below adds six entries, separating agent command requests from
 human acceptance and retaining the original CLI syntax.
+The witness extension adds `decision.witness` and `decision.witness-exception` through the same
+four-stage single-record port, with their different phase bindings retained.
 
 Both protocols use the same installed native record writers. No second authority evaluator,
 serializer, event format or publication transaction is introduced.
@@ -126,3 +128,37 @@ group. A command request's authority group is always `null`.
 The CLI retains `decision test-command` and its existing JSON operation name for both requesting
 and deciding. This is a host projection of the two separate SDK operations. Existing helper
 exports and combined decision recording continue to call the exact same native writers.
+
+## Witnesses and exception renewals
+
+| Operation | Request fields in addition to `workId` / `fetch` | Phase binding |
+|---|---|---|
+| `decision.witness` | `clauseId`, `slotName`, `file`, `answers`, `reason`, `expectedContext`, `expectedFile` | The Story phase where the human records the inspection |
+| `decision.witness-exception` | `phaseId`, `mappingSha256`, `expires`, `reason` | The phase whose current approval recorded the exact exception |
+
+Both are human decisions, never agent approvals. `answers` is the human's explicit map of the
+installed witness checklist items to `yes` or `no`. The kernel normalizes the criterion ID as the
+CLI previously did. The native writer verifies the actual acceptance criterion, verification
+contract and owning approval groups, secures and hashes the local file, and rechecks its bytes and
+review context within the transaction. Retained visual evidence must match the published
+delivery. Caller-supplied graphs, actors, policy, records and actual-file digests are refused.
+
+A negative checklist answer remains a recorded failed witness. A witness is neither submission
+nor approval, and its existing record format does not acquire a phase field merely to match a
+new SDK envelope. Expected review/file digests retain their existing optional compatibility
+behavior; the writer always reads the file's actual bytes. A stale native review, changed file or
+already-completed review retains its original diagnostic and recovery route.
+
+A renewal names the original mapping digest and generation from the phase's current approval.
+It appends the existing renewal record after native authority, expiry and reason checks. It
+does not replace the approval, advance the Story, regenerate the phase, change observed execution
+or turn an exception into passing evidence. The SDK receipt names the target `phase` and separately
+preserves `currentPhase`, including an absent current phase. Its raw record must name that same
+target. Both operations keep exact publication effects and any committed revision on a later
+result-validation failure.
+
+`src/engine-compatibility/native-witness-decisions.mjs` owns the two native write paths. The CLI
+owns flag spelling and its existing text/JSON projections in `commands/decision-witness.mjs`
+and `commands/decision-witness-exception.mjs`. The monolithic witness dispatcher now only forwards
+to its host adapter. Evidence construction, publication checks and person-presence enforcement
+remain with their existing native owners.

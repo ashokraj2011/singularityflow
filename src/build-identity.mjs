@@ -26,6 +26,7 @@ const DECIDING_MODULES = Object.freeze([
   'engine-sdk/decision-execution.mjs',
   'engine-compatibility/git-decisions.mjs',
   'engine-compatibility/git-decision-record.mjs', 'commands/decision-record.mjs',
+    'engine-compatibility/native-witness-decisions.mjs', 'commands/decision-witness.mjs', 'commands/decision-witness-exception.mjs',
     'engine-compatibility/git-test-decision-record.mjs', 'engine-compatibility/record-decision-context.mjs',
     'engine-compatibility/test-decision-intent.mjs', 'commands/shared/test-decision-operation.mjs', 'test-command-selection.mjs',
   'engine-compatibility/native-story-decisions.mjs',

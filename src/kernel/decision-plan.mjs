@@ -20,6 +20,8 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
     'decision.applicability':['APPLICABILITY_STORY_CLOSED', `Story ${workId} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`],
     'decision.risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
+    'decision.witness':['WITNESS_STORY_CLOSED', `Story ${workId} is ${workflow.status}; witnesses are recorded while it is in progress.`],
+    'decision.witness-exception':['WITNESS_EXCEPTION_STORY_CLOSED', `Story ${workId} is ${workflow.status}; reopen it at its final step to renew a witness exception.`],
     'decision.test-risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
     'decision.test-narrowing':['TEST_NARROWING_CLOSED', `Story ${workId} is ${workflow.status}; narrowed runs are decided while it is in progress.`],
     'decision.evidence-reuse':['EVIDENCE_REUSE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; evidence reuse is decided while it is in progress.`],
@@ -60,6 +62,14 @@ export function standaloneDecisionRequest(operation, input) {
     checklist:input.checklist ?? [], reason};
   if (operation === 'decision.choose') return {option:input.option ?? null, to:input.to ?? null,
     expected:input.expected ?? null, reason};
+  if(operation==='decision.witness')return {clauseId:String(input.clauseId??'').toUpperCase(),slotName:input.slotName??'',
+    file:input.file??'',answers:input.answers??{},reason,expectedContext:input.expectedContext??null,expectedFile:input.expectedFile??null};
+  if(operation==='decision.witness-exception') {
+    if(!input.phaseId||!/^sha256:[a-f0-9]{64}$/u.test(input.mappingSha256??''))refused(
+      'Name the step and the exact exception with --phase STEP --mapping sha256:... (the final check lists both).',
+      'WITNESS_EXCEPTION_RENEWAL_INVALID');
+    return {phaseId:input.phaseId,mappingSha256:input.mappingSha256,expires:input.expires??null,reason};
+  }
   if (operation === 'decision.evidence-reuse') return {phaseId:input.phaseId ?? null,attemptId:input.attemptId ?? null,
     revoke:input.revoke ?? null,expires:input.expires ?? null,reason};
   if (operation === 'decision.visual-profile') return {phaseId:input.phaseId ?? null,profileId:input.profileId ?? null,

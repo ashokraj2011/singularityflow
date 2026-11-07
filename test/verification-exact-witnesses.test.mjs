@@ -310,6 +310,37 @@ test('a verification contract through a real Story: an inspection-only criterion
   assert.equal(rows['AC-002'].verification.contract.slots[0].method, 'inspection');
   assert.equal(verify('AC-002').status, 'missing', 'the runbook still needs its inspection record');
 
+  // Renewal targets the exact approved mapping while the Story has already advanced. Neither the
+  // SDK operation nor the CLI projection replaces that approval, its generation or its evidence.
+  const workflowFile=path.join(item,'workflow.json');
+  const beforeRenewal=JSON.parse(await readFile(workflowFile,'utf8'));
+  const renewalInput={workId,phaseId:'implementation',mappingSha256:mapping.mappingSha256,expires:'2099-01-01',
+    reason:'The approved boundary exception remains valid and its follow-up is still tracked.'};
+  const script=`const {createSflow}=await import(${JSON.stringify(new URL('../src/api.mjs',import.meta.url).href)});
+    console.log(JSON.stringify(await createSflow({root:${JSON.stringify(root)}}).run('decision.witness-exception',${JSON.stringify(renewalInput)})));`;
+  const renewed=JSON.parse(run(process.execPath,['--input-type=module','-e',script],root).stdout);
+  assert.equal(renewed.operation,'decision.witness-exception');
+  assert.equal(renewed.phase,'implementation');assert.equal(renewed.currentPhase,beforeRenewal.currentPhase);
+  assert.equal(renewed.record.generation,beforeRenewal.phases.implementation.generation);
+  assert.equal(renewed.record.mappingSha256,mapping.mappingSha256);
+  assert.equal(renewed.record.expiresAt,'2099-01-01T23:59:59.999Z');
+  assert.equal(renewed.authorityGroup,'engineering-reviewers');
+  const captureFile=path.join(root,'.git','sdk-witness-renewal.json');
+  const response=run(process.execPath,['--experimental-test-module-mocks','--no-warnings','--import',
+    fileURLToPath(new URL('./helpers/capture-engine-operation.mjs',import.meta.url)),CLI,'--no-model',
+    'decision','witness-exception',workId,'--phase','implementation','--mapping',mapping.mappingSha256,
+    '--expires','2099-02-01','--reason',renewalInput.reason,'--json'],root,
+    {env:{SINGULARITY_FLOW_BUNDLE:'off',SINGULARITY_FLOW_TEST_ENGINE_CAPTURE:captureFile}});
+  const observed=JSON.parse(await readFile(captureFile,'utf8')),actual=JSON.parse(response.stdout);
+  assert.equal(observed.operation,'decision.witness-exception');
+  assert.deepEqual(actual.data.record,observed.result.record);
+  assert.equal(actual.data.commit,observed.result.revision);
+  assert.equal(actual.data.pushed,observed.result.effects.pushed);
+  const afterRenewal=JSON.parse(await readFile(workflowFile,'utf8'));
+  assert.equal(afterRenewal.witnessExceptionRenewals.length,2);
+  assert.deepEqual(afterRenewal.phases.implementation.approvals,beforeRenewal.phases.implementation.approvals);
+  assert.equal(afterRenewal.currentPhase,beforeRenewal.currentPhase);
+
   // A reviewer inspects the runbook: the slot is witnessed by its exact bytes, and only while they hold.
   cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',

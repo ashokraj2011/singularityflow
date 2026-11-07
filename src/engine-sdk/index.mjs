@@ -25,8 +25,11 @@ const SINGLE_DECISIONS = Object.freeze([
   ['decision.completeness','completeness-review',['confirm','checklist','reason']],
   ['decision.applicability','applicability',['responsibility','reason']],
   ['decision.risk','obligation-risk',['obligationId','revoke','category','transitions','expires','reason']],
-  ['decision.choose','routing',['option','to','expected','reason']]
-].map(([id,recordKind,fields])=>Object.freeze({id,recordKind,requestFields:Object.freeze(fields)})));
+  ['decision.choose','routing',['option','to','expected','reason']],
+  ['decision.witness','witness',['clauseId','slotName','file','answers','reason','expectedContext','expectedFile'],{keepsCurrentPhase:true}],
+  ['decision.witness-exception','witness-exception-renewal',['phaseId','mappingSha256','expires','reason'],
+    {phaseBinding:'requested-target',keepsCurrentPhase:true}]
+].map(([id,recordKind,fields,options={}])=>Object.freeze({id,recordKind,requestFields:Object.freeze(fields),...options})));
 const TEST_DECISIONS = Object.freeze([
   ['decision.evidence-reuse','evidence-reuse',['phaseId','attemptId','revoke','reason','expires'],['phaseId','attemptId','revoke','reason','expires']],
   ['decision.visual-profile','visual-profile',['phaseId','profileId','notApplicable','revoke','reason'],['phaseId','profileId','revoke','reason']],
@@ -181,7 +184,7 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
       if(!Array.isArray(value)||value.some(item=>typeof item!=='string'))invalid(`Decision ${key} must be an array of strings.`);
     } else if (key==='checklist') {
       if(!Array.isArray(value))invalid('Decision checklist must be an array.');
-    } else if (['command','repin'].includes(key)) {
+    } else if (['command','repin','answers'].includes(key)) {
       if(typeof value!=='object'||Array.isArray(value))invalid(`Decision ${key} must be a JSON record.`);
     } else if(typeof value!=='string')invalid(`Decision ${key} must be a string or null.`);
   }
@@ -406,12 +409,13 @@ function singleDecisionResult(binding, facts, operation) {
   if(!result || Object.keys(result).some(key=>!fields.includes(key))
     || result.workId!==binding.workId || result.phase!==binding.phase || result.recordKind!==operation.recordKind
     || !result.record || typeof result.record!=='object' || Array.isArray(result.record)
-    || operation.phaseBinding==='resolved-target'&&result.record.phase!==binding.phase
+    || ['resolved-target','requested-target'].includes(operation.phaseBinding)&&result.record.phase!==binding.phase
     || (retained?result.revision!==null:!text(result.revision)) || typeof result.pushed!=='boolean'
     || retained&&result.pushed || operation.allowRetained&&typeof result.retained!=='boolean'
     || !text(result.actorId) || (operation.authority==='requester' ? result.authorityGroup!==null : !text(result.authorityGroup))
     || result.currentPhase!==null && !text(result.currentPhase)
-    || operation.phaseBinding==='resolved-target'&&result.currentPhase!==binding.currentPhase) {
+    || operation.phaseBinding==='resolved-target'&&result.currentPhase!==binding.currentPhase
+    || operation.keepsCurrentPhase&&result.currentPhase!==(Object.hasOwn(binding,'currentPhase')?binding.currentPhase:binding.phase)) {
     throw new SingularityFlowError('The decision writer returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
   return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:retained?'retained':'recorded',
@@ -439,6 +443,7 @@ async function recordSingleDecision(port, inputs, signal, operation) {
   notCancelled(signal);
   let intent=request;
   let resultBinding=binding;
+  if(operation.phaseBinding==='requested-target')resultBinding=data({...binding,phase:request.phaseId,currentPhase:binding.phase});
   if(port.resolve) {
     const resolved=await port.resolve(context,request,{signal,operation:descriptor});
     try {intent=singleDecisionInput(resolved,operation,{intent:true});}

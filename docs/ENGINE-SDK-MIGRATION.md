@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence decisions, convergence advancement and shared post-transition effects extracted; witness/exception decisions, corrections/amendments, manifests/queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, convergence advancement and shared post-transition effects extracted; corrections/amendments, manifests/queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -434,7 +434,36 @@ package admission pass. The SDK remains 11 pure modules (109,063 source bytes, z
 imports). No ceiling increased, and the gateway remains at 852 modules. Qualification used only
 Mac and local fixture remotes; no Windows, hosted CI, live provider, merge or push was started.
 
-Plan corrections, witnesses, test/evidence-specific decision routes, upstream issue and amendment
-orchestration, manifests/queries and admission helpers remain Phase 5 work. Phases 6–9 remain
+Plan corrections, upstream issue and amendment orchestration, manifests/queries and admission
+helpers remain Phase 5 work. Test/evidence and witness extensions are qualified separately. Phases 6–9 remain
 required, including real alternate backends, headless packaging/resume, verified authority
 migration and obsolete-access removal; these five operations do not complete the objective.
+
+## Phase 5 witness delivery
+
+The [witness extension](ENGINE-SDK-DECISION-RECORDS.md#witnesses-and-exception-renewals) registers
+`decision.witness` and `decision.witness-exception`. They use the existing four-stage record
+coordinator. The first binds the recording phase without changing the witness record format; the
+second binds the requested approved phase and exact mapping, independently of the current phase.
+Both keep the current phase unchanged. Their native writer owns the original evidence graph,
+authority, file/context rechecks, approval/expiry checks and transaction bodies. The monolithic
+witness command is now a forwarding adapter; native writers cannot be imported by host surfaces.
+
+Mac qualification on Node 26.12.0 passed 51 focused SDK and boundary checks, 26 native witness,
+verification and renewal checks, and 20 packaged/startup checks. The runs contain shared rechecks
+and have zero failures, cancellations or skips. Native checks cover a failed witness, actual
+packaged-CLI recording, actual CLI/SDK receipt parity, a stale file/context, duplicate prevention,
+inspection before submission, unchanged observed test outcomes, and real SDK/CLI renewal of an
+approved exception after the Story advanced. The original approval records and target generation
+remain unchanged. A final import-guard recheck verifies the new native ownership boundary.
+
+`npm run check` passed 3,585 checks. VS Code typechecking, all 13 existing runtime budgets, Git
+ownership audit, npm dry-run packaging and whitespace validation pass. Both CLI output tails are
+token-identical to their predecessors. The SDK closure remains 11 pure modules (120,298 input
+bytes, zero external imports); the gateway remains 852 modules with no increased ceiling. All
+Git remotes and Stories used for qualification are local fixtures. No Windows, hosted CI, live
+provider, merge, push or real-project migration ran.
+
+Phase 5 still requires plan corrections, upstream issues and amendments, manifests/queries and
+admission helpers. Phases 6–9 retain the full backend, embedding, authority migration and
+distribution scope; this extension does not complete those milestones.

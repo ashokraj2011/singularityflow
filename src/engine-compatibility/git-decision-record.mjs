@@ -18,13 +18,18 @@ export function createGitDecisionRecordPort({root, interaction=null, notice=()=>
     },
     async commit(context, request, {operation}) {
       const {config, workflow} = context;
-      const identity = await who(context);
       let result, record;
-      if (operation.id === 'decision.risk') {
+      if(['decision.witness','decision.witness-exception'].includes(operation.id)) {
+        const {commitWitnessDecision,commitWitnessExceptionRenewal}=await import('./native-witness-decisions.mjs');
+        result=await (operation.id==='decision.witness'?commitWitnessDecision:commitWitnessExceptionRenewal)(context,request);
+        record=result.record;
+      } else if (operation.id === 'decision.risk') {
+        const identity=await who(context);
         const {commitRiskDecision} = await import('./native-obligation-risk.mjs');
         result = await commitRiskDecision(root, config, workflow, request, identity);
         record = result.record;
       } else {
+        const identity=await who(context);
         const owners = await import('./native-story-decisions.mjs');
         if (operation.id === 'decision.scope') {
           result = await owners.commitScopeDecision(root, config, workflow, request, identity);
@@ -45,7 +50,8 @@ export function createGitDecisionRecordPort({root, interaction=null, notice=()=>
       return result.publication;
     },
     async finish(context, request, publication, {operation}) {
-      return JSON.parse(JSON.stringify({workId:context.workflow.workItem.id, phase:context.phaseId, recordKind:operation.recordKind,
+      return JSON.parse(JSON.stringify({workId:context.workflow.workItem.id,
+        phase:operation.phaseBinding==='requested-target'?request.phaseId:context.phaseId, recordKind:operation.recordKind,
         record:context.record, revision:publication.sha, pushed:publication.pushed,
         actorId:actorKey(context.who.actor),
         authorityGroup:context.record.authorityGroup ?? context.result.authority?.authorityGroup ?? null,

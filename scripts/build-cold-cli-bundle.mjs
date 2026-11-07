@@ -83,6 +83,7 @@ const FAMILIES = Object.freeze([
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',
     'engine-compatibility/git-advancement.mjs', 'engine-compatibility/convergence-projection-read.mjs',
     'engine-compatibility/git-decision-record.mjs', 'commands/decision-record.mjs',
+    'engine-compatibility/native-witness-decisions.mjs', 'commands/decision-witness.mjs', 'commands/decision-witness-exception.mjs',
     'engine-compatibility/git-test-decision-record.mjs', 'engine-compatibility/record-decision-context.mjs',
     'engine-compatibility/test-decision-intent.mjs', 'commands/shared/test-decision-operation.mjs', 'test-command-selection.mjs',
     // What the plan already answered, imported only when a convergence step reads its inputs. Unclaimed,

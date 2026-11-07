@@ -16,9 +16,7 @@ import { completionContinuation } from './commands/shared/completion-continuatio
 import { checklistDecisions } from './commands/shared/checklist-decisions.mjs';
 import { decisionWorkflow } from './commands/shared/decision-workflow.mjs';
 import { printSelectionReceipt } from './commands/shared/print-selection-receipt.mjs';
-import { riskAuthorities } from './evidence/risk-decisions.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
-import { recordPublishedWitness, assertWitnessReviewBinding } from './verification/witness-records.mjs';
 import { isConvergencePhase, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
 import readline from 'node:readline/promises';
 import { actionActor, activatePhaseAgent, activeActionContext, summary } from './commands/kernel.mjs';
@@ -171,7 +169,7 @@ import { consumeActionAuthorization, issueActionAuthorization } from './action-a
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
-import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, mergePlannedClaimRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
 import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, reusableAssistedRecord, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
@@ -4149,104 +4147,7 @@ async function decisionRiskCommand(positionals, options) {
  * a fixed checklist [E2G-018].
  */
 async function decisionWitnessCommand(positionals, options) {
-  const root = repoRoot();
-  const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
-  let config = await loadConfig(root);
-  // The Story's own branch, which need not be named after its ID.
-  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
-  const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
-  config = accepted.definition;
-  const workflow = accepted.workflow;
-  const id = workflow.workItem.id;
-  if (workflow.status !== 'in_progress') {
-    throw new SingularityFlowError(`Story ${id} is ${workflow.status}; witnesses are recorded while it is in progress.`, { code: 'WITNESS_STORY_CLOSED' });
-  }
-  const clauseId = String(optionString(options, 'criterion') ?? '').toUpperCase();
-  const slotName = optionString(options, 'slot') ?? '';
-  const file = optionString(options, 'file') ?? '';
-  const { evidenceGraphFromAggregate } = await import('./evidence/graph.mjs');
-  const { evaluateEvidence } = await import('./evidence/evaluate.mjs');
-  const graph = await evidenceGraphFromAggregate(root, config, workflow);
-  const evaluation = evaluateEvidence(graph);
-  const row = evaluation.rows.find((entry) => entry.id === clauseId) ?? null;
-  if (!row || row.type !== 'AC') {
-    throw new SingularityFlowError(`The evidence matrix of ${id} has no acceptance criterion ${clauseId || '(none given)'}; see singularity-flow evidence matrix.`, { code: 'WITNESS_CRITERION_UNKNOWN' });
-  }
-  const { mergedVerificationContracts } = await import('./verification/contracts.mjs');
-  const plans = graph.records.planned ?? [];
-  const contract = mergedVerificationContracts(plans).get(clauseId) ?? null;
-  const slot = contract?.slots.find((entry) => entry.slot === slotName) ?? null;
-  // Whoever approves the step that delivers or verifies the criterion may witness it.
-  const owning = row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps);
-  const groups = riskAuthorities(workflow, { owningSteps: [...new Set(owning)] });
-  if (!groups.length) {
-    throw new SingularityFlowError(`No step delivering ${clauseId} has an approval group, so nobody can witness it.`, { code: 'WITNESS_AUTHORITY_UNAVAILABLE' });
-  }
-  const actor = actionActor(root);
-  const loadedSession = await loadSession(root, { required: false });
-  const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const secured = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
-  const sha256 = `sha256:${createHash('sha256').update(await readFile(secured.absolute)).digest('hex')}`;
-  const answers = {
-    ...Object.fromEntries(optionStrings(options, 'confirm').map((item) => [item, 'yes'])),
-    ...Object.fromEntries(optionStrings(options, 'deny').map((item) => [item, 'no']))
-  };
-  if (optionStrings(options, 'confirm').some((item) => optionStrings(options, 'deny').includes(item))) {
-    throw new SingularityFlowError('A checklist item cannot be both confirmed and denied.', { code: 'WITNESS_RECORD_INVALID' });
-  }
-  const decide = async (aggregate) => {
-    const current = await secureRepositoryPath(root, file, { label: 'Witnessed file', mustExist: true, type: 'file' });
-    const actualFile = `sha256:${createHash('sha256').update(await readFile(current.absolute)).digest('hex')}`;
-    assertWitnessReviewBinding(aggregate, { expectedContext: optionString(options, 'expected-context-sha256'),
-      expectedFile: optionString(options, 'expected-file-sha256') ?? sha256, actualFile, clauseId, slot: slotName, file: current.relative ?? file });
-    return recordPublishedWitness(root, aggregate, {
-      clauseId, slot, file: secured.relative ?? file, sha256, answers, reason: optionString(options, 'reason') ?? '',
-      actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso(),
-      plannedClaim: mergePlannedClaimRecords(plans)[clauseId] ?? null
-    });
-  };
-  await decide(structuredClone(workflow));
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'witness' }
-    },
-    `[${id}][witness] ${clauseId} ${slotName}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a witness');
-      const recorded = await decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'witness_recorded', phase: aggregate.currentPhase ?? null,
-        detail: `${recorded.id}: ${recorded.method} of ${recorded.file} for ${recorded.clauseId} slot ${recorded.slot} ${recorded.outcome === 'met' ? 'satisfies it' : 'does not satisfy it'}. ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'witness', record: recorded.id, reviewPacketSha256: null }
-      })
-    }
-  );
-  if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded ${record.id}: the ${record.method} of ${record.file} ${record.outcome === 'met' ? 'witnesses' : 'does not witness'} ${record.clauseId} slot ${record.slot}, bound to its current bytes.`);
-    console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  }
-  emitCommandResult(commandResult({
-    operation: { id: 'decision.witness', classification: 'mutation' },
-    subject: { kind: 'story', id },
-    outcome: succeeded('decision.witness.succeeded', { record: record.id, criterion: record.clauseId }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, record }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  return (await import('./commands/decision-witness.mjs')).decisionWitnessCommand(positionals, options);
 }
 
 /**

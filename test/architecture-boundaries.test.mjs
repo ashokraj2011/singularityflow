@@ -104,6 +104,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const advancementPort=path.join(packageRoot,'src/engine-compatibility/git-advancement.mjs');
   const singleDecisionPort=path.join(packageRoot,'src/engine-compatibility/git-decision-record.mjs');
   const testDecisionPort=path.join(packageRoot,'src/engine-compatibility/git-test-decision-record.mjs');
+  const witnessWriter=path.join(packageRoot,'src/engine-compatibility/native-witness-decisions.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -120,6 +121,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===advancementPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===singleDecisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===testDecisionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
+        if(target===witnessWriter&&relative!=='src/engine-compatibility/git-decision-record.mjs')problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -130,7 +132,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
 test('extracted native decision writers do not import command handlers or host presentation',async()=>{
   const owners=['native-story-decisions.mjs','native-plan-decisions.mjs','native-obligation-risk.mjs',
     'native-evidence-decisions.mjs','native-visual-decisions.mjs','native-test-command-decisions.mjs',
-    'native-test-narrowing-decisions.mjs','native-test-risk-decisions.mjs','native-upstream-decisions.mjs',
+    'native-test-narrowing-decisions.mjs','native-test-risk-decisions.mjs','native-upstream-decisions.mjs','native-witness-decisions.mjs',
     'git-decisions.mjs','git-decision-record.mjs','git-test-decision-record.mjs','record-decision-context.mjs',
     'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs'];
   const problems=[];
@@ -170,6 +172,13 @@ test('standalone decision adapters do not duplicate admission or import native d
     assert.match(node.body.getText(cli),/import\('\.\/commands\/decision-record\.mjs'\)/);
     assert.doesNotMatch(node.body.getText(cli),/loadAcceptedStoryExecution|loadConfig|transactStory|commitScope|commitRouting/,
       `${name} bypasses the registered operation`);
+  }
+  const witness=cli.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='decisionWitnessCommand');
+  assert.match(witness.body.getText(cli),/import\('\.\/commands\/decision-witness\.mjs'\)/);
+  for(const file of ['decision-witness','decision-witness-exception']) {
+    const source=await readFile(path.join(packageRoot,`src/commands/${file}.mjs`),'utf8');
+    assert.doesNotMatch(source,/loadAcceptedStoryExecution|loadConfig|checkoutStoryBranch|actionActor|loadSession|transactStory|recordPublishedWitness|recordWitnessExceptionRenewal/);
+    assert.match(source,/binding\.engine\.run\(/);
   }
   const adapter=await readFile(path.join(packageRoot,'src/commands/decision-record.mjs'),'utf8');
   assert.doesNotMatch(adapter,/native-story-decisions|native-obligation-risk|loadAcceptedStoryExecution|checkoutStoryBranch|transactStory/);

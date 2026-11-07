@@ -79,6 +79,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const original = Object.freeze(new Error('trusted host unavailable'));
       const engine = sdk.createEngine({ ports: { publication: Object.fromEntries(
         ['load','retained','prepare','commit','finish'].map(stage => [stage, async () => { calls++; throw original; }])) } });
+      for (const helper of Object.keys(sdk.ENGINE_HELPERS)) assert.equal(engine[helper].name, helper);
       await assert.rejects(engine.run('phase.publish', {root:'/other'}), {code:'ENGINE_INPUT_INVALID'});
       assert.equal(calls, 0);
       await assert.rejects(engine.publishPhase({}), error => error === original);
@@ -153,6 +154,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const operation:EngineOperation=ENGINE_HELPERS.publishPhase;
       const input:EngineInputs['phase.enter']={workId:'example',compose:true};
       engine.run('phase.enter',input);
+      engine.run('workflow.assets',{workflowIds:['story:feature']});
       // @ts-expect-error Unsupported operation name.
       engine.run('phase.teleport',{});
       // @ts-expect-error CLI host flag is not an engine input.

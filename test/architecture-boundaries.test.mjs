@@ -150,6 +150,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const documentPort=path.join(packageRoot,'src/engine-compatibility/git-document-read.mjs');
   const documentReferences=path.join(packageRoot,'src/engine-compatibility/native-document-references.mjs');
   const entryPort=path.join(packageRoot,'src/engine-compatibility/git-phase-entry.mjs');
+  const workflowAssetsPort=path.join(packageRoot,'src/engine-compatibility/git-workflow-assets.mjs');
   const nativeEntry=path.join(packageRoot,'src/engine-compatibility/native-phase-entry.mjs');
   const nativeConvergence=path.join(packageRoot,'src/engine-compatibility/native-convergence.mjs');
   const generationBoundary=path.join(packageRoot,'src/generation-boundary.mjs');
@@ -178,6 +179,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===documentPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
         if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs','src/engine-compatibility/native-phase-entry.mjs'].includes(relative))problems.push(relative);
         if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs','src/commands/prepare.mjs','src/commands/shared/prepare-configured-phase.mjs'].includes(relative))problems.push(relative);
+        if(target===workflowAssetsPort&&!['src/engine-compatibility/git-query.mjs','src/workflow-transfer.mjs'].includes(relative))problems.push(relative);
         if(target===nativeEntry&&relative!=='src/engine-compatibility/git-phase-entry.mjs')problems.push(relative);
         if(target===nativeConvergence&&!['src/commands/story.mjs','src/engine-compatibility/git-phase-entry.mjs'].includes(relative))problems.push(relative);
         if(target===generationBoundary&&relative!=='src/state.mjs'&&ts.isImportDeclaration(node)
@@ -197,7 +199,7 @@ test('extracted native decision writers do not import command handlers or host p
     'git-decisions.mjs','git-decision-record.mjs','git-test-decision-record.mjs','record-decision-context.mjs',
     'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs',
     'git-upstream.mjs','native-forward-amendments.mjs','upstream-artifact-issues.mjs',
-    'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs',
+    'git-query.mjs','git-workflow-assets.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs',
     'git-phase-entry.mjs','native-phase-entry.mjs','native-convergence.mjs','story-draft-transaction.mjs'];
   const problems=[];
   for(const name of owners) {

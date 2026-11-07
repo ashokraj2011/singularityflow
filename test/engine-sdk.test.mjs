@@ -30,6 +30,7 @@ test('every convenience helper enters the same registered port as run', async ()
     const seen = [], sentinel = new Error(id);
     const port = Object.fromEntries(definition.stages.map(stage => [stage, async () => { seen.push(stage); throw sentinel; }]));
     const engine = createEngine({ ports: { [definition.port]: port } });
+    assert.equal(engine[helper].name, helper, 'helper names retain their existing diagnostic identity');
     await assert.rejects(engine[helper]({}), error => error === sentinel);
     await assert.rejects(engine.run(id, {}), error => error === sentinel);
     assert.deepEqual(seen, [definition.stages[0], definition.stages[0]], `${helper} has no second coordinator`);

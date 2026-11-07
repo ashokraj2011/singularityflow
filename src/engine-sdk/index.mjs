@@ -18,6 +18,7 @@ import {phaseEntrySelection,phaseEntryInspection,phaseEntryComposition,phaseEntr
   phaseEntryPlan,phaseEntryManifest} from '../kernel/phase-entry.mjs';
 import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelection,phaseDraftCheckManifest} from '../kernel/phase-prepublish.mjs';
 import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phase-preparation.mjs';
+import {workflowAssetSelection,workflowAssetManifest} from '../kernel/workflow-assets.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -99,6 +100,8 @@ const definitions = [
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
   ...UPSTREAM_OPERATIONS,
+  {id:'workflow.assets',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workflowIds']),port:'workflowAssets',
+    stages:Object.freeze(['load','read']),validate:workflowAssetsInput,execute:inspectWorkflowAssets},
   {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
     stages:Object.freeze(['load','read']),validate:phaseReviewInput,execute:inspectPhaseReview},
   {id:'document.read',version:1,effect:'read',humanDecision:false,
@@ -125,6 +128,26 @@ const definitions = [
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
+
+function workflowAssetsInput(value) {
+  const input = data(value);
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'workflowIds')
+    || !Array.isArray(input.workflowIds) || input.workflowIds.length > 8192
+    || input.workflowIds.some(id => typeof id !== 'string')) invalid('Invalid workflow inventory selection.');
+  return data({ workflowIds: [...new Set(input.workflowIds.map(id => id.trim()).filter(Boolean))] });
+}
+
+async function inspectWorkflowAssets(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, { signal }); notCancelled(signal);
+  const binding = data(workflowAssetSelection(context, inputs));
+  const observed = await port.read(context, binding, { signal }); notCancelled(signal);
+  let facts;
+  try { facts = data(observed); } catch (cause) { throw new SingularityFlowError('The workflow asset port returned non-JSON facts.', { code: 'ENGINE_PORT_RESULT_INVALID', cause }); }
+  const manifest = workflowAssetManifest(binding, facts);
+  return data({ schemaVersion: 1, contract: ENGINE_CONTRACT, operation: 'workflow.assets', status: 'inspected',
+    subject: { kind: 'configuration' }, effects: { committed: false, pushed: false, humanReviewRecorded: false, approvalRecorded: false }, manifest });
+}
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
@@ -1067,5 +1090,5 @@ export function createEngine({ ports } = {}) {
   };
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS, run: execute,
     ...Object.fromEntries(Object.entries(ENGINE_HELPERS).map(([helper, operation]) =>
-      [helper, (inputs, options) => execute(operation, inputs, options)])) });
+      [helper, { [helper]: (inputs, options) => execute(operation, inputs, options) }[helper]])) });
 }

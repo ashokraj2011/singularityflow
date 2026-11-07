@@ -59,6 +59,7 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { summarizeWorkflowAssets as summarizeBundle, workflowAssetInventory as dependencyInventory } from './kernel/workflow-assets.mjs';
 import {
   USER_DEFINED_MANIFEST_METADATA, USER_DEFINED_ROOT, userDefinedAgentName, userDefinedFolderPath, userDefinedManifestPath
 } from './user-defined-agent-identity.mjs';
@@ -789,65 +790,6 @@ function bundleWithoutDigest(bundle) {
   const copy = clone(bundle);
   delete copy.bundleSha256;
   return copy;
-}
-
-function summarizeBundle(bundle) {
-  return {
-    workflows: bundle.workflows.length,
-    phases: Object.keys(bundle.objects.story.phases).length
-      + Object.keys(bundle.objects.initiative.initiativePhases).length,
-    artifactSets: Object.keys(bundle.objects.story.artifactSets).length,
-    approvalAuthorities: Object.keys(bundle.objects.story.approvalAuthorities).length
-      + Object.keys(bundle.objects.initiative.approvalAuthorities).length,
-    mcpServers: Object.keys(bundle.objects.story.mcpServers).length,
-    agents: bundle.assets.filter((asset) => asset.kind === 'agent').length,
-    agentLocks: Object.keys(bundle.agentLocks ?? {}).length,
-    templates: bundle.assets.filter((asset) => asset.kind === 'template').length,
-    vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').length,
-    skills: bundle.assets.filter((asset) => asset.kind === 'skill').length,
-    instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').length,
-    constitutions: bundle.assets.filter((asset) => asset.kind === 'constitution').length,
-    userDefinedFiles: bundle.assets.filter((asset) => asset.kind === 'user-defined').length,
-    importRecords: Object.keys(bundle.imports ?? {}).length,
-    assets: bundle.assets.length,
-    skillPackages: bundle.skillPackages?.length ?? 0,
-    skillFiles: (bundle.skillPackages ?? []).reduce((total, record) => total + record.files.length, 0)
-  };
-}
-
-function dependencyInventory(bundle) {
-  const objectIds = (governs, section) => Object.keys(bundle.objects[governs][section] ?? {}).sort();
-  return {
-    workflows: bundle.workflows.map(({ governs, id }) => `${governs}:${id}`).sort(),
-    phases: [
-      ...objectIds('story', 'phases').map((id) => `story:${id}`),
-      ...objectIds('initiative', 'initiativePhases').map((id) => `initiative:${id}`)
-    ].sort(),
-    artifactSets: objectIds('story', 'artifactSets'),
-    templateCatalog: objectIds('story', 'templates'),
-    templateAssets: bundle.assets.filter((asset) => asset.kind === 'template')
-      .map((asset) => `${asset.governs}:${asset.reference}`).sort(),
-    agents: bundle.assets.filter((asset) => asset.kind === 'agent').map((asset) => asset.id).sort(),
-    agentLocks: Object.keys(bundle.agentLocks ?? {}).sort(),
-    vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').map((asset) => asset.path).sort(),
-    skills: bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id).sort(),
-    instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').map((asset) => asset.id).sort(),
-    constitutions: bundle.assets.filter((asset) => asset.kind === 'constitution').map((asset) => asset.path).sort(),
-    userDefinedFolders: [...new Set(bundle.assets.filter((asset) => asset.kind === 'user-defined').map((asset) => asset.owner.id))].sort(),
-    importRecords: Object.keys(bundle.imports ?? {}).sort(),
-    approvalAuthorities: [
-      ...objectIds('story', 'approvalAuthorities').map((id) => `story:${id}`),
-      ...objectIds('initiative', 'approvalAuthorities').map((id) => `initiative:${id}`)
-    ].sort(),
-    mcpServers: objectIds('story', 'mcpServers'),
-    integrationTargets: Object.keys(bundle.objects.story.integrations?.targets ?? {}).sort(),
-    applicabilityPolicies: objectIds('initiative', 'applicabilityPolicies'),
-    worldModelViews: [...(bundle.requirements?.worldModelViews ?? [])].sort(),
-    skillPackages: (bundle.skillPackages ?? []).map((record) => ({
-      skillId: record.skillId, packageSha256: record.manifest.packageSha256,
-      phases: record.phaseBindings.map((binding) => `${binding.governs}:${binding.phaseId}`)
-    }))
-  };
 }
 
 /**
@@ -1953,7 +1895,14 @@ export async function writeWorkflowBundle(bundle, outPath) {
 }
 
 export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
-  const bundle = await compileWorkflowBundle(root, workflowIds);
+  const [{ createEngine }, { createGitWorkflowAssetsPort }] = await Promise.all([
+    import('./engine-sdk/index.mjs'), import('./engine-compatibility/git-workflow-assets.mjs')
+  ]);
+  const captured = createGitWorkflowAssetsPort({ root: path.resolve(root) });
+  await createEngine({ ports: { workflowAssets: captured.port } }).run('workflow.assets', {
+    workflowIds: [...new Set(workflowIds.map(id => String(id).trim()).filter(Boolean))]
+  });
+  const bundle = captured.bundle();
   if (!outPath) return bundle;
   const notes = await exportNotes(root, bundle);
   const target = await writeWorkflowBundle(bundle, outPath);

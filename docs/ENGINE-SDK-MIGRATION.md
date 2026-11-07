@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, draft and prepublication inspection, convergence advancement and shared post-transition effects extracted; portable asset inventory, remaining queries and native policy extraction remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, draft and prepublication inspection, portable workflow asset inventory, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Public embedding and installed authority cutover remain later gates |
 | 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter and installable explicit-port SDK preview implemented; namespace-backed domain operations and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -134,6 +134,11 @@ The [installable SDK preview](ENGINE-SDK-PACKAGE.md) packages that boundary with
 explicit storage entries and registry-derived declarations. Its packed artifact is qualified in
 an external Node consumer. Namespace-backed lifecycle ports and complete cross-agent Story
 execution remain distinct Phase 7 gates; no installed Git project is migrated by the package.
+
+The [workflow asset inventory](ENGINE-SDK-WORKFLOW-ASSETS.md) exposes the native compiler's
+dependency names and digests through the registry. The same captured compiler result serves CLI
+export, while its bodies and output writing stay private to the host. A read manifest neither
+imports those dependencies nor establishes approval or a portable lifecycle backend.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.

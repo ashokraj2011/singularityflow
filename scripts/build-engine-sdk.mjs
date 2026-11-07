@@ -26,6 +26,7 @@ function inputType(operation, field) {
   if (field === 'confirmation' && operation.id === 'phase.approve') return 'ApprovalConfirmation | null';
   if (['usage', 'answers', 'decisions', 'decisionValues', 'command', 'reference'].includes(field)) return 'JsonValue';
   if (['changeOrigins', 'clauseIds', 'transitions', 'sourceRoots'].includes(field)) return 'readonly string[] | null';
+  if (field === 'workflowIds') return 'readonly string[]';
   if (['checklist', 'witnessMappings', 'bindingDecisions', 'changes', 'operations'].includes(field)) return 'readonly JsonValue[] | null';
   return 'string | null';
 }

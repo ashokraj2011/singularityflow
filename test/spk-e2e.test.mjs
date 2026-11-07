@@ -348,7 +348,21 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.equal((await workflowOf(root)).phases.implementation.status, 'approved');
 
   // ---- convergence, iteration one ---------------------------------------------------------------
-  const preparedConvergence = JSON.parse(sflow(root, ['prepare', 'convergence', '--json']).stdout);
+  const preparationCapture=path.join(root,'.git','engine-preparation.capture.json');
+  const captureHelper=fileURLToPath(new URL('./helpers/capture-engine-operation.mjs',import.meta.url));
+  const beforePreparation=git(root,'rev-parse','HEAD');
+  const preparedConvergence = JSON.parse(shell(process.execPath,
+    ['--experimental-test-module-mocks','--no-warnings','--import',captureHelper,CLI,'prepare','convergence','--json'],root,
+    {env:{SINGULARITY_FLOW_TEST_ENGINE_CAPTURE:preparationCapture,SINGULARITY_FLOW_BUNDLE:'off'}}).stdout);
+  const capturedPreparation=JSON.parse(await readFile(preparationCapture,'utf8'));
+  assert.equal(capturedPreparation.operation,'phase.prepare');assert.equal(capturedPreparation.result.status,'prepared');
+  const preparationManifest=capturedPreparation.result.manifest;
+  assert.equal(preparationManifest.mode,'deterministic-convergence');assert.equal(preparationManifest.authoringRequired,false);
+  assert.equal(preparationManifest.codeDeliveryRequired,false);assert.equal(preparationManifest.publicationReadinessInspected,false);
+  assert.deepEqual(preparationManifest.convergence.undisposedItemIds,preparedConvergence.data.convergence.undisposedItemIds);
+  assert.equal(preparationManifest.convergence.sha256,preparedConvergence.data.convergence.sha256);
+  assert.equal(capturedPreparation.result.effects.committed,false);assert.equal(capturedPreparation.result.effects.approvalRecorded,false);
+  assert.equal(git(root,'rev-parse','HEAD'),beforePreparation);
   const preparedAdjudication = preparedConvergence.next.find((action) => action.id === 'convergence.adjudicate');
   assert.ok(preparedAdjudication, 'normal convergence preparation did not stop for human adjudication');
   assert.equal(preparedAdjudication.skill, '/sf-converge');

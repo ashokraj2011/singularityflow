@@ -10,10 +10,13 @@ test('the public Story service keeps the exact native convergence function rathe
 
 test('both configured preparation paths reach the native convergence owner without importing the Story command module',async()=>{
   const shared=await readFile(new URL('../src/commands/shared/prepare-configured-phase.mjs',import.meta.url),'utf8');
-  assert.match(shared,/import\('\.\.\/\.\.\/engine-compatibility\/native-convergence\.mjs'\)/u);
+  assert.match(shared,/\.engine\.run\('phase\.prepare'/u);
   assert.doesNotMatch(shared,/import\('\.\.\/story\.mjs'\)/u);
-  for(const file of ['../src/commands/prepare.mjs','../src/cli.mjs']) {
-    const source=await readFile(new URL(file,import.meta.url),'utf8');
-    assert.match(source,/await prepareConfiguredPhase\(/u,file);
-  }
+  const host=await readFile(new URL('../src/commands/prepare.mjs',import.meta.url),'utf8');
+  assert.match(host,/\.engine\.run\('phase\.prepare'/u);
+  const cli=await readFile(new URL('../src/cli.mjs',import.meta.url),'utf8');
+  assert.match(cli,/await prepareConfiguredPhase\(/u);
+  const nativePort=await readFile(new URL('../src/engine-compatibility/git-phase-entry.mjs',import.meta.url),'utf8');
+  assert.match(nativePort,/import\('\.\/native-convergence\.mjs'\)/u);
+  assert.match(nativePort,/await prepareDeterministicConvergence\(/u);
 });

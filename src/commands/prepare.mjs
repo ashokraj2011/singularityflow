@@ -2,14 +2,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { repoRoot } from '../git.mjs';
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { SingularityFlowError, optionBoolean } from '../util.mjs';
-import { prepareConfiguredPhase } from './shared/prepare-configured-phase.mjs';
+import { optionBoolean, optionString } from '../util.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, succeeded, effects } from '../narration/command-result.mjs';
 import { preparedPhaseNextActions } from './shared/prepared-phase-next-actions.mjs';
-import { phaseKernelOwned } from '../code-delivery-policy.mjs';
-import { convergencePreparationState } from './shared/convergence-preparation-state.mjs';
+import { phaseKernelOwned } from '../kernel/phase-policy.mjs';
+import { convergencePreparationState } from '../kernel/phase-preparation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 
@@ -20,15 +18,10 @@ export async function run(argv, { positionals, options }) {
 
 export async function prepareCommand(positionals, options) {
   const root = repoRoot();
-  const accepted = await loadAcceptedStoryExecution(root);
-  const config = accepted.config;
-  let workflow = accepted.workflow;
-  const phase = positionals[1] ?? workflow.currentPhase;
-  let phaseContract = workflow.phases[phase];
-  if (!phaseContract) throw new SingularityFlowError(`Unknown or unavailable phase '${phase ?? ''}'. Provide a phase ID.`);
-  const prepared = await prepareConfiguredPhase(root, config, workflow, phaseContract);
-  workflow = prepared.workflow;
-  phaseContract = workflow.phases[phase] ?? phaseContract;
+  const {createGitPhasePreparationEngine}=await import('../engine-compatibility/git-phase-entry.mjs');
+  const binding=createGitPhasePreparationEngine({root});
+  await binding.engine.run('phase.prepare',{workId:optionString(options,'work-id')??null,phaseId:positionals[1]??null});
+  const {config,workflow,phase:phaseContract,prepared}=binding.presentation(),phase=phaseContract.id;
   const artifact = prepared.artifact;
   // A template draft (with its approved inputs) is often longer than the host file tool shows at
   // once; refused whole, an agent then reads it again in slices. Name the ranges up front.

@@ -11,7 +11,7 @@ import { postPublicationStep, presentPostPublicationNotice } from './phase-post-
 import {refuseNearMissDocumentOptions} from './commands/shared/document-options.mjs';
 import {documentTitle,documentPhasesLabel} from './commands/shared/document-presentation.mjs';
 import { storyDraftTransaction } from './engine-compatibility/story-draft-transaction.mjs';
-import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
+import { convergencePreparationState } from './kernel/phase-preparation.mjs';
 import { prepareConfiguredPhase } from './commands/shared/prepare-configured-phase.mjs';
 import { completionContinuation } from './commands/shared/completion-continuation.mjs';
 import { checklistDecisions } from './commands/shared/checklist-decisions.mjs';

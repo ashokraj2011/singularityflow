@@ -4,7 +4,8 @@ import {createEngine,ENGINE_OPERATIONS} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {phaseEntryContext} from '../phase-entry-context.mjs';
 import {phaseContextAdmissionPresentation} from '../phase-entry-admission.mjs';
-import {phaseKernelOwned} from '../code-delivery-policy.mjs';
+import {phaseKernelOwned} from '../kernel/phase-policy.mjs';
+import {convergencePreparationState} from '../kernel/phase-preparation.mjs';
 import {recoveryActionGuidance} from '../recovery-action-guidance.mjs';
 import {measureCommandSpan} from '../dx-timing-context.mjs';
 import {withoutReadScope} from '../read-scope.mjs';
@@ -277,6 +278,64 @@ export function createGitPhaseRolloverEngine({root}={}) {
   let context;
   const phaseRollover=createGitPhaseRolloverPort({root,onContext:value=>{context=value;}});
   const engine=createEngine({ports:{phaseRollover,invocation:{
+    run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
+  }}});
+  return Object.freeze({engine,presentation:()=>context});
+}
+
+/** Configured native preparation. Preloaded state is a private legacy-host collaborator. */
+export function createGitPhasePreparationPort({root,initialContext=null,onContext=()=>{}}) {
+  return {
+    async load(inputs) {
+      const accepted=initialContext??await (await import('../accepted-story-execution.mjs')).loadAcceptedStoryExecution(root,inputs.workId??null);
+      const {operationContext}=await import('../operation-context.mjs');
+      const context={root,config:accepted.config,workflow:accepted.workflow,modelEnabled:operationContext()?.modelMode.enabled!==false};
+      const phase=context.workflow.phases?.[inputs.phaseId??context.workflow.currentPhase],intent=phase?.generationIntent;
+      context.initialIntent={id:intent?.id??null,status:intent?.status??null};
+      onContext(context);return context;
+    },
+    async prepare(context,binding) {
+      const {config,workflow}=context,phase=workflow.phases[binding.phase],publicationProducer=binding.producer;
+      if(binding.mode==='deterministic-convergence') {
+        const {prepareDeterministicConvergence}=await import('./native-convergence.mjs');
+        const prepared=await prepareDeterministicConvergence(root,config,workflow.workItem.id);
+        context.prepared={artifact:prepared.artifactPath,workflow:prepared.workflow,convergence:prepared.projection,publicationProducer};
+      }else{
+        const {preparePhase,saveStoryDraft}=await import('../state-stores.mjs');
+        const {storyDraftTransaction}=await import('./story-draft-transaction.mjs');
+        const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase.id}`, async () => {
+          const prepared = await preparePhase(root, config, workflow, phase.id);
+          await saveStoryDraft(root, config, workflow);
+          return prepared;
+        });
+        context.prepared={artifact,workflow,convergence:null,publicationProducer};
+      }
+      context.workflow=context.prepared.workflow;context.phase=context.workflow.phases[binding.phase]??phase;
+    },
+    async inspect(context) {
+      const {workflow,phase,prepared}=context,input=phase.inputContext,intent=phase.generationIntent?.status==='open'?phase.generationIntent:null;
+      const count=value=>{const n=typeof value==='string'&&/^(0|[1-9]\d*)$/u.test(value)?Number(value):value;
+        return Number.isSafeInteger(n)&&n>=0?n:null;};
+      const digest=value=>typeof value==='string'&&/^(?:sha256:)?[a-f0-9]{64}$/u.test(value)?value:null;
+      const convergence=convergencePreparationState(prepared.convergence);
+      return {workId:workflow.workItem.id,phase:phase.id,generation:nextPhaseGeneration(phase),producer:prepared.publicationProducer,
+        artifactKey:phase.requiredArtifact?.path??null,
+        inputContext:input?{generation:count(input.generation),sha256:digest(input.sha256),renderedSha256:digest(input.renderedSha256)}:null,
+        generationIntent:intent?{id:typeof intent.id==='string'&&intent.id?intent.id:null,generation:count(intent.generation),sha256:digest(intent.receiptSha256)}:null,
+        generationOpened:Boolean(intent?.id)&&(context.initialIntent.status!=='open'||context.initialIntent.id!==intent.id),
+        convergence:convergence?{iteration:convergence.iteration,sha256:convergence.sha256,
+          factCount:convergence.factCount,settledCount:convergence.settledCount,findingCount:convergence.findingCount,
+          undisposedItemIds:convergence.undisposedItemIds,unresolvedBlockerCount:convergence.unresolvedBlockers.length}:null};
+    }
+  };
+}
+
+export function createGitPhasePreparationEngine({root,initialContext=null}={}) {
+  if(typeof root!=='string'||!path.isAbsolute(root))throw new SingularityFlowError(
+    'Git phase preparation requires an explicit absolute checkout root.',{code:'ENGINE_INPUT_INVALID'});
+  let context;
+  const phasePreparation=createGitPhasePreparationPort({root,initialContext,onContext:value=>{context=value;}});
+  const engine=createEngine({ports:{phasePreparation,invocation:{
     run:callback=>withoutConfigurationReadScope(()=>withoutReadScope(callback))
   }}});
   return Object.freeze({engine,presentation:()=>context});

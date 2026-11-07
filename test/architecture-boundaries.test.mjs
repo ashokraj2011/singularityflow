@@ -97,7 +97,7 @@ test('production consumers use kernel phase rules and only the compatibility agg
     'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
-    'src/commands/shared/story-draft-transaction.mjs'].map(file=>path.join(packageRoot,file)));
+    'src/commands/shared/story-draft-transaction.mjs','src/commands/shared/convergence-preparation-state.mjs'].map(file=>path.join(packageRoot,file)));
   const transitions=new Set(['src/engine-compatibility/generation-publication.mjs',
     'src/engine-compatibility/submission-transition.mjs','src/engine-compatibility/approval-transition.mjs'].map(file=>path.join(packageRoot,file)));
   const submissionPort=path.join(packageRoot,'src/engine-compatibility/git-submission.mjs');
@@ -143,9 +143,9 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if(target===nativeReview&&!['src/engine-compatibility/git-phase-review.mjs','src/commands/shared/phase-review.mjs'].includes(relative))problems.push(relative);
         if(target===documentPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
         if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs','src/engine-compatibility/native-phase-entry.mjs'].includes(relative))problems.push(relative);
-        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs'].includes(relative))problems.push(relative);
+        if(target===entryPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs','src/phase-entry.mjs','src/phase-entry-authoring.mjs','src/commands/phase-lifecycle.mjs','src/commands/prepare.mjs','src/commands/shared/prepare-configured-phase.mjs'].includes(relative))problems.push(relative);
         if(target===nativeEntry&&relative!=='src/engine-compatibility/git-phase-entry.mjs')problems.push(relative);
-        if(target===nativeConvergence&&!['src/commands/story.mjs','src/commands/shared/prepare-configured-phase.mjs'].includes(relative))problems.push(relative);
+        if(target===nativeConvergence&&!['src/commands/story.mjs','src/engine-compatibility/git-phase-entry.mjs'].includes(relative))problems.push(relative);
         if(target===generationBoundary&&relative!=='src/state.mjs'&&ts.isImportDeclaration(node)
           &&node.importClause?.namedBindings&&ts.isNamedImports(node.importClause.namedBindings)
           &&node.importClause.namedBindings.elements.some(item=>(item.propertyName??item.name).text==='beginNativePhaseGeneration'))problems.push(relative);
@@ -276,6 +276,15 @@ test('rollover host delegates inspection and mutation to the registry, retaining
   assert.ok(rollover);assert.match(rollover.getText(source),/\.engine\.run\('phase\.rollover'/u);
   assert.doesNotMatch(host,/\b(loadAcceptedStoryExecution|generationRecovery|beginPhaseGeneration|saveStoryDraft|storyDraftTransaction|verifyOpenGenerationIntent)\s*\(/u);
   assert.doesNotMatch(host,/import.*(?:state-stores|generation-boundary|accepted-story-execution)\.mjs/u);
+});
+
+test('preparation hosts share the registry and cannot directly load or write phase state',async()=>{
+  for(const relative of ['src/commands/prepare.mjs','src/commands/shared/prepare-configured-phase.mjs']) {
+    const host=await readFile(path.join(packageRoot,relative),'utf8');
+    assert.match(host,/\.engine\.run\('phase\.prepare'/u,relative);
+    assert.doesNotMatch(host,/\b(loadAcceptedStoryExecution|preparePhase|saveStoryDraft|storyDraftTransaction|prepareDeterministicConvergence)\s*\(/u,relative);
+    assert.doesNotMatch(host,/import.*(?:state-stores|accepted-story-execution)\.mjs/u,relative);
+  }
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

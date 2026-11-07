@@ -1,35 +1,15 @@
-/** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { effectivePhasePublicationProducer } from '../../kernel/phase-policy.mjs';
-import { operationContext } from '../../operation-context.mjs';
-import { isConvergencePhase } from '../../kernel/phase-policy.mjs';
-import { storyDraftTransaction } from '../../engine-compatibility/story-draft-transaction.mjs';
-import { preparePhase, saveStoryDraft } from '../../state-stores.mjs';
+/** Legacy host bridge. Configured preparation has one registered execution path. */
 
 /**
  * Prepare one phase through its configured generator.
  *
  * Convergence is not a generic template: its deterministic artifact is a projection of the
- * implementation reconciliation and clause evidence. Keeping this dispatch beside both CLI
- * preparation entry points prevents `next` and `prepare` from drifting into different generators.
+ * implementation reconciliation and clause evidence. Both legacy entry points delegate to the
+ * same operation so `next` and `prepare` cannot select different generators.
  */
 export async function prepareConfiguredPhase(root, config, workflow, phase) {
-  const publicationProducer = effectivePhasePublicationProducer(phase, {
-    modelEnabled: operationContext()?.modelMode.enabled !== false
-  });
-  if (isConvergencePhase(phase) && publicationProducer === 'deterministic') {
-    const { prepareDeterministicConvergence } = await import('../../engine-compatibility/native-convergence.mjs');
-    const prepared = await prepareDeterministicConvergence(root, config, workflow.workItem.id);
-    return {
-      artifact: prepared.artifactPath,
-      workflow: prepared.workflow,
-      convergence: prepared.projection,
-      publicationProducer
-    };
-  }
-  const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase.id}`, async () => {
-    const prepared = await preparePhase(root, config, workflow, phase.id);
-    await saveStoryDraft(root, config, workflow);
-    return prepared;
-  });
-  return { artifact, workflow, convergence: null, publicationProducer };
+  const {createGitPhasePreparationEngine}=await import('../../engine-compatibility/git-phase-entry.mjs');
+  const binding=createGitPhasePreparationEngine({root,initialContext:{config,workflow}});
+  await binding.engine.run('phase.prepare',{workId:workflow.workItem.id,phaseId:phase.id});
+  return binding.presentation().prepared;
 }

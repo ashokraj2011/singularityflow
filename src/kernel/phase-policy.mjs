@@ -1,6 +1,37 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
+const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
+
+export function generationTask(phase) {
+  return phase?.generationPolicy?.task ?? phase?.generation?.task ?? null;
+}
+
+/** Explicit tasks take precedence over the installed legacy code-artifact contract. */
+export function phaseRequiresCodeDelivery(phase) {
+  if (!phase) return false;
+  const task = generationTask(phase);
+  if (task != null) return task === 'code';
+  return CODE_DELIVERY_ARTIFACT_KINDS.has(artifactKindOf(phase));
+}
+
+/** Deterministic-only generation in Story state, a resolved definition or raw configuration. */
+export function deterministicOnlyGeneration(phase) {
+  const policy = phase?.generationPolicy
+    ?? (phase?.generation && typeof phase.generation === 'object' ? phase.generation : null);
+  if (!policy) return false;
+  if (Array.isArray(policy.allowedProducers) && policy.allowedProducers.length) {
+    return policy.allowedProducers.length === 1 && policy.allowedProducers[0] === 'deterministic';
+  }
+  return policy.producer === 'deterministic' || policy.defaultProducer === 'deterministic';
+}
+
+/** A deterministic summary for a code phase is not completed application authoring. */
+export function phaseKernelOwned(phase) {
+  const deterministic = phase?.generationPolicy ? phaseUsesDeterministicGeneration(phase) : deterministicOnlyGeneration(phase);
+  return Boolean(deterministic) && !phaseRequiresCodeDelivery(phase);
+}
+
 /**
  * One predicate for guidance, the submit gate and `review-source`: the step is listed by the
  * pinned policy and still defines the scope or plans the claims. An older pin listing a step that

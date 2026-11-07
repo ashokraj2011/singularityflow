@@ -4,8 +4,8 @@ import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } fr
 import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
-
-const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
+import {generationTask,phaseRequiresCodeDelivery,phaseKernelOwned,deterministicOnlyGeneration} from './kernel/phase-policy.mjs';
+export {phaseRequiresCodeDelivery,phaseKernelOwned,deterministicOnlyGeneration} from './kernel/phase-policy.mjs';
 
 export const DEFAULT_CODE_DELIVERY_POLICY = Object.freeze({
   schemaVersion: 2,
@@ -131,50 +131,12 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
   };
 }
 
-function generationTask(phase) {
-  return phase?.generationPolicy?.task ?? phase?.generation?.task ?? null;
-}
-
-function artifactKind(phase) {
-  return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
-}
-
 /** Which tests a Story's gates run, widest first [TCE:REQ-090]. */
 export const TEST_SCOPES = Object.freeze(['all-configured', 'changed-and-affected', 'new-and-changed']);
 
 /** The test scope a Story runs under now: its latest change, else what intake chose [TCE:REQ-090]. */
 export function storyTestScope(workflow) {
   return workflow?.testScopeChanges?.at(-1)?.to ?? workflow?.resolution?.testExecutionMode ?? 'changed-and-affected';
-}
-
-/**
- * Identify phases that owe executable code-delivery evidence.
- *
- * Current workflows declare `generation.task: code`. Older installed workflows predate that field,
- * but already identify their implementation contract with an `implementation-summary` artifact.
- * Treat that legacy shape as code unless the workflow explicitly selects another task (for example
- * the intentionally non-code chore profile). This keeps old and in-flight Stories fail-closed.
- */
-export function phaseRequiresCodeDelivery(phase) {
-  if (!phase) return false;
-  const task = generationTask(phase);
-  if (task != null) return task === 'code';
-  return CODE_DELIVERY_ARTIFACT_KINDS.has(artifactKind(phase));
-}
-
-/**
- * A step the kernel builds entirely: a deterministic producer and no code to deliver.
- *
- * On a code step, a deterministic producer builds the summary from what changed; the code itself is
- * still written (quick-fix's `implement`). From 2026-10-08 the session, entry admission and mutation
- * contract treated every deterministic step as kernel-owned, so no agent could write that code
- * while every route still offered /sf-code. Only a kernel-owned step clears the agent, skips
- * composition and refuses source edits; a deterministic code step keeps its summary engine-built.
- */
-export function phaseKernelOwned(phase) {
-  // Story state pins `generationPolicy`; a resolved definition or raw configuration carries `generation`.
-  const deterministic = phase?.generationPolicy ? phaseUsesDeterministicGeneration(phase) : deterministicOnlyGeneration(phase);
-  return Boolean(deterministic) && !phaseRequiresCodeDelivery(phase);
 }
 
 /**
@@ -211,21 +173,6 @@ export function stepOutputKind(phase) {
   if (generationRequirement(phase) === 'none') return 'none';
   if (phaseRequiresCodeDelivery(phase)) return 'code';
   return generationTask(phase) === 'analyze' ? 'analysis' : 'document';
-}
-
-/**
- * Whether only the engine's deterministic generator may produce a step, read from Story state
- * (`generationPolicy`), a resolved definition (`generation.allowedProducers`) or raw configuration
- * (`generation.producer`). Such a step is generated, not drafted, so no skill can be chosen for it.
- */
-export function deterministicOnlyGeneration(phase) {
-  const policy = phase?.generationPolicy
-    ?? (phase?.generation && typeof phase.generation === 'object' ? phase.generation : null);
-  if (!policy) return false;
-  if (Array.isArray(policy.allowedProducers) && policy.allowedProducers.length) {
-    return policy.allowedProducers.length === 1 && policy.allowedProducers[0] === 'deterministic';
-  }
-  return policy.producer === 'deterministic' || policy.defaultProducer === 'deterministic';
 }
 
 /** A version-3 compiled skill step: its reviewed binding decides how it is drafted. */

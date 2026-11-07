@@ -17,6 +17,7 @@ import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
 import {phaseEntrySelection,phaseEntryInspection,phaseEntryComposition,phaseEntryClarification,
   phaseEntryPlan,phaseEntryManifest} from '../kernel/phase-entry.mjs';
 import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelection,phaseDraftCheckManifest} from '../kernel/phase-prepublish.mjs';
+import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phase-preparation.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -102,6 +103,9 @@ const definitions = [
   {id:'phase.begin',version:1,effect:'local-draft',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','adoptExisting','confirm']),port:'phaseBegin',
     stages:Object.freeze(['load','verify','begin']),validate:phaseBeginInput,execute:beginPhase},
+  {id:'phase.prepare',version:1,effect:'preparation',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId']),port:'phasePreparation',
+    stages:Object.freeze(['load','prepare','inspect']),validate:phaseReviewInput,execute:preparePhase},
   {id:'phase.rollover',version:1,effect:'local-draft',humanDecision:false,
     confirmation:'exact-current-draft-digest',inputFields:Object.freeze(['workId','phaseId','confirm']),port:'phaseRollover',
     stages:Object.freeze(['load','inspect','begin']),validate:phaseBeginInput,execute:rolloverPhase},
@@ -122,6 +126,33 @@ function invalid(message) {
 function attachDiagnostic(error,key,value) {
   try{if(error&&typeof error==='object'&&Object.isExtensible(error))error[key]=data(value);}
   catch{ /* Optional diagnostics cannot replace a native refusal. */ }
+}
+
+async function preparePhase(port,inputs,signal) {
+  let binding=null,pendingStage='load';const completedStages=[];
+  try {
+    notCancelled(signal);
+    const context=await port.load(inputs,{signal});completedStages.push('load');notCancelled(signal);
+    binding=data(phasePreparationSelection(context?.workflow,inputs,context?.modelEnabled));pendingStage='prepare';
+    await port.prepare(context,binding,{signal});completedStages.push('prepare');notCancelled(signal);pendingStage='inspect';
+    const facts=await port.inspect(context,binding,{signal});completedStages.push('inspect');notCancelled(signal);
+    let observed,manifest;
+    try{observed=data(facts);manifest=data(phasePreparationManifest(binding,observed));}catch(error){
+      if(error?.code==='ENGINE_INPUT_INVALID')throw new SingularityFlowError('The preparation port returned non-JSON facts.',{
+        code:'ENGINE_PORT_RESULT_INVALID',cause:error});
+      throw error;
+    }
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.prepare',status:'prepared',
+      subject:{kind:'story',id:binding.workId},phase:binding.phase,generation:binding.generation,manifest,
+      effects:{prepared:true,localDraftSaved:true,generationOpened:observed.generationOpened,
+        testsRun:false,modelInvocations:0,committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+  }catch(error){
+    attachDiagnostic(error,'enginePhasePreparation',{operation:'phase.prepare',
+      subject:binding?{kind:'story',id:binding.workId}:null,phase:binding?.phase??null,generation:binding?.generation??null,
+      completedStages,pendingStage,localEffectsMayExist:pendingStage==='prepare'||completedStages.includes('prepare'),
+      committed:false,pushed:false,approvalRecorded:false});
+    throw error;
+  }
 }
 
 async function inspectPhaseCheck(port,inputs,signal,operation) {
@@ -1030,6 +1061,7 @@ export function createEngine({ ports } = {}) {
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS,
     run: execute, publishPhase: (inputs, options) => execute('phase.publish', inputs, options),
     beginPhase: (inputs, options) => execute('phase.begin', inputs, options),
+    preparePhase: (inputs, options) => execute('phase.prepare', inputs, options),
     rolloverPhase: (inputs, options) => execute('phase.rollover', inputs, options),
     prepublishPhase: (inputs, options) => execute('phase.prepublish', inputs, options),
     draftCheckPhase: (inputs, options) => execute('phase.draft-check', inputs, options),

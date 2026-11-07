@@ -122,7 +122,10 @@ test('production consumers use kernel phase rules and only the compatibility agg
 });
 
 test('extracted native decision writers do not import command handlers or host presentation',async()=>{
-  const owners=['native-story-decisions.mjs','native-plan-decisions.mjs','native-obligation-risk.mjs'];
+  const owners=['native-story-decisions.mjs','native-plan-decisions.mjs','native-obligation-risk.mjs',
+    'native-evidence-decisions.mjs','native-visual-decisions.mjs','native-test-command-decisions.mjs',
+    'native-test-narrowing-decisions.mjs','native-test-risk-decisions.mjs','native-upstream-decisions.mjs',
+    'git-decisions.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);
@@ -149,6 +152,24 @@ test('native transition extraction keeps every operation binding declared',async
     && !/Cannot find name '(?:process|Buffer|NodeJS)'/.test(ts.flattenDiagnosticMessageText(diagnostic.messageText,' ')))
     .map(diagnostic=>`${path.relative(packageRoot,diagnostic.file.fileName)}:${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line+1}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText,' ')}`);
   assert.deepEqual(missing,[],'an extracted transition lost a required binding');
+});
+
+test('decision effect and combined-approval coordinators import native recorders instead of commands',async()=>{
+  const problems=[];
+  for(const relative of ['src/engine-compatibility/git-decisions.mjs','src/approval-decisions.mjs']) {
+    const file=path.join(packageRoot,relative);
+    const source=ts.createSourceFile(file,await readFile(file,'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      const specifier=ts.isImportDeclaration(node)?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)
+        && path.resolve(path.dirname(file),specifier.text).startsWith(path.join(packageRoot,'src/commands')+path.sep)) {
+        problems.push(`${relative}: ${specifier.text}`);
+      }
+      ts.forEachChild(node,visit);
+    };visit(source);
+  }
+  assert.deepEqual(problems,[],'decision writes must not execute command parsing or presentation');
 });
 
 test('application surfaces cannot bypass the revisioned state-store boundary', async () => {

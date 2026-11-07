@@ -18,17 +18,19 @@
  */
 import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { requireApprovalAuthority } from '../kernel/approval-policy.mjs';
+
 import { repoRoot } from '../git.mjs';
-import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
+
 import { action, commandResult, effects, noop, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
-import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { pinDiffWords, recordStoryTestCommandDecision, recordStoryTestCommandRequest, storyTestCommandState } from '../story-test-commands.mjs';
-import { testRunRiskAuthorities } from '../test-run-risk.mjs';
-import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { loadConfig } from '../state-stores.mjs';
+import { pinDiffWords, storyTestCommandState } from '../story-test-commands.mjs';
+
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
+import {recordStoryTestCommand} from '../engine-compatibility/native-test-command-decisions.mjs';
+export {recordStoryTestCommand};
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID') => { throw new SingularityFlowError(message, { code }); };
 const COMMAND_OPTIONS = ['use', 'id', 'argv', 'working-directory', 'affected-root', 'adapter', 'report', 'ecosystem', 'source-root'];
@@ -36,68 +38,9 @@ const USAGE = 'Use: singularity-flow decision test-command [WORK-ID] --phase PHA
   + "| --id ID --argv '<JSON ARRAY>' --working-directory DIR --affected-root DIR... --adapter ADAPTER --report PATH [--ecosystem LANGUAGE] | --repin COMMAND-ID), "
   + 'or --accept TCD-… / --revoke TCD-… --reason TEXT.';
 
-/** The step whose approvers decide: the step itself, else the next one on the route that has approvers. */
-function decidingStep(workflow, phaseId) {
-  const approved = (id) => {
-    const policy = workflow.phases?.[id]?.approvalPolicy ?? {};
-    return (policy.authorities ?? []).length + (policy.requiredAuthorities ?? []).length > 0;
-  };
-  if (approved(phaseId)) return phaseId;
-  const order = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
-  return order.slice(order.indexOf(phaseId) + 1).find(approved) ?? phaseId;
-}
-
 /** The command a person who approves the step runs to accept a request. */
 export function storyTestCommandAcceptCommand(workflow, id) {
   return `singularity-flow decision test-command ${workflow?.workItem?.id ?? '<WORK-ID>'} --accept ${id}`;
-}
-
-/**
- * Record a request, or a person's acceptance or revocation of one, and commit it. The command and
- * the decision list both record through this, so authority, the record and its commit are the same.
- */
-export async function recordStoryTestCommand(root, config, workflow, { phaseId = null, command = null, repin = null, accept = null, revoke = null, reason = '' }, { actor, agent = null }) {
-  const id = workflow.workItem.id;
-  const target = accept ?? revoke;
-  const requested = target ? storyTestCommandState(workflow, target)?.request : null;
-  if (target && !requested) fail(`This Story has no test command request ${target}.`, 'TEST_COMMAND_DECISION_UNKNOWN');
-  const phase = target ? requested.phase : phaseId;
-  let authority = null;
-  if (target) {
-    const groups = testRunRiskAuthorities(workflow, phase);
-    if (!groups.length) fail(`Step ${phase} has no approval group, so nobody can decide its test commands.`, 'RISK_AUTHORITY_UNAVAILABLE');
-    authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-      { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
-  }
-  const common = { actor: actorKey(actor), at: nowIso() };
-  const decide = (aggregate) => target
-    ? recordStoryTestCommandDecision(aggregate, { id: target, outcome: accept ? 'accept' : 'revoke', reason, ...common,
-      authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null,
-      selfApproval: aggregate.phases?.[decidingStep(aggregate, phase)]?.approvalPolicy?.allowSelfApproval !== false })
-    : recordStoryTestCommandRequest(aggregate, { phaseId, command, repin, reason, ...common });
-  const preview = decide(structuredClone(workflow));
-  if (!target && storyTestCommandState(workflow, preview.id)) return { record: preview, publication: null, reused: true };
-  const verb = accept ? 'accept' : revoke ? 'revoke' : 'request';
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    { type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: phase, generation: null, actor, agent,
-      authorityGroup: authority?.authorityGroup ?? null, payload: { decision: 'test-command' } },
-    `[${id}][test-command:${verb}] ${target ?? `${phase} ${command.id}`}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a test command decision');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor ?? recorded.requestedBy, agent, event: 'test_command_decided', phase,
-        detail: recorded.id
-          ? `${recorded.id} requests that ${phase} ${recorded.repin ? `re-pin test command ${recorded.command.id} (${recorded.repin.changes.join('; ')})` : `run test command ${recorded.command.id}`} for this Story. ${recorded.reason}`
-          : `${target} ${accept ? 'accepted' : 'revoked'} through ${recorded.authorityGroup}.${recorded.reason ? ` ${recorded.reason}` : ''}`
-      });
-      return recorded;
-    },
-    { eventFromResult: (recorded) => ({ actor, agent, authorityGroup: recorded.authorityGroup ?? null, identityAssurance: recorded.identityAssurance ?? null,
-      payload: { decision: 'test-command', record: recorded.id ?? target, outcome: verb, reviewPacketSha256: null } }) }
-  );
-  return { record, publication };
 }
 
 /** A re-pin's before and after, for the person reading the request in a terminal. */

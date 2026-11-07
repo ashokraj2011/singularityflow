@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {approvedSpecificationStory} from './helpers/submitted-planning-story.mjs';
+import {approvedSpecificationStory,startedSpecificationStory,CLI} from './helpers/submitted-planning-story.mjs';
 import {loadAcceptedStoryExecution} from '../src/accepted-story-execution.mjs';
 import {run} from '../src/util.mjs';
+import {mkdtemp,rm,writeFile,readFile} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const lastJson=text=>JSON.parse(String(text).trimEnd().split('\n').at(-1));
 
@@ -10,12 +13,67 @@ test('existing command helper exports use the exact extracted native decision fu
   for(const [oldFile,newFile,names] of [
     ['decision-story-records','native-story-decisions',['commitApplicabilityDecision','commitScopeDecision','commitCompletenessReview']],
     ['decision-plan-amendment','native-plan-decisions',['amendmentContentHashes','commitPlanAmendment','commitNodePin']],
-    ['decision-obligation-risk','native-obligation-risk',['commitRiskDecision']]
+    ['decision-obligation-risk','native-obligation-risk',['commitRiskDecision']],
+    ['decision-evidence-reuse','native-evidence-decisions',['evidenceReuseAuthorities','evidenceReuseDecisionPart','recordEvidenceReuseDecision']],
+    ['decision-visual-profile','native-visual-decisions',['visualProfileAuthorities','visualProfileDecisionPart','recordVisualProfileDecisionFor']],
+    ['decision-test-command','native-test-command-decisions',['recordStoryTestCommand']],
+    ['decision-test-narrowing','native-test-narrowing-decisions',['recordTestNarrowingDecision']],
+    ['decision-test-risk','native-test-risk-decisions',['testRunRiskDecisionPart','recordTestRunRiskDecision']],
+    ['upstream-issue','native-upstream-decisions',['commitUpstreamIssue','upstreamIssuePart','decideUpstreamIssueRecord','upstreamIssueDecisionPart']]
   ]) {
     const previous=await import(`../src/commands/${oldFile}.mjs`);
     const native=await import(`../src/engine-compatibility/${newFile}.mjs`);
     for(const name of names)assert.equal(previous[name],native[name]);
   }
+});
+
+test('the packaged CLI accepts an exact Story test command through its native writer chunk',async t=>{
+  const id='BUNDLED-DECISION';
+  const f=await startedSpecificationStory(t,id,{async beforeStart({root,git}){
+    await writeFile(path.join(root,'fixture-checks.mjs'),[
+      "import assert from 'node:assert/strict';",
+      "import {mkdirSync,writeFileSync} from 'node:fs';",
+      'assert.equal(1+1,2);',
+      "mkdirSync('.sflow/results',{recursive:true});",
+      "writeFileSync('.sflow/results/native-checks.json',JSON.stringify({tests:{discovered:1,passed:1,failed:0,skipped:0}}));"
+    ].join('\n'));
+    git('add','fixture-checks.mjs');git('commit','-qm','Add the fixture test command');git('push','-q','origin','main');
+  }});
+  const requested=JSON.parse(f.cli('decision','test-command',id,'--phase','implementation','--id','native-fixture-checks',
+    '--argv',JSON.stringify([process.execPath,'fixture-checks.mjs']),'--working-directory','.',
+    '--affected-root','.','--adapter','sflow-test-result-v1','--report','.sflow/results/native-checks.json',
+    '--reason','This exact repository command produces the structured check result.','--json').stdout).data.record;
+  const reviewerEnv={...process.env,NODE_ENV:'test',SINGULARITY_FLOW_TEST_IDENTITY:'Command Reviewer'};
+  const listed=run(process.execPath,[CLI,'--no-model','decisions',id,'--phase','implementation','--json'],
+    {cwd:f.root,env:{...reviewerEnv,SINGULARITY_FLOW_BUNDLE:'off'},allowFailure:true});
+  assert.equal(listed.status,0,listed.stdout+'\n'+listed.stderr);
+  const packet=JSON.parse(listed.stdout).data;
+  const item=packet.items.find(item=>item.options.some(option=>option.id==='accept-test-command'));
+  assert.ok(item,'the exact request is available for its step reviewer to decide');
+  const packageRoot=fileURLToPath(new URL('..',import.meta.url));
+  const outdir=await mkdtemp(path.join(packageRoot,'.bundle-test-native-decision-'));
+  t.after(()=>rm(outdir,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
+  const {buildCliBundle}=await import('../scripts/build-cli-bundle.mjs');
+  await buildCliBundle({outdir});
+  const before=f.git('rev-parse','HEAD');
+  const response=run(process.execPath,[CLI,'--no-model','decisions','record',id,
+    '--phase','implementation','--choose',`${item.id}=accept-test-command`,
+    '--confirm',packet.packetSha256,'--json'],{cwd:f.root,allowFailure:true,env:{...reviewerEnv,
+      SINGULARITY_FLOW_BUNDLE:'auto',SINGULARITY_FLOW_BUNDLE_DIR:outdir}});
+  assert.equal(response.status,0,response.stdout+'\n'+response.stderr);
+  const result=JSON.parse(response.stdout);
+  assert.equal(result.operation.id,'decisions.record');
+  assert.equal(result.data.recorded.length,1);
+  assert.equal(result.data.recorded[0].kind,'test-command');
+  assert.equal(result.data.recorded[0].value.accepts,requested.id);
+  assert.notEqual(f.git('rev-parse','HEAD'),before);
+  const after=await loadAcceptedStoryExecution(f.root,id);
+  assert.equal(after.workflow.testCommandDecisions.length,2);
+  assert.equal(after.workflow.testCommandDecisions.at(-1).authorityGroup,'engineering-reviewers');
+  assert.equal(after.workflow.phases.specification.generation,0);
+  assert.equal(after.workflow.phases.implementation.status,'not_started');
+  await assert.rejects(readFile(path.join(f.root,'.sflow/results/native-checks.json')),{code:'ENOENT'},
+    'accepting a test command does not claim or execute its tests');
 });
 
 for(const mode of ['sdk','legacy'])test(`${mode} routing keeps the committed decision when local session activation fails`,async t=>{

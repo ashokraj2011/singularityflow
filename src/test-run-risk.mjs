@@ -31,6 +31,8 @@ import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { classifyTestRunCause, testRunCauseCategory, testRunCauseWords } from './test-run-cause.mjs';
 import { SingularityFlowError } from './util.mjs';
+import {testRunRiskAuthorities} from './kernel/approval-fallback.mjs';
+export {testRunRiskAuthorities};
 
 export const MAX_TEST_RUN_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
@@ -63,26 +65,6 @@ export function testRunCause(attempt) {
 /** A cause as a person reads it: its words, the changed file it names, its class and marker. */
 export function testRunCauseText(cause) {
   return `${testRunCauseWords(cause?.class)}${cause?.file ? ` in ${cause.file}` : ''} (${[cause?.class, cause?.signal].filter(Boolean).join(', ')})`;
-}
-
-/**
- * Who may accept the risk of a step's test commands: the step's approval groups. A step nobody
- * approves (quick-fix's implement) is answered for by the next step on the route that has
- * approvers, since they review its evidence.
- */
-export function testRunRiskAuthorities(workflow, phaseId) {
-  const groups = (id) => {
-    const policy = workflow?.phases?.[id]?.approvalPolicy ?? {};
-    return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
-  };
-  const own = groups(phaseId);
-  if (own.length) return own;
-  const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
-  for (const id of order.slice(order.indexOf(phaseId) + 1)) {
-    const next = groups(id);
-    if (next.length) return next;
-  }
-  return [];
 }
 
 /** The digest an execution or check binds a decision by. */

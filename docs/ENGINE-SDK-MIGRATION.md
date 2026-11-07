@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination, scope/plan/risk writers and shared post-transition effects extracted; remaining decision writers, advancement, manifests and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination, registered decision writers and shared post-transition effects extracted; individual routes/amendments, advancement, manifests and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -350,3 +350,15 @@ The four source/bundle parity tests also pass after making execution-mode select
 inherited test settings. Source checks pass 3,560 checks; typechecking, packaging and all 13 runtime
 budgets pass with no ceiling increases in this writer slice.
 The remaining mixed decision handlers, advancement, manifests/queries and phases 6–9 are still open.
+
+The registered decision port and combined-approval recorder now use native owners for their
+remaining evidence-reuse, visual-profile, test-command, narrowing, test-risk and upstream-issue
+effects. Seventeen writer/helper bodies and four now-pure approval selectors remain unchanged.
+CLI handlers retain parsing/output and compatible helper exports. The own-or-next-step authority
+rule and test-command self-approval policy remain distinct from general prior-step fallback.
+
+The 38 focused, 95 native regression and 14 bundle/approval-gate cases pass on Mac without failures
+or skips. A final four-case writer run also passes, including actual bundled test-command acceptance
+without execution or phase advancement. Source checks pass 3,567 checks; typechecking and all 13
+rebuilt runtime budgets pass without ceiling changes. Individual command routes, amendment
+orchestration, advancement, manifests/queries, admission helpers and all of phases 6–9 remain open.

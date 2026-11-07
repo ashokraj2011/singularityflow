@@ -88,6 +88,9 @@ const FAMILIES = Object.freeze([
     // previews. Unclaimed, they fell into compatibility, so nextsteps on an open step loaded it and models.
     'decision-list-reads.mjs', 'decision-list.mjs', 'step-sheet.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs',
     'engine-compatibility/native-plan-decisions.mjs', 'engine-compatibility/native-obligation-risk.mjs', 'engine-compatibility/native-story-decisions.mjs',
+    'engine-compatibility/native-evidence-decisions.mjs', 'engine-compatibility/native-visual-decisions.mjs',
+    'engine-compatibility/native-test-command-decisions.mjs', 'engine-compatibility/native-test-narrowing-decisions.mjs',
+    'engine-compatibility/native-test-risk-decisions.mjs', 'engine-compatibility/native-upstream-decisions.mjs',
     'commands/decision-plan-amendment.mjs', 'commands/decision-obligation-risk.mjs', 'commands/decision-story-records.mjs',
     'commands/story-adjudicate-terminal.mjs', '../plugin/extensions/decisions/decisions.mjs', '../plugin/extensions/decisions/form-rounds.mjs',
     // A gate's test run environment and toolchain record, loaded by publication and submission; test command

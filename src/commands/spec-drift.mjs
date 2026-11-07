@@ -20,7 +20,7 @@ import {
 } from '../spec-drift.mjs';
 import { actorKey, loadConfig } from '../state-stores.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
-import { testRunRiskAuthorities } from './decision-test-risk.mjs';
+import { testRunRiskAuthorities } from '../kernel/approval-fallback.mjs';
 import { actionActor } from './kernel.mjs';
 
 const LABEL = Object.freeze({ 'in-sync': 'in sync', drifted: 'drifted', orphaned: 'orphaned', unverifiable: 'unverifiable',

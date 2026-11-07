@@ -73,12 +73,12 @@ failure does not change a successful decision record.
 
 ## Compatibility work that remains
 
-The Git port still calls native exported writers in the evidence-reuse, visual-profile,
-test-command, test-narrowing, test-risk and upstream-issue command modules. It does not invoke CLI
-dispatch, argument parsers or subprocesses. Those remaining writer bodies and the legacy
-partial-failure formatter still need extraction before the decision boundary is fully independent
-of command modules. This bridge does not claim completion of Phase 5, a new storage backend, public
-package extraction or project migration.
+The registered decision port and combined-approval recorder use native writer owners for every
+effect they support. They do not import command modules or invoke CLI dispatch, argument parsers or
+subprocesses. Native writers still use the installed aggregate/transaction services, and the Git
+port retains its legacy partial-failure formatter. Individual command routes and forward-amendment
+operations still need their registry/admission extraction. This bridge does not claim completion
+of Phase 5, a new storage backend, public package extraction or project migration.
 
 The pure SDK closure contains 11 source modules, 92,591 source bytes and no external imports. The
 gateway adds exactly three extracted pure owners: the decision planner, limits and coordinator
@@ -139,3 +139,31 @@ with the existing cold-start and module-open limits (24.2 seconds). Together the
 typechecking, all 13 rebuilt runtime budgets and package inclusion/exclusion also pass. Neither byte
 nor module ceilings change for this writer extraction. These component checks do not complete the
 remaining writer extractions or later migration phases.
+
+## Remaining registered decision writers
+
+The evidence-reuse, visual-profile, Story test-command, test-narrowing, test-run risk and upstream
+issue writers now reside in six `engine-compatibility/native-*-decisions.mjs` modules. CLI handlers
+retain their flags and output and re-export the original helper names. Decision-list recording and
+combined approvals call the native functions directly. The same prepared decision parts still enter
+the approval's one transaction, rather than creating extra decision commits.
+
+Seventeen native function bodies match their previous implementations under normalized syntax-tree
+comparison. Four approval selectors move into `kernel/approval-fallback.mjs` without changing their
+bodies. Test evidence decisions keep the original own-or-next-step authority policy; it does not
+gain the more permissive prior-step fallback used by other responsibilities. Test-command
+self-approval checks still use the exact step whose policy decides that command. Legacy policy and
+writer exports retain the same function identity as their new owner.
+
+Mac qualification passes 38 focused checks, 95 native regressions and 14 source/bundle/approval-gate
+checks, with no failures or skips. A further four-case native-writer run includes a real bundled CLI
+acceptance of an exact Story test-command request. It verifies the authorized record while tests
+remain unexecuted and the future phase remains unstarted. Other cases cover SDK and legacy routing
+after local projection failure. Source checks pass 3,567 checks; VS Code typechecking and all 13
+rebuilt runtime budgets pass. No byte or module ceiling changes. The gateway remains at 852 modules;
+the pure SDK has 11 source modules, 94,553 source bytes and no external imports.
+
+These native extractions preserve the current Git authorities and record/recovery protocols. They
+do not yet move forward-amendment command orchestration, the combined-approval admission/formatting
+helper, individual command adapters, advancement or phase manifests/queries behind their final SDK
+boundaries. Those deliveries and the filesystem/database, packaging and migration milestones remain.

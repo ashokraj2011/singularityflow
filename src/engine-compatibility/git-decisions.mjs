@@ -12,12 +12,12 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 
 async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent, notice }) {
   if (effect.kind === 'upstream-issue') {
-    const { commitUpstreamIssue } = await import('../commands/upstream-issue.mjs');
+    const { commitUpstreamIssue } = await import('./native-upstream-decisions.mjs');
     return commitUpstreamIssue(root, config, workflow, { phase: effect.phase, about: effect.about, problem: effect.problem,
       assumption: null, impact: null, proposed: 'unknown', source: null, supersedes: null }, { actor, agent });
   }
   if (effect.kind === 'evidence-reuse') {
-    const { recordEvidenceReuseDecision } = await import('../commands/decision-evidence-reuse.mjs');
+    const { recordEvidenceReuseDecision } = await import('./native-evidence-decisions.mjs');
     return (await recordEvidenceReuseDecision(root, config, workflow, { phaseId: effect.phase, attemptId: effect.attemptId,
       reason: step.values.reason }, { actor, agent })).record;
   }
@@ -36,7 +36,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
       expires: step.values.expires, reason: step.values.reason }, { actor, agent })).record;
   }
   if (effect.kind === 'visual-profile') {
-    const { recordVisualProfileDecisionFor } = await import('../commands/decision-visual-profile.mjs');
+    const { recordVisualProfileDecisionFor } = await import('./native-visual-decisions.mjs');
     return (await recordVisualProfileDecisionFor(root, config, workflow, { phaseId: effect.phase, profileId: effect.profileId,
       reason: step.values.reason }, { actor, agent })).record;
   }
@@ -52,20 +52,20 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
       { actor, agent, notice })).result.outcome;
   }
   if (effect.kind === 'test-command') {
-    const { recordStoryTestCommand } = await import('../commands/decision-test-command.mjs');
+    const { recordStoryTestCommand } = await import('./native-test-command-decisions.mjs');
     return (await recordStoryTestCommand(root, config, workflow, { accept: effect.request, reason: step.values.reason ?? '' }, { actor, agent })).record;
   }
   if (effect.kind === 'test-narrowing') {
-    const { recordTestNarrowingDecision } = await import('../commands/decision-test-narrowing.mjs');
+    const { recordTestNarrowingDecision } = await import('./native-test-narrowing-decisions.mjs');
     return (await recordTestNarrowingDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,
       reason: step.values.reason }, { actor, agent })).record;
   }
   if (effect.kind === 'test-run-risk') {
-    const { recordTestRunRiskDecision } = await import('../commands/decision-test-risk.mjs');
+    const { recordTestRunRiskDecision } = await import('./native-test-risk-decisions.mjs');
     return (await recordTestRunRiskDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,
       cause: step.values.cause, reason: step.values.reason, expires: step.values.expires }, { actor, agent })).record;
   }
-  const { decideUpstreamIssueRecord } = await import('../commands/upstream-issue.mjs');
+  const { decideUpstreamIssueRecord } = await import('./native-upstream-decisions.mjs');
   const issueId = effect.issue ?? produced.issue;
   const { value } = await decideUpstreamIssueRecord(root, config, workflow, issueId, { outcome: effect.outcome, reason: step.values.reason,
     expires: effect.outcome === 'accept-risk' ? step.values.expires : null }, { actor, agent });

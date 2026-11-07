@@ -46,23 +46,23 @@ async function readPacket(root, config, workflow, phase, at) {
 /** The recorder part for one effect, built against `workflow` (a scratch copy when items depend on each other). */
 async function partFor(root, config, workflow, effect, step, produced, who) {
   if (effect.kind === 'upstream-issue') {
-    return (await import('./commands/upstream-issue.mjs')).upstreamIssuePart(workflow, { phase: effect.phase, about: effect.about,
+    return (await import('./engine-compatibility/native-upstream-decisions.mjs')).upstreamIssuePart(workflow, { phase: effect.phase, about: effect.about,
       problem: effect.problem, assumption: null, impact: null, proposed: 'unknown', source: null, supersedes: null }, who);
   }
   if (effect.kind === 'evidence-reuse') {
-    return (await import('./commands/decision-evidence-reuse.mjs')).evidenceReuseDecisionPart(root, config, workflow,
+    return (await import('./engine-compatibility/native-evidence-decisions.mjs')).evidenceReuseDecisionPart(root, config, workflow,
       { phaseId: effect.phase, attemptId: effect.attemptId, reason: step.values.reason }, who);
   }
   if (effect.kind === 'visual-profile') {
-    return (await import('./commands/decision-visual-profile.mjs')).visualProfileDecisionPart(root, config, workflow,
+    return (await import('./engine-compatibility/native-visual-decisions.mjs')).visualProfileDecisionPart(root, config, workflow,
       { phaseId: effect.phase, profileId: effect.profileId, reason: step.values.reason }, who);
   }
   if (effect.kind === 'test-run-risk') {
-    return (await import('./commands/decision-test-risk.mjs')).testRunRiskDecisionPart(root, config, workflow,
+    return (await import('./engine-compatibility/native-test-risk-decisions.mjs')).testRunRiskDecisionPart(root, config, workflow,
       { phaseId: effect.phase, commandId: effect.commandId, argvSha256: effect.argvSha256 ?? null, causeClass: effect.causeClass ?? null, cause: step.values.cause,
         reason: step.values.reason, expires: step.values.expires }, who);
   }
-  return (await import('./commands/upstream-issue.mjs')).upstreamIssueDecisionPart(root, config, workflow, effect.issue ?? produced.issue,
+  return (await import('./engine-compatibility/native-upstream-decisions.mjs')).upstreamIssueDecisionPart(root, config, workflow, effect.issue ?? produced.issue,
     { outcome: effect.outcome, reason: step.values.reason, expires: effect.outcome === 'accept-risk' ? step.values.expires : null }, who);
 }
 

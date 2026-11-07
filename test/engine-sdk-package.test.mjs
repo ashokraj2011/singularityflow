@@ -87,12 +87,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const statusPort = {
         async load() { return {subject:{kind:'story',id:'example'},source:{kind:'namespace-snapshot',revision:'opaque-1'},
           workflow:{workItem:{id:'example'},status:'in_progress',currentPhase:'custom-review',phaseOrder:['custom-review'],
-            phases:{'custom-review':{status:'in_progress',generation:0,artifacts:[],checks:[],approvals:[]}}}}; },
+            phases:{'custom-review':{id:'custom-review',label:'Custom review',status:'in_progress',generation:0,artifacts:[],checks:[],approvals:[]}}}}; },
         async read(context) { return {workId:'example',source:context.source,publication:{state:'not-retained',commit:null,error:null}}; }
       };
-      const status = sdk.createEngine({ports:{storyStatus:statusPort,storyGuide:{load:statusPort.load}}});
+      const status = sdk.createEngine({ports:{storyStatus:statusPort,storyGuide:{load:statusPort.load},
+        storyNext:{async load(){return {...await statusPort.load(),observations:{modelEnabled:true}};}}}});
       const observation = await status.run('story.status',{workId:'example'});
       assert.equal(observation.manifest.currentPhase,'custom-review');
+      const next = await status.run('story.next',{workId:'example'});
+      assert.equal(next.manifest.contract,'sflow-next-steps/v1');
+      assert.equal(next.manifest.actions[0].kind,'prepare-phase');
+      assert.equal(next.effects.approvalRecorded,false);
       assert.equal(observation.manifest.authorityVerified,false);
       assert.equal(observation.manifest.inventoryComplete,true);
       const guide = await status.run('story.guide',{workId:'example'});

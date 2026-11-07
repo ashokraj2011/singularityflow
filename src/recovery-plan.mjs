@@ -30,7 +30,7 @@ import { directCopilotSkill } from './copilot-guidance.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import { inspectPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
-import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { phaseGovernanceHold } from './phase-transition-routes.mjs';
 import { phaseResolutionChoices } from './phase-resolution.mjs';
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';

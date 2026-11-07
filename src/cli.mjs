@@ -75,7 +75,7 @@ import { phaseArtifactCatalog, viewPhaseArtifact } from './phase-artifact-browse
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
 import { progressBar, progressSnapshot } from './progress.mjs';
-import { phaseNeedsGeneration } from './guide.mjs';
+import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './agents.mjs';
 import { attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus, playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile, previewPlaywrightAuthImport, probeMcpHost, recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer, scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost } from './mcp.mjs';
@@ -89,7 +89,7 @@ export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { submitRoute } from './submit-route.mjs';
-import { sourceReviewContinuation } from './source-review-continuation.mjs';
+import { sourceReviewContinuation } from './phase-transition-routes.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';

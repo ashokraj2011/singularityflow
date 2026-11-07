@@ -1,8 +1,11 @@
 /** Host wording and command rendering for provider-neutral continuation actions. */
-import { convergenceTransitionPlan } from './kernel/phase-policy.mjs';
+import { convergenceTransitionPlan, sourceReviewContinuationPlan, phaseGovernancePlan, phaseHandoffPlan, workflowGuidePlan } from './kernel/phase-policy.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
+import { copilotAction } from './copilot-guidance.mjs';
+import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
+import { phaseAuthoringProgress } from './phase-authoring-progress.mjs';
 
 /** Semantic kinds are not shell fragments. Every command is constructed by this host adapter. */
 export function continuationActionPresentation(action, { workflow, phase, authoringProgress = null } = {}) {
@@ -106,4 +109,83 @@ export function cancelledStoryRefusal(workflow) {
     + `Start a new Story for the work with ${start}, or release what it still holds with ${release}.`,
     { code: 'STORY_CANCELLED', details: { workId: id, nextAction: start, recoveryCommands: [start, release] } }
   );
+}
+
+export function sourceReviewContinuation(workflow, phase, review = null) {
+  const plan = sourceReviewContinuationPlan(workflow, phase, review);
+  const actions = plan.actions.map(action => copilotAction(continuationActionPresentation(action, { workflow, phase })));
+  return { classification: plan.classification, publishedGeneration: plan.publishedGeneration,
+    targetGeneration: plan.targetGeneration, automaticAdvance: false, actions,
+    nextCommand: actions[0]?.command ?? null, nextSkill: actions[0]?.skill ?? null,
+    copilotCommand: actions[0]?.copilotCommand ?? null };
+}
+
+/** Preserve the native error and route presentation over one shared kernel hold. */
+export function phaseGovernanceHold(workflow, phase) {
+  const plan = phaseGovernancePlan(workflow, phase);
+  if (!plan) return null;
+  return { code: plan.code, classification: plan.classification,
+    reason: plan.classification === 'amendment-acknowledgement-required'
+      ? `Approved amendment '${plan.amendmentId}' requires an explicit human acknowledgement before downstream submission.`
+      : `Generation ${plan.generation} was authored by its required reviewer '${plan.generatedAgent}'. Preserve that history; the accepted author must re-author and publish a successor before independent review.`,
+    actions: plan.actions.map(action => copilotAction(continuationActionPresentation(action, { workflow, phase }))) };
+}
+
+/** Direct lifecycle entry points share the same explicit hold as the read-only planners. */
+export function assertPhaseGovernanceMayAdvance(workflow, phase) {
+  const hold = phaseGovernanceHold(workflow, phase);
+  if (hold) throw new SingularityFlowError(hold.reason, {
+    code: hold.code, details: { workId: workflow.workItem.id, phase: phase?.id, actions: hold.actions }
+  });
+}
+
+/** The host renders semantic actions; source-review/hold/transition priority stays in the kernel. */
+export function phaseHandoff(workflow, phase, options = {}) {
+  return phaseHandoffPlan(workflow, phase, options).actions
+    .map(action => copilotAction(continuationActionPresentation(action, { workflow, phase })));
+}
+
+/** Project the exact SDK plan without re-running routing or admitting any mutation. */
+export function workflowGuidePresentation(workflow, plan, { authoringProgress = null } = {}) {
+  const active = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+  let capturedProgress = authoringProgress;
+  return {
+    workId: workflow.workItem.id,
+    template: { id: workflow.workItem.workType, label: workflow.workItem.workTypeLabel },
+    source: workflow.workItem.source ?? { type: 'unknown', key: null, url: null },
+    status: workflow.status, currentPhase: active?.id ?? null,
+    phases: workflow.phaseOrder.map((id, index) => {
+      const phase = workflow.phases[id];
+      return { number: index + 1, id, label: phase.label, status: phase.status,
+        artifact: phase.requiredArtifact?.path ?? null, agent: phase.defaultAgent ?? null,
+        approvalAuthorities: phase.approvalPolicy?.authorities ?? [], approvalsRequired: phase.approvalPolicy?.minimum ?? 0 };
+    }),
+    nextActions: plan.actions.map(action => {
+      if (action.kind === 'resume-phase-authoring') capturedProgress ??= phaseAuthoringProgress(workflow, active);
+      return copilotAction(continuationActionPresentation(action, { workflow, phase: active, authoringProgress: capturedProgress }));
+    })
+  };
+}
+
+export function workflowGuide(workflow, { sourceReviewEvidence = null, authoringProgress = null } = {}) {
+  const authoringState = authoringProgress == null ? null : { available: Boolean(authoringProgress.next),
+    stage: authoringProgress.stage ?? null, generation: authoringProgress.generation ?? null };
+  const plan = workflowGuidePlan(workflow, { sourceReviewEvidence, authoringState });
+  return workflowGuidePresentation(workflow, plan, { authoringProgress });
+}
+
+export function guideText(guide) {
+  const lines = [
+    `${guide.workId} — ${guide.template.label} (${guide.template.id})`,
+    `Source: ${guide.source.type}${guide.source.key ? ` / ${guide.source.key}` : ''}`,
+    `Status: ${guide.status}`,
+    `Current phase: ${guide.currentPhase ?? (guide.status === 'cancelled' ? 'cancelled and archived' : 'none — every step is decided')}`,
+    '',
+    'Workflow template:',
+    ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Agent: ${phase.agent ?? 'unavailable'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),
+    '',
+    'What to do next:',
+    ...guide.nextActions.flatMap((action) => [action.reason, '', ...commandRouteLines(safeCommandGuidance(action) ?? safeCommandGuidance(action.command) ?? {}), ''])
+  ];
+  return `${lines.join('\n')}\n`;
 }

@@ -19,11 +19,11 @@
  */
 import { isConvergencePhase, isTestEvidencePhase, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { workflowGuide } from './guide.mjs';
+import { workflowGuide } from './phase-transition-routes.mjs';
 import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { operationContext } from './operation-context.mjs';
-import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { phaseGovernanceHold } from './phase-transition-routes.mjs';
 
 /**
  * The public vocabulary, in journey order. `[SPK:REQ-010]`

@@ -15,7 +15,7 @@ export function createSflow({ root = repoRoot(), faultRepairPolicy = {}, executi
     .then(({createGitQueryEngine})=>createGitQueryEngine({root}))
     .catch(error=>{queryBinding=undefined;throw error;});
   const executeOperation = async (operation, inputs, options) => {
-    const selected=['phaseReview','documentRead','phaseEntry','workflowAssets','storyStatus','storyGuide'].includes(ENGINE_OPERATIONS.find(entry=>entry.id===operation)?.port)?await queries():await native();
+    const selected=['phaseReview','documentRead','phaseEntry','workflowAssets','storyStatus','storyGuide','storyNext'].includes(ENGINE_OPERATIONS.find(entry=>entry.id===operation)?.port)?await queries():await native();
     return selected.engine.run(operation,inputs,options);
   };
   return Object.freeze({

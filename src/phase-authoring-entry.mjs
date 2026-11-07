@@ -2,8 +2,8 @@ import { phaseExplicitlyReopened } from './sequence.mjs';
 import { requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
-import { phaseGovernanceHold } from './phase-governance-routing.mjs';
-import { sourceReviewContinuation } from './source-review-continuation.mjs';
+import { phaseGovernanceHold } from './phase-transition-routes.mjs';
+import { sourceReviewContinuation } from './phase-transition-routes.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 
 /** Read-only entry classification. Only explicit prepare can reserve a document successor. */

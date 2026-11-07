@@ -21,6 +21,7 @@ import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelectio
 import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phase-preparation.mjs';
 import {workflowAssetSelection,workflowAssetManifest} from '../kernel/workflow-assets.mjs';
 import {phaseInputsAuditRequired,phaseInputsManifest} from '../kernel/phase-inputs.mjs';
+import {workflowNextManifest} from '../kernel/next-plan.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -70,73 +71,75 @@ const UPSTREAM_OPERATIONS=Object.freeze([
   ['forward-amendment.revalidate',['phaseId','amendmentId','outcome','reason'],'amendment-revalidation',true]
 ].map(([id,fields,effect,humanDecision])=>({id,version:1,effect,humanDecision,requestFields:Object.freeze(fields),
   inputFields:Object.freeze(['workId',...fields]),port:'upstream',stages:Object.freeze(['load','resolve','commit','finish']),
-  ...(id==='forward-amendment.decide'?{confirmation:'exact-amendment-id'}:{}),validate:singleDecisionInput,execute:upstreamOperation})));
+  ...(id==='forward-amendment.decide'?{confirmation:'exact-amendment-id'}:{}),validate:'singleDecisionInput',execute:'upstreamOperation'})));
 const definitions = [
   { id: 'phase.publish', version: 1, effect: 'publication',
     inputFields: PUBLISH_FIELDS, port: 'publication',
-    stages: WRITE_STAGES, validate:publicationInput, execute:publish },
+    stages: WRITE_STAGES, validate:'publicationInput', execute:'publish' },
   { id: 'phase.submit', version: 1, effect: 'submission', inputFields: SUBMIT_FIELDS,
-    port: 'submission', stages: WRITE_STAGES, validate:submissionInput, execute:submit },
+    port: 'submission', stages: WRITE_STAGES, validate:'submissionInput', execute:'submit' },
   { id: 'convergence.submit', version: 1, effect: 'submission', inputFields: CONVERGENCE_FIELDS,
     confirmation: 'exact-reviewed-convergence-digest', port: 'submission', stages: WRITE_STAGES,
-    validate:submissionInput, execute:submit },
+    validate:'submissionInput', execute:'submit' },
   { id:'phase.approve',version:1,effect:'approval',inputFields:APPROVAL_FIELDS,port:'approval',
     humanDecision:true,stages:Object.freeze(['load','prepare','commit','finish']),
-    validate:approvalInput,execute:approve },
+    validate:'approvalInput',execute:'approve' },
   { id:'phase.reject',version:1,effect:'rejection',humanDecision:true,port:'rejection',
     inputFields:Object.freeze(['workId','phaseId','target','reason','clauseIds','members','repair','confirm','selectionReceipt','fetch','agent']),
-    stages:Object.freeze(['load','prepare','commit','finish']),validate:rejectionInput,execute:reject },
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:'rejectionInput',execute:'reject' },
   {id:'decisions.record',version:1,effect:'decision-records',inputFields:DECISION_FIELDS,port:'decisions',
     authority:'per-effect',humanDecision:true,stages:Object.freeze(['load','prepare','apply','finish']),
-    validate:decisionInput,execute:recordDecisions},
+    validate:'decisionInput',execute:'recordDecisions'},
   {id:'convergence.advance',version:1,effect:'submission',inputFields:ADVANCE_FIELDS,port:'advancement',
     humanDecision:true,confirmation:'exact-reviewed-convergence-digest',delegatesTo:'convergence.submit',
-    stages:Object.freeze(['withReview']),validate:submissionInput,execute:advanceConvergence},
+    stages:Object.freeze(['withReview']),validate:'submissionInput',execute:'advanceConvergence'},
   ...['plan.correction.preview','plan.correct'].map(id=>({id,version:1,effect:id==='plan.correct'?'plan-correction':'read',
     humanDecision:id==='plan.correct',confirmation:id==='plan.correct'?'live-terminal-exact-plan-review':null,
     requestFields:CORRECTION_FIELDS,inputFields:Object.freeze(['workId','fetch',...CORRECTION_FIELDS]),port:'planCorrection',
-    stages:Object.freeze(['load','prepare','review','authorize','commit','finish']),validate:singleDecisionInput,execute:correctPlan})),
+    stages:Object.freeze(['load','prepare','review','authorize','commit','finish']),validate:'singleDecisionInput',execute:'correctPlan'})),
   ...SINGLE_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',humanDecision:true,
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'decisionRecord',
-    stages:Object.freeze(['load','prepare','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'})),
   ...TEST_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',
     humanDecision:operation.id!=='test-command.request',authority:operation.id==='test-command.request'?'requester':'reviewer',
     allowRetained:operation.id==='test-command.request',phaseBinding:'resolved-target',
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
-    stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
+    stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'})),
   ...UPSTREAM_OPERATIONS,
   {id:'story.guide',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyGuide',
-    stages:Object.freeze(['load']),validate:storyGuideInput,execute:inspectStoryGuide},
+    stages:Object.freeze(['load']),validate:'storyGuideInput',execute:'inspectStoryGuide'},
+  {id:'story.next',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyNext',
+    stages:Object.freeze(['load']),validate:'storyGuideInput',execute:'inspectStoryNext'},
   {id:'story.status',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyStatus',
-    stages:Object.freeze(['load','read']),validate:storyStatusInput,execute:inspectStoryStatus},
+    stages:Object.freeze(['load','read']),validate:'storyStatusInput',execute:'inspectStoryStatus'},
   {id:'workflow.assets',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workflowIds']),port:'workflowAssets',
-    stages:Object.freeze(['load','read']),validate:workflowAssetsInput,execute:inspectWorkflowAssets},
+    stages:Object.freeze(['load','read']),validate:'workflowAssetsInput',execute:'inspectWorkflowAssets'},
   {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
-    stages:Object.freeze(['load','read']),validate:phaseReviewInput,execute:inspectPhaseReview},
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectPhaseReview'},
   {id:'document.read',version:1,effect:'read',humanDecision:false,
     inputFields:Object.freeze(['workId','reference','includeDetached','maximumBytes']),port:'documentRead',
-    stages:Object.freeze(['load','resolve','read']),validate:documentReadInput,execute:readDocument},
+    stages:Object.freeze(['load','resolve','read']),validate:'documentReadInput',execute:'readDocument'},
   {id:'phase.enter',version:1,effect:'context-entry',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','compose']),port:'phaseEntry',
-    stages:Object.freeze(['load','inspect','compose','clarify','finish']),validate:phaseEntryInput,execute:enterPhase},
+    stages:Object.freeze(['load','inspect','compose','clarify','finish']),validate:'phaseEntryInput',execute:'enterPhase'},
   {id:'phase.begin',version:1,effect:'local-draft',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','adoptExisting','confirm']),port:'phaseBegin',
-    stages:Object.freeze(['load','verify','begin']),validate:phaseBeginInput,execute:beginPhase},
+    stages:Object.freeze(['load','verify','begin']),validate:'phaseBeginInput',execute:'beginPhase'},
   {id:'phase.prepare',version:1,effect:'preparation',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phasePreparation',
-    stages:Object.freeze(['load','prepare','inspect']),validate:phaseReviewInput,execute:preparePhase},
+    stages:Object.freeze(['load','prepare','inspect']),validate:'phaseReviewInput',execute:'preparePhase'},
   {id:'phase.inputs',version:1,effect:'input-preparation',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','dryRun']),port:'phaseInputs',
-    stages:Object.freeze(['load','prepare','inspect']),validate:phaseInputsInput,execute:preparePhaseInputs},
+    stages:Object.freeze(['load','prepare','inspect']),validate:'phaseInputsInput',execute:'preparePhaseInputs'},
   {id:'phase.rollover',version:1,effect:'local-draft',humanDecision:false,
     confirmation:'exact-current-draft-digest',inputFields:Object.freeze(['workId','phaseId','confirm']),port:'phaseRollover',
-    stages:Object.freeze(['load','inspect','begin']),validate:phaseBeginInput,execute:rolloverPhase},
+    stages:Object.freeze(['load','inspect','begin']),validate:'phaseBeginInput',execute:'rolloverPhase'},
   {id:'phase.prepublish',version:1,effect:'inspection',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phasePrepublish',
-    stages:Object.freeze(['load','inspect']),validate:phaseReviewInput,execute:inspectPhaseCheck},
+    stages:Object.freeze(['load','inspect']),validate:'phaseReviewInput',execute:'inspectPhaseCheck'},
   {id:'phase.draft-check',version:1,effect:'inspection',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phaseDraftCheck',
-    stages:Object.freeze(['load','inspect']),validate:phaseReviewInput,execute:inspectPhaseCheck}
+    stages:Object.freeze(['load','inspect']),validate:'phaseReviewInput',execute:'inspectPhaseCheck'}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -202,18 +205,47 @@ async function inspectStoryGuide(port, inputs, signal) {
     effects:{committed:false,pushed:false,testsRun:false,modelInvocations:0,humanReviewRecorded:false,approvalRecorded:false,storyAdvanced:false}});
 }
 
+async function inspectStoryNext(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, {signal}); notCancelled(signal);
+  const id = context?.workflow?.workItem?.id;
+  if (context?.subject?.kind !== 'story' || typeof id !== 'string' || !id || context.subject.id !== id
+      || !Array.isArray(context.workflow.phaseOrder) || !context.workflow.phases
+      || typeof context.workflow.phases !== 'object' || Array.isArray(context.workflow.phases)) {
+    throw new SingularityFlowError('The next-step port did not bind a Story.', {code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  if (inputs.workId != null && inputs.workId !== id) throw new SingularityFlowError(
+    'Requested Story does not match the next-step record.', {code:'ACTIVE_SUBJECT_MISMATCH',
+      details:{expectedWorkId:inputs.workId,actualWorkId:id}});
+  let manifest;
+  try {
+    const plan = workflowNextManifest(context.workflow, context.observations);
+    manifest = data({...plan, actions:plan.actions.map(action=>({...action, operation:continuationOperation(action)}))});
+  } catch (cause) {
+    if (cause?.code !== 'ENGINE_INPUT_INVALID') throw cause;
+    throw new SingularityFlowError('The next-step port returned invalid observations.', {code:'ENGINE_PORT_RESULT_INVALID',cause});
+  }
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'story.next',status:'inspected',subject:{kind:'story',id},manifest,
+    effects:{committed:false,pushed:false,testsRun:false,modelInvocations:0,humanReviewRecorded:false,approvalRecorded:false,storyAdvanced:false}});
+}
+
 /** The registry owns operation names; kernel action kinds do not embed a host command language. */
 function continuationOperation(action) {
   const inputs={workId:action.workId,...action.phaseId==null?{}:{phaseId:action.phaseId}};
   let id;
   switch(action.kind) {
-    case 'prepare-phase': case 'prepare-convergence': id='phase.prepare';break;
+    case 'prepare-phase': case 'prepare-convergence': case 'prepare-deterministic-convergence': id='phase.prepare';break;
     case 'return-phase': id='phase.reject';inputs.target=action.targetPhase;break;
     case 'review-code-successor': id='phase.rollover';break;
     case 'submit-phase': id='phase.submit';break;
     case 'advance-convergence': id='convergence.advance';delete inputs.phaseId;break;
     case 'approve-phase': id='phase.approve';break;
     case 'view-phase-documents': id='phase.review';break;
+    case 'publish-phase': id='phase.publish';break;
+    case 'prepare-following-phase': id='phase.prepare';inputs.phaseId=action.targetPhase;break;
+    case 'resolve-phase-inputs': id='phase.inputs';break;
+    case 'recalculate-next': id='story.next';delete inputs.phaseId;break;
+    case 'reopen-routing-phase': id='decision.choose';delete inputs.phaseId;inputs.to=action.targetPhase;inputs.expected=action.expected;break;
     case 'choose-workflow-route': id='decision.choose';delete inputs.phaseId;inputs.option=action.optionId;inputs.expected=action.expected;break;
     case 'resume-phase-authoring':
       if(action.stage==='open-code-generation')id='phase.begin';
@@ -1219,7 +1251,7 @@ async function advanceConvergence(port,inputs,signal,operation,{executeOperation
   }
 }
 
-export function createEngine({ ports } = {}) {
+function createEngineRuntime({ ports } = {}, implementations) {
   if (!ports || typeof ports !== 'object') invalid('Engine construction requires explicit trusted ports.');
   const bound = new Map();
   for (const name of new Set(ENGINE_OPERATIONS.map(operation => operation.port))) {
@@ -1242,14 +1274,33 @@ export function createEngine({ ports } = {}) {
       code: 'ENGINE_OPERATION_UNSUPPORTED', details: { operation: typeof operation === 'string' ? operation.slice(0, 128) : null, contract: ENGINE_CONTRACT }
     });
     const definition = registry.get(operation);
-    const input = definition.validate(inputs, definition);
+    if (!implementations[definition.validate] || !implementations[definition.execute]) throw new SingularityFlowError(
+      'No port implements this engine operation in the current host.', { code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port} });
+    const input = implementations[definition.validate](inputs, definition);
     const port = bound.get(definition.port);
     if (!port) throw new SingularityFlowError('No port implements this engine operation in the current host.', {
       code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port}
     });
-    return invoke(() => definition.execute(port, input, signal, definition, {executeOperation:execute}));
+    return invoke(() => implementations[definition.execute](port, input, signal, definition, {executeOperation:execute}));
   };
   return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS, run: execute,
     ...Object.fromEntries(Object.entries(ENGINE_HELPERS).map(([helper, operation]) =>
       [helper, { [helper]: (inputs, options) => execute(operation, inputs, options) }[helper]])) });
+}
+
+/** Default SDK composition binds every coordinator to the one data-only registry. */
+export function createEngine(options = {}) {
+  return createEngineRuntime(options, {
+    advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
+    documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
+    inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
+    preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
+    recordSingleDecision, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
+    storyStatusInput, submissionInput, submit, upstreamOperation, workflowAssetsInput
+  });
+}
+
+/** Private narrow host composition; shares the registry, dispatcher and exact coordinator. */
+export function createStoryNextEngine(options = {}) {
+  return createEngineRuntime(options, { storyGuideInput, inspectStoryNext });
 }

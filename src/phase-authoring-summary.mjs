@@ -1,5 +1,5 @@
 import { authoringRoute } from './code-delivery-policy.mjs';
-import { phaseHandoff } from './guide.mjs';
+import { phaseHandoff } from './phase-transition-routes.mjs';
 import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { reviewContinuation } from './review-continuation.mjs';

@@ -31,6 +31,13 @@ describe structural inputs; runtime still enforces context, exact review binding
 Construction does not give a caller permission to approve: trusted ports must bind the actor,
 project and current facts and preserve the applicable human approval policy.
 
+For next-step advice, bind `storyNext.load` to an accepted Story and its current observations,
+including the explicit model mode, then call `engine.run('story.next', { workId })`. The result
+contains ordered semantic actions, prerequisites and registered operation references. It contains
+no shell commands or model prompt. Reading the plan neither executes those actions nor records
+approval. External setup and human routes remain the host's responsibility. The namespace read
+host below still implements phase/document reads only; it does not provide this port.
+
 The core and `errors` exports are pure. Import storage explicitly when it is needed:
 
 ```js

@@ -1,7 +1,7 @@
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { repoRoot } from '../git.mjs';
-import { guideText, workflowGuidePresentation } from '../guide.mjs';
+import { guideText, workflowGuidePresentation } from '../phase-transition-routes.mjs';
 import { action as narrationAction, commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import * as style from '../style.mjs';

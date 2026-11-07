@@ -1,17 +1,16 @@
-import { isConvergencePhase } from './kernel/phase-policy.mjs';
-import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+/** Native next-step observations and presentation. Ordered rules are owned by the kernel. */
+import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
+import { workflowNextPlan } from './kernel/next-plan.mjs';
+import { continuationActionPresentation } from './phase-transition-routes.mjs';
+import { phaseAuthoringProgress } from './phase-authoring-progress.mjs';
 import { phasePublicationCommandForMode } from './sequence.mjs';
-import { sourceReviewContinuation } from './source-review-continuation.mjs';
-import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, applicationReviewOffer } from './code-delivery-policy.mjs';
-import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
 import { phasePublicationCommand, phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { modelOffCause, operationContext } from './operation-context.mjs';
-import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
+import { decisionSubmitArguments, describeOutcome, describeWhen, decisionReads, decisionAfter, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './kernel/lifecycle-transitions.mjs';
-import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, upstreamIssueStates } from './upstream-routes.mjs';
@@ -30,45 +29,6 @@ function action(timing, skill, command, reason, metadata = {}) {
 /** The run's model mode, so a planner called without one never assumes a model is available. */
 function ambientModelMode() {
   return operationContext()?.modelMode ?? { enabled: true };
-}
-
-// Hosts the GitHub CLI cannot open a pull request on; their merge request is opened by hand.
-const MANUAL_PULL_REQUEST_HOSTS = new Set(['gitlab', 'bitbucket', 'azure-devops', 'local']);
-
-/**
- * How a finished Story lands, from its branch completion policy and its remote's host. A direct
- * policy opens no pull request (`pr` refuses it), and `pr --create` uses the GitHub CLI, so
- * neither is offered where it can only fail.
- */
-function landingActions(workflow, repositoryHost) {
-  const workId = workflow.workItem.id;
-  const policy = workflow.lineage?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy ?? 'pr';
-  if (policy === 'direct') {
-    const finalized = (workflow.lineage?.finalizations ?? []).length > 0;
-    return [
-      ...(finalized ? [] : [action('then', '/sflow-finalize', `singularity-flow finalize --parent ${workId}`,
-        'Finalize the Story for review; repository policy completes it directly, without a pull request.')]),
-      ...((workflow.lineage?.childBranches ?? []).length ? [action('then', '/sflow-story-branch',
-        `singularity-flow story branch promote --parent ${workId} --mode direct`,
-        'After finalization, promote the finished child branch to the Story branch directly; no pull request is opened.')] : [])
-    ];
-  }
-  const preview = action('then', '/sflow-pr', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
-  if (MANUAL_PULL_REQUEST_HOSTS.has(repositoryHost?.provider)) return [preview,
-    action('then', '/sflow-pr', `singularity-flow pr describe ${workId} --clipboard`,
-      `Copy the reviewed description and open the merge request in ${repositoryHost.label} by hand; pr --create uses the GitHub CLI.`)];
-  return [preview,
-    action('then', '/sflow-pr', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.')];
-}
-
-function completionActions(workflow, timing = 'now', repositoryHost = null) {
-  const workId = workflow.workItem.id;
-  return [
-    action(timing, null, 'singularity-flow gate --terminal', 'Confirm the completed workflow and remote branch satisfy the final gate.'),
-    ...landingActions(workflow, repositoryHost),
-    action('alternative', '/sflow-progress', `singularity-flow progress ${workId}`, 'Review deterministic phase completion and approvals.'),
-    action('alternative', '/sflow-report', `singularity-flow report ${workId}`, 'Review timing, rework, token usage, and bottlenecks.')
-  ];
 }
 
 /**
@@ -92,15 +52,6 @@ export function endingApplicabilityDecisions(workflow, phase) {
   }));
 }
 
-function applicabilityActions(workflow, phase, timing = 'now') {
-  return endingApplicabilityDecisions(workflow, phase).map((entry) => action(timing, '/sflow-decide', entry.command, entry.message));
-}
-
-/**
- * What holds the step back from approval (or, for a step nobody approves, from completing): the
- * pending-decision summary its caller read (conformance gaps and open upstream issues), or, when no
- * caller read one, the open upstream issues that would refuse the Story's end. Null when nothing does.
- */
 function decisionHold(workflow, phase, pendingDecisions) {
   if (pendingDecisions !== undefined) return pendingDecisions?.count ? pendingDecisions : null;
   const order = workflow.phaseOrder ?? [];
@@ -109,298 +60,174 @@ function decisionHold(workflow, phase, pendingDecisions) {
   return open ? { count: open, headline: decisionHeadline(workflow, phase.id, open), command: `singularity-flow decisions ${workflow.workItem.id}` } : null;
 }
 
-/**
- * Parity with the engine: never offer an approval (or the submission that completes a step nobody
- * approves) that pending decisions would refuse. The decision list takes its place, at its timing.
- */
-function withDecisionList(workflow, phase, actions, held) {
-  if (!held) return actions;
-  const workId = workflow.workItem.id;
-  const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `)
-    // A step nobody approves, or one a policy may complete at submission, ends the Story by submitting.
-    || (['none', 'policy'].includes(phase.approvalPolicy?.mode) && entry.command?.startsWith(`singularity-flow submit ${phase.id}`));
-  const index = actions.findIndex(blocked);
-  if (index < 0) return actions;
-  const decide = held.personal
-    ? action(actions[index].timing, null, held.command,
-      `${held.headline} Only you record it, in your own terminal, after looking at the evidence yourself; \`${held.listCommand}\` shows its other choice, a dated risk.`,
-      { route: 'decision-list' })
-    : action(actions[index].timing, '/sf-decide', `singularity-flow decisions ${workId}`,
-      `${held.headline} Decide them in one place: each is shown in plain words with its choices, and its approvers record them.`,
-      { route: 'decision-list' });
-  return [...actions.slice(0, index), decide, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
-}
 
-/**
- * Parity with the approval gate's own preview (`approvalCheck`, SPEC-OAP M1): while a hold someone
- * other than the approver clears stands, the way through it takes the approval's place.
- */
-function withApprovalHolds(workflow, phase, actions, check) {
-  const holds = (check?.ready === false ? check.holds ?? [] : []).filter((hold) => hold.owner !== 'you-decide');
-  if (!holds.length) return actions;
-  const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `);
-  const index = actions.findIndex(blocked);
-  if (index < 0) return actions;
-  // One action per way through: holds that share a route are named together in it.
-  const byCommand = new Map();
-  for (const hold of holds) {
-    const command = hold.action?.command ?? `singularity-flow phase show ${phase.id} --json`;
-    byCommand.set(command, [...(byCommand.get(command) ?? []), hold]);
-  }
-  const routes = [...byCommand].slice(0, 3).map(([command, shared], at) => action(at ? 'alternative' : actions[index].timing,
-    copilotSkillForCommand(command), command,
-    `${shared.map((hold) => `${hold.who}: ${hold.summary}`).join(' ')}${shared[0].action?.label ? ` ${shared[0].action.label}` : ''}`, { route: 'approval-hold' }));
-  return [...actions.slice(0, index), ...routes, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
-}
-
-/**
- * One rule for what comes next [study 6.1]: the step sheet's next, in the approval's place, whenever
- * it is anything but the approval. The two above stay for a caller with no sheet to hand.
- */
-function withStepSheet(phase, actions, sheet) {
-  const route = sheetRoute(sheet);
-  if (!route || sheet.next.effect === 'approves') return actions;
-  const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `);
-  const index = actions.findIndex(blocked);
-  if (index < 0) return actions;
-  return [...actions.slice(0, index), action(actions[index].timing, route.skill, route.command, route.reason,
-    { route: route.command.startsWith('singularity-flow decisions ') ? 'decision-list' : 'approval-hold' }),
-  ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
-}
-
-function cancellationActions(workflow) {
-  return [
-    action('now', '/sflow-documents', `singularity-flow documents list ${workflow.workItem.id}`, 'Review the preserved artifacts for this archived Story.'),
-    action('alternative', '/sflow-report', `singularity-flow report ${workflow.workItem.id}`, 'Review the lifecycle history, timing, and cancellation record.')
-  ];
-}
-
-function afterCompletionActions(workflow, phase, { withoutApproval = false, repositoryHost = null } = {}) {
-  const when = withoutApproval ? `After ${phase.id} completes` : `After ${phase.id} is approved`;
-  const ahead = upcomingDecision(workflow, phase);
-  if (ahead) {
-    const { decision, outcome } = ahead;
-    if (!outcome || outcome.kind === 'pause') {
-      return [action('then', '/sflow-decide', `singularity-flow decision show ${workflow.workItem.id}`,
-        decision.mode === 'ask' || outcome?.kind === 'pause'
-          ? `${when}, a person chooses what happens next ('${decision.label}').`
-          : `${when}, '${decision.label}' chooses the next step from the values it records.`)];
-    }
-    if (outcome.kind === 'end' || !outcome.target) return completionActions(workflow, 'then', repositoryHost);
-    const target = workflow.phases[outcome.target];
-    return [action('then', generationSkillForPhase(target, workflow), `singularity-flow prepare ${target.id}`,
-      `${when}, ${describeOutcome(workflow, outcome)}`)];
-  }
-  const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
-  if (!upcoming) return completionActions(workflow, 'then', repositoryHost);
-  return [action(
-    'then', generationSkillForPhase(upcoming, workflow), `singularity-flow prepare ${upcoming.id}`,
-    withoutApproval
-      ? `After ${phase.id} submission completes its no-approval phase, generate and publish ${upcoming.label}.`
-      : `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`
-  )];
-}
-
-/** The routes enforced visual coverage names (see visualCoverageHold), the first at `timing`. */
-function visualCoverageActions(hold, timing) {
-  return hold.routes.slice(0, 3).map((route, index) => action(index ? 'alternative' : timing, copilotSkillForCommand(route.command), route.command,
-    index ? route.label : hold.reason, { route: 'visual-coverage' }));
-}
-
-export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null
+/** Translate host observations once. Commands and prompt wording do not cross the engine port. */
+export function nextStepObservations(workflow, {
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(),
+  stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null,
+  pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null
 } = {}) {
-  const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
-  if (publicationPending) return [
-    action('now', null, 'singularity-flow sync', 'Retry the retained commit push; workflow transitions are blocked until publication succeeds.'),
-    action('then', '/sflow-nextsteps', `singularity-flow nextsteps ${workId}`, 'Recalculate actions from the synchronized branch state.')
-  ];
-  if (recovery?.requiresRecovery) return [
-    action(
-      'now', '/sf-recover',
-      `singularity-flow recover ${workId}${recovery.phaseId ? ` --phase ${recovery.phaseId}` : ''}`,
-      'The current bytes no longer match their consumed generation or another deterministic recovery boundary. Review the hash-bound recovery plan before continuing.',
-      { operationId: 'recover.inspect', route: 'recovery' }
-    )
-  ];
-  if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workflow, 'now', repositoryHost);
-  const pending = workflow.pendingDecision;
-  if (pending) return [
-    action('now', '/sflow-decide', `singularity-flow decision show ${workId}`,
-      `'${pending.label}' waits for ${pending.by.join(', ')} to choose what happens next${pending.reason === 'limit' ? '; its rounds are used' : ''}.`),
-    ...pending.options.map((option, index) => action(index === 0 ? 'then' : 'alternative', '/sflow-decide',
-      `singularity-flow decision choose ${workId} --option ${option.id} --reason <reason> --expected ${pending.key}`,
-      `Choose '${option.label}'.`)),
-    ...reopenableSteps(workflow, pending).slice(0, 1).map((step) => action('alternative', '/sflow-decide',
-      `singularity-flow decision choose ${workId} --to ${step} --reason <reason> --expected ${pending.key}`,
-      `Reopen '${workflow.phases[step]?.label ?? step}' instead; going back never counts as a pass.`)),
-    action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')
-  ];
-
-  // The final submission runs the terminal evaluation, so a published last step asks for its
-  // applicability decisions before the submit they unblock, not after a refused one.
-  const endsHere = phase.status === 'in_progress'
-    && ((workflow.phaseOrder ?? []).at(-1) === phase.id || upcomingDecision(workflow, phase)?.outcome?.kind === 'end');
-  const submitsTheEnd = endsHere && !phaseNeedsGeneration(workflow, phase);
-  const undecided = phase.status === 'awaiting_approval' || submitsTheEnd ? applicabilityActions(workflow, phase) : [];
-  // Before the last step is published the same decisions are named, after its authoring: the
-  // person who records them is rarely its author, and submission would otherwise be the first to say.
-  const undecidedAfterAuthoring = endsHere && !submitsTheEnd ? applicabilityActions(workflow, phase, 'then') : [];
-  let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress }).nextActions.map((item, index) => action(
-    item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
-      : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
-    item.skill,
-    item.command,
-    item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
-  ));
-  const held = decisionHold(workflow, phase, pendingDecisions);
-  if (phase.status === 'awaiting_approval') {
-    const actions = [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })];
-    if (sheet) return withStepSheet(phase, actions, sheet);
-    return held ? withDecisionList(workflow, phase, actions, held) : withApprovalHolds(workflow, phase, actions, approvalCheck);
+  const priority = { publicationPending: Boolean(publicationPending), recoveryRequired: Boolean(recovery?.requiresRecovery),
+    recoveryPhase: recovery?.phaseId ?? null, modelEnabled: Boolean(modelMode.enabled),
+    manualPullRequest: new Set(['gitlab', 'bitbucket', 'azure-devops', 'local']).has(repositoryHost?.provider) };
+  if (priority.publicationPending || priority.recoveryRequired || !phase || workflow.pendingDecision) {
+    return { facts: priority, presentation: { held: null, approvalGroups: [], applicability: [] } };
   }
-
-  // A required after-step action of an earlier step holds this one until its approved delivery has
-  // a receipt, so that delivery comes first and the step's own work follows it.
-  if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
-    const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
-    return [
-      action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
-        stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { route: 'step-action-hold' }),
-      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
-    ];
+  const held = phase ? decisionHold(workflow, phase, pendingDecisions) : null;
+  const groups = new Map();
+  for (const hold of (approvalCheck?.ready === false ? approvalCheck.holds ?? [] : []).filter(hold => hold.owner !== 'you-decide')) {
+    const command = hold.action?.command ?? `singularity-flow phase show ${phase?.id} --json`;
+    groups.set(command, [...(groups.get(command) ?? []), hold]);
   }
-
-  // A step whose MCP prerequisites do not hold on this machine refuses prepare, publish and submit
-  // alike (assertMcpPhaseReadiness), so the setup it names comes first, in order, and the step's
-  // own work follows it.
-  if (mcpHold?.actions?.length && phase.status === 'in_progress' && mcpHold.phase === phase.id) {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
-    return [
-      ...mcpHold.actions.map((entry, index) => action(index === 0 ? 'now' : 'then',
-        copilotSkillForCommand(entry.command) ?? '/sf-mcp', entry.command,
-        index === 0 ? `MCP readiness blocks ${phase.id} (${mcpHold.errors.length} unmet): ${entry.label}` : entry.label,
-        { route: 'mcp-readiness' })),
-      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
-    ];
-  }
-
-  // A published visual step its submission would refuse for coverage: the way out comes first, and
-  // submitting waits for it rather than being offered into the same refusal.
-  if (visualCoverageHold?.routes?.length && visualCoverageHold.published && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
-    return [...visualCoverageActions(visualCoverageHold, 'now'),
-      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))];
-  }
-
-  const needsGeneration = phaseNeedsGeneration(workflow, phase)
-    || (sourceReviewEvidence && sourceReviewContinuation(workflow, phase, sourceReviewEvidence).classification === 'successor-publication-required');
-  const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
-  const effectiveProducer = effectivePhasePublicationProducer(phase, { modelEnabled: modelMode.enabled });
-  const convergenceProjectionRequired = isConvergencePhase(phase)
-    && effectiveProducer === 'deterministic';
-  if (needsGeneration && convergenceProjectionRequired) {
-    immediate = immediate.map((entry) => entry.command === `singularity-flow prepare ${phase.id}`
-      ? action(
-          entry.timing, '/sflow-converge', `singularity-flow prepare ${phase.id}${modelMode.enabled ? '' : ' --no-model'}`,
-          'Compute the canonical deterministic convergence projection, then follow only its returned human-review or publication action.',
-          { operationId: 'prepare', route: 'deterministic-convergence' }
-        )
-      : entry);
-  }
-  const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
-  const applicationReview = !needsGeneration && applicationReviewOffer(workflow, phase);
-  if (applicationReview) actions.push(action('alternative', applicationReview.copilotCommand, applicationReview.command, applicationReview.reason));
-  if (needsGeneration && !modelMode.enabled) {
-    // The draft `prepare` writes is published in place, the route prepublish offers when it is
-    // ready, the footers repeat and refusals name (phasePublicationCommandForMode). A file written
-    // elsewhere is imported instead.
-    if (modelFreeProducer === 'human') actions.push(action(
-      'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
-      `Publish the ${phase.label} you authored in place, without invoking a model.`,
-      { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
-    ), action(
-      'alternative', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
-        phase, 'human', { source: '<FILE>', noModel: true }
-      ),
-      `Or import and publish ${phase.label} from a file written elsewhere, without invoking a model.`,
-      { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
-    ));
-    else if (modelFreeProducer === 'deterministic') {
-      if (!convergenceProjectionRequired) actions.push(action(
-        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
-        `Publish the deterministically generated ${phase.label} without invoking a model.`,
-        { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
-      ));
-      // Deterministic convergence is already represented by its immediate prepare action. That
-      // action computes the projection and returns the exact human-review or publication branch;
-      // absence of a premature publication action is not a model-free availability failure.
-    }
-    // Asking again with --no-model returns this same block: the way through is the model.
-    else actions.unshift(action(
-      'blocked', '/sf-nextsteps', `singularity-flow nextsteps ${workId}`,
-      `${phase.label} has no configured model-free producer. ${modelOffCause(modelMode)}`,
-      { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
-    ));
-  } else if (needsGeneration && !convergenceProjectionRequired) actions.push(action(
-    'then', generationSkillForPhase(phase, workflow), phasePublicationCommand(phase),
-    `Publish ${phase.label} with its configured producer and channel.`,
-    { operationId: 'phase', route: 'configured-producer' }
-  ));
-  const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
-  // Preparing the artifact renders and records the same enforced inputs (preparePhaseInputs), and
-  // composition resolves them itself. A separate input action ahead of a pending prepare costs the
-  // agent one more turn that does nothing the authoring turn does not.
-  const preparesThisPhase = actions.some((entry) => entry.timing === 'now'
-    && entry.command?.split(' ').slice(0, 3).join(' ') === `singularity-flow prepare ${phase.id}`);
-  if (needsGeneration && !preparesThisPhase && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== nextPhaseGeneration(phase)) {
-    actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
-  }
-  if (needsGeneration && convergenceProjectionRequired) {
-    actions.push(action(
-      'alternative', '/sf-cancel',
-      `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`,
-      'Cancel this Story, preserve its artifacts, and move it to Archived.'
-    ));
-    return actions;
-  }
-  // While the generation is authored, its captures are recorded before the publication that commits them.
-  if (needsGeneration && visualCoverageHold?.routes?.length && !visualCoverageHold.published) {
-    const publishing = actions.findIndex((entry) => entry.operationId === 'phase');
-    actions.splice(publishing < 0 ? actions.length : publishing, 0, ...visualCoverageActions(visualCoverageHold, 'then'));
-  }
-  actions.push(...undecidedAfterAuthoring);
-  const noApproval = phase.approvalPolicy?.mode === 'none';
-  if (needsGeneration) actions.push(isConvergencePhase(phase)
-    ? action(
-        'then', '/sflow-submit', `singularity-flow story advance --work-id ${workId}`,
-        'After deterministic publication, review every convergence disposition and explicitly confirm advancement before submission.'
-      )
-    : sourceReviewRequired(workflow, phase.id) ? action(
-        'then', '/sf-review-source', `singularity-flow review-source context ${phase.id} --json`,
-        'After successor publication, independently review its exact source and artifact bindings before submission.'
-      ) : action(
-        'then', '/sflow-submit', `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
-        noApproval
-          ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
-          : `After publishing ${phase.id}, run its checks and submit it for approval.`
-      ));
-  // Rejection is offered once the step awaits approval (workflowGuide): before submission the
-  // engine refuses it, so it is not listed as an available alternative to a later approval.
-  if (!noApproval) actions.push(
-    action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`)
-  );
-  actions.push(
-    action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
-    ...afterCompletionActions(workflow, phase, { withoutApproval: noApproval, repositoryHost })
-  );
-  return withDecisionList(workflow, phase, actions, held);
+  const applicability = phase ? endingApplicabilityDecisions(workflow, phase) : [];
+  return {
+    facts: {
+      ...priority,
+      stepActionHold: Boolean(stepActionHold?.missing?.length),
+      sourceReviewEvidence: sourceReviewEvidence ? { status: sourceReviewEvidence.status ?? null,
+        findings: (sourceReviewEvidence.findings ?? []).map(finding => ({ code: finding.code ?? null })),
+        pendingDispositions: (sourceReviewEvidence.pendingDispositions ?? []).map(entry => ({ id: entry.id })) } : null,
+      authoringState: authoringProgress == null ? null : { available: Boolean(authoringProgress.next),
+        stage: authoringProgress.stage ?? null, generation: authoringProgress.generation ?? null },
+      ...(authoringProgress?.next ? { authoringPreparesPhase:
+        authoringProgress.next.command?.split(' ').slice(0, 3).join(' ') === `singularity-flow prepare ${phase?.id}` } : {}),
+      applicability: applicability.map(({ responsibility, authority }) => ({ responsibility, authority })),
+      prerequisites: prerequisites.map(entry => ({ timing: entry.timing ?? null,
+        preparesPhase: entry.command?.split(' ').slice(0, 3).join(' ') === `singularity-flow prepare ${phase?.id}` })),
+      decisionHold: Boolean(held), approvalHoldCount: groups.size, sheetPresent: Boolean(sheet),
+      sheetRoute: Boolean(sheetRoute(sheet)), sheetApproves: sheet?.next?.effect === 'approves',
+      visualRouteCount: visualCoverageHold?.routes?.length ?? 0, visualPublished: Boolean(visualCoverageHold?.published),
+      mcpActionCount: mcpHold?.actions?.length ?? 0, mcpPhase: mcpHold?.phase ?? null
+    },
+    presentation: { held, approvalGroups: [...groups], applicability }
+  };
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null } = {}) {
+/** Render the exact captured semantic plan; never choose another route from display strings. */
+export function nextStepPlanPresentation(workflow, plan, options = {}) {
+  const { prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, repositoryHost = null,
+    visualCoverageHold = null, mcpHold = null, sheet = null } = options;
+  const presentation = options.presentation ?? nextStepObservations(workflow, options).presentation;
+  const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null, workId = workflow.workItem.id;
+  let progress = options.authoringProgress;
+  return plan.map(entry => {
+    const timing = entry.timing;
+    const show = (skill, command, reason, metadata) => action(timing, skill, command, reason, metadata);
+    if (entry.origin === 'guide') {
+      if (entry.kind === 'resume-phase-authoring') progress ??= phaseAuthoringProgress(workflow, phase);
+      const item = copilotAction(continuationActionPresentation(entry, { workflow, phase, authoringProgress: progress }));
+      return show(item.skill, item.command, item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {});
+    }
+    switch (entry.kind) {
+      case 'retry-publication': return show(null, 'singularity-flow sync', 'Retry the retained commit push; workflow transitions are blocked until publication succeeds.');
+      case 'recalculate-next': return show('/sflow-nextsteps', `singularity-flow nextsteps ${workId}`, 'Recalculate actions from the synchronized branch state.');
+      case 'inspect-recovery': return show('/sf-recover', `singularity-flow recover ${workId}${entry.targetPhase ? ` --phase ${entry.targetPhase}` : ''}`,
+        'The current bytes no longer match their consumed generation or another deterministic recovery boundary. Review the hash-bound recovery plan before continuing.',
+        { operationId: 'recover.inspect', route: 'recovery' });
+      case 'terminal-check': return show(null, 'singularity-flow gate --terminal', 'Confirm the completed workflow and remote branch satisfy the final gate.');
+      case 'finalize-story': return show('/sflow-finalize', `singularity-flow finalize --parent ${workId}`, 'Finalize the Story for review; repository policy completes it directly, without a pull request.');
+      case 'promote-story': return show('/sflow-story-branch', `singularity-flow story branch promote --parent ${workId} --mode direct`, 'After finalization, promote the finished child branch to the Story branch directly; no pull request is opened.');
+      case 'preview-pull-request': return show('/sflow-pr', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
+      case 'copy-review-description': return show('/sflow-pr', `singularity-flow pr describe ${workId} --clipboard`, `Copy the reviewed description and open the merge request in ${repositoryHost.label} by hand; pr --create uses the GitHub CLI.`);
+      case 'create-pull-request': return show('/sflow-pr', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.');
+      case 'story-progress': return show('/sflow-progress', `singularity-flow progress ${workId}`, 'Review deterministic phase completion and approvals.');
+      case 'story-report': return show('/sflow-report', `singularity-flow report ${workId}`, entry.purpose === 'archived' ? 'Review the lifecycle history, timing, and cancellation record.' : 'Review timing, rework, token usage, and bottlenecks.');
+      case 'list-archived-documents': return show('/sflow-documents', `singularity-flow documents list ${workId}`, 'Review the preserved artifacts for this archived Story.');
+      case 'inspect-routing': {
+        const pending = workflow.pendingDecision;
+        const decision = (workflow.resolution?.decisions ?? []).find(item => item.id === entry.decisionId);
+        const when = entry.withoutApproval ? `After ${phase.id} completes` : `After ${phase.id} is approved`;
+        return show('/sflow-decide', `singularity-flow decision show ${workId}`, entry.purpose === 'pending'
+          ? `'${pending.label}' waits for ${pending.by.join(', ')} to choose what happens next${pending.reason === 'limit' ? '; its rounds are used' : ''}.`
+          : entry.personal ? `${when}, a person chooses what happens next ('${decision.label}').`
+            : `${when}, '${decision.label}' chooses the next step from the values it records.`);
+      }
+      case 'choose-workflow-route': {
+        const option = workflow.pendingDecision.options.find(item => item.id === entry.optionId);
+        return show('/sflow-decide', `singularity-flow decision choose ${workId} --option ${entry.optionId} --reason <reason> --expected ${entry.expected}`, `Choose '${option.label}'.`);
+      }
+      case 'reopen-routing-phase': return show('/sflow-decide', `singularity-flow decision choose ${workId} --to ${entry.targetPhase} --reason <reason> --expected ${entry.expected}`,
+        `Reopen '${workflow.phases[entry.targetPhase]?.label ?? entry.targetPhase}' instead; going back never counts as a pass.`);
+      case 'cancel-story': return show('/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.');
+      case 'prepare-following-phase': {
+        const target = workflow.phases[entry.targetPhase];
+        let reason;
+        if (entry.outcome) {
+          const decision = decisionAfter(workflow, phase.id), inputs = decisionReads(decision), facts = entry.outcome;
+          const outcome = { ...facts, ...(Object.hasOwn(facts, 'because') ? { because: facts.because ? describeWhen(facts.because, inputs) : null } : {}),
+            ...(Object.hasOwn(facts, 'goal') ? { goal: facts.goal ? describeWhen(facts.goal, inputs) : null } : {}) };
+          reason = `${entry.withoutApproval ? `After ${phase.id} completes` : `After ${phase.id} is approved`}, ${describeOutcome(workflow, outcome)}`;
+        } else reason = entry.withoutApproval
+          ? `After ${phase.id} submission completes its no-approval phase, generate and publish ${target.label}.`
+          : `After ${phase.id} approval advances the workflow, generate and publish ${target.label}.`;
+        return show(generationSkillForPhase(target, workflow), `singularity-flow prepare ${target.id}`, reason);
+      }
+      case 'decide-applicability': {
+        const item = presentation.applicability[entry.index]; return show('/sflow-decide', item.command, item.message);
+      }
+      case 'pending-decisions': {
+        const held = presentation.held;
+        return held.personal ? show(null, held.command,
+          `${held.headline} Only you record it, in your own terminal, after looking at the evidence yourself; \`${held.listCommand}\` shows its other choice, a dated risk.`, { route: 'decision-list' })
+          : show('/sf-decide', `singularity-flow decisions ${workId}`,
+            `${held.headline} Decide them in one place: each is shown in plain words with its choices, and its approvers record them.`, { route: 'decision-list' });
+      }
+      case 'approval-hold': {
+        const [command, shared] = presentation.approvalGroups[entry.index];
+        return show(copilotSkillForCommand(command), command, `${shared.map(hold => `${hold.who}: ${hold.summary}`).join(' ')}${shared[0].action?.label ? ` ${shared[0].action.label}` : ''}`, { route: 'approval-hold' });
+      }
+      case 'step-sheet': {
+        const route = sheetRoute(sheet); return show(route.skill, route.command, route.reason,
+          { route: route.command.startsWith('singularity-flow decisions ') ? 'decision-list' : 'approval-hold' });
+      }
+      case 'prerequisite': {
+        const shown = copilotAction(prerequisites[entry.index]);
+        return timing == null || timing === shown.timing ? shown : Object.freeze({ ...shown, timing });
+      }
+      case 'step-action-hold': {
+        const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
+        return show(copilotSkillForCommand(command) ?? '/sf-integrations', command, stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { route: 'step-action-hold' });
+      }
+      case 'mcp-readiness': {
+        const item = mcpHold.actions[entry.index]; return show(copilotSkillForCommand(item.command) ?? '/sf-mcp', item.command,
+          entry.index ? item.label : `MCP readiness blocks ${phase.id} (${mcpHold.errors.length} unmet): ${item.label}`, { route: 'mcp-readiness' });
+      }
+      case 'visual-coverage': {
+        const route = visualCoverageHold.routes[entry.index]; return show(copilotSkillForCommand(route.command), route.command,
+          entry.index ? route.label : visualCoverageHold.reason, { route: 'visual-coverage' });
+      }
+      case 'prepare-deterministic-convergence': return show('/sflow-converge', `singularity-flow prepare ${phase.id}${entry.modelEnabled ? '' : ' --no-model'}`,
+        'Compute the canonical deterministic convergence projection, then follow only its returned human-review or publication action.', { operationId: 'prepare', route: 'deterministic-convergence' });
+      case 'review-application': {
+        const offer = applicationReviewOffer(workflow, phase); return show(offer.copilotCommand, offer.command, offer.reason);
+      }
+      case 'model-required': return show('/sf-nextsteps', `singularity-flow nextsteps ${workId}`, `${phase.label} has no configured model-free producer. ${modelOffCause(modelMode)}`,
+        { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' });
+      case 'publish-phase': return entry.modelEnabled ? show(generationSkillForPhase(phase, workflow), phasePublicationCommand(phase),
+        `Publish ${phase.label} with its configured producer and channel.`, { operationId: 'phase', route: 'configured-producer' })
+        : show(generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
+          entry.producer === 'human' ? `Publish the ${phase.label} you authored in place, without invoking a model.` : `Publish the deterministically generated ${phase.label} without invoking a model.`,
+          { operationId: 'phase', modelPolicy: 'never', route: entry.producer === 'human' ? 'manual' : 'deterministic' });
+      case 'import-phase': return show(generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(phase, 'human', { source: '<FILE>', noModel: true }),
+        `Or import and publish ${phase.label} from a file written elsewhere, without invoking a model.`, { operationId: 'phase', modelPolicy: 'never', route: 'manual' });
+      case 'resolve-phase-inputs': return show('/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.');
+      case 'advance-convergence': return show('/sflow-submit', `singularity-flow story advance --work-id ${workId}`, 'After deterministic publication, review every convergence disposition and explicitly confirm advancement before submission.');
+      case 'review-published-source': return show('/sf-review-source', `singularity-flow review-source context ${phase.id} --json`, 'After successor publication, independently review its exact source and artifact bindings before submission.');
+      case 'submit-phase': return show('/sflow-submit', `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
+        entry.withoutApproval ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.` : `After publishing ${phase.id}, run its checks and submit it for approval.`);
+      case 'approve-phase': return show('/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`);
+      default: throw new Error(`Unknown semantic next action '${entry.kind}'.`);
+    }
+  });
+}
+
+export function workflowNextSteps(workflow, options = {}) {
+  const { facts, presentation } = nextStepObservations(workflow, options);
+  return nextStepPlanPresentation(workflow, workflowNextPlan(workflow, facts), { ...options, presentation });
+}
+
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null, nextPlan = null, nextPresentation = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -429,7 +256,8 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet });
+  const options = { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet };
+  const actions = nextPlan ? nextStepPlanPresentation(workflow, nextPlan, { ...options, presentation: nextPresentation }) : workflowNextSteps(workflow, options);
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,

@@ -85,6 +85,46 @@ test('only explicit storage adapters consume namespace contracts outside their p
   assert.deepEqual(violations, [], 'new namespace backends must not change installed Git routing');
 });
 
+test('kernel tree shaking is backed by pure initialization and no side-effect-only imports', async () => {
+  assert.deepEqual(JSON.parse(await readFile(path.join(packageRoot, 'src/kernel/package.json'), 'utf8')), { sideEffects: false });
+  for (const file of await sourceFiles('src/kernel')) {
+    const ast = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    const initializer = node => {
+      if (ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node)) return;
+      if (ts.isCallExpression(node)) assert.equal(node.expression.getText(ast), 'Object.freeze', file);
+      if (ts.isNewExpression(node)) assert.ok(['Set', 'Map', 'WeakMap', 'WeakSet', 'RegExp'].includes(node.expression.getText(ast)), file);
+      assert.equal(ts.isAwaitExpression(node) || ts.isYieldExpression(node), false, file);
+      assert.equal(ts.isDeleteExpression(node) || ts.isPostfixUnaryExpression(node)
+        || ts.isPrefixUnaryExpression(node) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator), false, file);
+      if (ts.isBinaryExpression(node)) assert.equal(node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+        && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment, false, file);
+      ts.forEachChild(node, initializer);
+    };
+    for (const node of ast.statements) {
+      if (ts.isVariableStatement(node)) {
+        for (const declaration of node.declarationList.declarations) if (declaration.initializer) initializer(declaration.initializer);
+      }
+      else if (ts.isImportDeclaration(node)) assert.ok(node.importClause, file);
+      else assert.ok(ts.isFunctionDeclaration(node) || ts.isExportDeclaration(node), file);
+    }
+  }
+});
+
+test('next-step hosts execute one registered plan and keep native observations out of command handlers', async () => {
+  const command = await readFile(path.join(packageRoot, 'src/commands/nextsteps.mjs'), 'utf8');
+  assert.match(command, /binding\.engine\.run\('story\.next'/);
+  assert.doesNotMatch(command, /readPhaseDraftEvidence\(|pendingDecisionSummary\(|inspectMcpPhaseReadiness\(/);
+  const observer = await readFile(path.join(packageRoot, 'src/engine-compatibility/git-nextsteps.mjs'), 'utf8');
+  assert.doesNotMatch(observer, /(?:from|import\()\s*['"][^'"]*commands\/|console\.|optionBoolean\(/);
+  const core = await readFile(path.join(packageRoot, 'src/kernel/next-plan.mjs'), 'utf8');
+  assert.doesNotMatch(core, /singularity-flow|safeCommandGuidance|copilot|operationContext|readFile/);
+  const aliases = ['src/guide.mjs', 'src/source-review-continuation.mjs', 'src/phase-governance-routing.mjs'];
+  for (const file of aliases) {
+    const ast = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    assert.ok(ast.statements.every(ts.isExportDeclaration), file);
+  }
+});
+
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',
@@ -234,9 +274,7 @@ test('ordinary status commands and warm reads use one native registry observer a
 
 test('guide and handoff hosts render shared kernel decisions and the CLI uses the registered query',async()=>{
   const sources={
-    'guide.mjs':['phaseHandoffPlan','workflowGuidePlan'],
-    'source-review-continuation.mjs':['sourceReviewContinuationPlan'],
-    'phase-governance-routing.mjs':['phaseGovernancePlan'],
+    'phase-transition-routes.mjs':['phaseHandoffPlan','workflowGuidePlan','sourceReviewContinuationPlan','phaseGovernancePlan'],
     'phase-authoring-progress.mjs':['phaseAuthoringPlan']
   };
   for(const [file,functions] of Object.entries(sources)) {

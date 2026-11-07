@@ -113,3 +113,28 @@ test('configuration owner input and recovery errors retain their original code a
     { code: 'STORY_BASE_INVALID' });
   await assert.rejects(config.reconcileTransaction('not-retained'), { code: 'CONFIGURATION_TRANSACTION_UNKNOWN' });
 });
+
+test('configuration reads preserve the exact native callback failure without retrying or replacing its recovery', async t => {
+  const { config, root, originalCommit } = await fixture(t);
+  const cause = new Error('fixture input is unavailable');
+  const failure = Object.freeze(Object.assign(new Error('retained native read failure', { cause }), {
+    code: 'FIXTURE_READ_UNAVAILABLE',
+    details: Object.freeze({ nextAction: 'retry the same retained read', retryable: false })
+  }));
+  const before = git(root, ['status', '--porcelain=v1']);
+  for (const read of [
+    callback => config.withRead(callback),
+    callback => config.withCommitRead({ commit: originalCommit }, callback)
+  ]) {
+    let calls = 0;
+    await assert.rejects(read(() => { calls += 1; throw failure; }), error => {
+      assert.equal(error, failure);
+      assert.equal(error.cause, cause);
+      assert.equal(error.details, failure.details);
+      return true;
+    });
+    assert.equal(calls, 1, 'the compatibility layer must not replay a failed native operation');
+    assert.equal(git(root, ['rev-parse', 'HEAD']).trim(), originalCommit);
+    assert.equal(git(root, ['status', '--porcelain=v1']), before);
+  }
+});

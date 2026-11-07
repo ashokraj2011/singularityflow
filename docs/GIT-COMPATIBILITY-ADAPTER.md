@@ -132,3 +132,20 @@ JS
 
 The migration plan records the completed qualification. Windows, hosted CI and live provider runs
 are excluded from this phase.
+
+### Current-branch requalification
+
+The Phase 3 bridge was rechecked on macOS 26.7.2 with Node 26.12.0 after the later SDK extractions.
+All 187 focused tests across 16 files passed, with no failures, cancellations or skips. The run
+covered the three compatibility suites, unchanged native lifecycle/proof conformance, namespace
+contracts/conformance, final publication binding, configuration proposals, foundation ownership,
+adapter names, architecture boundaries, lazy startup and SGOS contracts.
+
+An additional regression verifies that both configuration readers propagate the exact frozen
+native callback error, its cause and its recovery details. The callback executes once; neither
+the checkout head nor dirty-file status changes. This adds no retry or alternate recovery policy.
+
+Source validation passed 3,633 checks. VS Code typechecking and npm dry-run packaging passed; both
+adapter modules and this document are included, while test fixtures are excluded. The verification
+used temporary local Git remotes and isolated machine state. No Windows, hosted CI, live provider,
+installation, workspace or real Story operation was run.

@@ -1,6 +1,82 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
+/** Historical review is allowed; phase authoring admission is a separate operation. */
+export function phaseReviewSelection(workflow, requested=null) {
+  const id=requested??workflow.currentPhase;
+  const phase=id!=null&&Object.hasOwn(workflow.phases??{},id)?workflow.phases[id]:null;
+  if(!phase)throw new SingularityFlowError(`Unknown or unavailable phase '${id??''}'. Provide a phase ID.`);
+  return {workId:workflow.workItem.id,phase:phase.id,generation:Number(phase.generation??0),status:phase.status,
+    current:phase.id===workflow.currentPhase,
+    retained:[...(phase.artifacts??[]).filter(item=>item.path).map(item=>({sourceKey:item.path,role:'artifact',
+      sha256:item.sha256??null,bytes:item.size??null})),...phaseReviewBriefRecords(workflow,phase).filter(brief=>brief.renderedPath)
+      .map(brief=>({sourceKey:brief.renderedPath,role:'agent-brief',sha256:brief.renderedSha256??null,bytes:null}))]};
+}
+
+/** The immutable submitted brief list takes precedence over mutable phase projections. */
+export function phaseReviewBriefRecords(workflow,phase) {
+  const generation=Number(phase?.generation??0);
+  if(!phase?.id||generation<1)return [];
+  const submitted=[...(workflow.lineage?.submissions??[])].reverse()
+    .find(entry=>entry.phase===phase.id&&entry.generation===generation);
+  return Array.isArray(submitted?.projection?.agentBriefs)?submitted.projection.agentBriefs
+    :(phase.agentBriefs??[]).filter(brief=>brief.generation===generation);
+}
+
+/** A read plan contains retained references and byte-verification facts, never model instructions. */
+export function phaseReviewManifest(binding,facts) {
+  const bad=()=>{throw new SingularityFlowError('The phase review port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});};
+  const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
+  const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
+  const bytes=value=>Number.isSafeInteger(value)&&value>=0;
+  if(!facts||Object.keys(facts).some(key=>!['workId','phase','generation','status','revision','budgets','documents','reviewBinding'].includes(key))
+    ||facts.workId!==binding.workId||facts.phase!==binding.phase||facts.generation!==binding.generation||facts.status!==binding.status
+    ||!text(facts.revision)||!facts.budgets||Object.keys(facts.budgets).length!==3
+    ||!['previewBytes','sourcePreviewBytes','sourceFullBytes'].every(key=>bytes(facts.budgets[key]))||!Array.isArray(facts.documents))bad();
+  const identity=item=>JSON.stringify([item.role,item.sourceKey]);
+  const ids=new Set(),references=new Set(),members=new Set();
+  const retained=new Map(binding.retained.map(item=>[identity(item),item]));
+  if(retained.size!==binding.retained.length)bad();
+  const items=facts.documents.map(document=>{
+    if(!document||Object.keys(document).some(key=>!['id','reference','sourceKey','role','kind','mimeType','generation','primary','expected','observed','error'].includes(key))
+      ||!text(document.id)||ids.has(document.id)||!text(document.reference)||references.has(document.reference)
+      ||!text(document.sourceKey)||members.has(identity(document))
+      ||!['artifact','agent-brief'].includes(document.role)||!text(document.kind)||!text(document.mimeType)
+      ||document.generation!==binding.generation||typeof document.primary!=='boolean'
+      ||document.expected!==null&&(!document.expected||Object.keys(document.expected).length!==2
+        ||!digest(document.expected.sha256)||document.expected.bytes!==null&&!bytes(document.expected.bytes)))bad();
+    ids.add(document.id);references.add(document.reference);
+    members.add(identity(document));
+    const bound=retained.get(identity(document));
+    if(bound?.sha256?document.expected?.sha256!==bound.sha256||document.expected?.bytes!==bound.bytes:document.expected!==null)bad();
+    const observed=document.observed;
+    if(observed!==null&&(!observed||Object.keys(observed).length!==3||!digest(observed.sha256)||!bytes(observed.bytes)
+      ||typeof observed.binary!=='boolean'))bad();
+    if(document.error!==null&&(!document.error||typeof document.error!=='object'||Array.isArray(document.error)
+      ||typeof document.error.message!=='string'||!document.error.message))bad();
+    if((observed===null)!==(document.error!==null))bad();
+    const integrity=document.error?'unavailable':!document.expected?'unbound'
+      :observed.sha256===document.expected.sha256&&(document.expected.bytes===null||observed.bytes===document.expected.bytes)?'matched':'changed';
+    return {id:document.id,reference:{kind:'phase-document',id:document.reference,workId:binding.workId,phase:binding.phase,
+      generation:binding.generation},role:document.role,kind:document.kind,mimeType:document.mimeType,primary:document.primary,
+      expected:document.expected,observed,integrity,error:document.error};
+  }).sort((left,right)=>Number(right.primary)-Number(left.primary)
+    ||(left.role===right.role?0:left.role==='artifact'?-1:1)||(left.id<right.id?-1:left.id>right.id?1:0))
+    .map((item,index)=>({order:index+1,...item}));
+  if([...retained.keys()].some(key=>!members.has(key)))bad();
+  const candidate=facts.reviewBinding;
+  if(candidate!==null&&(!candidate||Object.keys(candidate).some(key=>!['workId','phase','generation','packetSha256','sourceRevision','observedRevision'].includes(key))
+    ||candidate.workId!==binding.workId||candidate.phase!==binding.phase||candidate.generation!==binding.generation
+    ||!digest(candidate.packetSha256)||!text(candidate.sourceRevision)||!text(candidate.observedRevision)
+    ||!binding.current||binding.generation<1||binding.status!=='awaiting_approval'))bad();
+  const integrity=items.some(item=>item.integrity==='unavailable')?'unavailable':items.some(item=>item.integrity==='changed')?'changed'
+    :!items.length||items.some(item=>item.integrity==='unbound')?'unbound':'matched';
+  return {schemaVersion:1,contract:'sflow-phase-review-manifest/v1',purpose:'phase-review',
+    workId:binding.workId,phase:binding.phase,generation:binding.generation,phaseStatus:binding.status,
+    observedRevision:facts.revision,budgets:facts.budgets,integrity,items,
+    reviewBinding:integrity==='matched'?candidate:null,humanReviewRecorded:false,approvalRecorded:false};
+}
+
 /**
  * What a workflow step is for, read from its structure and never from its name [E2G-001].
  *

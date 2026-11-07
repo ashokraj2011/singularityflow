@@ -38,6 +38,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     const closure = await graph(file);
     assert.equal(closure.files.has(path.join(sourceRoot, 'cli.mjs')), false, `${file} re-imported the monolith`);
     if (['commands/approve.mjs', 'commands/phase-lifecycle.mjs'].includes(file)) {
+      assert.equal(closure.files.has(path.join(sourceRoot, 'engine-compatibility/native-phase-review.mjs')), false,
+        `${file} eagerly loads the native full-document projection`);
       assert.equal(closure.files.has(path.join(sourceRoot, 'commands/shared/phase-review.mjs')), false,
         `${file} eagerly loads optional full-document rendering for the compact agent route`);
     }
@@ -557,6 +559,8 @@ test('extracted legacy helpers remain part of the development build identity', a
     'engine-compatibility/git-decision-record.mjs','commands/decision-record.mjs',
     'engine-compatibility/git-plan-correction.mjs', 'commands/decision-plan.mjs', 'commands/plan-correction.mjs',
     'engine-compatibility/git-upstream.mjs', 'engine-compatibility/native-forward-amendments.mjs', 'engine-compatibility/upstream-artifact-issues.mjs',
+    'engine-compatibility/git-query.mjs', 'engine-compatibility/git-phase-review.mjs', 'engine-compatibility/native-phase-review.mjs',
+    'api.mjs', 'documents-read.mjs', 'commands/phase-show.mjs', 'agent-briefs.mjs',
     'engine-compatibility/native-witness-decisions.mjs', 'commands/decision-witness.mjs', 'commands/decision-witness-exception.mjs',
     'engine-compatibility/git-test-decision-record.mjs', 'engine-compatibility/record-decision-context.mjs',
     'engine-compatibility/test-decision-intent.mjs', 'commands/shared/test-decision-operation.mjs', 'test-command-selection.mjs',

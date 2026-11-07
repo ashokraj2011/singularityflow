@@ -7,6 +7,7 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { nowIso, posix, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
+import {phaseReviewBriefRecords} from './kernel/phase-policy.mjs';
 
 const SUMMARY_HEADINGS = Object.freeze(['agent brief', 'executive summary', 'summary', 'tl;dr', 'overview']);
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
@@ -75,13 +76,7 @@ export function agentBriefDocumentId(producerPhase, generation, consumerPhase) {
 export function agentBriefReviewDocuments(workflow, producerPhase) {
   const generation = Number(producerPhase?.generation ?? 0);
   if (!producerPhase?.id || generation < 1) return [];
-  const submitted = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
-    entry.phase === producerPhase.id && entry.generation === generation
-  );
-  const submittedBriefs = submitted?.projection?.agentBriefs;
-  const briefs = Array.isArray(submittedBriefs)
-    ? submittedBriefs
-    : (producerPhase.agentBriefs ?? []).filter((brief) => brief.generation === generation);
+  const briefs = phaseReviewBriefRecords(workflow,producerPhase);
   return briefs.map((brief) => {
     const renderedPath = brief.renderedPath ?? null;
     return {

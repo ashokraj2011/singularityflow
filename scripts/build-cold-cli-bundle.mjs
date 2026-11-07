@@ -60,7 +60,7 @@ const FAMILIES = Object.freeze([
   // Its actual installer dependencies are lazy; share this existing bounded local-gate slot.
   ['publication', ['commands/git-policy.mjs', 'story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs',
     'publication-unit-of-work.mjs']],
-  ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
+  ['hook-context', ['commands/phase-show.mjs', 'engine-compatibility/git-query.mjs', 'engine-compatibility/git-phase-review.mjs', 'engine-compatibility/native-phase-review.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load
   // only where a gate maps a changed path to its command, which already loads every static import of this

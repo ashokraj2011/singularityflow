@@ -9,6 +9,7 @@ import { assertApprovalReviewConfirmation } from '../kernel/approval-policy.mjs'
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
+import {phaseReviewSelection,phaseReviewManifest} from '../kernel/phase-policy.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -82,13 +83,46 @@ const definitions = [
     allowRetained:operation.id==='test-command.request',phaseBinding:'resolved-target',
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
-  ...UPSTREAM_OPERATIONS
+  ...UPSTREAM_OPERATIONS,
+  {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
+    stages:Object.freeze(['load','read']),validate:phaseReviewInput,execute:inspectPhaseReview}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function phaseReviewInput(value,operation) {
+  const input=data(value);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key)))invalid('Unknown phase review input field.');
+  for(const value of Object.values(input))if(value!=null&&typeof value!=='string')invalid('Phase review identifiers must be strings or null.');
+  return input;
+}
+
+async function inspectPhaseReview(port,inputs,signal) {
+  notCancelled(signal);
+  const context=await port.load(inputs,{signal});
+  notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.workflow?.workItem?.id!=='string'
+    ||!context.workflow.workItem.id||context.subject.id!==context.workflow.workItem.id)throw new SingularityFlowError(
+    'The phase review port did not bind a Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  if(inputs.workId!=null&&inputs.workId!==context.subject.id)throw new SingularityFlowError(
+    'Requested Story does not match the review checkout.',{code:'ACTIVE_SUBJECT_MISMATCH',
+      details:{expectedWorkId:inputs.workId,actualWorkId:context.subject.id}});
+  const binding=data(phaseReviewSelection(context.workflow,inputs.phaseId));
+  if(!Number.isSafeInteger(binding.generation)||binding.generation<0||typeof binding.phase!=='string'
+    ||!binding.phase||typeof binding.status!=='string'||!binding.status)throw new SingularityFlowError(
+    'The phase review port did not bind a phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const observed=await port.read(context,binding,{signal});
+  notCancelled(signal);
+  let facts;
+  try{facts=data(observed);}catch(cause){throw new SingularityFlowError('The phase review port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  const manifest=phaseReviewManifest(binding,facts);
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.review',status:'inspected',
+    subject:{kind:'story',id:binding.workId},phase:binding.phase,generation:binding.generation,
+    revision:facts.revision,effects:{committed:false,pushed:false,humanReviewRecorded:false,approvalRecorded:false},manifest});
 }
 
 /** Copy JSON data without executing accessors/toJSON or retaining caller-owned mutable values. */

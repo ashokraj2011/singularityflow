@@ -139,7 +139,11 @@ export async function governedDocumentPath(root, config, workflow, record) {
     const match = matchEnvironmentLocalPath(declaration, posix(record.path));
     if (match) throw environmentLocalRefusal(record.path, match);
   }
-  const fileInfo = await lstat(absolute).catch(() => null);
+  const fileInfo = await lstat(absolute).catch(cause => {
+    // Keep the installed message/class while retaining the actual missing, permission or volume
+    // cause for structured readers. A failed stat is not evidence that the file simply vanished.
+    throw new SingularityFlowError(`Document '${record.id}' is not a regular file.`,{cause});
+  });
   if (!fileInfo?.isFile() || fileInfo.isSymbolicLink()) {
     throw new SingularityFlowError(`Document '${record.id}' is not a regular file.`);
   }
@@ -234,6 +238,10 @@ export async function viewDocument(root, config, workflow, reference, { includeD
   const records = await documentCatalog(root, config, workflow, { includeDetached });
   return viewDocumentRecord(root, config, workflow, resolveDocumentRecord(records, reference));
 }
+
+// Trusted readers can inspect an already-bound retained member even if a missing local file kept
+// it out of the discovery catalog. The same scope, hash and regular-file checks still apply.
+export {viewDocumentRecord as readDocumentRecord};
 
 /** A request-local catalog, never a cross-request evidence or approval cache. */
 export async function createDocumentReadSession(root, config, workflow) {

@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, convergence advancement and shared post-transition effects extracted; phase manifests/queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and its document manifest, convergence advancement and shared post-transition effects extracted; authoring context manifests, remaining queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -83,6 +83,10 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 The [upstream operation boundary](ENGINE-SDK-UPSTREAM-OPERATIONS.md) covers author-raised issues,
 owner decisions, forward proposals and decisions, downstream revalidation and the read-only list.
 These routes keep their existing CLI output and native Git authority.
+
+The [phase review query](ENGINE-SDK-PHASE-REVIEW.md) adds a narrow, provider-neutral read manifest.
+It captures all retained members before reading and keeps missing files and changed local bytes
+distinct from matched bindings. CLI rendering and terminal confirmation remain host concerns.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -542,3 +546,39 @@ Phase manifests/queries and remaining admission helpers still belong to Phase 5.
 remain the filesystem/database adapters, portable package and cross-agent resume, verified
 authority migration, and final removal/distribution/performance qualification. This delivery
 does not complete or narrow those remaining milestones.
+
+## Phase 5 phase-review query and document manifest delivery
+
+`phase.review` is a registered read operation with a versioned, provider-neutral reference
+manifest. Kernel selection captures the phase and all retained artifact/brief identities before
+native reads. The final plan must include every captured member and keep its expected hash and
+length. It cannot promote a dirty primary document or omit a missing retained file to claim an
+exact submitted binding. Only observed byte integrity is reported; no prompt, artifact body,
+human consent or approval is returned. Submitted brief-list selection has one pure kernel owner,
+shared with the existing native document registry, with its strict generation semantics intact.
+
+The Node API and `phase show` use a narrow query composition; its first read does not import the
+publication composition or legacy dispatcher. The full native composition provides the same
+registered port and semantic result. The CLI projects its private legacy review, with its rendering
+tail token-identical to the preceding commit. Its interactive terminal-review record stays in the
+host after display; SDK and JSON reads never create one. Overall native errors keep their original
+identity; per-file native details/causes remain visible, including real ENOENT and injected EACCES
+stat failures. Existing legacy error messages and serialized formats are unchanged.
+
+Mac qualification on Node 26.12.0 passes 102 focused checks with zero failures, cancellations or
+skips: 47 protocol/display/architecture/startup cases and 55 native/integration cases. The latter
+cover source and actually bundled CLI queries, missing/tampered retained files, scoped references,
+draft/preview limits, input and brief integrity, the document lifecycle, SDK submission/approval,
+partial approval thresholds, stale choices, one human ceremony and terminal-specific confirmation.
+The final protocol run also verifies that inherited object keys are not phases, while an explicitly
+declared phase named `constructor` remains valid. No real Story or installed workspace was changed.
+
+`npm run check` passes 3,600 checks. VS Code typechecking, all 13 unchanged runtime bundle budgets,
+Git ownership audit, npm dry-run package inclusion/exclusion and whitespace checks pass. The SDK
+closure remains 11 pure modules / 150,009 input bytes with zero external imports. The gateway stays
+at 852 modules; no ceiling is raised. All repositories/remotes are isolated local fixtures. No
+Windows, hosted CI, provider, merge, push or real-project authority migration ran.
+
+This query does not complete Phase 5. Phase entry and its authoring-context manifest, document-body
+queries and remaining admission helpers still require extraction. Phases 6–9 retain their full
+alternate-backend, portable runtime/resume, authority migration and final qualification scope.

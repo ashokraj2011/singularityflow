@@ -1,0 +1,109 @@
+{
+  "baseline": "46f90b7d2",
+  "cases": [
+    {
+      "name": "ready",
+      "sha256": "fd81c75807715f73a9202774b0ec255dd987c172fdc0314282673b799289e71a"
+    },
+    {
+      "name": "manual-ready",
+      "sha256": "a1afc134421ea99b25136773d6d7d284d9e5680217092b34e58dfc2e60362477"
+    },
+    {
+      "name": "deterministic-ready",
+      "sha256": "a1afc134421ea99b25136773d6d7d284d9e5680217092b34e58dfc2e60362477"
+    },
+    {
+      "name": "evidence-contract",
+      "sha256": "5b40278eaec28eb496b4158e800e8353d988affe024d881b3143af9b20fda5e7"
+    },
+    {
+      "name": "evidence-contract-action",
+      "sha256": "55831fba4552ed11eda8b363c64a6c775772aa2f35955d3eea27a11226c95aca"
+    },
+    {
+      "name": "evidence-unavailable",
+      "sha256": "4332c89a4d67a379e5cacc1d00c9f4d63f782473b57e0dc5aec67b3e272a1c7f"
+    },
+    {
+      "name": "repair-loop",
+      "sha256": "da165161228803ee712143309486d9d75eff5ae991e252f8b4fe9e03f98a028a"
+    },
+    {
+      "name": "repair-quarantine",
+      "sha256": "e577a2f898075ba1af361b368b9ef4aa1599e1feec149775e0975ccb19577a25"
+    },
+    {
+      "name": "appeal",
+      "sha256": "418d5dd3e464d6688c9e328604db5f3c5c9c52786664435cd6efd1e4e76b2ce4"
+    },
+    {
+      "name": "appeal-decisions",
+      "sha256": "458dc6f6971388b6e3542fa25a8cb268032c95c0fe599bbd549ad408341fdfae"
+    },
+    {
+      "name": "integration",
+      "sha256": "db571307d1cdb3b4212510b1f3bba322b2bb061b96e1a822801f50ef1f2f7501"
+    },
+    {
+      "name": "inputs",
+      "sha256": "9b753210a104d9dce651a12117f7b833fdd45b4a3404e313d921b08ce1853b7c"
+    },
+    {
+      "name": "inputs-owners",
+      "sha256": "7185022ac27038dad1297421c88ea05591ad983d2bb19af7fee0e02b2fc40290"
+    },
+    {
+      "name": "mcp-host",
+      "sha256": "a283d0221701f7aa4e970637ebb7826823e909607cbc93b6aaa68528577296d4"
+    },
+    {
+      "name": "grounding",
+      "sha256": "9219ea8c25871a9de0dae7057af5322282b46a923997e857733179638f06acef"
+    },
+    {
+      "name": "grounding-diagnostics-only",
+      "sha256": "fd81c75807715f73a9202774b0ec255dd987c172fdc0314282673b799289e71a"
+    },
+    {
+      "name": "clarification",
+      "sha256": "3c6b78c3e8d9b11a36205e03e4deb441ba77f75a3fb22353882823e156894619"
+    },
+    {
+      "name": "clarification-compose",
+      "sha256": "281a26df78f9456e2ad23ee6b22dee27f1684f5569e3fb820cefccad53bf8979"
+    },
+    {
+      "name": "manual-invalid-clarification",
+      "sha256": "bf3023a973129a6c87f50e97e6a4d19e4d6eebaf5d7892700922a13b82202e57"
+    },
+    {
+      "name": "manual-valid-clarification",
+      "sha256": "040e6bb3df052678f1fc3251f1a43199f03a5b8bd9622150f9a59cd3f542a722"
+    },
+    {
+      "name": "mcp-evidence",
+      "sha256": "bd14b7d5626b684d7e44d29d3d01afd2e5afc029b1f9c0324c147252dd4569c9"
+    },
+    {
+      "name": "design-source",
+      "sha256": "e9136b5b8a1f4137fc670fa679485bc041894a7a4f145becd033d109401ab2ad"
+    },
+    {
+      "name": "design-other-phase",
+      "sha256": "fd81c75807715f73a9202774b0ec255dd987c172fdc0314282673b799289e71a"
+    },
+    {
+      "name": "visual",
+      "sha256": "438c2411dc1c816d7939294f19ac55a2c685aa08e0bcd7196b7638e1e192d65a"
+    },
+    {
+      "name": "several-failures",
+      "sha256": "6a7603058baae1eb0addac3e8edc8eab1421adc4b1334d5fc7b64ba6218d16e9"
+    },
+    {
+      "name": "published-generation",
+      "sha256": "fd81c75807715f73a9202774b0ec255dd987c172fdc0314282673b799289e71a"
+    }
+  ]
+}

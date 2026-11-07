@@ -184,6 +184,11 @@ structural simulation one phase-sequence/role/reviewer policy owner. Native conf
 command wording remain outside the kernel; overlapping confirmation scopes are isolated. This
 provides more of the policy required by portable lifecycle ports without changing installed authority.
 
+The [publication dependency worklist](ENGINE-SDK-PUBLICATION-DEPENDENCIES.md) gives native readiness
+and future portable hosts one set of required observations, source codes and clarification-binding
+rules. Native reads and recovery wording remain unchanged; incomplete observations cannot become
+a ready inspection or replace final fresh publication checks.
+
 The [workflow decision interpreter](ENGINE-SDK-WORKFLOW-DECISIONS.md) owns branch, bounded-loop and
 human-choice rules independently of native record hashing and host presentation. Compiler and
 runtime share one pure owner; identity, expected-question validation and publication retain their

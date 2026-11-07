@@ -418,6 +418,20 @@ test('native sequence and role adapters render shared admission while confirmati
   }
 });
 
+test('native publication dependencies use the shared compiled worklist and close every required observation', async () => {
+  const text = await readFile(path.join(packageRoot, 'src/phase-publication-readiness.mjs'), 'utf8');
+  assert.match(text, /phasePublicationDependencyInspection\(workflow, phase, \{ producer, generation, agent \}\)/);
+  assert.match(text, /inspection\.observe\(/); assert.match(text, /inspection\.finish\(\)/);
+  for (const id of ['appeal','design-source','visual-coverage']) assert.ok(text.includes("inspection.requires('" + id + "')"));
+  assert.doesNotMatch(text, /producer === 'governed-agent'|isVisualVerificationPhase\(|workflow\.phaseAppeals !==/);
+  assert.match(text, /clarificationCheck\.retainObservedRecord/);
+  assert.match(text, /const decision = judgement \?\? judge\(id, errors, \{ code \}\)/);
+  assert.match(text, /if \(!decision\.blocked\) return/);
+  for (const code of ['PHASE_INPUTS_NOT_READY','PHASE_CLARIFICATION_NOT_READY','MCP_EVIDENCE_REQUIRED','VISUAL_COVERAGE_FAILED']) {
+    assert.equal(text.includes("'" + code + "'"), false, code + ' must retain one kernel default');
+  }
+});
+
 test('workflow compilation and routing simulation use the pure interpreter while native rendering and pending hashes stay outside it', async () => {
   const core = await readFile(path.join(packageRoot, 'src/kernel/workflow-decisions.mjs'), 'utf8');
   assert.doesNotMatch(core, /singularity-flow|createHash|canonicalJson|applicabilityStatus|describeWhen|describeOutcome|parseDecisionAssignments|storyDecisionView/);

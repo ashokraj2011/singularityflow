@@ -6,9 +6,9 @@ import { verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
-import { isVisualVerificationPhase } from './kernel/phase-policy.mjs';
+import { phasePublicationDependencyInspection } from './kernel/phase-admission.mjs';
 import { requiredStepActionHold } from './step-action-receipts.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
 
@@ -28,8 +28,12 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   const actions = [];
   const warnings = [];
   const failures = [];
-  const add = (id, category, errors, route, { code = null, file = null, message = null, findings = [], details = null } = {}) => {
-    if (!errors.length) return;
+  const inspection = phasePublicationDependencyInspection(workflow, phase, { producer, generation, agent });
+  const judge = (id, errors, { code = null, ...fields } = {}) => inspection.observe(id, { binding: inspection.plan.binding, errors, sourceCode: code, ...fields });
+  const add = (id, category, errors, route, { code = null, file = null, message = null, findings = [], details = null, judgement = null } = {}) => {
+    const decision = judgement ?? judge(id, errors, { code });
+    if (!decision.blocked) return;
+    code = decision.code;
     blockers.push(...errors.map((error, index) => ({
       code: `phase.${id}.not-ready`, category, path: findings[index]?.path ?? file, line: null, message: error,
       details: { sourceCode: code, ...(findings[index] ? {
@@ -52,16 +56,17 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     return { ...inspected, errors: inspected.paths.map(relative =>
       `Pending evidence contract requires review before publication: ${relative}. Keep repairing the in-scope draft; preserve this file.`) };
   });
-  if (evidence.errors.length) {
+  const evidenceCheck = judge('evidence-contract', evidence.errors, { code: evidence.sourceCode ?? null });
+  if (evidenceCheck.blocked) {
     blockers.push(...evidence.errors.map((message, index) => ({ code: 'phase.evidence-contract.not-ready',
       category: 'evidence-contract', path: evidence.paths?.[index] ?? null, message,
-      details: { sourceCode: evidence.sourceCode ?? 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED', draftRepairAllowed: true } })));
+      details: { sourceCode: evidenceCheck.code, draftRepairAllowed: true } })));
     actions.push(...(evidence.actions ?? []));
     if (!evidence.actions?.length) actions.push({ id: `resolve-evidence-contract:${phase.id}`,
       safe: false, automatic: false, mode: 'guided', confirmation: 'human-authority',
       command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, skill: '/sf-recover',
       detail: 'Preserve the exact evidence and inspect its owning contract/authority; no evidence is automatically accepted.' });
-    failures.push({ code: evidence.sourceCode ?? 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED',
+    failures.push({ code: evidenceCheck.code,
       message: evidence.errors.join('\n') });
   }
   const repair = await capture(async () => {
@@ -75,8 +80,8 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   } : {
     command: `singularity-flow appeal repair-resume --phase ${phase.id} --json`, skill: '/sf-appeal',
     detail: 'Resume and recheck the recorded attempt. No new budget, passing test or approval is inferred from an interrupted repair.'
-  }, { code: repair.sourceCode ?? 'PHASE_REPAIR_RECHECK_REQUIRED' });
-  if (workflow.phaseAppeals !== undefined || workflow.phaseAppealDecisions !== undefined) {
+  }, { code: repair.sourceCode ?? null });
+  if (inspection.requires('appeal')) {
     const appeals = await capture(async () => {
       const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
       await assertPhaseAppealsResolved(root, config, workflow, phase);
@@ -85,7 +90,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     add('appeal', 'appeal', appeals.errors, {
       command: `singularity-flow appeal list --phase ${phase.id} --json`, skill: '/sf-appeal',
       detail: 'Review the exact retained appeal. Scope accounting is separate from intent amendment, risk acceptance, tests and phase approval.'
-    }, { code: appeals.sourceCode ?? 'PHASE_APPEAL_REVIEW_REQUIRED' });
+    }, { code: appeals.sourceCode ?? null });
   }
 
   const integration = await capture(async () => {
@@ -95,7 +100,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   add('integration', 'integration', integration.errors, {
     command: integration.hold?.nextAction ?? 'singularity-flow integrations status --json',
     detail: 'Inspect the required delivery and record its verified receipt. Review an unknown prior outcome before retrying; do not send or acknowledge it automatically.'
-  }, { code: integration.sourceCode ?? 'STEP_ACTION_REQUIRED_UNRECORDED' });
+  }, { code: integration.sourceCode ?? null });
 
   const inputs = await capture(() => collectInputs(root, workflow, phase, {
     definition: config, itemDirectory, itemRelative, generation
@@ -110,7 +115,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   add('inputs', 'inputs', inputs.errors, {
     command: `singularity-flow inputs ${phase.id} --dry-run --json`, skill: '/sf-inputs',
     detail: `Inspect the approved input bindings${upstreamPhases.length ? ` from ${upstreamPhases.join(', ')}; ${phase.id} must not edit them` : ''}. Restore the exact approved bytes, or request rework of the producer phase; do not edit approved hashes or approve replacement evidence automatically.`
-  }, { code: inputs.sourceCode ?? 'PHASE_INPUTS_NOT_READY', findings: inputFindings,
+  }, { code: inputs.sourceCode ?? null, findings: inputFindings,
     message: inputs.errors.length ? `Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}${upstreamPhases.length
       ? `\nThese inputs belong to ${upstreamPhases.join(', ')}; ${phase.id} must not edit them.` : ''}` : null,
     details: { currentPhase: phase.id, upstreamPhases, restorable,
@@ -132,7 +137,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   } : {
     command: 'singularity-flow mcp doctor --json', skill: '/sf-mcp',
     detail: 'Inspect the pinned MCP host, warm proof and smoke receipt. Follow its explicit setup or authorization route before collecting evidence; no host was started by this check.'
-  }, { code: mcpHost.sourceCode ?? 'MCP_PHASE_NOT_READY', message: mcpHost.errors.join('\n') });
+  }, { code: mcpHost.sourceCode ?? null, message: mcpHost.errors.join('\n') });
   if (mcpHost.errors.length) laterMcpActions.forEach((entry, index) => actions.push({
     id: `resolve-mcp-host:${phase.id}:${index + 2}`, safe: true, automatic: false, mode: 'guided',
     confirmation: 'none', skill: '/sf-mcp', command: entry.command, detail: entry.label
@@ -147,7 +152,8 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     confirmation: 'none', ...route
   })));
   warnings.push(...grounding.check.warnings);
-  if (grounding.blockers.length) failures.push({ code: 'PHASE_GROUNDING_NOT_READY',
+  const groundingCheck = judge('grounding', grounding.check.errors, { blockerCount: grounding.blockers.length });
+  if (groundingCheck.blocked) failures.push({ code: groundingCheck.code,
     message: `Phase ${phase.id} grounding is not ready:\n- ${grounding.check.errors.join('\n- ')}` });
 
   const recorded = await capture(() => verifyClarificationRecord(root, config, workflow, phase, {
@@ -156,10 +162,11 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   // Only a governed-agent generation must carry its clarification (who must clarify is the phase
   // policy's). Any other route still binds a record that verifies for this generation, as the agent
   // route does, so an answer a person recorded is not dropped from the publication's metadata.
-  const clarification = producer === 'governed-agent' ? recorded : {
-    errors: [], record: recorded.errors?.length ? null : recorded.record ?? null,
-    path: recorded.errors?.length ? null : recorded.path ?? null, sha256: recorded.errors?.length ? null : recorded.sha256 ?? null,
-    warnings: [...(recorded.warnings ?? []), ...(recorded.record && recorded.errors?.length
+  const clarificationCheck = judge('clarification', recorded.errors, { code: recorded.sourceCode ?? null, recordPresent: Boolean(recorded.record) });
+  const clarification = clarificationCheck.enforced ? recorded : {
+    errors: [], record: clarificationCheck.retainObservedRecord ? recorded.record ?? null : null,
+    path: clarificationCheck.retainObservedRecord ? recorded.path ?? null : null, sha256: clarificationCheck.retainObservedRecord ? recorded.sha256 ?? null : null,
+    warnings: [...(recorded.warnings ?? []), ...(clarificationCheck.warnInvalidRecord
       ? [`The ${phase.id} clarification record is not bound into this publication because it does not verify: ${recorded.errors[0]}`] : [])]
   };
   warnings.push(...clarification.warnings);
@@ -168,7 +175,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   add('clarification', 'clarification', clarification.errors, {
     command: `singularity-flow clarification status ${phase.id} --json`,
     detail: `${clarification.composition?.command ? `First compose this generation's prompt (${clarification.composition.command}): the clarification record is bound to it and refused without it. Then a` : 'A'}sk the human checkpoint questions and record the actual answers against this generation. If a saved answer is stale, inspect its binding before obtaining a new response; never fabricate or copy an approval.`
-  }, { code: clarification.sourceCode ?? 'PHASE_CLARIFICATION_NOT_READY', file: clarification.path });
+  }, { judgement: clarificationCheck, file: clarification.path });
 
   const mcpEvidence = await capture(() => verifyPhaseMcpRequirements(root, workflow, phase, {
     itemDirectory, targetGeneration: generation
@@ -176,11 +183,11 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   add('mcp-evidence', 'external-evidence', mcpEvidence.errors, {
     command: `singularity-flow phase show ${phase.id} --json`,
     detail: 'Collect the exact required tools and durable outputs for this phase generation using the authorized MCP host. A missing or invalid receipt cannot be replaced by a prose claim or another generation\'s evidence.'
-  }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
+  }, { code: mcpEvidence.sourceCode ?? null });
 
   // The design source and the visual captures are bound to the generation this publication creates,
   // and the transaction or submission refuses without them: name them here first [gate parity].
-  const designSource = workflow.resolution?.designSources?.capturePhase === phase.id
+  const designSource = inspection.requires('design-source')
     ? await capture(async () => (await import('./design-sources.mjs'))
       .inspectDesignSourceReadiness(root, workflow, phase, { itemDirectory, generation }))
     : { errors: [] };
@@ -188,9 +195,9 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   add('design-source', 'external-evidence', designSource.errors, designRoute ?? {
     command: 'singularity-flow mcp design-sources status --json', skill: '/sf-mcp',
     detail: 'Inspect the recorded design-source candidates for this generation; a missing or ambiguous source is recorded or selected, never inferred.'
-  }, { code: designSource.code ?? designSource.sourceCode ?? 'DESIGN_SOURCE_REQUIRED', message: designSource.message ?? null,
+  }, { code: designSource.code ?? designSource.sourceCode ?? null, message: designSource.message ?? null,
     details: designRoute ? { nextAction: designRoute } : null });
-  const visual = isVisualVerificationPhase(phase) ? await capture(async () => {
+  const visual = inspection.requires('visual-coverage') ? await capture(async () => {
     const { refusal } = await (await import('./visual-coverage.mjs')).visualCoverageRefusal(root, workflow, { itemDirectory, phaseId: phase.id, generation });
     return { errors: refusal?.details.errors ?? [], refusal };
   }) : { errors: [] };
@@ -198,12 +205,13 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   add('visual-coverage', 'external-evidence', visual.errors, visualRoute ?? {
     command: 'singularity-flow visual status --json',
     detail: 'Read which verification profiles still lack a current capture for this generation.'
-  }, { code: visual.sourceCode ?? 'VISUAL_COVERAGE_FAILED', message: visual.refusal?.message ?? null,
+  }, { code: visual.sourceCode ?? null, message: visual.refusal?.message ?? null,
     details: visual.refusal ? { uncovered: visual.refusal.details.uncovered, covered: visual.refusal.details.covered, generation,
       ...(visualRoute ? { nextAction: visualRoute } : {}) } : null });
   if (visual.errors.length) actions.push(...visualRoutes.map((route, index) => ({
     id: `resolve-visual-coverage:${phase.id}:${index + 2}`, safe: true, automatic: false, mode: 'guided', confirmation: 'none', skill: null, ...route })));
 
+  inspection.finish();
   return { blockers, actions, failures, warnings,
     repairLoop: repair.state ?? { status: 'needs-owner', code: repair.sourceCode, automaticReset: false },
     grounding: grounding.projection, clarification, inputs, mcpHost, mcpEvidence };

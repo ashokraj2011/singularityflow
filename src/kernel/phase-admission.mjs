@@ -1,5 +1,81 @@
 /** Phase selection, role/compiler policy and composition admission. No command rendering or I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
+import { isVisualVerificationPhase } from './phase-policy.mjs';
+
+const PUBLICATION_DEPENDENCY_CODES = Object.freeze({
+  'evidence-contract': 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED',
+  'repair-loop': 'PHASE_REPAIR_RECHECK_REQUIRED', appeal: 'PHASE_APPEAL_REVIEW_REQUIRED',
+  integration: 'STEP_ACTION_REQUIRED_UNRECORDED', inputs: 'PHASE_INPUTS_NOT_READY',
+  'mcp-host': 'MCP_PHASE_NOT_READY', grounding: 'PHASE_GROUNDING_NOT_READY',
+  clarification: 'PHASE_CLARIFICATION_NOT_READY', 'mcp-evidence': 'MCP_EVIDENCE_REQUIRED',
+  'design-source': 'DESIGN_SOURCE_REQUIRED', 'visual-coverage': 'VISUAL_COVERAGE_FAILED'
+});
+
+/** Required read observations are not evidence receipts, identity or permission to publish. */
+export function phasePublicationDependencyInspection(workflow, phase, { producer, generation, agent = null } = {}) {
+  const binding = Object.freeze({ workId: workflow.workItem.id, phase: phase.id, generation, producer, agent });
+  const text = value => typeof value === 'string' && value.length > 0;
+  const invalid = (message, details = null) => { throw new SingularityFlowError(message, { code: 'PHASE_DEPENDENCY_OBSERVATION_INVALID', details }); };
+  if (!text(binding.workId) || !text(binding.phase) || !text(producer) || !Number.isSafeInteger(generation) || generation < 0
+    || agent !== null && !text(agent)) invalid('Publication dependencies require an explicit Story, phase, generation and producer binding.');
+  const optional = {
+    appeal: workflow.phaseAppeals !== undefined || workflow.phaseAppealDecisions !== undefined,
+    'design-source': workflow.resolution?.designSources?.capturePhase === phase.id,
+    'visual-coverage': isVisualVerificationPhase(phase)
+  };
+  const checks = Object.freeze(Object.entries(PUBLICATION_DEPENDENCY_CODES).map(([id, code]) => {
+    const observe = Object.hasOwn(optional, id) ? optional[id] : true;
+    return Object.freeze({ id, observe, enforce: observe && (id !== 'clarification' || producer === 'governed-agent'), code });
+  }));
+  const plan = Object.freeze({ schemaVersion: 1, binding, checks });
+  const observed = new Map(); let finished = false;
+  function requirement(id) {
+    const value = checks.find(check => check.id === id);
+    if (!value) invalid('The publication dependency is not in this compiled plan.', { id });
+    return value;
+  }
+  function observe(id, input) {
+    const required = requirement(id);
+    if (finished || observed.has(id)) invalid('A dependency observation cannot be duplicated or changed after inspection.', { id });
+    if (!input || typeof input !== 'object' || Array.isArray(input) || ![Object.prototype,null].includes(Object.getPrototypeOf(input))) invalid('A dependency observation must contain bound data.', { id });
+    const allowed = ['binding','errors','sourceCode','blockerCount','recordPresent'];
+    for (const key of Reflect.ownKeys(input)) {
+      const property = Object.getOwnPropertyDescriptor(input, key);
+      if (typeof key !== 'string' || !allowed.includes(key) || !property.enumerable || !Object.hasOwn(property, 'value')) invalid('Unsupported dependency observation field.', { id });
+    }
+    const { errors, sourceCode = null, blockerCount = errors?.length, recordPresent = false } = input;
+    const supplied = input.binding;
+    if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied) || ![Object.prototype,null].includes(Object.getPrototypeOf(supplied))
+      || Reflect.ownKeys(supplied).length !== Object.keys(binding).length
+      || Object.keys(binding).some(key => { const descriptor = Object.getOwnPropertyDescriptor(supplied, key);
+        return !descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value') || descriptor.value !== binding[key]; })) {
+      invalid('The dependency observation belongs to another invocation.', { id, expected: binding });
+    }
+    let validErrors = Array.isArray(errors) && Reflect.ownKeys(errors).length === errors.length + 1;
+    if (validErrors) for (let index = 0; index < errors.length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(errors, String(index));
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string') { validErrors = false; break; }
+    }
+    if (!validErrors
+      || !Number.isSafeInteger(blockerCount) || blockerCount < 0 || typeof recordPresent !== 'boolean'
+      || sourceCode !== null && !['string','number','boolean'].includes(typeof sourceCode)
+      || typeof sourceCode === 'number' && !Number.isFinite(sourceCode)) invalid('The dependency observation has invalid diagnostics.', { id });
+    const blocked = required.enforce && (id === 'grounding' ? blockerCount > 0 : errors.length > 0);
+    const result = Object.freeze({ id, enforced: required.enforce, observed: true, blocked, code: sourceCode ?? required.code,
+      errorCount: errors.length, retainObservedRecord: id === 'clarification' && (required.enforce || errors.length === 0),
+      warnInvalidRecord: id === 'clarification' && !required.enforce && recordPresent && errors.length > 0 });
+    observed.set(id, result); return result;
+  }
+  function finish() {
+    const missing = checks.filter(check => check.observe && !observed.has(check.id)).map(check => check.id);
+    if (missing.length) invalid('Required publication dependency observations are missing.', { binding, missing });
+    finished = true;
+    const result = checks.map(check => observed.get(check.id) ?? Object.freeze({ id: check.id, observed: false, enforced: false,
+      blocked: false, code: check.code, errorCount: 0, retainObservedRecord: false, warnInvalidRecord: false }));
+    return Object.freeze({ binding, ready: !result.some(check => check.blocked), checks: Object.freeze(result) });
+  }
+  return Object.freeze({ plan, requires: id => requirement(id).observe, observe, finish });
+}
 
 export function currentEntryPhase(workflow,phaseId=null,{allowTerminal=false}={}) {
   const id=phaseId??workflow.currentPhase;

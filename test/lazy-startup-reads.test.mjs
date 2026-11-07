@@ -128,7 +128,7 @@ test('generator validation shares exact IDs with rendering without importing its
 });
 
 test('phase documents and JSON report routes do not statically load lifecycle mutation dispatchers', async () => {
-  for (const entry of ['src/commands/phase-show.mjs', 'src/commands/report.mjs']) {
+  for (const entry of ['src/commands/phase-show.mjs', 'src/commands/documents-view.mjs', 'src/commands/report.mjs']) {
     const names = [...await staticClosure(entry)].map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
     for (const forbidden of ['src/commands/phase-lifecycle.mjs', 'src/commands/prepare.mjs', 'src/cli.mjs', 'src/model-runner.mjs']) {
       assert.ok(!names.includes(forbidden), `${entry} reaches ${forbidden}`);

@@ -8,7 +8,8 @@ import { sessionRepositoryAuthority } from './commands/shared/session-repository
 import { gitAnswer } from './commands/shared/git-answer.mjs';
 import { sessionDiscoveryConfiguration } from './commands/shared/session-discovery-configuration.mjs';
 import { postPublicationStep, presentPostPublicationNotice } from './phase-post-transition-guidance.mjs';
-import { pathForDisplay } from './commands/shared/path-for-display.mjs';
+import {refuseNearMissDocumentOptions} from './commands/shared/document-options.mjs';
+import {documentTitle,documentPhasesLabel} from './commands/shared/document-presentation.mjs';
 import { storyDraftTransaction } from './commands/shared/story-draft-transaction.mjs';
 import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
 import { prepareConfiguredPhase } from './commands/shared/prepare-configured-phase.mjs';
@@ -31,7 +32,7 @@ import { addPhase, defineWorkflow, editPhase, editWorkflow, upsertPhaseOutput } 
 import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals, proposeConfigurationChange } from './configuration-proposal.mjs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, defaultBranchName, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
@@ -68,7 +69,7 @@ import { explainChangeFlightPlanFinding, previewChangeFlightPlan, readChangeFlig
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadSession, selectAgent, setAgentSession } from './session.mjs';
-import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, restoreLocalDocument, viewDocument } from './documents.mjs';
+import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, restoreLocalDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { phaseArtifactCatalog, viewPhaseArtifact } from './phase-artifact-browser.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
@@ -2073,42 +2074,6 @@ async function nextCommand(options) {
   }
 }
 
-// Options every documents subcommand accepts. A near miss of anything else is refused below.
-const DOCUMENTS_COMMON_OPTIONS = Object.freeze(['json', 'verbose', 'work-id']);
-const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
-  artifacts: ['version'],
-  list: ['active', 'all', 'phase'],
-  view: ['all'],
-  preview: [],
-  browse: ['provider', 'path'],
-  detach: ['reason', 'scope', 'dry-run', 'yes'],
-  scope: ['phases', 'reason', 'scope', 'dry-run', 'yes'],
-  store: ['store'],
-  restore: ['file'],
-  readiness: ['phase'],
-  upload: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
-  add: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
-  fetch: ['provider', 'ref', 'name', 'filename', 'label', 'kind', 'phases', 'store', 'confirm-override']
-});
-
-/**
- * Refuse an option that is a near miss of one this subcommand reads. `--phase specification` on an
- * upload, silently ignored, would offer the document to the default phases instead: a governed
- * mutation that did something other than what was typed. Options that are not close to any known
- * one are left alone, because other layers of the CLI read their own.
- */
-function refuseNearMissDocumentOptions(subcommand, options) {
-  const known = [...DOCUMENTS_COMMON_OPTIONS, ...(DOCUMENTS_SUBCOMMAND_OPTIONS[subcommand] ?? [])];
-  for (const key of Object.keys(options)) {
-    if (known.includes(key)) continue;
-    const nearest = nearestNames(key, known, { limit: 1 })[0];
-    if (nearest) {
-      throw new SingularityFlowError(`'documents ${subcommand}' has no option --${key}. Did you mean --${nearest}?`,
-        { code: 'UNKNOWN_OPTION', details: { command: `documents ${subcommand}`, option: key, suggestion: nearest } });
-    }
-  }
-}
-
 /**
  * Documents are added on the Story's own branch, so a --work-id naming another Story is refused
  * rather than ignored: the upload would otherwise land in whichever Story is checked out.
@@ -2134,13 +2099,6 @@ function documentPhasesOption(options) {
   return values.length ? values : null;
 }
 
-/** The phases a document is offered to, as a reader wants them: "all phases", or the list. */
-function documentPhasesLabel(record, phaseOrder = []) {
-  if (!Array.isArray(record.phases)) return 'all phases';
-  if (phaseOrder.length && phaseOrder.every((phaseId) => record.phases.includes(phaseId))) return 'all phases';
-  return record.phases.join(', ');
-}
-
 /** Where a supporting document is, as a reader of the listing needs to know it. */
 function documentLocation(item) {
   if (item.storage?.kind === 'local') {
@@ -2149,10 +2107,6 @@ function documentLocation(item) {
         : 'kept on another machine (not available here)';
   }
   return item.url ?? item.path ?? '';
-}
-
-function documentTitle(record) {
-  return `${record.id} — ${record.name ?? record.label ?? record.id}`;
 }
 
 async function documentsCommand(positionals, options) {
@@ -2240,22 +2194,7 @@ async function documentsCommand(positionals, options) {
     }
     return console.log(sections.join('\n\n'));
   }
-  if (subcommand === 'view') {
-    const reference = requirePositional(positionals, 2, 'document ID, name or path');
-    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-    const result = await viewDocument(root, config, workflow, reference, { includeDetached: optionBoolean(options, 'all') });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(documentTitle(result.record));
-    if (['file', 'url'].includes(result.record.type)) console.log(`Used in: ${documentPhasesLabel(result.record, workflow.phaseOrder)}`);
-    if (result.record.storage?.kind === 'local') console.log('Kept on this machine only; its bytes are not in the repository.');
-    console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
-    if (result.record.url) console.log(`URL: ${result.record.url}`);
-    else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
-    if (result.rendition?.status === 'extracted') process.stdout.write(`\nText extracted from this file (the original is binary):\n\n${result.rendition.text}`);
-    else if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or local viewer.');
-    else if (result.content != null) process.stdout.write(`\n${result.content}`);
-    return;
-  }
+  if (subcommand === 'view') return (await import('./commands/documents-view.mjs')).documentViewCommand(positionals,options,{root});
   if (subcommand === 'detach') {
     const config = await loadConfig(root);
     const reference = requirePositional(positionals, 2, 'document ID or name');

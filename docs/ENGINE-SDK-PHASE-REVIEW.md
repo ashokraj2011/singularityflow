@@ -48,9 +48,10 @@ are unbound. Truncated UI previews do not change a retained file's byte hash or 
 read its full body. Binary byte verification does not record visual acceptance.
 
 References are opaque within the selected engine/project binding; they are not globally unique
-storage addresses or laptop paths. Later namespace/backend migration must preserve that scope and
-the reference-to-retained-record mapping. This query does not implement the authoring context
-manifest, document-body operation or a storage-authority cutover.
+storage addresses or laptop paths. The registered [document body query](ENGINE-SDK-DOCUMENT-READ.md)
+resolves them through the same native retained inventory and canonical reader. Later namespace/backend
+migration must preserve that scope and reference-to-retained-record mapping. These queries do not
+implement the authoring context manifest or a storage-authority cutover.
 
 ## Native and host ownership
 

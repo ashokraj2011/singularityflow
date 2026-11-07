@@ -111,6 +111,8 @@ test('production consumers use kernel phase rules and only the compatibility agg
   const upstreamReader=path.join(packageRoot,'src/engine-compatibility/upstream-artifact-issues.mjs');
   const reviewPort=path.join(packageRoot,'src/engine-compatibility/git-phase-review.mjs');
   const nativeReview=path.join(packageRoot,'src/engine-compatibility/native-phase-review.mjs');
+  const documentPort=path.join(packageRoot,'src/engine-compatibility/git-document-read.mjs');
+  const documentReferences=path.join(packageRoot,'src/engine-compatibility/native-document-references.mjs');
   const problems=[];
   for(const relative of packageFiles){
     const file=path.join(packageRoot,relative);
@@ -133,6 +135,8 @@ test('production consumers use kernel phase rules and only the compatibility agg
         if((target===forwardWriter||target===upstreamReader)&&relative!=='src/engine-compatibility/git-upstream.mjs')problems.push(relative);
         if(target===reviewPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
         if(target===nativeReview&&!['src/engine-compatibility/git-phase-review.mjs','src/commands/shared/phase-review.mjs'].includes(relative))problems.push(relative);
+        if(target===documentPort&&!['src/engine-compatibility/git-query.mjs','src/engine-compatibility/git-publication.mjs'].includes(relative))problems.push(relative);
+        if(target===documentReferences&&!['src/engine-compatibility/git-phase-review.mjs','src/engine-compatibility/git-document-read.mjs'].includes(relative))problems.push(relative);
       }
       ts.forEachChild(node,visit);
     };visit(source);
@@ -147,7 +151,7 @@ test('extracted native decision writers do not import command handlers or host p
     'git-decisions.mjs','git-decision-record.mjs','git-test-decision-record.mjs','record-decision-context.mjs',
     'test-decision-intent.mjs','git-advancement.mjs','convergence-projection-read.mjs',
     'git-upstream.mjs','native-forward-amendments.mjs','upstream-artifact-issues.mjs',
-    'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs'];
+    'git-query.mjs','git-phase-review.mjs','native-phase-review.mjs','git-document-read.mjs','native-document-references.mjs'];
   const problems=[];
   for(const name of owners) {
     const file=path.join(packageRoot,'src/engine-compatibility',name);
@@ -183,6 +187,16 @@ test('phase show uses the registry and keeps terminal consent in its host',async
   assert.match(source,/recordTerminalReview\(root, terminalReviewBinding\(workflow, phase\)\)/);
   const alias=await readFile(path.join(packageRoot,'src/commands/shared/phase-review.mjs'),'utf8');
   assert.match(alias,/export \{phaseReview\} from '\.\.\/\.\.\/engine-compatibility\/native-phase-review.mjs'/);
+});
+
+test('document view owns grammar and rendering, with a single registered byte-read operation',async()=>{
+  const source=await readFile(path.join(packageRoot,'src/commands/documents-view.mjs'),'utf8');
+  assert.match(source,/binding\.engine\.run\('document.read'/);
+  assert.doesNotMatch(source,/loadAcceptedStoryExecution|viewDocument\(|readFile|recordTerminalReview|transactStory/);
+  const cli=ts.createSourceFile('cli.mjs',await readFile(path.join(packageRoot,'src/cli.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  const documents=cli.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='documentsCommand');
+  assert.match(documents.body.getText(cli),/subcommand === 'view'\) return \(await import\('\.\/commands\/documents-view.mjs'\)\)/);
+  assert.doesNotMatch(documents.body.getText(cli),/await viewDocument\(/);
 });
 
 test('native transition extraction keeps every operation binding declared',async()=>{

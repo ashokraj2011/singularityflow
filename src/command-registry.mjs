@@ -88,6 +88,7 @@ function readOnlySubcommandOperation(definition, positionals, options) {
 const LAZY_MODULES = Object.freeze({
   start: './commands/start.mjs',
   agents: './commands/agents.mjs',
+  documents: './commands/documents.mjs',
   session: './commands/session-entry.mjs',
   choices: './commands/choices-entry.mjs',
   prepare: './commands/prepare.mjs',

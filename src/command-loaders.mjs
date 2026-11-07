@@ -24,6 +24,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/context.mjs': () => import('./commands/context.mjs'),
   './commands/delivery.mjs': () => import('./commands/delivery.mjs'),
   './commands/doctor.mjs': () => import('./commands/doctor.mjs'),
+  './commands/documents.mjs': () => import('./commands/documents.mjs'),
   './commands/environment.mjs': () => import('./commands/environment.mjs'),
   './commands/explain.mjs': () => import('./commands/explain.mjs'),
   './commands/fast-path.mjs': () => import('./commands/fast-path.mjs'),

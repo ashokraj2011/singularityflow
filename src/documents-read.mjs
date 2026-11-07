@@ -244,7 +244,7 @@ export async function viewDocument(root, config, workflow, reference, { includeD
 export {viewDocumentRecord as readDocumentRecord};
 
 /** A request-local catalog, never a cross-request evidence or approval cache. */
-export async function createDocumentReadSession(root, config, workflow) {
+export async function createDocumentReadSession(root, config, workflow, {includeDetached=false}={}) {
   const catalogPath = manifestPath(root, config, workflow);
   const manifestBytes = () => readFile(catalogPath).catch(error => {
     if (error.code === 'ENOENT') return null;
@@ -252,7 +252,7 @@ export async function createDocumentReadSession(root, config, workflow) {
   });
   const before = await manifestBytes();
   const binding = JSON.stringify(workflow);
-  const records = await documentCatalog(root, config, workflow);
+  const records = await documentCatalog(root, config, workflow, {includeDetached});
   const unchanged = async () => {
     const current = await manifestBytes();
     if (JSON.stringify(workflow) !== binding
@@ -265,6 +265,7 @@ export async function createDocumentReadSession(root, config, workflow) {
   await unchanged();
   return Object.freeze({
     records: structuredClone(records),
+    assertUnchanged: unchanged,
     view: async reference => {
       await unchanged();
       // A rendered document returns its record. Never expose the private catalog authority through
@@ -316,10 +317,22 @@ async function viewDocumentRecord(root, config, workflow, record) {
       }
     }
   }
+  const verifiedBytes=async()=>{
+    if(bytes)return bytes; // Local storage and exact committed-byte fallback already verified them.
+    bytes=await readFile(absolute);
+    const actualSha256=createHash('sha256').update(bytes).digest('hex');
+    if(actualSha256!==current.sha256||bytes.length!==current.size) {
+      throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${current.sha256}, found ${actualSha256}.`,{
+        code:'DOCUMENT_HASH_MISMATCH',details:{workId:workflow.workItem.id,documentId:record.id,path:record.path??null,
+          expectedSha256:current.sha256,actualSha256}
+      });
+    }
+    return bytes;
+  };
   if (binary) {
     // A DOCX or XLSX is a ZIP of XML whose text is what a reader needs; the bytes stay as they are.
     const rendition = hasTextExtractor(mime)
-      ? documentRendition(bytes ?? await readFile(absolute), mime, documentPolicy(workflow, config).maxPreviewBytes ?? 1048576)
+      ? documentRendition(await verifiedBytes(), mime, documentPolicy(workflow, config).maxPreviewBytes ?? 1048576)
       : null;
     return {
       record, content: null, binary: true, absolutePath: absolute,
@@ -327,7 +340,7 @@ async function viewDocumentRecord(root, config, workflow, record) {
       ...(rendition ? { rendition } : {})
     };
   }
-  const policy = documentPolicy(workflow, config); bytes ??= await readFile(absolute); const limit = policy.maxPreviewBytes ?? 1048576;
+  const policy = documentPolicy(workflow, config); bytes=await verifiedBytes(); const limit = policy.maxPreviewBytes ?? 1048576;
   let previewBytes = Math.min(bytes.length, limit);
   let content = bytes.subarray(0, previewBytes).toString('utf8');
   // Do not end a byte-limited preview halfway through a UTF-8 code point.

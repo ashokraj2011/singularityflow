@@ -10,6 +10,8 @@ import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmissio
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest} from '../kernel/phase-policy.mjs';
+import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
+  documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 const PUBLISH_FIELDS = Object.freeze([
@@ -85,13 +87,50 @@ const definitions = [
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:singleDecisionInput,execute:recordSingleDecision})),
   ...UPSTREAM_OPERATIONS,
   {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
-    stages:Object.freeze(['load','read']),validate:phaseReviewInput,execute:inspectPhaseReview}
+    stages:Object.freeze(['load','read']),validate:phaseReviewInput,execute:inspectPhaseReview},
+  {id:'document.read',version:1,effect:'read',humanDecision:false,
+    inputFields:Object.freeze(['workId','reference','includeDetached','maximumBytes']),port:'documentRead',
+    stages:Object.freeze(['load','resolve','read']),validate:documentReadInput,execute:readDocument}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function invalid(message) {
   throw new SingularityFlowError(message, { code: 'ENGINE_INPUT_INVALID' });
+}
+
+function documentReadInput(value,operation) {
+  const input=data(value);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
+    ||!validDocumentReference(input.reference)||input.workId!=null&&typeof input.workId!=='string'
+    ||input.includeDetached!=null&&typeof input.includeDetached!=='boolean'
+    ||input.maximumBytes!=null&&(!Number.isSafeInteger(input.maximumBytes)||input.maximumBytes<0
+      ||input.maximumBytes>MAXIMUM_DOCUMENT_READ_BYTES))invalid('Invalid document read selection or byte budget.');
+  return input;
+}
+
+async function readDocument(port,inputs,signal) {
+  notCancelled(signal);
+  const context=await port.load(inputs,{signal});
+  notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.workflow?.workItem?.id!=='string'
+    ||!context.workflow.workItem.id||context.subject.id!==context.workflow.workItem.id) {
+    throw new SingularityFlowError('The document read port did not bind a Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  const selection=data(documentReadSelection(context.workflow,inputs));
+  const copy=value=>{
+    try{return data(value);}catch(cause){throw new SingularityFlowError('The document read port returned non-JSON facts.',{
+      code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  };
+  const resolved=await port.resolve(context,selection,{signal});
+  notCancelled(signal);
+  const binding=data(documentReadBinding(selection,copy(resolved)));
+  const observed=await port.read(context,binding,{signal});
+  notCancelled(signal);
+  const facts=copy(observed),document=documentReadResult(binding,facts);
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'document.read',status:'read',
+    subject:{kind:'story',id:selection.workId},revision:facts.revision,
+    effects:{committed:false,pushed:false,humanReviewRecorded:false,approvalRecorded:false},document});
 }
 
 function phaseReviewInput(value,operation) {

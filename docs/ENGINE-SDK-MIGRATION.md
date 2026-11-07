@@ -74,7 +74,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 2 | Namespace identities, record/transaction contracts and shared conformance fixtures | Implemented as draft-1; 147 focused Mac tests passed, including unchanged Git conformance |
 | 3 | Git compatibility adapter over the existing lifecycle/configuration authorities | Implemented as an internal native-port bridge; 214 focused Mac tests passed |
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
-| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and its document manifest, convergence advancement and shared post-transition effects extracted; authoring context manifests, remaining queries and admission helpers remain |
+| 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and its document manifest, document body reads, convergence advancement and shared post-transition effects extracted; authoring context manifests, remaining queries and admission helpers remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Planned; declared access guarantees must pass conformance |
 | 7 | Database/application adapter and installable headless Node runtime | Planned; a workflow must resume on another agent |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
@@ -87,6 +87,10 @@ These routes keep their existing CLI output and native Git authority.
 The [phase review query](ENGINE-SDK-PHASE-REVIEW.md) adds a narrow, provider-neutral read manifest.
 It captures all retained members before reading and keeps missing files and changed local bytes
 distinct from matched bindings. CLI rendering and terminal confirmation remain host concerns.
+
+The [document body query](ENGINE-SDK-DOCUMENT-READ.md) resolves those retained references and the
+existing catalog lookups through one registered reader. Local attachments remain local; query
+results distinguish retained, catalog, snapshot and external provenance without laptop paths.
 
 The test/evidence decision extension adds `decision.evidence-reuse`, `decision.visual-profile`,
 `decision.test-narrowing`, `decision.test-risk`, `test-command.request` and `test-command.decide`.
@@ -582,3 +586,44 @@ Windows, hosted CI, provider, merge, push or real-project authority migration ra
 This query does not complete Phase 5. Phase entry and its authoring-context manifest, document-body
 queries and remaining admission helpers still require extraction. Phases 6–9 retain their full
 alternate-backend, portable runtime/resume, authority migration and final qualification scope.
+
+## Phase 5 document-body query delivery
+
+The registered [document reader](ENGINE-SDK-DOCUMENT-READ.md) resolves both the phase manifest's
+scoped references and existing catalog ID/name/path lookups. SDK coordination captures Story,
+phase, generation and retained hashes before asynchronous resolution. Pure kernel rules validate
+the resolved binding and UTF-8 body budget, then distinguish retained/catalog bindings from current
+snapshots and external links. The native port shares the phase-review reference inventory and
+uses the installed canonical scope/hash/local-storage readers. Its request-local catalog cannot
+change mid-read. Final text/Office bytes must still match their observed hash and length; a read
+race cannot return a body with an earlier snapshot's verified identity.
+
+`documents view` now parses and renders in a narrow host over that registry operation. The legacy
+view entry forwards to the same handler; non-view document operations retain their existing route.
+Its rendering tokens match the predecessor, and actual source/bundled CLI JSON retains its native
+shape, paths, full configured previews and Office extraction display. The public SDK has bounded
+domain content and opaque reference metadata, without physical paths or any terminal consent.
+Local text/images/Office originals stay local. A second clone receives the original upload/restore
+request and can continue the existing Story after exact local restore, with no lifecycle commit.
+Existing Git authorities, human approval rules, records, hashes and normal CLI outcomes are unchanged.
+
+Mac qualification on Node 26.12.0 passes 150 focused checks with zero failures, cancellations or
+skips: 69 protocol/kernel/architecture/startup checks and 81 native, document and input regression
+checks. They cover actual SDK/CLI receipt parity, source and genuinely bundled routes, reference
+and generation binding, dirty/missing files, text changing between snapshot and read, local image
+and Office handling, URL non-fetching, detached inputs, clone takeover/restore, submission, approval
+thresholds and human confirmation. The three native reader journeys also pass a final rerun with
+an added mid-read catalog-change refusal, without retry or publication. No real Story was changed.
+
+`npm run check` passes 3,609 checks. VS Code typechecking, all 13 unchanged runtime bundle budgets,
+Git ownership audit (2,010 existing sites), dry-run package inclusion/exclusion and whitespace checks
+pass. The SDK closure is 12 pure modules / 159,851 input bytes with zero external imports. The
+gateway remains 852 modules / 6,738,990 bytes; no ceiling is raised. The dry-run package contains
+9,470 files, including the new owners and contract document and excluding tests. All repositories
+and remotes are isolated local fixtures; no Windows, hosted CI, live provider, merge, push or
+real-project authority migration ran.
+
+Phase 5 still requires phase entry, its authoring-context manifest and remaining admission
+coordination. Phases 6–9 retain their complete filesystem/database adapter, portable runtime and
+cross-agent resume, explicit verified authority migration, and final removal/distribution/
+performance scope. This delivery does not complete or narrow those remaining milestones.

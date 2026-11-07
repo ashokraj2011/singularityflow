@@ -560,6 +560,8 @@ test('extracted legacy helpers remain part of the development build identity', a
     'engine-compatibility/git-plan-correction.mjs', 'commands/decision-plan.mjs', 'commands/plan-correction.mjs',
     'engine-compatibility/git-upstream.mjs', 'engine-compatibility/native-forward-amendments.mjs', 'engine-compatibility/upstream-artifact-issues.mjs',
     'engine-compatibility/git-query.mjs', 'engine-compatibility/git-phase-review.mjs', 'engine-compatibility/native-phase-review.mjs',
+    'kernel/document-read.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs',
+    'commands/documents.mjs', 'commands/documents-view.mjs',
     'api.mjs', 'documents-read.mjs', 'commands/phase-show.mjs', 'agent-briefs.mjs',
     'engine-compatibility/native-witness-decisions.mjs', 'commands/decision-witness.mjs', 'commands/decision-witness-exception.mjs',
     'engine-compatibility/git-test-decision-record.mjs', 'engine-compatibility/record-decision-context.mjs',
@@ -582,6 +584,13 @@ test('extracted legacy helpers remain part of the development build identity', a
     'phase-publication-guidance.mjs']) {
     assert.ok(identity.includes(`'${owner}'`), `${owner} must invalidate a receipt made before its rules changed`);
   }
+});
+
+test('document body queries load their narrow handler independently of document mutations',async()=>{
+  assert.equal(commandDefinition('documents').modulePath,'./commands/documents.mjs');
+  const wrapper=await graph('commands/documents.mjs'),view=await graph('commands/documents-view.mjs');
+  for(const closure of [wrapper,view])for(const file of ['cli.mjs','commands/legacy.mjs','documents.mjs',
+    'engine-compatibility/git-publication.mjs'])assert.equal(closure.files.has(path.join(sourceRoot,file)),false,file);
 });
 
 test('moving handlers never leaves unbound command-layer identifiers', async () => {

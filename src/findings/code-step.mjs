@@ -279,6 +279,23 @@ async function decideLoop(root, workflow, phase, outcome, { mode, generation }) 
   );
 }
 
+/**
+ * A later step's read of CodeQL's alerts for the Story branch [CQF:REQ-049]: the code was published
+ * by an earlier step, so its change set says which lines are new. It informs and never blocks, under
+ * any mode: holding the code is the code step's.
+ */
+export async function laterStepCodeScanning(root, config, workflow, phase, { read: answer = null } = {}) {
+  const coded = [...(workflow.phaseOrder ?? Object.keys(workflow.phases ?? {}))].reverse()
+    .map((id) => workflow.phases?.[id]).find((entry) => entry?.id !== phase.id && entry?.deliveryEvidence?.changeSet);
+  const read = await (await import('./servers.mjs')).codeScanningRead(root, config, workflow, { branch: workflow.workItem?.branch ?? null, commit: head(root),
+    ...(answer ? { read: answer } : {}) });
+  if (read.status !== 'read') console.warn(`Warning: ${read.reason}; it blocks nothing.`);
+  const findings = coded ? markNewCode(read.findings, storyChangedLines(root, workflow, coded.deliveryEvidence.changeSet)) : read.findings;
+  return { schemaVersion: 1, status: read.status, ...(read.reason ? { reason: read.reason } : {}), repository: read.repository ?? null,
+    analysedCommit: read.analysedCommit ?? null, current: read.current ?? false, counts: findingCounts(findings),
+    findings: sortFindings(findings.filter((finding) => finding.newCode)).slice(0, KEPT_FINDINGS) };
+}
+
 /** Finding commands apart from the others, each in its configured order: submission runs them through the findings rules. */
 export function splitFindingCommands(commands) {
   const findings = [];

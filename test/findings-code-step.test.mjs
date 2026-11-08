@@ -162,6 +162,7 @@ test('under warn the loop ends after 3 attempts and publishes; a suppression add
   const told = third.value.publishIfReady.qualityFindings;
   assert.deepEqual([told.outcome, told.attempt, told.remaining.map((finding) => finding.rule)], ['warned', 3, ['suppression-added:eslint-disable']]);
   assert.match(told.words, /1 finding\(s\) on changed lines remain after 3 attempt\(s\) and go to the step's approvers/u);
+  assert.match(third.value.publishIfReady.next.instruction, /Also say, as written: 1 finding\(s\) on changed lines remain/u, 'the reply tells the person');
   const evidence = (await story.workflow()).phases.implementation.deliveryEvidence.qualityFindings;
   assert.deepEqual([evidence.outcome, evidence.attempt, evidence.counts.counted, evidence.escalated.length], ['warned', 3, 1, 1]);
   assert.equal(evidence.findings[0].rule, 'suppression-added:eslint-disable');

@@ -5626,6 +5626,10 @@ async function submitPhaseTransition(root, config, workflow, {
     ? await (await import('./verification/repository-tests.mjs')).verificationRepositoryTests(root, config, workflow, phase, deliveryCommands)
     : null;
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
+  // A later step reads CodeQL's alerts for the Story branch too; they inform and never block [CQF:REQ-049].
+  if (!codeDeliveryRequired && runChecks && workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github') {
+    phase.codeScanning = await (await import('./findings/code-step.mjs')).laterStepCodeScanning(root, config, workflow, phase);
+  }
   const pins = codeDeliveryRequired && !retainedRisk && runChecks
     ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands, phase.deliveryEvidence) : null;
   // A runner amendment's epoch needs its own fresh run of the whole command.

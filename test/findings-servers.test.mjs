@@ -15,6 +15,7 @@ import test from 'node:test';
 
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { codeScanningRead, readReportTask, readSonarqubeServer, sonarScannerProperties, submitServerAnalyses } from '../src/findings/servers.mjs';
+import { laterStepCodeScanning } from '../src/findings/code-step.mjs';
 import { githubCodeScanning } from '../src/github-evidence.mjs';
 
 const fixture = (name) => readFile(new URL(`./fixtures/findings/${name}`, import.meta.url), 'utf8');
@@ -138,4 +139,19 @@ test('GitHub code scanning: CodeQL alerts through gh, or "not analysed yet", and
   assert.equal((await status(read, 'f'.repeat(40))).current, false, 'an analysis of another commit is shown as such');
   assert.match((await status(off)).reason, /^GitHub code scanning could not be read: HTTP 404/u);
   assert.equal((await codeScanningRead(root, {}, story, { branch: 'b', read: async () => { throw new Error('gh: not signed in'); } })).status, 'unavailable');
+});
+
+test('a later step reads the alerts too, new code by the code step\'s change set, and never blocks [CQF:REQ-049]', async (t) => {
+  const root = await repository(t);
+  assert.equal(spawnSync('git', ['remote', 'add', 'origin', 'https://ghe.example.test/example-org/payments-api.git'], { cwd: root }).status, 0);
+  const alerts = JSON.parse(await fixture('github-code-scanning-alerts.json'));
+  const workflow = { workItem: { id: 'CQ-2', branch: 'sflow/pay-12' }, phaseOrder: ['implementation', 'verification'], phases: {
+    implementation: { id: 'implementation', deliveryEvidence: { changeSet: { entries: [{ status: 'added', newPath: 'src/db.js', untracked: true }] } } },
+    verification: { id: 'verification' } } };
+  const analysed = { available: true, analysed: true, repository: 'example-org/payments-api', alerts,
+    analysis: { commit: '3f6c9a1e2b4d5c6e7f8091a2b3c4d5e6f7a8b9c0', toolVersion: '2.19.3' } };
+  const read = await laterStepCodeScanning(root, {}, workflow, workflow.phases.verification, { read: async () => analysed });
+  assert.deepEqual([read.status, read.counts.newCode, read.counts.existing, read.findings.map((finding) => finding.file)], ['read', 1, 1, ['src/db.js']]);
+  const none = await laterStepCodeScanning(root, {}, workflow, workflow.phases.verification, { read: async () => ({ available: true, analysed: false, alerts: [] }) });
+  assert.deepEqual([none.status, none.reason], ['not-analysed', 'CodeQL has not analysed this branch yet']);
 });

@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 38
+version: 39
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -403,6 +403,29 @@ A Story has one test scope. It starts as the intake choice and can be changed at
 - Runners told their files: `node --test`, Jest, Vitest, Mocha, Playwright, pytest, Maven Surefire, Gradle, Go (by package) and .NET.
 
 The test-recovery pilot's agreement seals its scope, so a Story on the pilot refuses the change (`TEST_SCOPE_SEALED_BY_PILOT`).
+
+### Are the tests enough: changed-line coverage
+
+A test command's coverage report is kept beside its test report, and goes with its run when the run is reused. SFlow reads a report the command already writes and never adds a coverage flag, which would change the command's pin. Four forms are read: lcov, Cobertura, JaCoCo and Istanbul JSON (`coverage-final.json`).
+
+| Where the report is | How SFlow finds it |
+|---|---|
+| The command names it | `coverage: { format: lcov, path: coverage/lcov.info }` on the test command, below its working directory |
+| It does not | The usual places: `coverage/lcov.info`, `coverage/cobertura-coverage.xml`, `target/site/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml`, `coverage.xml`, `coverage/coverage-final.json` |
+
+A report that was there before the run and that the run did not write is an earlier run's: it is recorded as not measured, with why, and never read as this run's. Node's own runner writes lcov with `node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info` in the repository's test script; SFlow's own reporter still reads the tests.
+
+**Changed-line coverage** is the lines the Story changed since its base that the report marks as run. Lines the report does not list (blank lines, comments) are not code and do not count. A changed source file no test loaded is named. It is shown per changed file and per clause (a clause's lines are those of the files its plan names):
+
+- **Copilot:** `/sf-test`, which reads `tests summary`
+- **Shell:** `singularity-flow tests summary --work-id <WORK-ID> --phase <step>`, and the step's review (`phase show <step>`)
+- **VS Code:** the **Test summary** page, under the totals; a file opens at its first line that did not run
+
+| `codeDelivery.changedLineCoverage` | What it does |
+|---|---|
+| unset, or `{ mode: warn, minimum: 80 }` | Shows it, and warns below the minimum. It refuses nothing |
+| `{ mode: enforce, minimum: <0-100> }` | A code step's publication refuses a measured run below the minimum, naming the lines that did not run (`CODE_CHANGED_LINE_COVERAGE_BELOW_MINIMUM`) |
+| `{ mode: off }` | Not shown |
 
 ### Review an unavailable runner without declaring tests passed
 

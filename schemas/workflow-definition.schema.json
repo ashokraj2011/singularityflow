@@ -87,7 +87,13 @@
           },
           "additionalProperties": false
         },
-        "model": { "type": "object", "properties": { "minimumAssurance": { "enum": ["unavailable", "observed", "provider-reported", "policy-selected"] } }, "additionalProperties": false }
+        "model": { "type": "object", "properties": { "minimumAssurance": { "enum": ["unavailable", "observed", "provider-reported", "policy-selected"] } }, "additionalProperties": false },
+        "changedLineCoverage": {
+          "description": "Of the lines a Story changed, those its tests' coverage reports mark as run. Unset reads as warn below 80%. warn shows it and refuses nothing; enforce refuses a code step's publication when a measured run is below the minimum. Without a coverage report it is shown as not measured and never refuses.",
+          "type": "object",
+          "properties": { "mode": { "enum": ["off", "warn", "enforce"], "default": "warn" }, "minimum": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80 } },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

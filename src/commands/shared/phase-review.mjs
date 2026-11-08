@@ -8,6 +8,8 @@ import { pathForDisplay } from './path-for-display.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from '../../package-root.mjs';
 import { criterionResults, witnessResult, describeWitnessResult } from '../../verification/witness-results.mjs';
 import { withReadScope } from '../../read-scope.mjs';
 import { witnessMappingReview } from '../../witness-review-read.mjs';
@@ -218,6 +220,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     ...testRunsReview(workflow, phase),
     // Commands whose runs on the same code and environment disagree [CQF:REQ-013].
     ...await (await import('../../verification/flaky-runs.mjs')).flakyTestReview(root, config, workflow, phase),
+    // Of the lines the Story changed, those its bound runs ran, per file and per clause, or that it was not measured [CQF:REQ-031, REQ-034].
+    ...await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'changed-line-coverage.mjs')).href)).changedLineCoverageReview(root, config, workflow, phase),
     evidenceConsistency,
     witnessReview,
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).

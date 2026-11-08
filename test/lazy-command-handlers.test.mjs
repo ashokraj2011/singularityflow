@@ -360,7 +360,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,556,800 (measured 9,556,715, commands/phase-lifecycle.mjs): a test command names its coverage report and its attempt keeps it beside
     // the test report (external-command-policy.mjs, state.mjs, attempts.mjs, node-test-observation.mjs); reading and keeping one stays lazy
     // (verification/coverage-reports.mjs) [CQF:REQ-030].
-    assert.ok(closure.bytes <= 9_556_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,558,300 (measured 9,558,278): its changed lines are shown in the printed review and an enforced minimum refuses publication
+    // (code-delivery-policy.mjs, print-phase-review.mjs, phase-review.mjs, state.mjs); the read model stays lazy (verification/changed-line-coverage.mjs) [CQF:REQ-031].
+    // 9,558,950 (measured 9,558,916): both coverage modules load from the CLI source, out of the VS Code gateway bundle, which they had
+    // grown past its module ceiling (state.mjs, attempts.mjs, phase-review.mjs).
+    assert.ok(closure.bytes <= 9_558_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -539,7 +543,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,158,510 (measured 4,158,509): the same --latest flag as root dispatch.
   // 4,159,060 (measured 4,159,053): the one documentation definition exported, and a receipt's code digest (delivery-evidence.mjs, code-delivery-tests.mjs) [CQF:REQ-011].
   // 4,161,000 (measured 4,160,916): the same coverage key and lcov reporter rule as start (external-command-policy.mjs, node-test-observation.mjs) [CQF:REQ-030].
-  assert.ok(current.bytes <= 4_161_000, `session current loads ${current.bytes} source bytes`);
+  // 4,161,800 (measured 4,161,719): the changed-line coverage setting (code-delivery-policy.mjs) [CQF:REQ-031].
+  assert.ok(current.bytes <= 4_161_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

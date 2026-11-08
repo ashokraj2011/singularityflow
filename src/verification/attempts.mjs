@@ -16,9 +16,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { buildTestExecutionReceipt, parseTestResult } from '../code-delivery-tests.mjs';
 import { commitIsAncestor, gitDir } from '../git.mjs';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { canonicalJson } from '../records.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { posix, secureRepositoryPath, writeAtomicExclusive } from '../util.mjs';
@@ -32,6 +34,9 @@ export const ATTEMPT_PURPOSES = Object.freeze(['preflight', 'submission', 'epoch
 const RUN_OUTSIDE_A_GATE = new Set(['local', 'candidate']);
 const ATTEMPT_FILE = /^TA-[a-f0-9]{20}\.json$/u;
 const MAX_ATTEMPT_FILES = 10_000;
+
+// Loaded from the CLI source, out of the long-lived VS Code bundles, only for a run with a coverage report [CQF:REQ-030].
+const coverageReports = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'coverage-reports.mjs')).href);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -183,7 +188,7 @@ async function recordReusedAttempt(root, itemRelative, { command, check, purpose
     }
   }
   // Its coverage report goes with it [CQF:REQ-030].
-  const coverage = source.coverage?.report ? await (await import('./coverage-reports.mjs')).reusedCoverage(root, staging, source.coverage) : source.coverage;
+  const coverage = source.coverage?.report ? await (await coverageReports()).reusedCoverage(root, staging, source.coverage) : source.coverage;
   const previous = (await stepAttempts(root, itemRelative, workId, phaseId)).filter((entry) => entry.commandId === command.id).at(-1);
   const { localRunId, uncommittedChanges, epoch: _epoch, pin: _pin, narrowing: _narrowing, coverage: _coverage, ...measured } = source;
   const attempt = { ...measured, ...newAttemptIdentity(random), parentAttemptId: previous?.attemptId ?? null, purpose, phase: phaseId, generation,
@@ -235,7 +240,7 @@ export async function recordTestAttempt(root, itemRelative, {
     attempt.cause = (await import('../test-run-cause.mjs')).attemptRunCause({ check, parsed, attempt, delivery });
   }
   // The coverage report this run wrote, a second raw report beside its test report [CQF:REQ-030].
-  if (check?.coverageReport) attempt.coverage = await (await import('./coverage-reports.mjs')).keptCoverage(staging, itemRelative, check.coverageReport);
+  if (check?.coverageReport) attempt.coverage = await (await coverageReports()).keptCoverage(staging, itemRelative, check.coverageReport);
   // The pin a gate ran it under, which replay finds on the Story [TCE:REQ-014], and what narrowed it [TCE:REQ-021].
   if (pin) attempt.pin = pin;
   // A run of the Story's new tests only says so: which files, and why it may run fewer than the suite [TCE:REQ-093].
@@ -281,7 +286,7 @@ export async function admitTestAttempts(root, itemRelative, workId, phaseId) {
       await admitFile(root, report.path, bytes, 'Raw test report');
     }
     // A coverage report is shown, never judged: one gone from both places admits nothing and refuses nothing.
-    const coverage = attempt.coverage?.report ? await (await import('./coverage-reports.mjs')).coverageReportBytes(root, staging, attempt.coverage.report) : null;
+    const coverage = attempt.coverage?.report ? await (await coverageReports()).coverageReportBytes(root, staging, attempt.coverage.report) : null;
     if (coverage) await admitFile(root, attempt.coverage.report.path, coverage, 'Coverage report');
     // The kept bytes themselves are admitted, so the committed record is exactly the one written.
     await admitFile(root, `${attemptsDirectory(itemRelative, phaseId)}/${attempt.attemptId}.json`,

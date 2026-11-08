@@ -47,6 +47,9 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
   if (review.testScope) console.warn(review.testScope.words);
   for (const run of [...(review.stepTestRuns ?? []), ...(review.reusedTestRuns ?? [])]) console.log(`Test run ${run.words}.`);
   for (const entry of review.flakyTestRuns ?? []) console.warn(`Flaky: ${entry.words}. It refuses nothing.`);
+  // Changed-line coverage, a line per file and per clause, or that it was not measured [CQF:REQ-031, REQ-034].
+  const coverage = review.changedLineCoverage;
+  if (coverage) (coverage.status !== 'measured' || coverage.below ? console.warn : console.log)([coverage.words, ...(coverage.lines ?? []).map((line) => `  ${line}`)].join('\n'));
   for (const entry of review.reusedTestEvidence ?? []) {
     if (entry.state === 'active') console.log(`Reused test evidence: ${entry.label}`);
     else console.warn(`Reused test evidence lapsed: ${entry.label}`);

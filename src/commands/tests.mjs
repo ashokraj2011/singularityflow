@@ -9,7 +9,9 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
@@ -525,6 +527,10 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   const classes = [...new Set(entries.map((entry) => entry.evidenceClass))];
   const environments = [...new Set(entries.map((entry) => entry.environment).filter(Boolean))];
   const first = group.members[0];
+  // What this run's coverage reports say of the Story's changed lines, per file and per clause [CQF:REQ-031].
+  const lineCoverage = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'changed-line-coverage.mjs')).href);
+  const changedLineCoverage = lineCoverage.changedLineCoverage(group.members, { policy: lineCoverage.changedLineCoveragePolicy(workflow),
+    clauses: await lineCoverage.plannedClauseFiles(root, config, workflow) });
   const runClass = classes.length === 1 ? classes[0] : classes.includes('local-integration') ? 'local-integration' : classes[0];
   return summary.buildTestSummary({
     scope,
@@ -541,7 +547,8 @@ async function storySummary(root, options, { localRunId = null } = {}) {
       ...(newer ? { newer: { id: newer.id, at: newer.at, command: `singularity-flow tests summary --work-id ${workflow.workItem.id} --phase ${phaseId} --latest` } } : {})
     },
     entries,
-    history
+    history,
+    changedLineCoverage
   });
 }
 

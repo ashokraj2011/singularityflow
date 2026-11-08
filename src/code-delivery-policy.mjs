@@ -59,6 +59,14 @@ function integerValue(value, minimum, maximum, label) {
   return value;
 }
 
+function changedLineCoverageValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => !['mode', 'minimum'].includes(key))) {
+    throw new SingularityFlowError('codeDelivery.changedLineCoverage must be { mode: off | warn | enforce, minimum: 0-100 }.');
+  }
+  return { mode: enumValue(value.mode ?? 'warn', ['off', 'warn', 'enforce'], 'codeDelivery.changedLineCoverage.mode'),
+    minimum: integerValue(value.minimum ?? 80, 0, 100, 'codeDelivery.changedLineCoverage.minimum') };
+}
+
 /** Normalize once at configuration load and pin the exact result into every Story. */
 export function normalizeCodeDeliveryPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -89,6 +97,8 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
     ...(value.assertionAdequacy === undefined ? {} : {
       assertionAdequacy: enumValue(value.assertionAdequacy, ['off', 'advisory', 'enforce'], 'codeDelivery.assertionAdequacy')
     }),
+    // Of the lines a Story changed, those its tests ran [CQF:REQ-031]. Unset reads as warn below 80%, and only enforce refuses.
+    ...(value.changedLineCoverage === undefined ? {} : { changedLineCoverage: changedLineCoverageValue(value.changedLineCoverage) }),
     generationBoundary: {
       requireBegin: booleanValue(generationBoundary.requireBegin, 'codeDelivery.generationBoundary.requireBegin'),
       dirtyStart: enumValue(generationBoundary.dirtyStart, ['block', 'allow-explicit-adoption'], 'codeDelivery.generationBoundary.dirtyStart')

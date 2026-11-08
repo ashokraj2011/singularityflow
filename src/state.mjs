@@ -4947,7 +4947,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // A coverage report the command writes is read only when this run wrote it [CQF:REQ-030]; a run
     // given an environment's values, or on another tree than the Story's, is not measured.
     const coverageBefore = policy.kind === 'test' && policy.argv && !environmentGate.run && !candidateIsOtherCode
-      ? await (await import('./verification/coverage-reports.mjs')).coverageReportsBefore(executionRoot, policy) : null;
+      ? await (await coverageReports()).coverageReportsBefore(executionRoot, policy) : null;
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: executionRoot,
@@ -4963,7 +4963,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
-    const coverage = coverageBefore ? await (await import('./verification/coverage-reports.mjs')).capturedCoverage(executionRoot, coverageBefore, {
+    const coverage = coverageBefore ? await (await coverageReports()).capturedCoverage(executionRoot, coverageBefore, {
       startedAt, codeRoot: isolation?.root ?? root, workingDirectory: policy.workingDirectory ?? '.', affectedRoots: policy.affectedRoots,
       base: workflow.workIntervals?.history?.[0]?.sourceBaseCommit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null }) : null;
     if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
@@ -5050,6 +5050,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   }
   return checks;
 }
+
+// Kept out of the long-lived VS Code bundles like the findings loop: loaded from the CLI source when a test runs [CQF:REQ-030, REQ-031].
+const coverageReports = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'coverage-reports.mjs')).href);
+const changedLineCoverageModule = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'changed-line-coverage.mjs')).href);
 
 /**
  * The check of a run that still stands: the run's own identity and times, and `reusedFrom` naming it,
@@ -5255,6 +5259,11 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     if (uncovered.length) {
       throw uncoveredTestPathsError(`No passing test command covers affected paths before publication: ${uncovered.join(', ')}`, uncovered);
     }
+  }
+  // Only an enforced minimum refuses, and only on a measured run; warn shows it in the review [CQF:REQ-031, REQ-034].
+  if (workflow.resolution?.codeDelivery?.changedLineCoverage?.mode === 'enforce') {
+    await (await changedLineCoverageModule()).assertChangedLineCoverage(root, config, workflow, phase,
+      [...recordedRuns.values()].map((recorded) => recorded?.attempt).filter(Boolean));
   }
   if (runRisks.length) deliveryEvidence.testRunRisks = runRisks;
   await pins.record(workflow, attempts.map((attempt) => attempt.commandId), { at: nowIso() });

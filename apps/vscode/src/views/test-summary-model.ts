@@ -51,6 +51,19 @@ export interface TestSummaryHistory {
   totals: TestSummaryTotals;
 }
 
+/**
+ * Of the lines the Story changed, those the run's coverage reports mark as run [CQF:REQ-031], or why it
+ * was not measured [CQF:REQ-034]. The engine's words are shown as they are; it never refuses on this page.
+ */
+export interface ChangedLineCoverage {
+  status: 'measured' | 'not-measured';
+  words: string;
+  below: boolean;
+  minimum: number | null;
+  files: Array<{ path: string; inReport: boolean; executable: number; covered: number; percent: number | null; uncoveredLines: string; firstUncovered: number | null }>;
+  clauses: Array<{ clauseId: string; executable: number; covered: number; percent: number | null; below: boolean; files: string[]; notInReport: string[] }>;
+}
+
 export interface TestSummary {
   scope: { kind: string; capability: string | null; workId: string | null; phase: string | null };
   run: TestSummaryRun | null;
@@ -60,6 +73,7 @@ export interface TestSummary {
   truncated: boolean;
   untagged: number;
   history: TestSummaryHistory[];
+  changedLineCoverage: ChangedLineCoverage | null;
 }
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
@@ -117,6 +131,33 @@ export function totalsFrom(value: unknown): TestSummaryTotals {
   };
 }
 
+const percent = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
+const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0) : []);
+
+export function changedLineCoverageFrom(raw: unknown): ChangedLineCoverage | null {
+  const value = record(raw);
+  const words = text(value?.words);
+  if (!value || !words || !['measured', 'not-measured'].includes(String(value.status))) return null;
+  return {
+    status: value.status as ChangedLineCoverage['status'], words, below: value.below === true,
+    minimum: percent(value.minimum),
+    files: (Array.isArray(value.files) ? value.files : []).flatMap((item) => {
+      const file = record(item);
+      const path = text(file?.path);
+      const uncoveredLines = typeof file?.uncoveredLines === 'string' ? file.uncoveredLines : '';
+      const first = Number.parseInt(uncoveredLines, 10);
+      return file && path ? [{ path, inReport: file.inReport !== false, executable: count(file.executable), covered: count(file.covered),
+        percent: percent(file.percent), uncoveredLines, firstUncovered: Number.isInteger(first) && first > 0 ? first : null }] : [];
+    }),
+    clauses: (Array.isArray(value.clauses) ? value.clauses : []).flatMap((item) => {
+      const clause = record(item);
+      const clauseId = text(clause?.clauseId);
+      return clause && clauseId ? [{ clauseId, executable: count(clause.executable), covered: count(clause.covered), percent: percent(clause.percent),
+        below: clause.below === true, files: strings(clause.files), notInReport: strings(clause.notInReport) }] : [];
+    })
+  };
+}
+
 /** The read model, or null when the answer is not a test summary. A command-result envelope is opened. */
 export function testSummaryFrom(raw: unknown): TestSummary | null {
   let value = record(raw);
@@ -168,7 +209,8 @@ export function testSummaryFrom(raw: unknown): TestSummary | null {
         runId, at: text(entry.at) ?? text(entry.startedAt), evidenceClass: text(entry.evidenceClass) ?? 'local-preview',
         environment: text(entry.environment), label: text(entry.label), totals: totalsFrom(entry.totals)
       }] : [];
-    })
+    }),
+    changedLineCoverage: changedLineCoverageFrom(value.changedLineCoverage)
   };
 }
 
@@ -207,9 +249,10 @@ export function filterCases(cases: TestSummaryCase[], filters: TestSummaryFilter
     && (!filters.untagged || entry.clauses.length === 0));
 }
 
-/** The files the page may open: only those a case on it names. */
+/** The files the page may open: only those a case or a changed-line row on it names. */
 export function caseFiles(summary: TestSummary | null): Set<string> {
-  return new Set((summary?.cases ?? []).flatMap((entry) => (entry.file ? [entry.file] : [])));
+  return new Set([...(summary?.cases ?? []).flatMap((entry) => (entry.file ? [entry.file] : [])),
+    ...(summary?.changedLineCoverage?.files ?? []).map((file) => file.path)]);
 }
 
 export interface CaseRow {
@@ -243,6 +286,7 @@ export interface TestSummaryView {
   runs: RunOption[];
   truncated: boolean;
   untagged: number;
+  changedLineCoverage: ChangedLineCoverage | null;
   /** Whether a failure here also fails without the Story's change: only a Story step's failed run asks. */
   base: { offered: boolean; busy: boolean; answer: TestBaseAnswer | null; error: string | null };
 }
@@ -276,7 +320,8 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
       : `Story ${options.target.workId}${options.target.phase ? `, step ${options.target.phase}` : ''}`
   };
   if (!summary) {
-    return { ...base, available: false, run: null, totals: null, totalsLine: null, shown: 0, total: 0, commands: [], runs: [], truncated: false, untagged: 0, base: baseState };
+    return { ...base, available: false, run: null, totals: null, totalsLine: null, shown: 0, total: 0, commands: [], runs: [], truncated: false, untagged: 0,
+      changedLineCoverage: null, base: baseState };
   }
   const shownCases = filterCases(summary.cases, filters);
   const listed = new Set(summary.commands.map((command) => command.id));
@@ -315,6 +360,7 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
     })),
     truncated: summary.truncated,
     untagged: summary.untagged,
+    changedLineCoverage: summary.changedLineCoverage,
     base: baseState
   };
 }

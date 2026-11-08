@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 41
+version: 42
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -426,6 +426,8 @@ A report that was there before the run and that the run did not write is an earl
 | unset, or `{ mode: warn, minimum: 80 }` | Shows it, and warns below the minimum. It refuses nothing |
 | `{ mode: enforce, minimum: <0-100> }` | A code step's publication refuses a measured run below the minimum, naming the lines that did not run (`CODE_CHANGED_LINE_COVERAGE_BELOW_MINIMUM`) |
 | `{ mode: off }` | Not shown |
+
+Without a coverage report, or with only an earlier run's, every one of these places says **Coverage not measured** and why. That never refuses, under `enforce` too.
 
 **The assertion and edge-case check** reads the changed tests and source at publication: a test that asserts nothing, or only a literal (`assert.equal(1, 1)`), and a changed error path, null guard, boundary or branch no test signal matches. It is static syntax, never proof that a branch ran. Publication prints what it found, and the step's review shows it (`testEvidence.assertionCheck`); `phase prepublish` lists the same findings before publication.
 

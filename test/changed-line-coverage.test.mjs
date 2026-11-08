@@ -80,7 +80,7 @@ test('tests summary carries it in its JSON and its text, under the totals', () =
 });
 
 /** A quick-fix Story at its code step whose npm test writes lcov through Node's own runner. */
-async function storyAtCode(t, { codeDelivery = null } = {}) {
+async function storyAtCode(t, { codeDelivery = null, coverage = true } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-changed-lines-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -101,7 +101,7 @@ async function storyAtCode(t, { codeDelivery = null } = {}) {
   };
   must('git', ['init', '-q', '-b', 'main', root], { cwd: base });
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: {
-    test: 'mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info' } }));
+    test: coverage ? 'mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info' : 'node --test' } }));
   await write('.gitignore', 'coverage/\n');
   await write('src/cart.mjs', 'export const items = (list) => list.length;\n');
   await write('test/cart.test.mjs', "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { items } from '../src/cart.mjs';\ntest('counts items', () => assert.equal(items([1]), 1));\n");
@@ -199,4 +199,34 @@ test('a test that asserts nothing warns at publication, in the review and its pa
   assert.deepEqual(proof.map((entry) => entry.words), [`${AC1}: 1 test proves it; it asserts`, `${AC2}: 1 test proves it; 'halves a price' asserts nothing`]);
   const summary = story.json('tests', 'summary', '--work-id', W, '--phase', 'implement');
   assert.deepEqual((summary.data ?? summary).criterionProof, proof);
+});
+
+test('without a coverage report, coverage not measured is shown and nothing refuses, even where a minimum is enforced [CQF:REQ-034]', slowLane({ timeout: 600_000 }), async (t) => {
+  const story = await storyAtCode(t, { codeDelivery: { changedLineCoverage: { mode: 'enforce', minimum: 90 } }, coverage: false });
+  const published = story.publish();
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  const summary = story.json('tests', 'summary', '--work-id', W, '--phase', 'implement');
+  const coverage = (summary.data ?? summary).changedLineCoverage;
+  assert.equal(coverage.status, 'not-measured');
+  assert.match(coverage.words, /^Coverage not measured: no test command of this step wrote a coverage report SFlow reads \(coverage\/lcov\.info, .*\)\. It refuses nothing\.$/u);
+  assert.match(story.sflow('tests', 'summary', '--work-id', W, '--phase', 'implement').stdout, /\nCoverage not measured: /u);
+  const review = story.json('phase', 'show', 'implement');
+  assert.equal((review.data ?? review).changedLineCoverage.status, 'not-measured');
+  assert.match(story.sflow('phase', 'show', 'implement').stderr, /Coverage not measured: /u);
+  // The attempt records nothing about coverage: no report was there.
+  const attemptFolder = path.join(story.item, 'context/code-delivery/tests/attempts/implement');
+  const { readdir } = await import('node:fs/promises');
+  for (const name of (await readdir(attemptFolder)).filter((entry) => entry.endsWith('.json'))) {
+    assert.equal(JSON.parse(await readFile(path.join(attemptFolder, name), 'utf8')).coverage, undefined);
+  }
+});
+
+test("an earlier run's report that this run did not write reads as not measured, with why", () => {
+  const coverage = changedLineCoverage([{ commandId: 'unit', coverage: { status: 'not-measured', sourcePath: 'coverage/lcov.info',
+    reason: "coverage/lcov.info was not written by this run, so it is an earlier run's" } }], { policy: changedLineCoveragePolicy({}) });
+  assert.deepEqual(coverage, { status: 'not-measured', mode: 'warn', minimum: 80, reasons: ["unit: coverage/lcov.info was not written by this run, so it is an earlier run's"],
+    words: "Coverage not measured: unit: coverage/lcov.info was not written by this run, so it is an earlier run's. It refuses nothing." });
+  // A run that measured, but not against the Story's changes, says that instead.
+  assert.match(changedLineCoverage([{ commandId: 'unit', coverage: { status: 'measured', format: 'lcov', changed: { base: 'b', unavailable: 'Changes since b failed' } } }],
+    { policy: changedLineCoveragePolicy({}) }).words, /^Coverage not measured: unit: its report could not be read against the Story's changes \(Changes since b failed\)\. It refuses nothing\.$/u);
 });

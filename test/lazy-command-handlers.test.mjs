@@ -421,7 +421,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,606,400 (measured 9,606,339, commands/phase-lifecycle.mjs): spec–code sync M1 decides deviated and unplanned
     // conformance rows (upstream-routes.mjs, conformance-verdicts.mjs, conformance-readiness.mjs, decision-list.mjs, the
     // pinned spec.conformanceDifferences in specifications.mjs and the two leaves above), +15,905 on every entry [SCS:REQ-010].
-    assert.ok(closure.bytes <= 9_606_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,606,600 (measured 9,606,573, commands/phase-lifecycle.mjs): a decisions record that only drafted an amendment says
+    // nothing was recorded (narration/messages.mjs), and an amendment's changedClauses settle a row (upstream-routes.mjs) [SCS:REQ-020, REQ-023].
+    assert.ok(closure.bytes <= 9_606_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

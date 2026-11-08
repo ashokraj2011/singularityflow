@@ -378,7 +378,9 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'decisions.record.succeeded': {
-    headline: (s) => `Recorded ${slot(s.count, '0')} decision(s) as ${slot(s.records, '0')} record(s)`
+    // A drafted amendment is a file, never a record [SCS:REQ-020].
+    headline: (s) => (Number(s.records) || !Number(s.drafted) ? `Recorded ${slot(s.count, '0')} decision(s) as ${slot(s.records, '0')} record(s)` : 'Nothing was recorded')
+      + (Number(s.drafted) > 0 ? `; drafted ${slot(s.drafted)} amendment(s)` : '')
       + (Number(s.refused) > 0 ? `; ${slot(s.refused)} you may not decide were not recorded.` : '.'),
     preserves: false
   },

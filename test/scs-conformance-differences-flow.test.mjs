@@ -1,12 +1,14 @@
 /**
- * Spec–code sync M1 through a whole Story, from the terminal [SCS:REQ-010 to REQ-012]: a conformance row
+ * Spec–code sync through a whole Story, from the terminal. M1 [SCS:REQ-010 to REQ-012]: a conformance row
  * marked deviated must say what differs, publishes as written, and holds the step's approval until a
  * person decides it on the decision list (fix the code, update the spec, accept it for now, or dismiss
- * it). Accepting it for now, recorded once, lets the step be approved.
+ * it). Accepting it for now, recorded once, lets the step be approved. M2 [SCS:REQ-020 to REQ-023]:
+ * Update the spec, chosen once, drafts the scope's amendment with the row in its slot; written and
+ * proposed, the row is amending; approved by the scope's approvers, the row is decided.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -32,7 +34,8 @@ function run(command, args, cwd, { allowFailure = false, as = null } = {}) {
   return result;
 }
 
-test('a deviated conformance row says what differs, holds approval, and is decided once on the decision list', slowLane({ timeout: 900_000 }), async (t) => {
+/** A classic-delivery Story whose Conformance report marks AC-001 deviated, submitted and waiting for its approval. */
+async function deviatedStory(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scs-differences-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -136,7 +139,11 @@ test('a deviated conformance row says what differs, holds approval, and is decid
   cli('prepare', 'conformance');
   cli('phase', 'publish', 'conformance', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'conformance');
+  return { root, W, AC1, AC2, item, cli, cliAs, attempt, attemptAs, json, workflow };
+}
 
+test('a deviated conformance row says what differs, holds approval, and is decided once on the decision list', slowLane({ timeout: 900_000 }), async (t) => {
+  const { W, cli, attempt, json, workflow } = await deviatedStory(t);
   // Approval waits on a person's decision for the deviated row, as it would for a partial one.
   const refusal = json(attempt('approve', 'conformance', '--yes', '--json'));
   assert.equal(refusal.error.code, 'CONFORMANCE_BLOCKING_VERDICTS');
@@ -146,7 +153,7 @@ test('a deviated conformance row says what differs, holds approval, and is decid
   assert.match(item0.title, /AC-001 is deviated in the Conformance report|AC-001 is deviated in the .* report/u);
   assert.match(item0.why, /the module exports 3 for callers in the legacy path/u);
   assert.deepEqual(item0.options.map((entry) => entry.id), ['fix-code', 'update-spec', 'accept-risk', 'dismiss']);
-  assert.match(item0.options.find((entry) => entry.id === 'update-spec').action.command, new RegExp(`story intent-amendment draft --clause ${AC1}`, 'u'));
+  assert.equal(item0.options.find((entry) => entry.id === 'update-spec').effects[0].kind, 'intent-amendment-draft', 'one choice drafts it [SCS:REQ-020]');
   assert.match(item0.options.find((entry) => entry.id === 'fix-code').action.command, /reject conformance .*--to implementation/u);
 
   // Accepted for now, recorded once from the list, the step can be approved.
@@ -155,4 +162,76 @@ test('a deviated conformance row says what differs, holds approval, and is decid
   assert.equal(json(cli('decisions', W, '--json')).data.items.some((entry) => entry.kind === 'conformance-gap'), false);
   cli('approve', 'conformance', '--yes');
   assert.equal((await workflow()).phases.conformance.status, 'approved');
+});
+
+test('Update the spec drafts the scope\'s amendment in one choice; written, proposed and approved by its approvers, the row is decided', slowLane({ timeout: 900_000 }), async (t) => {
+  const { root, W, AC1, item, cli, attempt, json, workflow } = await deviatedStory(t);
+  const packet = json(cli('decisions', W, '--json')).data;
+  const row = packet.items.find((entry) => entry.kind === 'conformance-gap');
+  const update = row.options.find((entry) => entry.id === 'update-spec');
+  assert.equal(update.action, undefined, 'no command to copy');
+  assert.equal(update.effects[0].kind, 'intent-amendment-draft');
+
+  // One choice and a reason write the draft beside the checkout's Git data, and nothing else.
+  const before = run('git', ['status', '--porcelain'], root).stdout;
+  const head = run('git', ['rev-parse', 'HEAD'], root).stdout;
+  const reason = 'Legacy callers rely on 3; the intake should say what the code does.';
+  const drafted = json(cli('decisions', 'record', W, '--choose', `${row.id}=update-spec`, '--reason', `${row.id}=${reason}`, '--confirm', packet.packetSha256, '--json')).data;
+  assert.deepEqual(drafted.recorded, [], 'a draft is not a record');
+  assert.equal(drafted.drafted.length, 1);
+  const draftPath = drafted.drafted[0].path;
+  assert.equal(draftPath, path.join(await realpath(root), '.git/singularity-flow/intent-amendment-drafts', `${W}.md`));
+  assert.ok(drafted.drafted[0].next.command.startsWith(`singularity-flow story intent-amendment propose --work-id ${W} --file "${draftPath}"`));
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout, head, 'nothing was committed');
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, before, 'nothing in the checkout changed');
+  const draft = await readFile(draftPath, 'utf8');
+  const slot = draft.split('\n').find((line) => line.includes(`[${AC1}]`));
+  assert.ok(slot.includes(`<!-- sflow-draft: revise ${AC1} so it says what the code does. Verdict: deviated, in the ${packet.phaseLabel} report. `
+    + `Deviation: the module exports 3 for callers in the legacy path; the clause says 2 everywhere. Reason: ${reason} -->`), slot);
+  assert.equal(draft.split('\n').filter((line) => line.includes('sflow-draft:')).length, 2, 'one slot for the clause, and the closing line');
+
+  // The list now says where the draft is and that writing and proposing it is next.
+  const waiting = json(cli('decisions', W, '--json')).data.items.find((entry) => entry.kind === 'conformance-gap');
+  assert.ok(waiting.why.includes(`is at ${draftPath}: write it as the code does it, then propose it.`), waiting.why);
+  const next = waiting.options.find((entry) => entry.id === 'update-spec');
+  assert.equal(next.recordable, false);
+  assert.ok(next.action.command.startsWith(`singularity-flow story intent-amendment propose --work-id ${W} --file "${draftPath}"`));
+  const choose = (...why) => json(attempt('decisions', 'record', W, '--choose', `${row.id}=update-spec`, ...why,
+    '--confirm', json(cli('decisions', W, '--json')).data.packetSha256, '--json'));
+  assert.equal(choose().error?.code, 'DECISIONS_OPTION_NOT_RECORDABLE', 'drafted, it is the person\'s step to write and propose');
+  // Drafting again (here, as for other clauses) never writes over a draft someone started writing.
+  const statePath = draftPath.replace(/\.md$/u, '.json');
+  const state = await readFile(statePath, 'utf8');
+  await writeFile(statePath, JSON.stringify({ ...JSON.parse(state), clauses: [`${W}:AC-002`] }));
+  await writeFile(draftPath, `${draft}Someone started writing.\n`);
+  assert.equal(choose('--reason', `${row.id}=${reason}`).error?.code, 'INTENT_AMENDMENT_DRAFT_EDITED');
+  assert.ok((await readFile(draftPath, 'utf8')).endsWith('Someone started writing.\n'), 'the person\'s words are kept');
+  await writeFile(statePath, state);
+  await writeFile(draftPath, draft);
+
+  // A slot left is refused at propose; written, it is proposed and the row is amending.
+  const propose = (...extra) => ['story', 'intent-amendment', 'propose', '--work-id', W, '--file', draftPath, '--reason', reason, ...extra];
+  assert.equal(json(attempt(...propose('--json'))).error.code, 'INTENT_AMENDMENT_DRAFT_UNFINISHED');
+  const written = draft.split('\n').filter((line) => !line.startsWith('<!-- sflow-draft: drafted from the approved specification'))
+    .map((line) => (line.includes(`[${AC1}]`) ? `| [${AC1}] | The exported value equals 2, and 3 for callers in the legacy path. |` : line)).join('\n');
+  await writeFile(draftPath, written);
+  cli(...propose());
+  const pending = json(cli('decisions', W, '--json')).data;
+  assert.equal(pending.items.some((entry) => entry.kind === 'conformance-gap'), false, 'the row is amending: the amendment is the item');
+  assert.ok(pending.items.some((entry) => entry.kind === 'intent-amendment' && /AMD-001/u.test(entry.title)));
+  const held = json(attempt('approve', 'conformance', '--yes', '--json'));
+  assert.equal(held.error.code, 'APPROVAL_INTENT_AMENDMENT_PENDING', 'until it is decided the amendment holds the approval, and the row with it');
+  assert.match(held.error.message, /AMD-001/u);
+
+  // The scope's approvers decide it: a new generation of the scope, the later steps revalidate, and the row is decided.
+  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001', '--work-id', W);
+  const after = await workflow();
+  assert.equal(after.intentAmendments[0].status, 'approved');
+  assert.equal(after.phases.intake.generation, 2);
+  assert.match(await readFile(path.join(item, 'artifacts/intake/intake.md'), 'utf8'), /3 for callers in the legacy path/u);
+  assert.notEqual(after.phases.conformance.status, 'approved');
+  assert.ok(after.phases.conformance.intentAmendmentRevalidation?.id === 'AMD-001' || after.phases.conformance.status === 'not_started');
+  const { conformanceGapDecisions } = await import('../src/upstream-routes.mjs');
+  const [settled] = conformanceGapDecisions(after, 'conformance', [{ clauseId: AC1, verdict: 'deviated', difference: 'x' }]);
+  assert.deepEqual([settled.status, settled.outcome, settled.issue], ['decided', 'amended', 'AMD-001']);
 });

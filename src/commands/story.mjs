@@ -1969,8 +1969,13 @@ export function intentAmendmentClauses(diff, supplied = []) {
  * convergence `update-intent` decisions, closed Stories' clauses this Story takes over (--adopt, or
  * a recorded `spec drift decide --adopt --story`) and any --clause named. Writes only the draft,
  * beside the checkout's Git data unless --out says where.
+ *
+ * The decision list's Update the spec writes it here too [SCS:REQ-020]: `rows` are the conformance rows
+ * a person chose it for (`{ clauseId, verdict, difference, report }`), each slot holding its row and
+ * their `reason`. That writes no record and decides nothing, and with `keepEdits` it never writes over
+ * a draft someone changed since it was drafted.
  */
-async function draftIntentAmendment(root, config, workflow, options) {
+export async function draftIntentAmendment(root, config, workflow, options, { rows = [], reason = null, keepEdits = false } = {}) {
   await phaseIntentAmendmentSource(root, config, workflow, workflow.currentPhase);
   const specification = scopeStepOf(workflow);
   if (!specification?.requiredArtifact?.path) {
@@ -1987,6 +1992,17 @@ async function draftIntentAmendment(root, config, workflow, options) {
     if (why) revisions.get(id).push(why);
   };
   for (const clauseId of optionStrings(options, 'clause')) revise(clauseId);
+  // A row's verdict, what differs and the person's reason go into its slot, redacted first [SCS:CON-006].
+  const rowContext = new Map();
+  if (rows.length) {
+    const { redactDiagnosticText } = await import('../git-remote-diagnostics.mjs');
+    const said = String(reason ?? '').trim() ? redactDiagnosticText(String(reason).trim()) : null;
+    for (const row of rows) {
+      revise(row.clauseId);
+      rowContext.set(String(row.clauseId).toUpperCase(), { row: { verdict: row.verdict, report: row.report ?? null,
+        difference: row.difference ? redactDiagnosticText(row.difference) : null }, reason: said });
+    }
+  }
   if (convergencePhaseOf(workflow)) {
     let projection = null;
     try {
@@ -2070,15 +2086,33 @@ async function draftIntentAmendment(root, config, workflow, options) {
     throw new SingularityFlowError('Nothing to draft: no convergence finding was dispositioned update-intent, no closed Story\'s clause was adopted into '
       + `${workId} (--adopt CLAUSE-ID, or spec drift decide --adopt --story ${workId}), and no --clause was named.`, { code: 'INTENT_AMENDMENT_DRAFT_EMPTY' });
   }
-  const out = optionString(options, 'out') ? path.resolve(optionString(options, 'out'))
-    : (await import('../phase-staging-paths.mjs')).intentAmendmentDraftPath(gitDir(root), workflow);
+  const defaultOut = (await import('../phase-staging-paths.mjs')).intentAmendmentDraftPath(gitDir(root), workflow);
+  const out = optionString(options, 'out') ? path.resolve(optionString(options, 'out')) : defaultOut;
+  // Beside the Story's own draft, what it holds (its clauses, the scope bytes it was built from and the bytes
+  // written), so the decision list says it is waiting and never writes over one a person changed. A file
+  // named with --out is the caller's own.
+  const statePath = out === defaultOut ? defaultOut.replace(/\.md$/u, '.json') : null;
+  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
   const proposeCommand = `singularity-flow story intent-amendment propose --work-id ${workId} --file "${out}" --reason "<why the specification changes>"`;
+  if (keepEdits) {
+    const existing = await readFile(out).catch(() => null);
+    const state = existing && statePath ? await readFile(statePath, 'utf8').then(JSON.parse).catch(() => null) : null;
+    if (existing && state?.draftSha256 !== digest(existing)) {
+      throw new SingularityFlowError(`There is already a draft of the scope at ${out}, changed since it was drafted, so nothing was written. `
+        + `Finish and propose it (${proposeCommand}), or move it away to draft again.`,
+      { code: 'INTENT_AMENDMENT_DRAFT_EDITED', details: { path: out, nextAction: { command: proposeCommand, skill: '/sf-reject', label: 'Write the draft and propose it.' } } });
+    }
+  }
   const { buildIntentAmendmentDraft } = await import('../intent-amendment-draft.mjs');
   const draft = buildIntentAmendmentDraft({ text, clauses, namespace: workId.toUpperCase(),
-    revisions: [...revisions].map(([clauseId, why]) => ({ clauseId, why })), additions, proposeCommand });
+    revisions: [...revisions].map(([clauseId, why]) => ({ clauseId, why, ...(rowContext.get(clauseId) ?? {}) })), additions, proposeCommand });
   await mkdir(path.dirname(out), { recursive: true });
   await writeText(out, draft.text);
-  return { resultType: 'intent-amendment-draft', workId, specification: specificationPath, path: out, slots: draft.slots,
+  if (statePath) {
+    await writeJson(statePath, { workId, clauses: [...revisions.keys()].sort(), specification: specificationPath, specificationSha256: digest(text),
+      draftSha256: digest(await readFile(out)), draftedAt: nowIso() });
+  }
+  return { resultType: 'intent-amendment-draft', workId, specification: specificationPath, path: out, slots: draft.slots, clauses: [...revisions.keys()].sort(),
     next: { command: proposeCommand, detail: 'Replace every sflow-draft slot with the clause wording, then propose; nothing is proposed until then.' } };
 }
 

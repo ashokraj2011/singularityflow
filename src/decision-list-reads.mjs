@@ -12,13 +12,18 @@
  * - Everything else that waits for a person (SPEC-OAP M3): the routing decision, intent and forward
  *   amendments, appeals of the step, sign-offs and scope items owed to the ending, what did not
  *   publish, and, while the step awaits approval, the approval check itself.
+ * - With a deviated or unplanned row, the Story's intent-amendment draft: where Update the spec writes
+ *   it, and the clauses a draft already there holds for the scope as it is now [SCS:REQ-020].
  *
  * Reads only. `decisions` reads all of it; readiness and next steps read it for the list's count
  * and first item, without reusable runs (readPendingList).
  */
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
 import { blockingDecisionFacts, evidenceDecisionFacts, phaseEndsStory } from './decision-list-facts.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { workDir } from './story-paths.mjs';
@@ -286,6 +291,24 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
   };
 }
 
+/**
+ * The Story's intent-amendment draft: its path, and the clauses it holds when it was drafted from the
+ * approved scope as it is now and is still there. A draft from before an approved amendment holds none.
+ */
+async function intentAmendmentDraftFacts(root, config, workflow) {
+  const [{ gitDir }, { intentAmendmentDraftPath }, { scopeStepOf }] = await Promise.all([
+    import('./git.mjs'), import('./phase-staging-paths.mjs'), import('./phase-roles.mjs')]);
+  const file = intentAmendmentDraftPath(gitDir(root), workflow);
+  // What the drafter wrote beside it (commands/story.mjs draftIntentAmendment).
+  const state = await readFile(file.replace(/\.md$/u, '.json'), 'utf8').then(JSON.parse).catch(() => null);
+  const present = state ? await readFile(file).then(() => true, () => false) : false;
+  const scope = scopeStepOf(workflow)?.requiredArtifact?.path;
+  const text = present && scope ? await readFile(path.join(workDir(root, config, workflow.workItem.id), scope), 'utf8').catch(() => null) : null;
+  const current = text !== null && state?.workId === workflow.workItem.id && Array.isArray(state.clauses)
+    && state.specificationSha256 === createHash('sha256').update(text).digest('hex');
+  return { path: file, clauses: current ? state.clauses.map(String) : [] };
+}
+
 /** Everything the decision list of `phaseId` is built from: what blocks it, plus the readers above. */
 export async function decisionListFacts(root, config, workflow, { phaseId = workflow?.currentPhase ?? null, at = new Date().toISOString(),
   reuse: offerReuse = true, ...known } = {}) {
@@ -311,9 +334,13 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   const nodePin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering }).catch(() => null);
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
+  // Only a difference offers Update the spec; an unreadable draft is one not written yet.
+  const intentAmendmentDraft = (blocking.gaps ?? []).some((gap) => DIFFERENCE_VERDICTS.includes(gap.verdict))
+    ? await intentAmendmentDraftFacts(root, config, workflow).catch(() => null) : null;
   return {
     ...blocking,
     ...state,
+    intentAmendmentDraft,
     repositoryPath: root,
     evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,

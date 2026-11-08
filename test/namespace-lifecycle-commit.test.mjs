@@ -247,7 +247,7 @@ test('evidence is checked again at commit and an absent blob leaves the prepared
 test('body encoding, unsupported state versions and non-finite JSON remain refusals before preparation', async t => {
   const f = await namespaceLifecycleFixture(t), s = await f.committer.capture();
   const body = JSON.parse(f.encode(s.workflow));
-  for (const state of [Buffer.from([0xff]), Buffer.from('{'), Buffer.from(JSON.stringify({ ...body, schemaVersion: 2 }))]) {
+  for (const state of [Buffer.from([0xff]), Buffer.from('{'), Buffer.from(JSON.stringify({ ...body, schemaVersion: 3 }))]) {
     await assert.rejects(f.committer.prepare(s, f.proposal(s.workflow, 'invalid-state', { state })),
       error => ['ENGINE_STORAGE_CORRUPT','ENGINE_STORAGE_UNSUPPORTED'].includes(error.code));
   }

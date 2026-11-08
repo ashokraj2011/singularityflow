@@ -19,9 +19,26 @@ export const NAMESPACE_READER_SCHEMAS = Object.freeze({
 });
 export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
   authority: frozenFamily('namespace-lifecycle-authority'), configuration: frozenFamily('namespace-lifecycle-configuration'),
-  head: frozenFamily('namespace-lifecycle-head'), state: frozenFamily('namespace-lifecycle-state'),
+  head: frozenFamily('namespace-lifecycle-head'),
+  // Immutable bodies keep their stored version and identity; readers dispatch without migration.
+  state: Object.freeze({ id: 'namespace-lifecycle-state', currentVersion: 2, minimumReadableVersion: 1,
+    maximumReadableVersion: 2, unversionedAs: null, immutable: true, migrationPolicy: 'preserve-versions' }),
   prepared: frozenFamily('namespace-lifecycle-prepared'), manifest: frozenFamily('namespace-lifecycle-manifest')
 });
+// Wire shape constraints, selected here without rewriting an immutable historical body.
+const LIFECYCLE_STATE_PROFILES = Object.freeze({
+  1: Object.freeze({ requireOwnedCurrentPhase: false, terminalStatuses: Object.freeze([]) }),
+  2: Object.freeze({ requireOwnedCurrentPhase: true, terminalStatuses: Object.freeze(['closed', 'cancelled']) })
+});
+
+export function namespaceLifecycleRecordProfile(kind, input) {
+  if (!Object.hasOwn(NAMESPACE_LIFECYCLE_SCHEMAS, kind)) {
+    throw new SingularityFlowError('Unknown namespace lifecycle record family.', { code: 'SCHEMA_FAMILY_UNKNOWN' });
+  }
+  const { storedVersion } = admitRecordSchemaVersion(NAMESPACE_LIFECYCLE_SCHEMAS[kind], input);
+  return Object.freeze({ format: `sflow-namespace-lifecycle-${kind}/v${storedVersion}`,
+    state: kind === 'state' ? LIFECYCLE_STATE_PROFILES[storedVersion] : null });
+}
 // Historical view records retain their original schema and compatibility export indefinitely.
 export const WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION = frozenFamily('world-model-view-contract').currentVersion;
 // Writers need the current wire stamp, not every historical migration function.

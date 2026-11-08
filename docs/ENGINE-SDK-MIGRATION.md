@@ -258,6 +258,11 @@ moves automatic-run, Ad Hoc, MCP and after-step action rules to pure owners. Nat
 receipt hashing and delivery effects stay in their original owners; configuration declarations
 do not become proof of approval or execution.
 
+[Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
+through an explicit v2 state format. It reads preserved v1 records without migration, including
+prepared operations and their original receipts. This removes a persistence gap before the first
+complete namespace runtime; enrollment and production lifecycle admission remain required.
+
 [ADR 0018](adr/0018-sda-lifecycle-authority-options.md) keeps the Story branch as lifecycle authority,
 the state branch as proof/projection and `sflow/config` as configuration authority. The Git
 compatibility adapter preserves that layout. An alternate backend for an existing project requires

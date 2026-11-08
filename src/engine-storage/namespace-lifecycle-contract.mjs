@@ -1,6 +1,6 @@
 /** Persistence records, not policy admission or an installed-project authority selector. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { NAMESPACE_LIFECYCLE_SCHEMAS, admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
+import { NAMESPACE_LIFECYCLE_SCHEMAS, namespaceLifecycleRecordProfile } from '../foundation/record-schema.mjs';
 import { contentReference } from '../sda/content/contract.mjs';
 import { exactObject, namespaceIdentifier, namespaceKey, namespaceRevision, namespaceScope } from '../sda/namespace/values.mjs';
 
@@ -11,18 +11,20 @@ const count = value => Number.isSafeInteger(value) && value >= 0;
 const text = value => typeof value === 'string' && value.length > 0 && value.length <= 2048 && !/[\u0000-\u001f\u007f]/u.test(value);
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
 const bad = message => { throw new SingularityFlowError(message, { code: 'ENGINE_STORAGE_CORRUPT' }); };
-const format = kind => `sflow-namespace-lifecycle-${kind}/v1`;
 export function lifecycleRecord(kind, value) {
   if (!Object.hasOwn(NAMESPACE_LIFECYCLE_SCHEMAS, kind) || !plain(value)
     || Object.hasOwn(value, 'schemaVersion') || Object.hasOwn(value, 'format')) bad('Lifecycle record metadata must use its registered profile.');
-  return { schemaVersion: NAMESPACE_LIFECYCLE_SCHEMAS[kind].currentVersion, format: format(kind), ...value };
+  const schemaVersion = NAMESPACE_LIFECYCLE_SCHEMAS[kind].currentVersion;
+  return { schemaVersion, format: namespaceLifecycleRecordProfile(kind, { schemaVersion }).format, ...value };
 }
 function admit(kind, value, scope) {
   namespaceScope(scope);
-  try { admitRecordSchemaVersion(NAMESPACE_LIFECYCLE_SCHEMAS[kind], value); }
+  let profile;
+  try { profile = namespaceLifecycleRecordProfile(kind, value); }
   catch (cause) { throw new SingularityFlowError(cause.message, { cause, details: cause.details,
     code: ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code) ? 'ENGINE_STORAGE_UNSUPPORTED' : 'ENGINE_STORAGE_CORRUPT' }); }
-  if (value.format !== format(kind) || value.projectId !== scope.projectId) bad('Lifecycle record belongs to another format or project.');
+  if (value.format !== profile.format || value.projectId !== scope.projectId) bad('Lifecycle record belongs to another format or project.');
+  return profile;
 }
 export function lifecycleAuthority(value, scope) {
   admit('authority', value, scope);
@@ -54,12 +56,20 @@ export function lifecycleHead(value, scope, workId) {
   return value;
 }
 export function lifecycleState(value, scope, head) {
-  admit('state', value, scope);
+  const profile = admit('state', value, scope).state;
   exactObject(value, ['schemaVersion','format','projectId','authorityId','epoch','workId','configuration','workflow']);
   if (value.authorityId !== head.authorityId || value.epoch !== head.epoch || value.workId !== head.workId
     || JSON.stringify(contentReference(value.configuration)) !== JSON.stringify(contentReference(head.configuration.content))
-    || !plain(value.workflow) || value.workflow.workItem?.id !== head.workId || !plain(value.workflow.phases)
-    || !text(value.workflow.currentPhase) || !Object.hasOwn(value.workflow.phases, value.workflow.currentPhase)) bad('The lifecycle body does not match its head.');
+    || !plain(value.workflow) || value.workflow.workItem?.id !== head.workId || !plain(value.workflow.phases)) bad('The lifecycle body does not match its head.');
+  const workflow = value.workflow;
+  const current = text(workflow.currentPhase) && Object.hasOwn(workflow.phases, workflow.currentPhase);
+  // v1 retains its original active-phase meaning. v2 makes an explicit terminal pointer nullable;
+  // persistence still assumes the operation's policy owner admitted the transition beforehand.
+  const terminal = workflow.currentPhase === null && Object.hasOwn(workflow, 'status')
+    && profile.terminalStatuses.includes(workflow.status);
+  if (profile.requireOwnedCurrentPhase && !Object.hasOwn(workflow, 'currentPhase') || !current && !terminal) {
+    bad('The lifecycle body does not match its head.');
+  }
   for (const [id, phase] of Object.entries(value.workflow.phases)) {
     if (!plain(phase) || phase.id !== id || !count(phase.generation) || !text(phase.status)) bad('Invalid lifecycle phase identity.');
   }

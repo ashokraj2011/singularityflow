@@ -17,10 +17,12 @@ authority ID/epoch. The factory refuses machine-local stores. It opens only an e
 enrolled Story; missing authority, configuration or Story records are errors. It never creates
 an authority, imports an existing project or searches another backend to fill missing records.
 
-The new record families have frozen v1 identities separate from native workflow files and
-read projections. Future versions retain their unsupported-schema diagnostic and are never
-reinitialized. Technical authority records must come from an explicit enrollment/migration
-owner. Their presence does not authenticate an actor or prove a configuration approval.
+These record families are separate from native workflow files and read projections. Authority,
+configuration, head, prepared-intent and operation-manifest records retain their frozen v1 formats.
+State bodies use the version-preserving profile described below. Future versions retain their
+unsupported-schema diagnostic and are never reinitialized. Technical authority records must come
+from an explicit enrollment/migration owner. Their presence does not authenticate an actor or
+prove a configuration approval.
 
 | Namespace | Logical record | Meaning |
 |---|---|---|
@@ -73,6 +75,34 @@ port and never copies uploaded bytes. Only explicitly supplied shared evidence i
 Bodies stored before a failed checkpoint/metadata transaction can remain unreferenced; they are
 not accepted lifecycle state. Their cleanup requires the later verified retention policy.
 
+## State body v2 and terminal Stories
+
+The kernel closes a completed Story with `status: closed` and `currentPhase: null`. The first
+namespace state format required an active, owned phase pointer for every body and therefore
+refused that transition. A regression reproduced this refusal through actual conditional prepares
+on filesystem, SQLite and application-owned metadata stores before the format was extended.
+
+New state bodies use schema version 2 and `sflow-namespace-lifecycle-state/v2`. A v2 body carries
+an explicit owned `currentPhase`. It may be null only alongside an explicit `closed` or
+`cancelled` status. Active pointers still name an owned phase; missing pointers, unrecognized
+terminal statuses, mismatched version/format tags and unsupported future versions are refused.
+The existing Story, project, authority, configuration and phase identity checks remain in force.
+
+The state family declares `preserve-versions`: the foundation schema owner selects the version's
+format and wire-shape constraints, and the namespace contract validates that profile without its
+own version branches or record migration. This is independent of the native workflow migration
+registry. A v1 body keeps its original active-phase meaning, tag and bytes. The v2 reader does
+not reinterpret a v1 terminal
+body or restamp a retained record. A prepared v1 operation still commits its original bytes and
+returns its original receipt. A later admitted operation may write a v2 body while retaining the
+v1 predecessor as immutable lineage. Head, intent, event and receipt formats remain unchanged.
+
+Storage acceptance does not grant phase approval, cancellation or reopening authority. Those
+remain policy-owner decisions. A closed aggregate still returns the kernel's confirmation gate
+before reopening, and a local `phase.begin` operation cannot be relabelled as a shared commit.
+Project enrollment, local-draft coordination and production lifecycle admission remain separate
+runtime work; the terminal tests do not constitute a complete headless Story.
+
 ## Remaining integration
 
 The committer does not authorize publication, submission, approval or human decisions. It does
@@ -87,7 +117,7 @@ a namespace metadata transaction cannot atomically push source code. Complete he
 execution, public host composition, verified export/import, installed-client fencing and authority
 cutover remain required. This component's local authority checks do not close Phase 8.
 
-## Qualification
+## Initial v1 qualification
 
 Mac qualification on Node 26.12.0 passed 288 checks across 18 files, with no failures, cancellations
 or skips. Thirty-five new persistence cases cover all three metadata compositions, simultaneous
@@ -105,4 +135,20 @@ bindings, with explicit regression coverage. No native store semantics were chan
 Source validation passed 3,712 checks. VS Code typechecking, all 13 existing bundle budgets, Git
 ownership audit (2,011 sites) and whitespace checks passed. The gateway remains at 852 modules /
 6,788,712 bytes. Test repositories, remotes, databases and machine state are isolated. No Windows,
+hosted CI, live provider, installed-project migration, install, push or merge was performed.
+
+## Terminal-state v2 qualification
+
+Mac qualification on Node 26.12.0 passed 335 tests across 19 files, with no failures,
+cancellations or skips. Fifteen terminal-state cases cover the actual kernel completion update,
+all three metadata compositions, separate-process completion and receipt replay, preserved v1
+heads and prepared bodies, immutable predecessor lineage, invalid/future records and unchanged
+reopening admission. The suite also checks native workflow journeys, SDK archive installation,
+namespace read parity, storage conformance and crash/durability behavior. The terminal cases
+exercise storage of admitted transitions; they do not stand in for production actor admission
+or a complete headless Story runtime.
+
+Source validation passed 3,731 checks. VS Code typechecking, the Git ownership audit (2,011
+sites), all 13 bundle budgets and whitespace checks passed. The gateway remains at 849 modules
+and 6,802,228 bytes. Test repositories, content stores and machine state are isolated. No Windows,
 hosted CI, live provider, installed-project migration, install, push or merge was performed.

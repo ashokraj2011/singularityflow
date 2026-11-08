@@ -296,3 +296,40 @@ test('"Accept all" covers file departures and leaves a plan row or a test to be 
   assert.deepEqual(recorded.document.choose, { d1: 'accept', d2: 'accept', d3: 'accept' });
   assert.deepEqual(recorded.document.reason, { d1: reason, d2: reason, d3: testReason }, 'the one-by-one row carries its own reason');
 });
+
+// The step's evidence beside its decisions, as the VS Code card shows it [CQF:REQ-031, REQ-033, REQ-034, REQ-052, REQ-055].
+test('the table shows the same evidence as the VS Code card, in the engine\'s words, and asks nothing new', async () => {
+  const { approvalEvidence, evidenceWords, HOLD_COMMAND } = await import('./helpers/approval-evidence-packet.mjs');
+  const { evidenceLines } = await import('../plugin/extensions/decisions/card.mjs');
+  const evidence = approvalEvidence();
+  const list = packet({ approvalEvidence: evidence });
+  const table = decisionsTable(list);
+  for (const words of evidenceWords(evidence)) assert.ok(table.includes(words), `missing: ${words}`);
+  assert.ok(table.indexOf('| A dirty checkout |') < table.indexOf('**Evidence for this approval.**'), 'after the decisions');
+  assert.ok(table.includes(`Stays in your terminal: \`${HOLD_COMMAND}\``));
+  assert.match(evidenceLines(packet({ approvalEvidence: approvalEvidence({ allowed: false }) })).join('\n'), /Share this with them: \/sf-decide PAY-1/u);
+  assert.ok(!evidenceLines(packet({ approvalEvidence: approvalEvidence({ allowed: false }) })).join('\n').includes(HOLD_COMMAND), 'no command for someone who may not accept it');
+  assert.deepEqual(evidenceLines(packet()), [], 'a list without evidence shows none');
+  // The hold's own row already offers its command: the evidence points there instead of offering it twice.
+  const holdRow = { id: 'd7', kind: 'approval-hold', title: 'Code waits for a person', why: 'A vulnerable package.', decidedBy: allowed,
+    options: [{ id: 'route', label: 'Accept it', recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: HOLD_COMMAND } }] };
+  const once = decisionsTable(packet({ items: [holdRow], approvalEvidence: evidence }));
+  assert.equal(once.split('singularity-flow decision finding-risk').length - 1, 1);
+  assert.match(once, /Its command is on the hold's row above\./u);
+  // The forms are the list's alone: the evidence adds no question and no answer.
+  assert.deepEqual(firstForm(list), firstForm(packet()));
+  assert.deepEqual(rowForms(cardRows(list)), rowForms(cardRows(packet())));
+});
+
+test('both hosts show the same facts from the one list', async () => {
+  const { approvalEvidence, evidenceWords } = await import('./helpers/approval-evidence-packet.mjs');
+  const { decideHtml } = await import('../apps/vscode/src/views/decide-card-page.ts');
+  const evidence = approvalEvidence({ accepted: { id: 'FRK-001', by: 'Pat Reviewer', until: '2026-12-01' } });
+  const list = packet({ resultType: 'sflow-decisions', phase: 'implementation', status: 'decisions-needed', approvalEvidence: evidence });
+  const card = decideHtml(list).replace(/<[^>]+>/gu, '').replace(/\s+/gu, ' ').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&amp;', '&');
+  const table = decisionsTable(list);
+  for (const words of evidenceWords(evidence)) {
+    assert.ok(card.includes(words), `the card lacks: ${words}`);
+    assert.ok(table.includes(words), `the table lacks: ${words}`);
+  }
+});

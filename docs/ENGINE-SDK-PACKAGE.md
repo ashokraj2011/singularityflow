@@ -65,3 +65,9 @@ backed by namespace storage and a complete cross-agent Story remain required. Ph
 extraction, Phase 8 export/fencing/verified authority cutover and Phase 9 cleanup/distribution/
 performance qualification retain their full scope. The ordinary installed CLI is still the Git
 compatibility host; this preview does not migrate existing projects or select new authority.
+
+The later [source-binding slice](ENGINE-SDK-SOURCE-BINDING.md) adds `source`, `sources/filesystem`
+and `hosts/namespace-source` entries. Its installed archive exercises actual file observations,
+conditional namespace acceptance and cross-process acknowledgement. Filesystem I/O is confined
+to the explicit SGOS entry, outside the core import. Its metadata is a source observation, not
+Git history, archived file content, generation readiness or completed phase execution.

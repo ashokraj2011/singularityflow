@@ -49,7 +49,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'source', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries] });
   assert.deepEqual(report.problems, []);
@@ -69,7 +69,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-project.mjs', 'src/engine-storage/namespace-project-contract.mjs',
     'src/engine-storage/namespace-configuration.mjs', 'src/engine-storage/namespace-configuration-contract.mjs',
     'src/engine-storage/namespace-configuration-codec.mjs','src/engine-storage/namespace-configuration-reader.mjs',
-    'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-story.mjs','src/engine-storage/namespace-story-contract.mjs']);
+    'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-story.mjs','src/engine-storage/namespace-story-contract.mjs',
+    'src/engine-storage/namespace-source.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -239,7 +240,7 @@ test('the internal namespace lifecycle committer composes explicit ports without
     allowed: [contract, ...await sourceFiles('src/foundation'), ...await sourceFiles('src/sda/namespace'), ...await sourceFiles('src/sda/content')] });
   assert.deepEqual(report.problems, []);
   for (const file of await sourceFiles('src')) {
-    if (file === owner) continue;
+    if (file === owner || file === 'src/engine-storage/namespace-source.mjs') continue;
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     assert.equal(text.includes('namespace-lifecycle-commit.mjs'), false, file + ' must not select the new authority before a verified cutover');
   }
@@ -334,6 +335,34 @@ test('Story genesis composes only explicit storage, access and clock ports; obse
     for(const node of source.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.'))assert.notEqual(
       path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text)),owner,
       file+' cannot silently select a namespace Story creator');
+  }
+});
+
+test('source binding separates source I/O, pure rules and namespace persistence',async()=>{
+  const sourceOwner='src/sgos/filesystem-source-unit.mjs',namespaceOwner='src/engine-storage/namespace-source.mjs';
+  const permitted=new Map([
+    [sourceOwner,new Set(['node:fs','node:fs/promises','node:crypto','node:path','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs'])],
+    [namespaceOwner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../foundation/source-snapshot.mjs','../kernel/source-binding.mjs','../kernel/project-enrollment.mjs','../sda/namespace/values.mjs',
+      '../sda/content/contract.mjs','./namespace-lifecycle-commit.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-reader.mjs'])]
+  ]);
+  for(const [owner,allowed] of permitted) {
+    const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(owner+' cannot discover a checkout or installed authority');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+      if(owner===sourceOwner&&ts.isPropertyAccessExpression(node)&&['writeFile','mkdir','unlink','rm','rename','chmod','transact'].includes(node.name.text))assert.fail('Source capture is read-only');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+  for(const file of await sourceFiles('src')) {
+    if(file===namespaceOwner)continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    for(const node of ast.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.')) {
+      assert.notEqual(path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text)),namespaceOwner,
+        file+' cannot implicitly bind installed source context');
+    }
   }
 });
 

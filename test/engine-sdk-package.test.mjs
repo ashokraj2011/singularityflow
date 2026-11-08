@@ -318,6 +318,47 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,replayed:true});
   });
 
+  await t.test('the installed SDK binds a real checkout without Git and acknowledges its source receipt on reopening',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';
+      import {mkdir,writeFile,readFile} from 'node:fs/promises';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceReadEngine} from '${packageName}/hosts/namespace-reader';
+      import {createNamespaceSourceEngine} from '${packageName}/hosts/namespace-source';
+      import {createFilesystemSourceUnit} from '${packageName}/sources/filesystem';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='portable-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const database=new (await import('node:sqlite')).DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding}),root=path.resolve('source-checkout');
+      try {
+        let calls=0;const access={current(){calls++;if(!fresh)throw Error('a retained baseline cannot authorize another effect');
+          return {projectId:scope.projectId,principalId:'source-coordinator',actorKind:'human',permissions:['source.bind'],identity:{name:'Example coordinator',email:'coordinator@example.test'}};}};
+        const clock={now(){if(!fresh)throw Error('an original source receipt cannot be restamped');return '2026-11-08T12:01:00.000Z';}};
+        let inputs,sources=[];
+        if(fresh) {
+          await mkdir(root);await writeFile(path.join(root,'app.js'),'export const answer = 42;\\n');
+          sources=[await createFilesystemSourceUnit({root,id:'portable-checkout',projectId:scope.projectId,repositoryId:'app'})];
+          const read=createNamespaceReadEngine({records,content,scope,workId});
+          const current=await read.run('phase.review',{phaseId:'intake'});
+          assert.equal(typeof current.manifest.observedRevision,'string');
+          inputs={operationId:'bind-portable-source',workId,expectedRevision:current.manifest.observedRevision,repositories:['app'],reason:'Bind the actual application checkout.'};
+          await writeFile('source-inputs.json',JSON.stringify(inputs));
+        }else {inputs=JSON.parse(await readFile('source-inputs.json','utf8'));await writeFile(path.join(root,'app.js'),'a later source edit');}
+        const engine=createNamespaceSourceEngine({records,content,scope,workId,authority,sources,access,clock});
+        const result=await engine.run('source.bind',inputs);
+        assert.equal(result.replayed,!fresh);assert.equal(result.effects.sourceFilesChanged,false);assert.equal(result.effects.generationOpened,false);
+        const manifest=JSON.parse(Buffer.from((await content.read(scope,result.repositories[0].snapshot)).data));
+        assert.equal(manifest.entries[0].path,'app.js');assert.equal(manifest.provider,'filesystem');
+        assert.equal(JSON.stringify(manifest).includes(root),false);if(!fresh)assert.equal(calls,0);
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();}
+    `;
+    const first=JSON.parse(await run('source.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('source.mjs',source,['replay']));
+    assert.deepEqual(replay,{...first,replayed:true});
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -330,6 +371,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceProjectEngine } from '${packageName}/hosts/namespace-project';
       import { createNamespaceConfigurationEngine } from '${packageName}/hosts/namespace-configuration';
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
+      import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
+      import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
+      import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
@@ -347,6 +391,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('configuration.approve',configuration);
       const creation:EngineInputs['story.create']={operationId:'create-1',workId:'example',title:'Example',workTypeId:'feature',configurationId:'approve-configuration',source:{namespace:'state',sha256:'a'.repeat(64),bytes:1}};
       engine.run('story.create',creation);
+      const sourceBinding:EngineInputs['source.bind']={operationId:'bind-1',workId:'example',expectedRevision:'opaque',repositories:['app'],reason:'Actual source checkout.'};
+      engine.run('source.bind',sourceBinding);
+      // @ts-expect-error Physical roots belong to the source-unit constructor, not an operation.
+      engine.run('source.bind',{...sourceBinding,root:'/another/checkout'});
+      // @ts-expect-error Repository selection is a list of logical IDs.
+      engine.run('source.bind',{...sourceBinding,repositories:'app'});
+      // @ts-expect-error The exact expected lifecycle revision is mandatory.
+      engine.run('source.bind',{});
       // @ts-expect-error Story creation requires the exact immutable source and configuration ID.
       engine.run('story.create',{});
       // @ts-expect-error An immutable source reference cannot be a laptop path.
@@ -407,8 +459,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       function storyHost(records:NamespaceStore,content:ContentStore){return createNamespaceStoryEngine({records,content,scope:{projectId:'example'},workId:'example',
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['story.create'],actorKind:'human',identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
         clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
+      async function sourceHost(records:NamespaceStore,content:ContentStore,root:string) {
+        const unit:SourceUnit=await createFilesystemSourceUnit({root,id:'checkout',projectId:'example',repositoryId:'app'});
+        return createNamespaceSourceEngine({records,content,scope:{projectId:'example'},workId:'example',authority:{id:'application-authority',epoch:1},sources:[unit],
+          access:{current:()=>({projectId:'example',principalId:'source-coordinator',actorKind:'human',permissions:['source.bind'],identity:{name:'Example coordinator',email:'coordinator@example.test'}})},
+          clock:{now:()=> '2026-11-08T00:00:00.000Z'}});
+      }
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
-      void [head,readHost,projectHost,configurationHost,storyHost,createSqliteContentStore];
+      void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],

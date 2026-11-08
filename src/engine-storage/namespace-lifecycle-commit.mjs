@@ -129,8 +129,9 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
     return namespaceJson(r, { maxBytes: limits.maxValueBytes });
   }
   async function inspect(operationId, { signal } = {}) {
-    cancelled(signal); const k = keys(operationId), plan = await checkpoint(operationId, signal);
+    cancelled(signal); const k = keys(operationId);
     const observed = await inspectOperation(scope, k.operation, { signal });
+    const plan = await checkpoint(operationId, signal);
     if (observed?.status === 'missing' && observed.receipt === null) return plan ? preparedResult(plan) : Object.freeze({ status: 'missing', operationId });
     if (observed?.status !== 'committed') throw error('The namespace port returned an invalid operation inspection.', 'ENGINE_PORT_RESULT_INVALID', { workId, operationId });
     if (!plan) throw error('A committed lifecycle operation has lost its prepared intent.', 'ENGINE_STORAGE_CORRUPT', { workId, operationId });
@@ -152,5 +153,8 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
     return Object.freeze({ status: 'committed', replayed: result.replayed === true, operationId,
       operation: plan.operation, requestDigest: plan.requestDigest, receipt: receipt(result, plan) });
   }
-  return Object.freeze({ capture, prepare, inspect, commit });
+  async function intent(operationId,{signal}={}) {
+    cancelled(signal);const plan=await checkpoint(operationId,signal);return plan?structuredClone(plan):null;
+  }
+  return Object.freeze({ capture, prepare, inspect, commit, intent });
 }

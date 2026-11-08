@@ -25,6 +25,7 @@ import {workflowNextManifest} from '../kernel/next-plan.mjs';
 import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult,
   projectConfigurationInput,projectConfigurationBinding,projectConfigurationResult} from '../kernel/project-enrollment.mjs';
 import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../kernel/story-creation.mjs';
+import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -154,13 +155,32 @@ const definitions = [
   { id:'story.create',version:1,subject:'story',effect:'story-creation',humanDecision:false,
     authority:'story.create',inputFields:Object.freeze(['operationId','workId','title','workTypeId','configurationId','source']),
     requiredFields:Object.freeze(['operationId','workId','title','workTypeId','configurationId','source']),port:'storyCreation',
-    stages:WRITE_STAGES,validate:'storyCreationInput',execute:'createStory' }
+    stages:WRITE_STAGES,validate:'storyCreationInput',execute:'createStory' },
+  { id:'source.bind',version:1,subject:'story',effect:'source-binding',humanDecision:false,authority:'source.bind',
+    inputFields:Object.freeze(['operationId','workId','expectedRevision','repositories','reason']),
+    requiredFields:Object.freeze(['operationId','workId','expectedRevision','repositories','reason']),port:'sourceBinding',
+    stages:WRITE_STAGES,validate:'sourceBindingInput',execute:'bindSources' }
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
 function configurationApprovalInput(value) { return projectConfigurationInput(data(value)); }
+
+async function bindSources(port,inputs,signal) {
+  notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
+  const binding=data(sourceBindingScope(data(context?.binding),inputs));
+  let accepted=await port.retained(context,inputs,{signal});notCancelled(signal);
+  if(accepted===null) {
+    try {const prepared=await port.prepare(context,inputs,{signal});notCancelled(signal);accepted=await port.commit(context,prepared,{signal});}
+    catch(cause) {
+      if(!['ENGINE_CONTEXT_CHANGED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+      accepted=await port.retained(context,inputs,{signal});if(accepted===null)throw cause;
+    }
+  }
+  const facts=data(await port.finish(context,accepted,{signal:null}));
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'source.bind',...sourceBindingResult(binding,inputs,facts)});
+}
 
 async function createStory(port, inputs, signal) {
   notCancelled(signal);
@@ -1369,6 +1389,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
+    sourceBindingInput,bindSources,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,

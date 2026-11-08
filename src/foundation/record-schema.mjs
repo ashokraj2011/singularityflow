@@ -144,6 +144,8 @@ export const NAMESPACE_STORY_SCHEMAS = Object.freeze({
   intent: frozenFamily('namespace-story-creation-intent'), genesis: frozenFamily('namespace-story-genesis'),
   manifest: frozenFamily('namespace-story-creation-manifest'), workflow: frozenFamily('namespace-story-workflow')
 });
+export const SOURCE_SNAPSHOT_SCHEMA = frozenFamily('sgos-source-snapshot');
+export const SOURCE_BINDING_SCHEMA = frozenFamily('namespace-source-binding');
 // Wire shape constraints, selected here without rewriting an immutable historical body.
 const LIFECYCLE_STATE_PROFILES = Object.freeze({
   1: Object.freeze({ requireOwnedCurrentPhase: false, terminalStatuses: Object.freeze([]) }),

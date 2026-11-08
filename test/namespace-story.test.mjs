@@ -133,7 +133,9 @@ test('read hosts follow the canonical lifecycle head after a later accepted tran
   const accepted=await committer.commit(plan.operationId);
   const result=await f.make().run('phase.review',{phaseId:'intake'});
   assert.equal(result.manifest.generation,1);
-  assert.notEqual((await f.make().run('document.read',{reference:created.source})).document.revision,created.revision);
+  assert.equal(result.manifest.observedRevision,(await f.head()).record.version);
+  assert.notEqual(result.manifest.observedRevision,created.revision);
+  assert.equal((await f.make().run('document.read',{reference:created.source})).document.expected.sha256,f.inputs.source.sha256);
   assert.ok(accepted);
 });
 

@@ -8,7 +8,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'source', 'sources/filesystem', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite', 'node:net']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
@@ -16,13 +16,14 @@ const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namesp
 
 function allowedSource(relative) {
   return relative.startsWith('packages/engine-sdk/src/') || /^src\/(foundation|kernel|engine-sdk|engine-storage|sda\/(namespace|content))\//u.test(relative)
-    || ['src/records.mjs', 'src/document-identity.mjs', 'src/authoring-skills.mjs',
+    || ['src/records.mjs', 'src/document-identity.mjs', 'src/authoring-skills.mjs', 'src/sgos/filesystem-source-unit.mjs',
       'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
       'src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
     || /^src\/sda\/([^/]+)\.mjs$/u.test(relative) && adapterNames.has(path.posix.basename(relative, '.mjs'));
 }
 
 function inputType(operation, field) {
+  if (operation.id === 'source.bind') return field === 'repositories' ? 'readonly string[]' : 'string';
   if (operation.id === 'story.create') return field === 'source' ? 'ContentReference' : 'string';
   if (operation.id === 'configuration.approve') {
     if (field === 'source') return 'ContentReference';

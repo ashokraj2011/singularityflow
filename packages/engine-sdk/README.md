@@ -61,6 +61,10 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `hosts/namespace-configuration`: approve an exact workflow package under an enrolled authority.
 - `hosts/namespace-story`: create work from an approved configuration through `story.create` and
   read its canonical lifecycle state and exact source through the same registry.
+- `source`: pure source-unit and snapshot contracts, with logical identities and bounded metadata.
+- `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
+- `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
+  canonical lifecycle reads, original receipts and first source observations across takeover.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,
@@ -69,6 +73,14 @@ The creator port supplies authenticated identity and fresh `story.create` permis
 retains generation zero and unbound execution; it does not record tests or human approval.
 The returned `source` reference can be read with `document.read`. Reuse the same inputs and
 operation ID after a lost acknowledgement. Production portable phase execution is still pending.
+
+The source host adds explicit source units and fresh `source.bind` permission to those bindings.
+Its operation takes `operationId`, `workId`, `expectedRevision`, logical `repositories` and `reason`.
+The filesystem unit hashes real files and emits bounded relative metadata; neither source bodies
+nor physical roots enter retained manifests. It excludes `.git` and `.singularity-flow` by default;
+dependency/build exclusions are explicit. Source drift, permission errors and timeouts remain real
+errors. Binding does not open a generation, execute tests or replace human review. See
+`docs/ENGINE-SDK-SOURCE-BINDING.md` in the source distribution for retry and takeover semantics.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
 saved read head. It implements `phase.review` and `document.read`; its other operation ports remain

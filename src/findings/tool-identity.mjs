@@ -103,7 +103,7 @@ function onPath(program, env = process.env) {
     for (const extension of extensions) {
       try {
         const candidate = path.join(directory, `${program}${extension}`);
-        if (statSync(candidate).isFile()) return realpathSync(candidate);
+        if (statSync(candidate).isFile()) return realpathSync.native(candidate);
       } catch { /* next */ }
     }
   }
@@ -127,7 +127,7 @@ export function findingToolIdentity(root, executionRoot, command, { env = proces
   if (!toolVersion) {
     const relative = program.includes('/') || program.includes('\\') ? path.resolve(executionRoot, program) : null;
     let resolved = null;
-    try { resolved = relative ? realpathSync(relative) : onPath(program, env); } catch { resolved = null; }
+    try { resolved = relative ? realpathSync.native(relative) : onPath(program, env); } catch { resolved = null; }
     if (!resolved) return null;
     try {
       const info = statSync(resolved);

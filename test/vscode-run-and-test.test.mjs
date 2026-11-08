@@ -352,6 +352,20 @@ test('the test summary page shows changed-line coverage per file and per clause,
   assert.doesNotMatch(testSummaryHtml(summaryModel.buildTestSummaryView(summaryModel.testSummaryFrom(summary()), { target: { kind: 'capability', capability: 'payments-web' } })), /data-ts-coverage/);
 });
 
+test('the test summary page shows how many tests prove each criterion and whether each asserts [CQF:REQ-033]', () => {
+  const criterionProof = [{ clauseId: 'W-1:AC-001', tests: 1, asserting: 1, silent: 0, unread: 0, words: 'W-1:AC-001: 1 test proves it; it asserts',
+    witnesses: [{ test: 'Cart › adds an item', testSource: 'src/cart.test.js', line: 12, asserts: true }] },
+  { clauseId: 'W-1:AC-002', tests: 1, asserting: 0, silent: 1, unread: 0, words: "W-1:AC-002: 1 test proves it; 'Cart › totals' asserts nothing",
+    witnesses: [{ test: 'Cart › totals', testSource: 'src/cart.test.js', line: 44, asserts: false }] },
+  { clauseId: 'W-1:AC-003', tests: 0, asserting: 0, silent: 0, unread: 0, words: 'W-1:AC-003: no test proves it', witnesses: [] }];
+  const parsed = summaryModel.testSummaryFrom(summary({ criterionProof }));
+  const html = testSummaryHtml(summaryModel.buildTestSummaryView(parsed, { target: { kind: 'story', workId: 'W-1', phase: 'implement' } }));
+  assert.match(html, /data-ts-proof="W-1:AC-001">[\s\S]*?<td>1<\/td>[\s\S]*?data-ts-open="src\/cart\.test\.js" data-ts-line="12">Cart › adds an item<\/button> <small class="muted">asserts<\/small>/);
+  assert.match(html, /data-ts-proof="W-1:AC-002">[\s\S]*?1 <span class="pill wait">1 asserts nothing<\/span>[\s\S]*?Cart › totals<\/button> <small class="muted">asserts nothing<\/small>/);
+  assert.match(html, /data-ts-proof="W-1:AC-003">[\s\S]*?0 <span class="pill wait">none<\/span>/);
+  assert.doesNotMatch(testSummaryHtml(summaryModel.buildTestSummaryView(summaryModel.testSummaryFrom(summary()), { target: { kind: 'capability', capability: 'payments-web' } })), /data-ts-proof/);
+});
+
 test('"failed only" and "untagged" filter the cases, alone and together', () => {
   const parsed = summaryModel.testSummaryFrom(summary());
   const names = (filters) => summaryModel.filterCases(parsed.cases, filters).map((entry) => entry.name);

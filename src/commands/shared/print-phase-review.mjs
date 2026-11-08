@@ -37,6 +37,7 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
         console.log(`  ${criterion.clauseId} ${criterion.status}${criterion.status === 'met' ? ` (${criterion.assurance})` : ''}`);
         for (const witness of criterion.witnesses) console.log(`    - ${witness.words}`);
       }
+      for (const proof of review.testEvidence.acceptance.proof ?? []) (proof.tests && !proof.silent ? console.log : console.warn)(`  ${proof.words}`);
       for (const tag of review.testEvidence.acceptance.unattachedTags) {
         console.warn(`  The tag for ${tag.clauseIds.join(', ')} at ${tag.testSource}${tag.line ? `:${tag.line}` : ''} is not on a test, so it binds nothing.`);
       }

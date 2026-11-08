@@ -194,4 +194,9 @@ test('a test that asserts nothing warns at publication, in the review and its pa
   assert.equal(check.mode, 'warn');
   assert.deepEqual(check.inadequate.map((entry) => [entry.path, entry.name, entry.adequacy, entry.clauseIds]), [['test/discount.test.mjs', 'halves a price', 'missing', [AC2]]]);
   assert.match(story.sflow('phase', 'show', 'implement').stderr, /Assertion check: 1 test asserts nothing it tests/u);
+  // Each criterion says how many tests prove it and whether each asserts, in the review and the summary the approval card reads [CQF:REQ-033].
+  const proof = (review.data ?? review).testEvidence.acceptance.proof;
+  assert.deepEqual(proof.map((entry) => entry.words), [`${AC1}: 1 test proves it; it asserts`, `${AC2}: 1 test proves it; 'halves a price' asserts nothing`]);
+  const summary = story.json('tests', 'summary', '--work-id', W, '--phase', 'implement');
+  assert.deepEqual((summary.data ?? summary).criterionProof, proof);
 });

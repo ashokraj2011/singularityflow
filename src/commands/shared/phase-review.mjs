@@ -202,6 +202,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
           }))
         })),
         unattachedTags: phase.deliveryEvidence.acceptanceCriteria?.unattachedTags ?? [],
+        // How many tests prove each criterion, owed ones included, and whether each asserts [CQF:REQ-033].
+        proof: (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'criterion-proof.mjs')).href)).criterionProof(phase.deliveryEvidence),
         skippedTests,
         statement: criteria.length
           ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; a passing run stands for submission while nothing it ran on changes.'}`

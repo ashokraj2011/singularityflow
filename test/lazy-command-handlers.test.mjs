@@ -366,7 +366,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // grown past its module ceiling (state.mjs, attempts.mjs, phase-review.mjs).
     // 9,560,350 (measured 9,560,306): the assertion and edge-case check runs at publication in warn mode, and the review shows it
     // (delivery-evidence.mjs, state.mjs, phase-review.mjs, print-phase-review.mjs); the check stays lazy (verification/corner-case-obligations.mjs) [CQF:REQ-032].
-    assert.ok(closure.bytes <= 9_560_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,560,500 (measured 9,560,457): the review says how many tests prove each criterion and whether each asserts
+    // (phase-review.mjs, print-phase-review.mjs); the proof stays lazy (verification/criterion-proof.mjs) [CQF:REQ-033].
+    assert.ok(closure.bytes <= 9_560_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

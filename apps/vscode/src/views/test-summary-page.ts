@@ -53,6 +53,19 @@ function coverageHtml(view: TestSummaryView): string {
     </section>`;
 }
 
+/** How many tests prove each criterion and whether each asserts [CQF:REQ-033]. */
+function proofHtml(view: TestSummaryView): string {
+  if (!view.criterionProof.length) return '';
+  const rows = view.criterionProof.map((entry) => `<tr data-ts-proof="${escape(entry.clauseId)}">
+      <td><code class="ts-tag">${escape(entry.clauseId)}</code></td>
+      <td>${entry.tests}${entry.silent ? ` <span class="pill wait">${entry.silent} assert${entry.silent === 1 ? 's' : ''} nothing</span>` : ''}${entry.tests ? '' : ' <span class="pill wait">none</span>'}</td>
+      <td>${entry.witnesses.map((witness) => `${witness.testSource ? `<button type="button" class="link" data-ts-open="${escape(witness.testSource)}" data-ts-line="${witness.line ?? 0}">${escape(witness.test)}</button>` : escape(witness.test)}`
+        + ` <small class="muted">${witness.asserts === true ? 'asserts' : witness.asserts === false ? 'asserts nothing' : 'not read'}</small>`).join('<br>') || '<span class="muted">—</span>'}</td></tr>`).join('');
+  return `<section class="plain ts-proof" data-ts-proof-table><h2>Criteria</h2>
+      <table><thead><tr><th>Criterion</th><th>Tests that prove it</th><th>Each test</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="muted">Read from each test's source at publication: whether it asserts, never whether a branch ran. It refuses nothing.</p></section>`;
+}
+
 /** A failed run's question: is this the change? A fact for a person, which runs only when they ask. */
 function baseHtml(view: TestSummaryView): string {
   if (!view.base.offered) return '';
@@ -104,7 +117,7 @@ export function testSummaryHtml(view: TestSummaryView): string {
       <label><input type="checkbox" data-ts-filter="failedOnly"${view.filters.failedOnly ? ' checked' : ''}> Failed only</label>
       <label><input type="checkbox" data-ts-filter="untagged"${view.filters.untagged ? ' checked' : ''}> Untagged only</label>
       <span class="muted">${view.shown} of ${view.total} test cases shown.</span></div>`;
-  return `${header}${messages}${runHtml}${totals}${coverageHtml(view)}${baseHtml(view)}
+  return `${header}${messages}${runHtml}${totals}${coverageHtml(view)}${proofHtml(view)}${baseHtml(view)}
     ${view.truncated ? `<p class="notice ts-truncated">The list stops at 5,000 test cases; the totals above count every one. Open a command's own report for the rest.</p>` : ''}
     ${filters}
     <div class="ts-commands">${view.commands.map(commandHtml).join('') || '<p class="muted">No commands ran.</p>'}</div>`;
@@ -126,6 +139,9 @@ export const TEST_SUMMARY_STYLE = `
 .ts-coverage h2 { margin:0 0 .4rem; font-size:1.05rem; }
 .ts-coverage table { margin:.5rem 0; }
 .ts-coverage td { vertical-align:top; overflow-wrap:anywhere; }
+.ts-proof { margin:1rem 0; }
+.ts-proof h2 { margin:0 0 .4rem; font-size:1.05rem; }
+.ts-proof td { vertical-align:top; overflow-wrap:anywhere; }
 .ts-base { margin:1rem 0; }
 .ts-base-head { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
 .ts-base-results { margin:.5rem 0 0; padding-left:1.1rem; }

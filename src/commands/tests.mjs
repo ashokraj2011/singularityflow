@@ -548,7 +548,9 @@ async function storySummary(root, options, { localRunId = null } = {}) {
     },
     entries,
     history,
-    changedLineCoverage
+    changedLineCoverage,
+    // How many tests prove each of the step's criteria and whether each asserts, for the approval card [CQF:REQ-033].
+    criterionProof: (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'criterion-proof.mjs')).href)).criterionProof(phase.deliveryEvidence)
   });
 }
 

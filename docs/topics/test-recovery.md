@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 40
+version: 41
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -434,6 +434,8 @@ A report that was there before the run and that the run did not write is an earl
 | unset, `advisory` or `warn` | Runs at publication and warns. It refuses nothing, and a check that cannot run says so |
 | `enforce` | Publication refuses a test that asserts nothing (and, for `cornerCaseObligations`, an unmatched edge case), as before |
 | `off` | Not run at publication; `off` for both also skips it at `phase prepublish` |
+
+**Each criterion's tests.** For every criterion the code step owes or tagged, the review (`testEvidence.acceptance.proof`), `tests summary` (`criterionProof`, under **Criteria**) and the **Test summary** page say how many tests prove it and whether each asserts: `AC-002: 1 test proves it; 'halves a price' asserts nothing`, or `no test proves it`. It is read from each tagged test's source at publication and refuses nothing. The approval card reads it from `tests summary --json`, beside the changed-line coverage.
 
 ### Review an unavailable runner without declaring tests passed
 

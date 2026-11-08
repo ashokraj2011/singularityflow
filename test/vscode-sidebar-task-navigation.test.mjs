@@ -47,6 +47,16 @@ test('Story Analytics, Artifacts and the Code Explainer are Work tools, even bef
   assert.doesNotMatch(nav, /data-action="story-analytics"|data-action="artifacts"|data-action="code-explainer"/);
 });
 
+test('Findings is a Work tool and a shortcut a person may pin, opening the contributed Findings command', async () => {
+  const sidebarSource = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
+  const tools = sidebarSource.match(/'work-tools': \{ title: 'Work tools', ids: \[([^\]]*)\] \}/)[1];
+  assert.match(tools, /'findings'/);
+  assert.match(sidebarSource, /\n  findings: 'singularityFlow\.findings'\n/);
+  assert.match(sidebarSource, /\{ id: 'findings', label: 'Findings', description: [^}]*command: ACTION_COMMANDS\.findings! \}/);
+  const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
+  assert.ok(manifest.contributes.commands.some((command) => command.command === 'singularityFlow.findings'));
+});
+
 test('the sidebar shows one next step and the current phase by its label', () => {
   const entries = [{ id: 'w', path: '/work/w', name: 'W', active: 'yes', repositoryState: 'ready' }];
   const story = { repository: { root: '/work/w' }, definition: { phases: { design: { label: 'Design' } } },

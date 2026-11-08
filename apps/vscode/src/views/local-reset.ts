@@ -11,7 +11,7 @@ interface ResetWorkspace { id?: string; name?: string; path?: string; dispositio
 interface ResetTarget { path?: string; type?: string; label?: string }
 interface ResetPlan { schemaVersion?: number; mode?: ResetMode; confirmation?: string; completed?: boolean; cancelled?: boolean; workspaces?: ResetWorkspace[]; missingRegistrations?: string[]; remove?: string[]; preserve?: string[]; machineTargets?: ResetTarget[]; installerGeneratedPaths?: string[]; registryWarning?: string | null; capabilityState?: { registryFile?: string; cacheRoot?: string }; journalState?: { root?: string; remoteSync?: string }; vscodeReset?: { marker?: string; reset?: string[] } }
 
-const SCRIPT = `
+export const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('submit', (event) => { event.preventDefault(); vscode.postMessage({ type: event.target.dataset.message, ...Object.fromEntries(new FormData(event.target)) }); });
   document.addEventListener('click', (event) => { const el = event.target.closest('[data-message]'); if (el) vscode.postMessage({ type: el.dataset.message }); });

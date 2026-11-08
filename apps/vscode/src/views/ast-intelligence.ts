@@ -78,7 +78,7 @@ interface AstWarmPreview {
   commands?: Array<{ kind?: string; executable?: string; arguments?: string[]; cwd?: string }>;
 }
 
-const SCRIPT = `
+export const SCRIPT = `
   const vscode = window.__sfVscode;
   const csv = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
   const repositoryScope = () => document.querySelector('[data-repository-scope]')?.dataset.repositoryScope || '';

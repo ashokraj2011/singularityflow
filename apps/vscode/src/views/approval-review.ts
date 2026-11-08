@@ -475,7 +475,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     </form>`;
 }
 
-const REVIEW_STYLE = `
+export const REVIEW_STYLE = `
 html { height:100%; }
 body { height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden; padding:0 .75rem; }
 .approval-form { flex:1; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; }
@@ -511,7 +511,7 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
 `;
 
-const REVIEW_SCRIPT = `
+export const REVIEW_SCRIPT = `
 (function () {
   const form = document.querySelector('.approval-form');
   if (!form) return;

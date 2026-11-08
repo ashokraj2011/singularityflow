@@ -11,7 +11,7 @@ interface JournalDay { date: string; timeZone?: string; capture?: { mode?: strin
 interface JournalSettings { mode?: string; paused?: boolean; retentionDays?: number; timeZone?: string }
 interface JournalDoctor { healthy?: boolean; findings?: Array<{ id?: string; state?: string; detail?: string }> }
 
-const SCRIPT = `
+export const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => { const el = event.target.closest('[data-message]'); if (el) vscode.postMessage({ type: el.dataset.message }); });
   document.addEventListener('submit', (event) => { event.preventDefault(); const submitter = event.submitter; vscode.postMessage({ type: event.target.dataset.message, ...Object.fromEntries(new FormData(event.target)), action: submitter?.value }); });

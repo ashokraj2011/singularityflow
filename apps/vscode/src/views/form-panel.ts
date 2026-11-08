@@ -97,7 +97,7 @@ function saveDraft(schemaId: string, values: Record<string, unknown>): void {
  * which is the whole distinction `[UXH:AC-004]` is about — a confirmation must be typed and must be
  * sent, and must never come back on its own.
  */
-const FORM_SCRIPT = `
+export const FORM_SCRIPT = `
 (function () {
   const form = document.querySelector('.sf-form');
   if (!form) return;
@@ -150,29 +150,38 @@ const FORM_SCRIPT = `
 })();
 `;
 
+/**
+ * The panel's page: the form, its own actions, and its title. Pure, so a page drawn outside the
+ * extension host is the one this panel draws.
+ *
+ * The nonce, again, and for the reason the result panel documents at length: `style-src
+ * 'nonce-…'` drops an un-nonced `<style>` with no error, the markup stays byte-identical, and the
+ * page renders in the shared kit's defaults which look plausible enough to ship.
+ */
+export function formPanelBody(title: string, view: FormView, token: string, {
+  problems = {}, terminal = null
+}: { problems?: Record<string, string>; terminal?: string | null } = {}): string {
+  return `<style nonce="${token}">${FORM_STYLE}
+.sf-submit { margin-top: 8px; align-self: flex-start; }
+.sf-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.sf-actions .sf-submit { margin-top: 0; }
+</style>
+<main style="padding:16px;max-width:720px">
+<h2 style="margin-top:0">${escape(title)}</h2>
+${formHtml(view, { problems, terminal })
+    .replace('</form>', '<div class="sf-actions"><button class="sf-primary sf-submit" type="submit">Submit</button>'
+      + '<button type="button" class="secondary" data-form-discard>Discard draft</button>'
+      + '<button type="button" class="secondary" data-form-cancel>Cancel</button></div></form>')}
+</main>`;
+}
+
 function render(target: vscode.WebviewPanel, view: FormView, {
   problems = {}, values = {}
 }: { problems?: Record<string, string>; values?: Record<string, unknown> } = {}): void {
   const token = nonce();
   const csp = contentSecurityPolicy(target.webview, token);
   const terminal = terminalEquivalent(request?.command ?? '', values);
-  /**
-   * The nonce, again, and for the reason the result panel documents at length: `style-src
-   * 'nonce-…'` drops an un-nonced `<style>` with no error, the markup stays byte-identical, and the
-   * page renders in the shared kit's defaults which look plausible enough to ship.
-   */
-  const body = `<style nonce="${token}">${FORM_STYLE}
-.sf-submit { margin-top: 8px; align-self: flex-start; }
-.sf-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-.sf-actions .sf-submit { margin-top: 0; }
-</style>
-<main style="padding:16px;max-width:720px">
-<h2 style="margin-top:0">${escape(request?.title ?? '')}</h2>
-${formHtml(view, { problems, terminal })
-    .replace('</form>', '<div class="sf-actions"><button class="sf-primary sf-submit" type="submit">Submit</button>'
-      + '<button type="button" class="secondary" data-form-discard>Discard draft</button>'
-      + '<button type="button" class="secondary" data-form-cancel>Cancel</button></div></form>')}
-</main>`;
+  const body = formPanelBody(request?.title ?? '', view, token, { problems, terminal });
   target.webview.html = page(request?.title ?? 'Singularity Flow', body, csp, token, FORM_SCRIPT);
 }
 

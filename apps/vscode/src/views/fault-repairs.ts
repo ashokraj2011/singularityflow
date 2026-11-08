@@ -15,7 +15,7 @@ interface RepairPlan { allowedPaths?: string[]; verification?: Array<{ argv?: st
 interface FaultList { faults?: FaultSummary[] }
 interface RepairList { repairs?: RepairSummary[] }
 
-const SCRIPT = `
+export const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const el = event.target.closest('[data-message]');

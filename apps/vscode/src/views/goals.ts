@@ -24,7 +24,7 @@ interface GovernedGoalDetail {
   recommendation?: { action?: { label?: string } };
 }
 
-const SCRIPT = `
+export const SCRIPT = `
   const vscode = window.__sfVscode;
   const sendForm = (form) => vscode.postMessage({ type: form.dataset.message, ...Object.fromEntries(new FormData(form)) });
   document.addEventListener('submit', (event) => { event.preventDefault(); sendForm(event.target); });

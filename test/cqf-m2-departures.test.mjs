@@ -53,8 +53,10 @@ test('a file the plan does not name is published with DEP-001, accepted in one t
   assert.equal(recorded.departures[0].recordedBy, 'sflow');
   assert.equal(recorded.departures[0].author.producer, 'governed-agent');
   assert.deepEqual(recorded.departures[0].findings, []);
-  // The one row this step delivers is the clause it serves.
+  // The one row this step delivers is the clause it serves, and the target is the approved plan.
   assert.deepEqual(recorded.departures[0].clauses, ['QF-1:AC-001']);
+  assert.deepEqual([recorded.departures[0].target.phase, recorded.departures[0].target.generation], ['intake', 1]);
+  assert.match(recorded.departures[0].target.sha256, /^[a-f0-9]{64}$/u);
 
   const published = repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator');
   assert.equal(published.status, 0, JSON.stringify(published.value));

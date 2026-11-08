@@ -131,6 +131,19 @@ export async function commitDepartures(root, config, workflow, drafts, { actor, 
   return value;
 }
 
+/**
+ * The approved plan a file, row or test departure departs from [CQF:REQ-021]: the step that owns this
+ * step's plan, with its generation and the approved bytes' hash. Null when no approved step holds it.
+ */
+function planTarget(config, workflow, phase) {
+  const owner = workflow.resolution?.plannedClaims?.owners?.[phase.id]
+    ?? (workflow.phaseOrder ?? []).find((id) => workflow.phases?.[id]?.claimMaps?.planned) ?? null;
+  const step = owner ? workflow.phases?.[owner] : null;
+  if (!step || step.status !== 'approved' || !step.requiredArtifact?.path) return null;
+  const relative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, step.requiredArtifact.path));
+  return { phase: owner, generation: Number(step.generation ?? 0), sha256: (step.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null, path: relative };
+}
+
 /** The earlier document a wording or clause departure departs from, with its approved bytes. */
 async function targetDocument(root, config, workflow, phaseId) {
   const [{ workDirRelative }, { exactFileAtObject, head }] = await Promise.all([import('./story-paths.mjs'), import('./git.mjs')]);
@@ -222,7 +235,7 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
     if (kind === 'clause' && !(request.clauses ?? []).length) departureRefusal('A clause departure names the clauses it changes with --clause.');
   } else if (request.target || request.file) {
     departureRefusal('--target and --file belong to a wording or clause departure.');
-  }
+  } else target = planTarget(config, workflow, phase);
   const [contentHashes, baseHashes] = await Promise.all([fileHashes(root, files), baseHashesAt(root, generationBase(workflow, phase), files)]);
   if (['path', 'supporting'].includes(kind)) {
     // A file not written yet is no change: say so, and what to do, rather than blame a policy [bin-opr2 #9].
@@ -257,10 +270,11 @@ export async function recordPathDepartures(root, config, workflow, phase, { acto
   const plan = mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []);
   const rows = Object.entries(plan).filter(([, claim]) => !(claim.steps ?? []).length || claim.steps.includes(phase.id)).filter(([, claim]) => claim.fulfillment !== 'test-only');
   const [contentHashes, baseHashes] = await Promise.all([fileHashes(root, files), baseHashesAt(root, generationBase(workflow, phase), files)]);
+  const target = planTarget(config, workflow, phase);
   const drafts = files.map((file) => {
     const supportingClass = classifySupportingChange(file).class ?? null;
     return { kind: supportingClass ? 'supporting' : 'path', phase: phase.id, generation: Number(phase.generationIntent?.generation ?? 0), paths: [file],
-      contentHashes, baseHashes, clauses: !supportingClass && rows.length === 1 ? [rows[0][0]] : [], supportingClass,
+      contentHashes, baseHashes, target, clauses: !supportingClass && rows.length === 1 ? [rows[0][0]] : [], supportingClass,
       reason: `${file} changed in this generation and no row of the approved plan names it; SFlow recorded it at prepublish so it is published with the step and decided once.`,
       recordedBy: 'sflow' };
   });
@@ -288,7 +302,7 @@ export async function recordAppealDepartures(root, config, workflow, packet, { a
     const earlier = readings.find((entry) => entry.departure.paths.includes(change.path) && ['open', 'reopened'].includes(entry.status));
     if (earlier && (change.kind === 'add-supporting' || earlier.departure.clauses.includes(String(change.clauseId).toUpperCase()))) continue;
     drafts.push({ kind: change.kind === 'add-supporting' ? 'supporting' : 'path', phase: phase.id, generation: Number(packet.binding.generation), paths: [change.path],
-      contentHashes: { [change.path]: plain(diff?.afterSha256) }, baseHashes: { [change.path]: plain(diff?.beforeSha256) },
+      contentHashes: { [change.path]: plain(diff?.afterSha256) }, baseHashes: { [change.path]: plain(diff?.beforeSha256) }, target: planTarget(config, workflow, phase),
       clauses: change.kind === 'add-location' ? [change.clauseId] : [], supportingClass: change.kind === 'add-supporting' ? change.class : null,
       reason: change.kind === 'add-supporting' ? change.reason : packet.reason, recordedBy: 'agent', supersedes: earlier?.departure.id ?? null });
   }

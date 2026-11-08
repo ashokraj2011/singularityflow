@@ -28,10 +28,10 @@ const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 // SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
 const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
 const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
-// Security team and TLM findings [CQF:REQ-070]: template writes a new local file; import writes the
-// register on the state branch, and its --dry-run is a read.
-const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import']);
-const FINDINGS_READS = Object.freeze([]);
+// Security team and TLM findings [CQF:REQ-070]: template writes a new local file; import and link write
+// the register on the state branch, and import --dry-run is a read.
+const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link']);
+const FINDINGS_READS = Object.freeze(['list']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([

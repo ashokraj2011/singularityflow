@@ -3604,6 +3604,8 @@ singularity-flow guard exception add <APPROVER-ID> [--reason TEXT] [--host-revie
 singularity-flow guard stamp-agents [--propose] [--json]
 singularity-flow findings template [--out FILE] [--json]
 singularity-flow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run] [--json]
+singularity-flow findings list [--feed security|tlm] [--state active|all|STATE] [--all-repositories] [--limit N] [--json]
+singularity-flow findings link <WORK-ID> --address ID,... [--json]
 singularity-flow local start <NAME> --intent <TEXT> --input <ABSOLUTE-PATH>... --classification public|internal|confidential|restricted [--allow-empty-output] [--json]
 singularity-flow local list [--json]
 singularity-flow local status --story <LOC-ID> [--json]

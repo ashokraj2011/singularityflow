@@ -128,7 +128,8 @@ const FAMILIES = Object.freeze([
     'findings/code-step.mjs', 'findings/presentation.mjs',
     // The security team's and the TLM owners' workbook and its register [CQF M6], loaded only by `findings`.
     'commands/findings.mjs', 'findings/workbook/xlsx.mjs', 'findings/workbook/csv.mjs', 'findings/register/format.mjs',
-    'findings/register/config.mjs', 'findings/register/import.mjs', 'findings/register/store.mjs', 'findings/register/model.mjs']],
+    'findings/register/config.mjs', 'findings/register/import.mjs', 'findings/register/store.mjs', 'findings/register/model.mjs',
+    'findings/register/pick.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

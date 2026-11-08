@@ -1,19 +1,25 @@
 /**
- * `singularity-flow findings template|import` [CQF:REQ-060, REQ-062, REQ-070]: the security team's
- * and the TLM owners' lists, in SFlow's workbook format, and the register they go into.
+ * `singularity-flow findings template|import|list|link` [CQF:REQ-060, REQ-062, REQ-065, REQ-070]: the
+ * security team's and the TLM owners' lists, in SFlow's workbook format, and the register they go into.
  *
  * `template` writes an empty workbook with both sheets, their headers and one made-up example row
  * each. It never overwrites a file: a person names another --out. `import` reads a workbook or CSV
  * file into the register on the state branch (src/findings/register/); an invalid row is reported
- * and the rest import.
+ * and the rest import. `list` reads the register this clone has and never fetches. `link` marks
+ * items "in a Story" when the Story's own start could not.
  */
 import { lstat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['template', 'import']);
-const OPTIONS = Object.freeze({ template: ['out', 'json'], import: ['feed', 'source', 'dry-run', 'json'] });
+const SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link']);
+const OPTIONS = Object.freeze({
+  template: ['out', 'json'], import: ['feed', 'source', 'dry-run', 'json'],
+  list: ['feed', 'state', 'all-repositories', 'limit', 'json', 'for-agent'], link: ['address', 'json']
+});
+// What `list` shows unless --state says otherwise: everything not closed, accepted or waived.
+const ACTIVE_STATES = Object.freeze(['open', 'in-story', 'fixed-awaiting-proof', 'fixed-awaiting-rescan', 'not-in-latest-import']);
 export const DEFAULT_TEMPLATE_NAME = 'sflow-findings-template.xlsx';
 
 function fail(message, code = 'FINDINGS_COMMAND_INVALID', details = null) {
@@ -49,16 +55,60 @@ export async function findingsCommand(positionals, options = {}) {
   }
   const unknown = Object.keys(options).filter((key) => ![...OPTIONS[subcommand], 'timings'].includes(key)).sort();
   if (unknown.length) fail(`findings ${subcommand} does not accept ${unknown.map((key) => `--${key}`).join(', ')}.`);
-  const operands = { template: 0, import: 1 }[subcommand];
+  const operands = { template: 0, import: 1, list: 0, link: 1 }[subcommand];
   if (positionals.length > 2 + operands) fail(`findings ${subcommand} takes ${operands ? 'one operand' : 'no operand'}: ${positionals.slice(2 + operands).join(' ')}.`);
   if (subcommand === 'template') return templateCommand(options);
   const { repoRoot } = await import('../git-execution.mjs');
   const root = repoRoot(process.cwd());
+  if (subcommand === 'list') return listCommand(root, options);
+  if (subcommand === 'link') return linkCommand(root, positionals[2], options);
   if (!positionals[2]) fail('Name the workbook or CSV file: singularity-flow findings import FILE [--feed security|tlm] [--source NAME].');
   const { importFindings } = await import('../findings/register/import.mjs');
   return importFindings(root, positionals[2], {
     feed: optionString(options, 'feed') ?? null, source: optionString(options, 'source') ?? null, dryRun: optionBoolean(options, 'dry-run')
   });
+}
+
+async function listCommand(root, options) {
+  const [{ readRegister, currentRepository }, { ITEM_STATES, STATE_LABELS, compareItems }, { repositoryMatches, FEEDS }, { itemSummary }] = await Promise.all([
+    import('../findings/register/store.mjs'), import('../findings/register/model.mjs'), import('../findings/register/format.mjs'), import('../findings/register/pick.mjs')]);
+  const feed = optionString(options, 'feed');
+  if (feed && !FEEDS.includes(feed)) fail(`--feed is security or tlm, not '${feed.slice(0, 40)}'.`);
+  const state = optionString(options, 'state') ?? 'active';
+  if (!['active', 'all', ...ITEM_STATES].includes(state)) fail(`--state is active, all or one of ${ITEM_STATES.join(', ')}.`);
+  const limit = Number(optionString(options, 'limit') ?? 200);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 2000) fail('--limit is a whole number from 1 to 2000.');
+  const read = await readRegister(root);
+  const repository = await currentRepository(root, read.ledger);
+  const everywhere = optionBoolean(options, 'all-repositories');
+  const all = (feed ? [feed] : FEEDS).flatMap((name) => read.register[name].items)
+    .filter((item) => everywhere || repositoryMatches(item.repository, repository));
+  const shown = all.filter((item) => state === 'all' || (state === 'active' ? ACTIVE_STATES.includes(item.state) : item.state === state)).sort(compareItems);
+  const counts = {};
+  for (const item of all) {
+    counts[item.feed] ??= {};
+    counts[item.feed][item.state] = (counts[item.feed][item.state] ?? 0) + 1;
+  }
+  const lastImport = read.register.imports.imports.at(-1) ?? null;
+  return {
+    schemaVersion: 1, resultType: 'sflow-findings-list', location: read.location, ...(read.commit ? { stateCommit: read.commit } : {}),
+    repository: everywhere ? null : repository.slug ?? repository.name, state, counts, total: shown.length,
+    items: shown.slice(0, limit).map((item) => ({ ...itemSummary(item), stateLabel: STATE_LABELS[item.state] })),
+    ...(shown.length > limit ? { notShown: shown.length - limit } : {}),
+    ...(read.damaged.length ? { damaged: read.damaged } : {}),
+    lastImport: lastImport ? { importId: lastImport.importId, at: lastImport.at, source: lastImport.source, file: lastImport.file?.name ?? null } : null
+  };
+}
+
+async function linkCommand(root, workId, options) {
+  const { addressedIds, resolveAddressedFindings, markFindingsInStory } = await import('../findings/register/pick.mjs');
+  if (!workId) fail('Name the Story: singularity-flow findings link WORK-ID --address ID,...');
+  const ids = addressedIds(optionString(options, 'address') ?? '');
+  if (!ids.length) fail(`Name the items: singularity-flow findings link ${workId} --address ID,...`);
+  const { picked, skipped } = await resolveAddressedFindings(root, ids);
+  const mark = await markFindingsInStory(root, picked, workId);
+  return { schemaVersion: 1, resultType: 'sflow-findings-link', workId, marked: mark.marked, skipped,
+    ...(mark.error ? { error: mark.error, nextAction: mark.nextAction } : { store: mark.store, storeMessage: mark.storeMessage }) };
 }
 
 function printResult(result) {
@@ -86,6 +136,25 @@ function printResult(result) {
     for (const [feed, headers] of Object.entries(result.unknownHeaders)) console.log(`  ${feed === 'tlm' ? 'TLM' : 'Security'} headers not used: ${headers.map((header) => JSON.stringify(header)).join(', ')}.`);
     for (const warning of result.warnings) console.log(`  Warning: ${warning}`);
     console.log(result.dryRun ? `Nothing was written. ${result.storeMessage}` : `${result.storeMessage}${result.commit ? ` (${result.branch} ${result.commit.slice(0, 12)})` : ''}`);
+    return;
+  }
+  if (result.resultType === 'sflow-findings-list') {
+    const where = { 'state-branch': 'the state branch', local: 'this computer only', 'state-branch and local': 'the state branch and this computer', none: 'nowhere yet' }[result.location];
+    console.log(`Findings register (${where}${result.repository ? `, repository ${result.repository}` : ', every repository'}): ${result.total} ${result.state === 'all' ? '' : `${result.state} `}item(s).`);
+    if (!result.total) console.log(result.location === 'none' ? 'Nothing has been imported. Start with: singularity-flow findings template' : 'Nothing to show.');
+    for (const item of result.items) {
+      const what = item.feed === 'tlm' ? `TLM ${item.label}` : `${item.severity} ${JSON.stringify(item.label)}${item.file ? ` ${item.file}${item.line ? `:${item.line}` : ''}` : ''}${item.package ? ` ${item.package}` : ''}`;
+      console.log(`  ${item.id.padEnd(12)} ${item.stateLabel}${item.story ? ` (${item.story})` : ''} · ${what}${item.dueAt ? ` · due ${item.dueAt}` : ''}`);
+    }
+    if (result.notShown) console.log(`  … and ${result.notShown} more (--limit).`);
+    if (result.lastImport) console.log(`Last import: ${result.lastImport.importId} from ${result.lastImport.source} at ${result.lastImport.at}.`);
+    return;
+  }
+  if (result.resultType === 'sflow-findings-link') {
+    console.log(result.marked.length ? `In Story ${result.workId}: ${result.marked.join(', ')}.` : `Nothing was marked for Story ${result.workId}.`);
+    for (const entry of result.skipped) console.log(`  Not marked: ${entry.id}, because ${entry.reason}.`);
+    if (result.error) console.log(`The register could not be written (${result.error}). Retry: ${result.nextAction}`);
+    else if (result.storeMessage) console.log(result.storeMessage);
   }
 }
 

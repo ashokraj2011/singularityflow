@@ -18,7 +18,8 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitCommonDir } from '../../git-execution.mjs';
-import { committedFileBytes, refCommit } from '../../git.mjs';
+import { refCommit } from '../../git.mjs';
+import { readRefTreeResult } from '../../git-ref-tree.mjs';
 import { normalizeLedgerConfig } from '../../ledger-config.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar } from '../../private-sidecar.mjs';
 import { run, SingularityFlowError } from '../../util.mjs';
@@ -74,9 +75,16 @@ export function readStateRegister(root, ledger, { env = process.env } = {}) {
   const bytes = {};
   const damaged = [];
   if (commit) {
+    // One tree listing and one batch read for the three files, at the commit just resolved.
+    const observed = readRefTreeResult(root, commit, Object.values(REGISTER_PATHS), { env, maxObjectBytes: MAXIMUM_FILE_BYTES, maxBatchBytes: 3 * MAXIMUM_FILE_BYTES });
+    if (observed.status !== 'ok') {
+      throw new SingularityFlowError(`The findings register at ${ref} could not be read: ${observed.errors[0]?.message ?? observed.status}`, {
+        code: 'FINDINGS_REGISTER_UNAVAILABLE', details: { ref, status: observed.status } });
+    }
     for (const part of PARTS) {
-      const found = committedFileBytes(root, commit, REGISTER_PATHS[part], { env });
-      bytes[part] = found ?? null;
+      const content = observed.contents.get(REGISTER_PATHS[part]);
+      const found = content == null ? null : Buffer.from(content);
+      bytes[part] = found;
       if (!found) continue;
       const value = parse(found, REGISTER_PATHS[part]);
       const read = registerFile(part, value.damaged ? undefined : value);

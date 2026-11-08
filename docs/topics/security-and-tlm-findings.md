@@ -13,6 +13,7 @@ questions:
   - Our sheet uses other headers; how do I map them?
   - Where does SFlow keep the imported findings?
   - Why did my import stay on this computer?
+  - How does a Story address a security finding or TLM item?
 keywords:
   - excel
   - xlsx
@@ -27,7 +28,7 @@ related:
   - findings
   - starting-work
   - configuration
-version: 2
+version: 3
 ---
 The security team and the technology lifecycle (TLM) owners give SFlow their lists as one Excel workbook in SFlow's format, or as one CSV file per list. Later the same rows come from the security team's URL; both land in one register.
 
@@ -37,9 +38,9 @@ Use this topic to get the workbook template and to see what each column means. N
 
 ## Use it from each surface
 
-- **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register.
-- **Copilot:** `/sf-findings` runs the same commands.
-- **VS Code:** the Findings view lists the register.
+- **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register, and `sflow findings list` shows this repository's items. `sflow start ... --address ID,...` picks items for a new Story.
+- **Copilot:** `/sf-findings` runs the same commands. `/sf-start` offers the open items, none picked, and passes the ones you pick.
+- **VS Code:** the new-Story form lists the open items as tick boxes, none ticked. The Findings view lists the register.
 
 ## Guided workflow
 
@@ -47,6 +48,17 @@ Use this topic to get the workbook template and to see what each column means. N
 2. The security team fills in the `Security` sheet and the TLM owners the `TLM` sheet, one row per finding or component.
 3. Check it: `sflow findings import findings.xlsx --dry-run` shows what would be added, changed and rejected, and writes nothing.
 4. Import it: `sflow findings import findings.xlsx --source security-team`. Each rejected row is listed with its sheet, row number and reason; the rest import.
+5. Pick items when a Story is created: `sflow start PAY-7 ... --address SEC-1001,TLM-2001`, a tick box in VS Code's new-Story form, or a choice in `/sf-start`. Nothing is picked unless you pick it.
+
+## At Story creation
+
+A new Story is shown the register's open items for its repository, highest severity and nearest due date first. Each item you pick becomes a clause of the Story with its proof, and the register shows it **in a Story** with the Story's ID. An item another Story already addresses is shown with that Story and cannot be picked twice. An ID that cannot be taken (unknown, another repository's, not open) is said, and the Story still starts.
+
+- **Security proof:** the same tool, run on the changed code, no longer reports it. A finding only the security team can rescan is recorded as fixed, awaiting rescan.
+- **TLM proof:** the manifest, lockfile or runtime file shows at least the target version.
+- **Both:** all existing tests run, and the build passes.
+
+If a Story started but could not write the register, it says so and names `sflow findings link <WORK-ID> --address ID,...`.
 
 ## The workbook
 

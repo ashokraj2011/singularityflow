@@ -340,6 +340,8 @@ Every public operation is classified before its implementation module is importe
 | finalize | mutation | never | — | — |
 | findings.import | mutation | never | — | — |
 | findings.import.preview | read | never | — | — |
+| findings.link | mutation | never | — | — |
+| findings.list | read | never | — | — |
 | findings.template | mutation | never | — | — |
 | fix.diagnose | mutation | never | — | — |
 | fix.preview | read | never | — | — |

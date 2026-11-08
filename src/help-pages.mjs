@@ -1145,6 +1145,7 @@ const PAGES = Object.freeze({
       ['--reference-repository ID=URL', 'Repeatable read-only source repository. Pair every entry with the same ID in --reference-branch.'],
       ['--reference-branch ID=BRANCH', 'Branch to resolve and freeze as an exact reference commit before Story mutation.'],
       ['--target-url URL', 'Exact authorized browser target, pinned into Story state. Required by the POC workflow; any other workflow with a step that smoke-checks a browser against it takes it here or pins it later with story target-origin. Workflow check and Story-start readiness name those steps.'],
+      ['--address ID,...', 'Security findings and TLM items from the register this Story addresses (singularity-flow findings list). Each becomes a clause with its proof and is marked "in a Story". Nothing is picked unless named; an ID that cannot be taken is said.'],
       ['--base BRANCH', 'Cut from this branch instead of the configured default.'],
       ['--fetch', 'Fetch the remote before creating the branch.'],
       ['--json', 'Emit the created Story as JSON.']
@@ -1509,19 +1510,28 @@ const PAGES = Object.freeze({
       'replaces that source\'s rows: an item it no longer lists is marked "not in the latest import", never deleted. The',
       'history records who imported, when, the file\'s SHA-256 and every rejected row; the file itself is never committed.',
       'On a public repository, or when that cannot be checked, the register stays in this clone\'s private local store,',
-      'and the import says why.'
+      'and the import says why.',
+      'findings list shows this repository\'s items (every repository with --all-repositories), most severe and soonest',
+      'due first, with the Story that addresses each. It reads the state ref this clone has and never fetches. A new Story',
+      'picks items with start --address ID,...: each becomes a clause with its proof and is "in a Story". findings link',
+      'marks them when the Story\'s own start could not write the register.'
     ],
     options: [
       ['--out FILE', 'template only: where to write the workbook (.xlsx). The default is sflow-findings-template.xlsx here.'],
       ['--feed security|tlm', 'import only: the list a CSV file or a single sheet holds.'],
       ['--source NAME', 'import only: where the rows came from (lower-kebab, such as security-team); its columns: map applies.'],
       ['--dry-run', 'import only: read and check the file, show what would change, write nothing.'],
-      ['--json', 'Machine-readable output (sflow-findings-template, sflow-findings-import).']
+      ['--state active|all|STATE', 'list only: active (the default: not closed, accepted or waived), all, or one state such as open or in-story.'],
+      ['--all-repositories', 'list only: every repository\'s items, not only this one\'s.'],
+      ['--address ID,...', 'link only: the items the named Story addresses.'],
+      ['--json', 'Machine-readable output (sflow-findings-template, sflow-findings-import, sflow-findings-list, sflow-findings-link).']
     ],
     examples: [
       ['singularity-flow findings template --out ~/Desktop/findings.xlsx', 'Write an empty workbook for the security team and the TLM owners to fill in.'],
       ['singularity-flow findings import ~/Downloads/findings.xlsx --dry-run', 'See what an import would add, change and reject.'],
-      ['singularity-flow findings import tlm.csv --feed tlm --source tlm-owners', 'Import the TLM list from a CSV export.']
+      ['singularity-flow findings import tlm.csv --feed tlm --source tlm-owners', 'Import the TLM list from a CSV export.'],
+      ['singularity-flow findings list', 'This repository\'s open items, and the Stories addressing them.'],
+      ['singularity-flow start PAY-7 --from-branch main --work-type bugfix --title "Fix the order search" --address SEC-1001', 'Start a Story that addresses SEC-1001.']
     ],
     seeAlso: ['start', 'tests', 'decision']
   },

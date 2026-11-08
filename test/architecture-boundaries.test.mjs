@@ -70,7 +70,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-configuration.mjs', 'src/engine-storage/namespace-configuration-contract.mjs',
     'src/engine-storage/namespace-configuration-codec.mjs','src/engine-storage/namespace-configuration-reader.mjs',
     'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-story.mjs','src/engine-storage/namespace-story-contract.mjs',
-    'src/engine-storage/namespace-source.mjs']);
+    'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-draft-store.mjs',
+    'src/engine-storage/namespace-draft-contract.mjs','src/engine-storage/namespace-preparation.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -363,6 +364,42 @@ test('source binding separates source I/O, pure rules and namespace persistence'
     for(const node of ast.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.')) {
       assert.notEqual(path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text)),namespaceOwner,
         file+' cannot implicitly bind installed source context');
+    }
+  }
+});
+
+test('private preparation composes explicit storage and source ports without an installed authority or ambient host',async()=>{
+  const owner='src/engine-storage/namespace-preparation.mjs',draft='src/engine-storage/namespace-draft-store.mjs';
+  const permitted=new Map([
+    [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs',
+      '../kernel/phase-policy.mjs','../kernel/phase-inputs.mjs','../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs',
+      '../kernel/story-creation.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
+      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-reader.mjs'])],
+    [draft,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/contract.mjs',
+      '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
+      '../sda/content/contract.mjs','./namespace-draft-contract.mjs'])]
+  ]);
+  for(const [file,allowed] of permitted) {
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(file+' cannot discover installed state or execute host code');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+  const contract='src/engine-storage/namespace-draft-contract.mjs';
+  const report=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+    ...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(report.problems,[]);
+  for(const file of await sourceFiles('src')) {
+    if(file===owner)continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    for(const node of ast.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.')) {
+      const target=path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text));
+      assert.notEqual(target,owner,file+' cannot implicitly replace installed preparation');
+      assert.notEqual(target,draft,file+' cannot save private phase drafts outside their explicit composition');
     }
   }
 });

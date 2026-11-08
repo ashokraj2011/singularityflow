@@ -82,6 +82,10 @@ alternate-backend/headless-runtime/verified-migration scope remain in the
 
 ## Mac qualification
 
+The opt-in [namespace/private preparation host](ENGINE-SDK-PRIVATE-PREPARATION.md) now implements
+actual device-local preparation and authoring behind this registered operation. It does not
+select a backend for the CLI or claim the complete namespace policy/execution milestone.
+
 On macOS 26.7.2 with Node 26.12.0, 393 distinct checks across 25 affected suites passed, without
 failures, cancellations or skips. They include source/bundled CLI parity, native deterministic
 convergence in a full Story journey, generation begin/rollover, phase entry, draft/prepublication,

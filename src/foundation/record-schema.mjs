@@ -146,6 +146,13 @@ export const NAMESPACE_STORY_SCHEMAS = Object.freeze({
 });
 export const SOURCE_SNAPSHOT_SCHEMA = frozenFamily('sgos-source-snapshot');
 export const SOURCE_BINDING_SCHEMA = frozenFamily('namespace-source-binding');
+export const NAMESPACE_DRAFT_SCHEMAS = Object.freeze({
+  head: frozenFamily('namespace-phase-draft-head'), body: frozenFamily('namespace-phase-draft-body'),
+  operation: frozenFamily('namespace-phase-draft-operation')
+});
+export const NAMESPACE_PREPARATION_SCHEMAS = Object.freeze({
+  context: frozenFamily('namespace-preparation-context'), generation: frozenFamily('namespace-source-generation')
+});
 // Wire shape constraints, selected here without rewriting an immutable historical body.
 const LIFECYCLE_STATE_PROFILES = Object.freeze({
   1: Object.freeze({ requireOwnedCurrentPhase: false, terminalStatuses: Object.freeze([]) }),

@@ -151,6 +151,15 @@ export function phaseAgentMutationFacts(config, workflow, phase, session, operat
   agent, author: phase?.defaultAgent ?? null };
 }
 
+/** Skill instructions do not themselves establish an installed containment/delivery capability. */
+export function skillPhaseHostRequirement(workflow,phase) {
+  const pinned=workflow.resolution?.phases?.find(entry=>entry.id===phase?.id);
+  if(pinned?.kind!=='skill'&&phase?.kind!=='skill')return null;
+  const skillId=pinned?.skillBinding?.bindingRefs?.skill?.id??pinned?.skill?.id
+    ??phase?.skillBinding?.bindingRefs?.skill?.id??phase?.skill?.id;
+  return {phase:phase.id,workId:workflow.workItem?.id,...(typeof skillId==='string'?{skillId}:{})};
+}
+
 /** The optional reviewability predicate is the trusted compiler's structural rule, never SDK request data. */
 export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workflow', phases = [], reviewable = null } = {}) {
   if (value == null) return { mode: 'off', phases: [], reviewerAgent: null };

@@ -1,4 +1,5 @@
 import { enrollPinnedApprovalIdentity } from './kernel/approval-policy.mjs';
+import { skillPhaseHostRequirement } from './kernel/phase-admission.mjs';
 import {initialWorkflowProgress} from './kernel/lifecycle-transitions.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { phaseInputsAuditRequired } from './kernel/phase-inputs.mjs';
@@ -185,14 +186,13 @@ const MODEL_ASSURANCE_RANK = Object.freeze({
 });
 
 async function assertSkillPhaseHostReady(workflow, phase, operation) {
-  const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase?.id);
-  if (pinned?.kind !== 'skill' && phase?.kind !== 'skill') return;
+  const requirement = skillPhaseHostRequirement(workflow, phase);
+  if (!requirement) return;
   const { diagnoseSkillHostReadiness } = await import('./skp-host-readiness.mjs');
   // M2 pins and verifies skill bytes and phase evidence, but does not grant execution authority.
   // In particular, a model host or direct CLI call cannot reinterpret the accepted SKILL.md as
   // instructions until the qualified containment and delivery-receipt boundary is installed.
-  const skillId = pinned?.skillBinding?.bindingRefs?.skill?.id
-    ?? pinned?.skill?.id ?? phase?.skillBinding?.bindingRefs?.skill?.id ?? phase?.skill?.id;
+  const skillId = requirement.skillId;
   throw new SingularityFlowError(
     `Cannot ${operation} skill phase '${phase.id}': the qualified skill host and delivery receipt are not installed. `
     + 'The approved Story package remains pinned; no template or live skill folder was used.',

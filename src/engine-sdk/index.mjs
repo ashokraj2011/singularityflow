@@ -26,6 +26,7 @@ import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult,
   projectConfigurationInput,projectConfigurationBinding,projectConfigurationResult} from '../kernel/project-enrollment.mjs';
 import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../kernel/story-creation.mjs';
 import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
+import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -159,13 +160,43 @@ const definitions = [
   { id:'source.bind',version:1,subject:'story',effect:'source-binding',humanDecision:false,authority:'source.bind',
     inputFields:Object.freeze(['operationId','workId','expectedRevision','repositories','reason']),
     requiredFields:Object.freeze(['operationId','workId','expectedRevision','repositories','reason']),port:'sourceBinding',
-    stages:WRITE_STAGES,validate:'sourceBindingInput',execute:'bindSources' }
+    stages:WRITE_STAGES,validate:'sourceBindingInput',execute:'bindSources' },
+  {id:'phase.draft.read',version:1,effect:'read',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId','maximumBytes']),port:'phaseDraftRead',
+    stages:Object.freeze(['load','read']),validate:'draftReadInput',execute:'readPhaseDraft'},
+  {id:'phase.draft.write',version:1,effect:'local-draft',humanDecision:false,authority:'phase.draft.write',
+    inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),
+    requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),port:'phaseDraftWrite',
+    stages:WRITE_STAGES,validate:'draftMutationInput',execute:'mutatePhaseDraft'},
+  {id:'phase.draft.rebase',version:1,effect:'local-draft',humanDecision:false,authority:'phase.draft.rebase',
+    confirmation:'exact-current-draft-body-digest',inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','confirm','reason']),
+    requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','confirm','reason']),port:'phaseDraftRebase',
+    stages:WRITE_STAGES,validate:'draftMutationInput',execute:'mutatePhaseDraft'}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
 function configurationApprovalInput(value) { return projectConfigurationInput(data(value)); }
+function draftReadInput(value){return phaseDraftReadInput(data(value));}
+function draftMutationInput(value,operation){return phaseDraftMutationInput(data(value),operation);}
+async function readPhaseDraft(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||typeof context.phase!=='string'
+    ||input.workId!==undefined&&input.workId!==context.subject.id||input.phaseId!==undefined&&input.phaseId!==context.phase) {
+    throw new SingularityFlowError('The private draft reader returned another subject.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  const facts=data(await port.read(context,input,{signal}));notCancelled(signal);
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.draft.read',subject:context.subject,phase:context.phase,
+    manifest:phaseDraftReadManifest(context.subject.id,context.phase,facts,input.maximumBytes),effects:{committed:false,pushed:false,localDraftSaved:false,approvalRecorded:false}});
+}
+async function mutatePhaseDraft(port,input,signal,operation) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  let accepted=await port.retained(context,input,{signal});notCancelled(signal);
+  if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);accepted=await port.commit(context,prepared,{signal});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
+    ...phaseDraftMutationResult(input,data(await port.finish(context,accepted,{signal:null})),operation)});
+}
 
 async function bindSources(port,inputs,signal) {
   notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
@@ -1390,6 +1421,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     sourceBindingInput,bindSources,
+    draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,

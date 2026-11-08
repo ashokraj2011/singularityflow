@@ -66,6 +66,8 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
 - `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
   canonical lifecycle reads, original receipts and first source observations across takeover.
+- `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
+  drafts using separately device-bound local ports, without changing canonical phase state.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,
@@ -82,6 +84,15 @@ nor physical roots enter retained manifests. It excludes `.git` and `.singularit
 dependency/build exclusions are explicit. Source drift, permission errors and timeouts remain real
 errors. Binding does not open a generation, execute tests or replace human review. See
 `docs/ENGINE-SDK-SOURCE-BINDING.md` in the source distribution for retry and takeover semantics.
+
+The preparation host adds explicit `localRecords` and `localContent` ports with the same
+machine-local device binding. Its access port supplies the pinned `agentId` and fresh permission
+for `phase.prepare`, `phase.draft.read`, `phase.draft.write` or `phase.draft.rebase`. Draft writes
+take a stable operation ID, exact private revision and actual local content reference. Repeated
+preparation preserves authored bytes; accepted retries acknowledge their original write. Shared
+basis changes require an explicit digest-confirmed rebind. Binary bodies remain bytes, while text
+previews obey the requested budget. No source files, shared generation, tests or approval are
+changed. See `docs/ENGINE-SDK-PRIVATE-PREPARATION.md` for binding, recovery and remaining policy scope.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
 saved read head. It implements `phase.review` and `document.read`; its other operation ports remain

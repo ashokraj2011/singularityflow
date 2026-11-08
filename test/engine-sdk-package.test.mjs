@@ -364,6 +364,52 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,replayed:true});
   });
 
+  await t.test('installed private preparation preserves authored bytes and original write receipts in another empty-PATH process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';
+      import {readFile,writeFile} from 'node:fs/promises';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespacePreparationEngine} from '${packageName}/hosts/namespace-preparation';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'portable-device'};
+      const scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='portable-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const localRecords=await createFilesystemNamespaceStore({root:path.resolve('private-records'),binding:privateBinding,create:fresh});
+      const {DatabaseSync}=await import('node:sqlite');
+      const sharedDatabase=new DatabaseSync(path.resolve('configuration-content.db')),privateDatabase=new DatabaseSync(path.resolve('private-content.db'));
+      const content=createSqliteContentStore({database:sharedDatabase,binding});
+      const localContent=createSqliteContentStore({database:privateDatabase,binding:privateBinding,create:fresh});
+      try {
+        const access={current:()=>({projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',
+          identity:{name:'Example reviewer',email:'reviewer@example.test'},agentId:'analyst',
+          permissions:['phase.prepare','phase.draft.read','phase.draft.write','phase.draft.rebase']})};
+        const clock={now(){if(!fresh)throw Error('Reopening an authored draft must not restamp its preparation or write.');return '2026-11-08T13:00:00.000Z';}};
+        const engine=createNamespacePreparationEngine({records,content,localRecords,localContent,scope,workId,authority,access,clock});
+        const before=await engine.run('phase.review',{phaseId:'intake'});
+        const preparation=await engine.run('phase.prepare',{workId,phaseId:'intake'});
+        assert.equal(preparation.effects.committed,false);assert.equal(preparation.effects.generationOpened,false);
+        const draft=await engine.run('phase.draft.read');
+        let input;
+        if(fresh) {
+          const reference=(await localContent.put(scope,'local',Buffer.from('# Authored intake\\n\\nAn observable requirement.\\n'))).reference;
+          input={operationId:'author-intake',workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,
+            content:reference,reason:'Complete the retained private draft.'};
+          await writeFile('private-draft-inputs.json',JSON.stringify(input));
+        }else input=JSON.parse(await readFile('private-draft-inputs.json','utf8'));
+        const result=await engine.run('phase.draft.write',input);
+        assert.equal(result.replayed,!fresh);assert.equal(result.effects.committed,false);
+        assert.equal((await engine.run('phase.draft.read')).manifest.artifact.content.text,'# Authored intake\\n\\nAn observable requirement.\\n');
+        const after=await engine.run('phase.review',{phaseId:'intake'});
+        assert.deepEqual(after,before,'private authoring cannot create a shared generation or move the canonical revision');
+        assert.equal(JSON.stringify(result).includes(path.resolve('private-records')),false);
+        process.stdout.write(JSON.stringify(result));
+      }finally{sharedDatabase.close();privateDatabase.close();}
+    `;
+    const first=JSON.parse(await run('preparation.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('preparation.mjs',source,['replay']));
+    assert.deepEqual(replay,{...first,replayed:true});
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -378,6 +424,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceConfigurationEngine } from '${packageName}/hosts/namespace-configuration';
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
       import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
+      import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
@@ -405,6 +452,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('story.create',creation);
       const sourceBinding:EngineInputs['source.bind']={operationId:'bind-1',workId:'example',expectedRevision:'opaque',repositories:['app'],reason:'Actual source checkout.'};
       engine.run('source.bind',sourceBinding);
+      engine.run('phase.draft.read',{workId:'example',phaseId:'review',maximumBytes:512});
+      const draft:EngineInputs['phase.draft.write']={operationId:'draft-1',workId:'example',phaseId:'review',expectedRevision:'opaque',
+        content:{namespace:'local',sha256:'a'.repeat(64),bytes:1},reason:'Preserve the authored bytes.'};
+      engine.run('phase.draft.write',draft);
+      engine.run('phase.draft.rebase',{operationId:'rebase-1',workId:'example',phaseId:'review',expectedRevision:'opaque',confirm:'a'.repeat(64),reason:'Review the new basis.'});
+      // @ts-expect-error Authored bytes use a local content reference, never a laptop path.
+      engine.run('phase.draft.write',{...draft,content:'/another/draft.md'});
+      // @ts-expect-error A private write requires its expected revision and stable operation ID.
+      engine.run('phase.draft.write',{});
+      // @ts-expect-error Read budgets are integer byte counts, never CLI strings.
+      engine.run('phase.draft.read',{maximumBytes:'512'});
       // @ts-expect-error Physical roots belong to the source-unit constructor, not an operation.
       engine.run('source.bind',{...sourceBinding,root:'/another/checkout'});
       // @ts-expect-error Repository selection is a list of logical IDs.
@@ -477,8 +535,18 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           access:{current:()=>({projectId:'example',principalId:'source-coordinator',actorKind:'human',permissions:['source.bind'],identity:{name:'Example coordinator',email:'coordinator@example.test'}})},
           clock:{now:()=> '2026-11-08T00:00:00.000Z'}});
       }
+      function preparationHost(records:NamespaceStore,content:ContentStore,localRecords:NamespaceStore,localContent:ContentStore) {
+        const options={records,content,localRecords,localContent,scope:{projectId:'example'},workId:'example',authority:{id:'application-authority',epoch:1},
+          access:{current:()=>({projectId:'example',principalId:'human-reviewer',actorKind:'human' as const,agentId:'analyst',
+            permissions:['phase.prepare','phase.draft.read','phase.draft.write','phase.draft.rebase'],identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
+          clock:{now:()=> '2026-11-08T00:00:00.000Z'}};
+        createNamespacePreparationEngine(options);
+        // @ts-expect-error Private metadata and content ports must be supplied explicitly.
+        createNamespacePreparationEngine({records,content,scope:options.scope,workId:options.workId,authority:options.authority,access:options.access,clock:options.clock});
+        return createNamespacePreparationEngine(options);
+      }
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
-      void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,createSqliteContentStore];
+      void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,preparationHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],

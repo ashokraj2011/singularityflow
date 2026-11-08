@@ -8,7 +8,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'sources/filesystem', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'sources/filesystem', 'hosts/namespace-preparation', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite', 'node:net']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
@@ -23,6 +23,8 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(operation.id==='phase.draft.read')return field==='maximumBytes'?'number':'string';
+  if(['phase.draft.write','phase.draft.rebase'].includes(operation.id))return field==='content'?'ContentReference':'string';
   if (operation.id === 'source.bind') return field === 'repositories' ? 'readonly string[]' : 'string';
   if (operation.id === 'story.create') return field === 'source' ? 'ContentReference' : 'string';
   if (operation.id === 'configuration.approve') {

@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding implemented; production portable lifecycle ports and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind implemented; production portable lifecycle ports and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -94,7 +94,20 @@ still require their own policy ports.
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped
 workflows. Namespace approval checks real referenced template text before accepting it. Actual
-machine-local draft preparation and complete lifecycle execution remain required Phase 7 gates.
+machine-local draft preparation is supplied by the explicit host below; complete portable
+lifecycle execution remains a required Phase 7 gate.
+
+The [private preparation delivery](ENGINE-SDK-PRIVATE-PREPARATION.md) retains actual rendered and
+authored bytes in separately device-bound stores, with conditional writes, original-receipt
+recovery and explicit digest-bound rebinds. It shares Native template and admission rules without
+moving shared lifecycle generation or authority. Remaining native policy extraction, portable
+publication/approval and complete cross-agent execution still belong to Phases 5 and 7.
+
+That slice passed 296 distinct Mac checks across 17 affected files, with no failures, cancellations
+or skips. The installed archive reopens authored drafts and original receipts in a separate
+empty-PATH Node process; canonical generations remain unchanged. Source validation passed 3,804
+checks, and typechecking, Git ownership and all 13 existing bundle budgets passed. No Windows,
+live provider, installed-authority cutover, merge or push was performed.
 
 The [upstream operation boundary](ENGINE-SDK-UPSTREAM-OPERATIONS.md) covers author-raised issues,
 owner decisions, forward proposals and decisions, downstream revalidation and the read-only list.

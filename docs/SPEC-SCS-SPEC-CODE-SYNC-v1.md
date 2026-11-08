@@ -1,6 +1,6 @@
 # Spec–code sync (SCS) — v1
 
-Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1 is on main; M2, M3 and M4 are on the separate branch scs-next.
+Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1, M2, M3 and M4 are on main (M2–M4 landed from scs-next on 2026-11-09); REQ-034 and REQ-035 are being built.
 
 The code and the approved documents must say the same thing. When they don't, a person decides each
 difference once: either the code changes to match the document, or the document changes to match the

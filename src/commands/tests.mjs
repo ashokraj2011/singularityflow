@@ -456,7 +456,11 @@ function attemptGroups(attempts) {
 function testRunNote(attempt, workflow, phaseId, narrowed = null) {
   const source = attempt.reusedFrom ?? (attempt.phase !== phaseId ? attempt : null);
   const reused = source ? `Not run again: this is ${source.attemptId} recorded by ${source.phase}, on the same code.` : null;
-  const scoped = attempt.testScope?.files ? `Only this Story's new and changed tests ran (${attempt.testScope.files.join(', ')}); its existing tests did not.`
+  // At the last step that runs tests, the existing tests importing a changed module ran too [CQF:REQ-017].
+  const importers = attempt.testScope?.importers ?? [];
+  const added = attempt.testScope?.files?.filter((file) => !importers.includes(file)) ?? [];
+  const scoped = importers.length ? `${added.length ? `This Story's new and changed tests ran (${added.join(', ')}), and the` : 'The'} existing tests that import a module it changed ran once (${importers.join(', ')}); its other existing tests did not.`
+    : attempt.testScope?.files ? `Only this Story's new and changed tests ran (${attempt.testScope.files.join(', ')}); its existing tests did not.`
     : attempt.testScope?.whole ? `Ran whole although the Story runs only its new and changed tests: ${attempt.testScope.whole}.` : null;
   // A path the Story's script names is shown even when it dropped nothing and nobody was asked.
   const paths = narrowed ? (attempt.narrowing?.paths ?? []).map(narrowed.pathNarrowingWords).join(' ') : '';

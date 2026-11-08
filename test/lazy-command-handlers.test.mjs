@@ -355,7 +355,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // evidence-consistency.mjs +167); running and binding them stays lazy (verification/repository-tests.mjs) [CQF:REQ-010, REQ-012].
     // 9,552,400 (measured 9,552,346): documentation is hashed apart from the code a run's reuse and binding compare (state.mjs sourceTreeDigests,
     // delivery-evidence.mjs, phase-execution-evidence.mjs, attempts.mjs, story-lineage.mjs, code-delivery-tests.mjs) [CQF:REQ-011]. The gates themselves read it, so not lazy.
-    assert.ok(closure.bytes <= 9_552_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,553,000 (measured 9,552,936): a Story on only its new tests runs, at its last step that runs tests, the existing tests that import a changed module
+    // (state.mjs, attempts.mjs); finding them stays lazy (verification/test-scope-selection.mjs) [CQF:REQ-017].
+    assert.ok(closure.bytes <= 9_553_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

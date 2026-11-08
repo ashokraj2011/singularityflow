@@ -51,10 +51,16 @@ export async function verificationRepositoryTests(root, config, workflow, phase,
   const none = { commands: [], notes: [] };
   if (pinned?.repositoryTests !== 'run' || pinned.testEvidenceFrom || configured.some(isTestQualityCommand)) return none;
   // Owner, 2026-11-06: on only its new and changed tests a Story never runs the others, and the review says so [TCE:REQ-094].
+  // Owner, 2026-11-08: but its last step that runs tests runs once the existing tests that import a changed module [CQF:REQ-017].
+  let importers = null;
   if (storyTestScope(workflow) === 'new-and-changed') {
     const change = workflow.testScopeChanges?.at(-1);
-    return { commands: [], notes: [note('repository-tests', `Not run: this Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}, `
-      + 'so its existing tests were not run.', at)] };
+    const scoped = `this Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}`;
+    const selection = await import('./test-scope-selection.mjs');
+    importers = selection.lastTestingStep(workflow, phase) ? await selection.storyExistingImporters(root, workflow, phase) : null;
+    if (!importers?.length) {
+      return { commands: [], notes: [note('repository-tests', `Not run: ${scoped}, so its existing tests were not run${importers ? '; none of them imports a module it changed' : ''}.`, at)] };
+    }
   }
   const sealed = await readSealedStoryTestPolicy(root, config, workflow);
   if (sealed?.record?.baselineFailures === 'accept-pre-existing'
@@ -75,10 +81,19 @@ export async function verificationRepositoryTests(root, config, workflow, phase,
     return { commands: [], notes: [note('repository-tests', `Not run: ${error.message} ${SETUP_ROUTE}`, at)] };
   }
   const ids = new Set(configured.map((command) => command?.id).filter(Boolean));
-  const commands = inferred.filter(Boolean).filter((command) => !ids.has(command.id))
+  let commands = inferred.filter(Boolean).filter((command) => !ids.has(command.id))
     .map((command) => ({ ...command, requirement: 'required' }));
   if (!commands.length) {
     return { commands: [], notes: [note('repository-tests', `Not run: sflow found no test command in this repository's build files. ${SETUP_ROUTE}`, at)] };
+  }
+  if (importers) {
+    // Only those files, each told to the command that covers it; a runner that cannot be told files runs none of them.
+    commands = (await (await import('./test-scope-selection.mjs')).newAndChangedTestCommands(root,
+      commands.map((command) => ({ ...command, provenance: 'inferred' })), [], { importers })).filter((command) => command.testScope?.importers?.length);
+    if (!commands.length) {
+      return { commands: [], notes: [note('repository-tests', `Not run: the existing tests that import a module this Story changed (${importers.join(', ')}) `
+        + "cannot be run alone by this repository's test command, and this Story runs only its new and changed tests.", at)] };
+    }
   }
   return { commands, notes: [] };
 }
@@ -119,7 +134,8 @@ export async function bindRepositoryTestRuns(root, itemRelative, { commands, che
     const { attempt } = recorded;
     const elsewhere = attempt.phase !== phase.id || Number(attempt.generation) !== Number(generation);
     runs.push({ commandId: command.id, attemptId: attempt.attemptId, receiptPath: recorded.path, receiptSha256: recorded.sha256,
-      status: attempt.status, counts: attempt.tests ?? null, ...(elsewhere ? { reusedFrom: { attemptId: attempt.attemptId, phase: attempt.phase } } : {}) });
+      status: attempt.status, counts: attempt.tests ?? null, ...(elsewhere ? { reusedFrom: { attemptId: attempt.attemptId, phase: attempt.phase } } : {}),
+      ...(command.testScope?.importers ? { importers: command.testScope.importers } : {}) });
   }
   return runs;
 }

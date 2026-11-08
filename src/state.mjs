@@ -5068,10 +5068,15 @@ function mayReuseUnchangedRuns(workflow) {
   return !workflow.testRecovery && workflow.resolution?.testRecovery?.enabled !== true;
 }
 
-/** The commands a gate runs under the Story's test scope; only a Story on its new and changed tests narrows any [TCE:REQ-093]. */
+/**
+ * The commands a gate runs under the Story's test scope; only a Story on its new and changed tests narrows any [TCE:REQ-093].
+ * At its last step that runs tests they take the existing tests that import a changed module too [CQF:REQ-017].
+ */
 async function storyScopedTestCommands(root, workflow, phase, commands, deliveryEvidence) {
   if (storyTestScope(workflow) !== 'new-and-changed') return commands;
-  return (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, commands, deliveryEvidence?.testPaths ?? []);
+  const selection = await import('./verification/test-scope-selection.mjs');
+  const importers = selection.lastTestingStep(workflow, phase) ? await selection.storyExistingImporters(root, workflow, phase, deliveryEvidence) : [];
+  return selection.newAndChangedTestCommands(root, commands, deliveryEvidence?.testPaths ?? [], { importers });
 }
 
 async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
@@ -5149,7 +5154,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       recordedRuns.set(command.id, recorded);
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
-          receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots });
+          receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots,
+          ...(command.testScope?.importers ? { importers: command.testScope.importers } : {}) });
       }
     }
     for (const command of commands) {
@@ -5770,7 +5776,8 @@ async function submitPhaseTransition(root, config, workflow, {
           receiptSha256: recorded.sha256,
           status: receipt.status,
           affectedRoots: command.affectedRoots,
-          ...(check.testNarrowing ? { testNarrowing: check.testNarrowing } : {})
+          ...(check.testNarrowing ? { testNarrowing: check.testNarrowing } : {}),
+          ...(command.testScope?.importers ? { importers: command.testScope.importers } : {})
         });
         submittedAttempts.set(command.id, receipt);
       }

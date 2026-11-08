@@ -22,7 +22,7 @@ import { storyTestScope, TEST_SCOPES } from '../src/code-delivery-policy.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { unchangedTestRun } from '../src/verification/attempts.mjs';
 import { flakyTestRuns } from '../src/verification/flaky-runs.mjs';
-import { newAndChangedTestCommands } from '../src/verification/test-scope-selection.mjs';
+import { lastTestingStep, newAndChangedTestCommands, storyExistingImporters } from '../src/verification/test-scope-selection.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { isolatedTestEnvironment } from '../scripts/test-machine-state.mjs';
@@ -32,7 +32,7 @@ const W = 'RERUN-1';
 const [AC1, AC2] = [`${W}:AC-001`, `${W}:AC-002`];
 
 /** A repository at the code step of a real Story whose later step runs the repository's tests. */
-async function storyAtCode(t) {
+async function storyAtCode(t, { existingImports = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-unchanged-runs-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -62,7 +62,8 @@ async function storyAtCode(t) {
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/value.mjs', 'export const value = 1;\n');
   await write('test/value.test.mjs', check(1, { tagged: false }));
-  await write('test/existing.test.mjs', `import test from 'node:test';\nimport { appendFileSync } from 'node:fs';\ntest('existing', () => { appendFileSync(${JSON.stringify(existingLog)}, 'run\\n'); });\n`);
+  await write('test/existing.test.mjs', `import test from 'node:test';\nimport { appendFileSync } from 'node:fs';\n${existingImports ? "import { value } from '../src/value.mjs';\n" : ''}`
+    + `test('existing', () => { appendFileSync(${JSON.stringify(existingLog)}, 'run\\n'); ${existingImports ? 'if (!value) throw new Error(\'no value\');' : ''} });\n`);
   sflow('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
@@ -324,7 +325,7 @@ test('anyone may move a Story to only its new tests in the code step; its existi
   await f.finishTesting();
   const testing = (await f.workflow()).phases.testing;
   const note = testing.checks.find((check) => check.source === 'repository-tests' || check.id === 'repository-tests');
-  assert.match(note.stderr, /Not run: this Story runs only its new and changed tests \(TSC-001, .*Only the tests this Story adds matter here\.\), so its existing tests were not run\./u);
+  assert.match(note.stderr, /Not run: this Story runs only its new and changed tests \(TSC-001, .*Only the tests this Story adds matter here\.\), so its existing tests were not run; none of them imports a module it changed\./u);
   assert.match(JSON.parse(f.sflow('phase', 'show', 'testing', '--json').stdout).testScope.words, /Its existing tests were not run\./u);
   assert.equal(await f.existingRuns(), before, 'nor at the later step');
   f.sflow('approve', 'testing', '--yes');
@@ -332,6 +333,34 @@ test('anyone may move a Story to only its new tests in the code step; its existi
   assert.equal((await f.workflow()).status, 'closed', 'its receipts replay through the final gates');
   const closed = f.run(process.execPath, [cli, '--no-model', 'story', 'test-policy', 'scope', W, '--to', 'all-configured', '--json']);
   assert.equal(JSON.parse(closed.stdout).error.code, 'TEST_SCOPE_STORY_CLOSED');
+});
+
+test('on only its new tests, the last step that runs tests runs once the existing tests that import a changed module, and says so [CQF:REQ-017]', slowLane({ timeout: 600_000 }), async (t) => {
+  const f = await storyAtCode(t, { existingImports: true });
+  const before = await f.existingRuns();
+  f.sflow('story', 'test-policy', 'scope', W, '--to', 'new-and-changed', '--reason', 'Only the tests this Story adds matter here.');
+  f.publish();
+  f.sflow('submit', 'implementation');
+  assert.equal(await f.existingRuns(), before, 'the code step is not the last step that runs tests');
+  f.sflow('approve', 'implementation', '--yes');
+  const reviewed = await f.finishTesting();
+  assert.equal(await f.existingRuns(), before + 1, 'it ran once, at publication, and submission reused it');
+  assert.match(reviewed.stderr, /Not run again: node-tests passed on this exact code \(TA-[a-f0-9]{20}, recorded by testing\)/u);
+  const testing = (await f.workflow()).phases.testing;
+  const [run] = testing.stepTestRuns.testExecutions;
+  assert.deepEqual(run.importers, ['test/existing.test.mjs']);
+  assert.equal(run.status, 'passed');
+  const [attempt] = await f.attempts('testing');
+  assert.deepEqual(attempt.testScope, { mode: 'new-and-changed', files: ['test/existing.test.mjs'], importers: ['test/existing.test.mjs'] });
+  assert.equal(attempt.tests.discovered, 1, 'only the importing test, not the Story\'s own again');
+  const review = JSON.parse(f.sflow('phase', 'show', 'testing', '--json').stdout);
+  assert.match(review.testScope.words, /As its last step that runs tests, testing also ran once the existing tests that import a module it changed: test\/existing\.test\.mjs\. Its other existing tests were not run\./u);
+  const summary = JSON.parse(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'testing', '--json').stdout);
+  assert.match(summary.commands[0].note, /The existing tests that import a module it changed ran once \(test\/existing\.test\.mjs\); its other existing tests did not\./u);
+  f.sflow('approve', 'testing', '--yes');
+  await f.finishConformance();
+  assert.equal(await f.existingRuns(), before + 1);
+  assert.equal((await f.workflow()).status, 'closed');
 });
 
 test('moving back to more tests needs no reason, keeps what was recorded and runs only what has not run on this code', slowLane({ timeout: 600_000 }), async (t) => {
@@ -360,7 +389,7 @@ test('moving back to more tests needs no reason, keeps what was recorded and run
 });
 
 test('all-configured reaches the gates, from intake or changed later, and only-new can be chosen at intake', slowLane({ timeout: 600_000 }), async (t) => {
-  const commandsAtPublish = async (mode, { change = null } = {}) => {
+  const commandsAtPublish = async (mode, { change = null, importer = false } = {}) => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-scope-reach-'));
     t.after(() => rm(base, { recursive: true, force: true }));
     const root = path.join(base, 'repo');
@@ -381,6 +410,7 @@ test('all-configured reaches the gates, from intake or changed later, and only-n
     await write('src/value.mjs', 'export const value = 1;\n'); await write('test/root.test.mjs', check(1));
     await write('packages/a/package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
     await write('packages/a/src/value.mjs', 'export const value = 1;\n'); await write('packages/a/test/a.test.mjs', check(1));
+    if (importer) await write('packages/a/test/old.test.mjs', "import test from 'node:test';\nimport { value } from '../src/value.mjs';\ntest('reads the value', () => { if (value == null) throw new Error('none'); });\n");
     sflow('init');
     const configPath = path.join(root, 'singularity/workflow.yml');
     const config = YAML.parse(await readFile(configPath, 'utf8'));
@@ -406,6 +436,7 @@ test('all-configured reaches the gates, from intake or changed later, and only-n
     sflow('phase', 'publish', 'implement');
     const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
     const policy = JSON.parse(await readFile(path.join(item, 'context/test-policy.json'), 'utf8'));
+    if (importer) return { attempts: workflow.phases.implement.deliveryEvidence.preflightAttempts, review: JSON.parse(sflow('phase', 'show', 'implement', '--json')) };
     return { commands: workflow.phases.implement.deliveryEvidence.preflightAttempts.map((entry) => entry.commandId).sort(), scope: storyTestScope(workflow), sealed: policy.executionScope };
   };
   assert.deepEqual(await commandsAtPublish('changed-and-affected'), { commands: ['packages/a-node-tests'], scope: 'changed-and-affected', sealed: 'affected' });
@@ -413,6 +444,10 @@ test('all-configured reaches the gates, from intake or changed later, and only-n
   assert.deepEqual(await commandsAtPublish('all-configured'), { commands: ['node-tests', 'packages/a-node-tests'], scope: 'all-configured', sealed: 'full' });
   assert.deepEqual(await commandsAtPublish('changed-and-affected', { change: 'all-configured' }), { commands: ['node-tests', 'packages/a-node-tests'], scope: 'all-configured', sealed: 'affected' });
   assert.deepEqual(await commandsAtPublish('new-and-changed'), { commands: ['packages/a-node-tests'], scope: 'new-and-changed', sealed: 'new' });
+  // A quick fix's verify runs no tests, so its code step is the last that does: the existing test importing the changed module runs there [CQF:REQ-017].
+  const last = await commandsAtPublish('new-and-changed', { importer: true });
+  assert.deepEqual(last.attempts.map((entry) => [entry.commandId, entry.importers, entry.status]), [['packages/a-node-tests', ['packages/a/test/old.test.mjs'], 'passed']]);
+  assert.match(last.review.testScope.words, /As its last step that runs tests, implement also ran once the existing tests that import a module it changed: packages\/a\/test\/old\.test\.mjs\./u);
 });
 
 test('the scope helper reads the latest change, then what intake chose', () => {
@@ -498,6 +533,32 @@ test('runs disagree only on the same program, code, test inputs and environment;
     assert.deepEqual(flakyTestRuns([run('TA-1', 'failed'), run('TA-2', 'passed', other)]), [], why);
   }
   assert.deepEqual(flakyTestRuns([run('TA-1', 'blocked'), run('TA-2', 'passed')]), [], 'a run that could not run is no disagreement');
+});
+
+test('the last step that runs tests is found, and only the existing tests importing a changed module join its run [CQF:REQ-017]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-importers-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Importer Tester', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'importers@example.invalid' } });
+  const files = {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }), 'src/value.mjs': 'export const value = 2;\n', 'src/other.mjs': 'export const other = 1;\n',
+    'test/value.test.mjs': "import { value } from '../src/value.mjs';\n", 'test/reads.test.mjs': "import { value } from '../src/value.mjs';\n",
+    'test/requires.test.cjs': "const { value } = require('../src/value.mjs');\n", 'test/other.test.mjs': "import { other } from '../src/other.mjs';\n",
+    'test/mentions.test.mjs': "// import { value } from '../src/value.mjs';\nconst text = \"from '../src/value.mjs'\";\n"
+  };
+  for (const [file, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
+  git('init', '-q', '-b', 'main'); git('add', '.'); git('commit', '-q', '-m', 'One');
+  const code = { id: 'implement', generationPolicy: { task: 'code' }, status: 'in_progress', deliveryEvidence: { sourcePaths: ['src/value.mjs'], testPaths: ['test/value.test.mjs'] } };
+  const workflow = (verify) => ({ phaseOrder: ['intake', 'implement', 'verify'], phases: { intake: { id: 'intake' }, implement: code, verify: { id: 'verify', status: 'pending' } },
+    resolution: { phases: [{ id: 'verify', ...verify }] } });
+  assert.equal(lastTestingStep(workflow({}), code), true, "quick-fix's verify runs no tests, so the code step is the last");
+  assert.equal(lastTestingStep(workflow({ repositoryTests: 'run' }), code), false);
+  assert.equal(lastTestingStep(workflow({ repositoryTests: 'run', testEvidenceFrom: 'implement' }), code), true, 'a step that reads the code step\'s tests runs none');
+  assert.deepEqual(await storyExistingImporters(root, workflow({}), code), ['test/reads.test.mjs', 'test/requires.test.cjs'],
+    'direct importers only: not the Story\'s own test, nor one of another module, nor a comment or a string');
+  const [command] = await newAndChangedTestCommands(root, [inferred({ id: 'npm', argv: ['npm', 'test'], result: { adapter: 'node-tap', path: 'r.tap' } })],
+    ['test/value.test.mjs'], { importers: ['test/reads.test.mjs'] });
+  assert.deepEqual(command.argv, ['npm', 'test', '--', 'test/reads.test.mjs', 'test/value.test.mjs']);
+  assert.deepEqual(command.testScope.importers, ['test/reads.test.mjs']);
 });
 
 const inferred = (command) => ({ kind: 'test', modelPolicy: 'never', provenance: 'inferred', workingDirectory: '.', affectedRoots: ['.'], ...command });

@@ -30,7 +30,8 @@ changed". Asked what weakens evidence, the owner chose:
 1. **Anyone may switch a Story to fewer tests,** an agent included. The switch is recorded with its reason
    and shown to the reviewer. This covers the open setting only (M9); decision 2 above still refuses a filter or
    `.only` added to the tests themselves.
-2. **On only new and changed tests, existing tests never run,** at any step, and the review says so.
+2. **On only new and changed tests, existing tests never run,** at any step, and the review says so. Amended
+   2026-11-08 (`[CQF:REQ-017]`): the last step that runs tests runs once the existing tests that import changed code.
 3. **A recorded `tests run` counts for publish** when its command, code and environment are the same. It
    amends the RUN M2 rule that a local run never satisfies a gate. A decision or a test-run risk still never
    reads one.
@@ -286,7 +287,8 @@ the later step's submit, and again on each retried publish. Conformance, approva
   skip markers are still reasons. A named command, a module with no new test, one with several runners, and a
   runner that cannot be told files run whole, with `attempt.testScope.whole` saying why.
 - `[TCE:REQ-094]` On it a later step's `repositoryTests: run` records a note instead of running, and each step's
-  review states that existing tests were not run.
+  review states that existing tests were not run. Amended by `[CQF:REQ-017]` (owner, 2026-11-08): the Story's last
+  step that runs tests runs once the existing tests that import a changed module, and its review names them.
 
 ## Acceptance
 

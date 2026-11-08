@@ -36,8 +36,14 @@ function testRunsReview(workflow, phase) {
       : `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped`}` }));
   const scope = storyTestScope(workflow);
   const change = workflow.testScopeChanges?.at(-1);
+  // Which existing tests the last step that runs tests ran, and why [CQF:REQ-017].
+  const bound = phase.deliveryEvidence ? phase.deliveryEvidence.testExecutions?.length ? phase.deliveryEvidence.testExecutions : phase.deliveryEvidence.preflightAttempts
+    : evidence?.testExecutions ?? evidence?.preflightAttempts;
+  const importers = [...new Set((bound ?? []).flatMap((entry) => entry.importers ?? []))].sort();
   const words = scope === 'new-and-changed'
-    ? `This Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}. Its existing tests were not run.`
+    ? `This Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}. ${importers.length
+      ? `As its last step that runs tests, ${phase.id} also ran once the existing tests that import a module it changed: ${importers.join(', ')}. Its other existing tests were not run.`
+      : 'Its existing tests were not run.'}`
     : change ? `This Story's test scope is ${scope} (${change.id}, ${change.actor}${change.reason ? `: ${change.reason}` : ''}).` : null;
   return { ...(own.length ? { stepTestRuns: own } : {}), ...(reused.length ? { reusedTestRuns: reused } : {}),
     ...(words ? { testScope: { scope, words, changes: workflow.testScopeChanges ?? [] } } : {}) };

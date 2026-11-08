@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document namespace publication with retained-receipt recovery implemented; remaining production policy/execution ports and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document namespace publication and shared-record submission with retained-receipt recovery and one review-proof reader implemented; remaining production policy/execution ports and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -113,6 +113,18 @@ That publication slice passed 287 distinct Mac checks across 21 affected files, 
 cancellations or skips. Source validation passed 3,809 checks; typechecking, Git ownership and
 all 13 unchanged bundle budgets passed. The installed archive publishes and acknowledges the
 original receipt in separate empty-PATH processes. No installed authority was changed.
+
+The [shared submission host](ENGINE-SDK-NAMESPACE-SUBMISSION.md) submits an actual published
+document without private working stores or the original laptop. It retains the exact immutable
+review packet and uses the same proof reader across namespace hosts. Changed canonical state
+preserves the earlier candidate and receives a newly checked basis; a stale candidate cannot
+overwrite later work. Human approval and advanced policy/execution owners remain separate.
+
+That submission slice passed 214 distinct Mac checks across 14 affected files, with no failures,
+cancellations or skips. The final 43-case recheck includes authenticated takeover and malformed
+canonical metadata. Source validation passed 3,815 checks; typechecking, Git ownership and all
+13 unchanged bundle budgets passed. The installed archive submits and acknowledges the original
+packet without its source checkout or private stores.
 
 The earlier private-preparation slice passed 296 distinct Mac checks across 17 affected files, with no failures, cancellations
 or skips. The installed archive reopens authored drafts and original receipts in a separate

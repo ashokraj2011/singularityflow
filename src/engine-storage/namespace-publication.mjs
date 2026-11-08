@@ -16,6 +16,7 @@ import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {namespacePublicationValue,NAMESPACE_PUBLICATION_PROFILE} from './namespace-publication-contract.mjs';
+import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 export {NAMESPACE_PUBLICATION_PROFILE};
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -28,6 +29,7 @@ export function createNamespacePublicationEngine(options={}) {
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID'),authority=Object.freeze(structuredClone(options.authority));
   const runtime=createNamespacePreparationRuntime({records,content,localRecords,localContent,scope,workId,authority,access,clock,sources,modelEnabled});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority}),observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
+  const publicationReader=createNamespacePublicationReader({observer,scope,workId});
   const put=content.put.bind(content),now=clock.now.bind(clock),contexts=new WeakMap(),preparations=new WeakMap();
   if(typeof notice!=='function')throw error('Publication notice must be an explicit observer.','ENGINE_INPUT_INVALID');
   function selected(context){const value=contexts.get(context);if(!value)throw error('Use the issued publication context.','ENGINE_INPUT_INVALID');return value;}
@@ -41,17 +43,7 @@ export function createNamespacePublicationEngine(options={}) {
     return plan;
   }
   async function readPublication(binding,s,signal) {
-    phasePublicationBindingValue(binding);
-    let value;try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await observer.bytes(binding.record,binding.record.bytes,signal)));}
-    catch(cause){if(cause.code)throw cause;throw error('The publication record is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}
-    const publication=namespacePublicationValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
-    if(publication.generation!==binding.generation)throw error('The publication reference has another generation.','ENGINE_STORAGE_CORRUPT');
-    const data=await observer.bytes(publication.artifact.content,publication.artifact.content.bytes,signal),text=artifactBytesAreText(data);
-    if(publication.artifact.encoding!==(text?'utf8':'binary')||publication.artifact.fingerprint!==(text?'sha256:'+hash(artifactContentObservation(data.toString('utf8')).fingerprintText):null)) {
-      throw error('The retained publication encoding or authored fingerprint differs from its actual bytes.','ENGINE_STORAGE_CORRUPT');
-    }
-    for(const resource of publication.inputs)if(resource.reference.namespace!=='local')await observer.bytes(resource.reference,resource.reference.bytes,signal);
-    return publication;
+    return publicationReader.read(binding,s.phaseId,{signal});
   }
   async function retainedPublication(plan,s,signal) {
     checkedPlan(plan,s);const state=observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head),phase=state.workflow.phases[s.phaseId];

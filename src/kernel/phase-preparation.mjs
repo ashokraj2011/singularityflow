@@ -95,14 +95,23 @@ export function phaseDraftMutationInput(input,operation) {
   if(!sha(input.confirm))draftInvalid('Rebinding a local draft requires its exact reviewed body digest.');
   return {...input};
 }
-export function phaseDraftAccess(facts,projectId,permission,{expected=null}={}) {
+function phaseAccess(facts,projectId,permission,expected,missing,changed) {
   if(!facts||facts.projectId!==projectId||!Array.isArray(facts.permissions)||facts.permissions.length>128
     ||facts.permissions.some(value=>typeof value!=='string'||value.length>128)
     ||facts.agentId!==null&&!draftId(facts.agentId))bad();
   const actor=storyActorValue(facts);
-  if(!facts.permissions.includes(permission))throw new SingularityFlowError('The current principal cannot perform this private draft operation.',{code:'ENGINE_AUTHORITY_REQUIRED',details:{permission}});
-  if(expected!==null&&(JSON.stringify(expected.actor)!==JSON.stringify(actor)||expected.agentId!==facts.agentId))throw new SingularityFlowError('Resume this draft operation under its original authenticated actor and phase agent.',{code:'ENGINE_ACTOR_CHANGED'});
+  if(!facts.permissions.includes(permission))throw new SingularityFlowError(missing,{code:'ENGINE_AUTHORITY_REQUIRED',details:{permission}});
+  if(expected!==null&&(JSON.stringify(expected.actor)!==JSON.stringify(actor)||expected.agentId!==facts.agentId))throw new SingularityFlowError(changed,{code:'ENGINE_ACTOR_CHANGED'});
   return {actor,agentId:facts.agentId};
+}
+export function phaseDraftAccess(facts,projectId,permission,{expected=null}={}) {
+  return phaseAccess(facts,projectId,permission,expected,'The current principal cannot perform this private draft operation.',
+    'Resume this draft operation under its original authenticated actor and phase agent.');
+}
+/** Shared lifecycle operations authenticate the same facts without claiming a private draft. */
+export function phaseTransitionAccess(facts,projectId,permission,{expected=null}={}) {
+  return phaseAccess(facts,projectId,permission,expected,'The current principal cannot perform this phase operation.',
+    'Resume this phase operation under its original authenticated actor and phase agent.');
 }
 export function phaseDraftReadManifest(workId,phaseId,facts,maximumBytes=65_536) {
   if(!facts||facts.workId!==workId||facts.phase!==phaseId||!['missing','open','stale'].includes(facts.status))bad();

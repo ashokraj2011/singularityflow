@@ -12,6 +12,7 @@ import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../
 import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex,
   namespaceReadRecord,projectNamespaceReadState } from './namespace-read-contract.mjs';
 import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
+import { createNamespaceSubmissionReader } from './namespace-submission-reader.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const unavailable = (message, code, details = null, cause = undefined) => new SingularityFlowError(message, { code, details, cause });
@@ -97,11 +98,17 @@ export function createNamespaceReadPorts({ records, content, localContent = null
       if(selected.value.lifecycleHead!==namespaceLifecycleStoryKey(workId))throw unavailable('The lifecycle locator points at another Story.','ENGINE_STORAGE_CORRUPT');
       const observer=createNamespaceLifecycleObserver({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority});
       const {snapshot,basis}=await observer.capture({signal}),workflow=snapshot.workflow;
-      const policy=namespaceReadPolicy(namespaceReadRecord('policy',{workItemRoot:workflow.resolution.workItemRoot,
-        maximumPreviewBytes:workflow.resolution.codeDelivery?.display?.fullDocumentMaximumBytes??65536}));
-      const documents=namespaceDocumentIndex(namespaceReadRecord('documents',{documents:workflow.namespaceDocuments})).documents;
-      return {subject:{kind:'story',id:workId},workflow:projectNamespaceReadState(workflow),policy,documents,
-        revision:snapshot.revision,lifecycle:{locatorRevision:selected.revision,key:selected.value.lifecycleHead,authorityVersion:basis.authorityVersion}};
+      let policy,documents,projected;
+      try {
+        policy=namespaceReadPolicy(namespaceReadRecord('policy',{workItemRoot:workflow.resolution.workItemRoot,
+          maximumPreviewBytes:workflow.resolution.codeDelivery?.display?.fullDocumentMaximumBytes??65536}));
+        documents=namespaceDocumentIndex(namespaceReadRecord('documents',{documents:workflow.namespaceDocuments})).documents;
+        projected=projectNamespaceReadState(workflow);
+      }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
+        throw unavailable('The canonical namespace read metadata is invalid.','ENGINE_STORAGE_CORRUPT',{workId},cause);}
+      return {subject:{kind:'story',id:workId},workflow:projected,policy,documents,
+        revision:snapshot.revision,lifecycleSnapshot:snapshot,submissionReader:createNamespaceSubmissionReader({observer,scope,workId}),
+        lifecycle:{locatorRevision:selected.revision,key:selected.value.lifecycleHead,authorityVersion:basis.authorityVersion}};
     }
     const results = await Promise.allSettled([json(selected.value.state, signal), json(selected.value.policy, signal), json(selected.value.documents, signal)]);
     let failure = null; for (const result of results) if (result.status === 'rejected' && failure === null) failure = result.reason;
@@ -152,6 +159,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
   }
   function expected(record) { return record.retained?.sha256 ? { sha256: record.retained.sha256, bytes: record.retained.bytes } : null; }
   const phaseReview = { load, async read(context, selected, { signal } = {}) {
+    const reviewBinding=context.submissionReader?await context.submissionReader.review(context.lifecycleSnapshot,selected.phase,{signal}):null;
     const documents = [];
     for (const record of inventory(context, selected)) {
       let observed = null, error = null;
@@ -168,7 +176,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     const display = context.workflow.resolution.codeDelivery.display;
     return { workId, phase: selected.phase, generation: selected.generation, status: selected.status, revision: context.revision,
       budgets: { previewBytes: context.workflow.resolution.documents.maxPreviewBytes ?? context.policy.maximumPreviewBytes,
-        sourcePreviewBytes: display.previewBytes, sourceFullBytes: display.fullDocumentMaximumBytes }, documents, reviewBinding: null };
+        sourcePreviewBytes: display.previewBytes, sourceFullBytes: display.fullDocumentMaximumBytes }, documents, reviewBinding };
   } };
   const documentRead = { load, async resolve(context, selected) {
     const candidates = [...selected.phases.flatMap(phase => inventory(context, phase)),

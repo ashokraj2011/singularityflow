@@ -26,7 +26,7 @@ await engine.run('phase.prepare', { phaseId });
 const draft = await engine.run('phase.draft.read', { phaseId });
 const saved = await localContent.put({ projectId }, 'local', authoredBytes);
 await engine.run('phase.draft.write', {
-  operationId: stableWriteOperationId, phaseId,
+  operationId: stableWriteOperationId, workId, phaseId,
   expectedRevision: draft.manifest.draft.revision,
   content: saved.reference, reason: authoringReason
 });

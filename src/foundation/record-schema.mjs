@@ -156,6 +156,9 @@ export const NAMESPACE_PREPARATION_SCHEMAS = Object.freeze({
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'), manifest: frozenFamily('namespace-phase-publication')
 });
+export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
+  binding: frozenFamily('namespace-phase-submission-binding'), packet: frozenFamily('namespace-phase-review-packet')
+});
 /** Portable publication reference metadata; acceptance and byte verification belong to its owners. */
 export function phasePublicationBindingValue(value) {
   admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.binding,value);

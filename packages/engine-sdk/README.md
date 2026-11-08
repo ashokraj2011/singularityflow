@@ -72,6 +72,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `hosts/namespace-publication`: publish primary authored documents using the conditional namespace
   writer, preserve exact bytes and acknowledge original receipts across retry or device takeover.
   Additional policy/execution owners and the complete portable lifecycle remain unfinished.
+- `hosts/namespace-submission`: submit a published primary document using shared records only,
+  retain its exact review packet and acknowledge its receipt on another host without private drafts.
+  This requests required human approval; it does not record it.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,

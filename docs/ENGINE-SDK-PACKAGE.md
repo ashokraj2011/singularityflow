@@ -83,3 +83,8 @@ registered coordinator and conditional canonical writer. Its initial primary-doc
 preserves unavailable policy/execution requirements as explicit refusals. Installed archive
 qualification publishes and reopens the original receipt in separate empty-PATH processes.
 Complete portable lifecycle execution and authority migration remain unfinished.
+
+The [shared submission host](ENGINE-SDK-NAMESPACE-SUBMISSION.md) adds `hosts/namespace-submission`.
+It uses only shared published records, authenticated access and a clock for new submission.
+The installed archive resumes the real packet and original receipt in another empty-PATH process.
+Read-only and writer hosts share exact submitted review bindings, without claiming human approval.

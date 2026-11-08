@@ -72,7 +72,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-story.mjs','src/engine-storage/namespace-story-contract.mjs',
     'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-draft-store.mjs',
     'src/engine-storage/namespace-draft-contract.mjs','src/engine-storage/namespace-preparation.mjs',
-    'src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-publication-contract.mjs']);
+    'src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-publication-contract.mjs',
+    'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-submission-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -209,7 +210,7 @@ test('configuration path rules depend on a string-syntax contract and native bin
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',
-    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs']);
+    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-submission-reader.mjs']);
   const file = 'src/engine-storage/namespace-reader.mjs', text = await readFile(path.join(packageRoot, file), 'utf8');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const visit = node => {
@@ -242,7 +243,7 @@ test('the internal namespace lifecycle committer composes explicit ports without
     allowed: [contract, ...await sourceFiles('src/foundation'), ...await sourceFiles('src/sda/namespace'), ...await sourceFiles('src/sda/content')] });
   assert.deepEqual(report.problems, []);
   for (const file of await sourceFiles('src')) {
-    if ([owner,'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-publication.mjs'].includes(file)) continue;
+    if ([owner,'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-submission.mjs'].includes(file)) continue;
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     assert.equal(text.includes('namespace-lifecycle-commit.mjs'), false, file + ' must not select the new authority before a verified cutover');
   }
@@ -410,7 +411,7 @@ test('namespace publication composes verified private drafts and the conditional
   const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
     '../kernel/artifact-content.mjs','../kernel/publication-intent.mjs','../kernel/phase-policy.mjs','../kernel/lifecycle-transitions.mjs',
     '../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-preparation.mjs',
-    './namespace-lifecycle-commit.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs']);
+    './namespace-lifecycle-commit.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs','./namespace-publication-reader.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -430,6 +431,44 @@ test('namespace publication composes verified private drafts and the conditional
       if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.'))assert.notEqual(
         path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,
         file+' cannot implicitly replace installed publication authority');
+      ts.forEachChild(node,inspect);
+    };inspect(ast);
+  }
+});
+
+test('shared submission never selects a private working store, Git host or installed authority',async()=>{
+  const owner='src/engine-storage/namespace-submission.mjs',reader='src/engine-storage/namespace-publication-reader.mjs',
+    submissionReader='src/engine-storage/namespace-submission-reader.mjs',contract='src/engine-storage/namespace-submission-contract.mjs';
+  const allowed=new Map([
+    [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs',
+      '../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
+      './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-configuration-reader.mjs','./namespace-publication-reader.mjs',
+      './namespace-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-submission-contract.mjs','./namespace-submission-reader.mjs'])],
+    [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/artifact-content.mjs','./namespace-publication-contract.mjs'])],
+    [submissionReader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','./namespace-submission-contract.mjs','./namespace-publication-reader.mjs'])]
+  ]);
+  for(const [file,imports] of allowed) {
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(imports.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(file+' cannot discover a host');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+      if([reader,submissionReader].includes(file)&&ts.isPropertyAccessExpression(node)&&['put','transact','commit','writeFile','unlink'].includes(node.name.text))assert.fail('Publication and submission inspection are read-only');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+    ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(pure.problems,[]);
+  for(const file of await sourceFiles('src')) {
+    if(file===owner)continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const inspect=node=>{
+      const specifier=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.'))assert.notEqual(
+        path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,file+' cannot select a new submission authority');
       ts.forEachChild(node,inspect);
     };inspect(ast);
   }

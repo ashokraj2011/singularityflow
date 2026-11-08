@@ -38,9 +38,9 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
-const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing']);
+const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 // `decision plan`'s own limits: a supporting change states its reason in at most 500 characters.
@@ -781,6 +781,72 @@ function holdItem(workflow, context, kind, hold) {
   };
 }
 
+const rowSlug = (clauseId) => String(clauseId).toLowerCase().replace(/[^a-z0-9]+/gu, '-');
+
+/**
+ * One departure from the approved documents [CQF:REQ-024, REQ-025]. Accepting writes the record its kind
+ * already has, under that record's own authority; rejecting writes a rejection, and the model restores the
+ * files. A file, a supporting file and wording that names no clause share one "Accept all"; a plan row, a
+ * test and wording that names a clause are decided one by one, each with its own reason (`oneByOne`), and
+ * a clause by the scope's approvers. No answer is chosen and no reason suggested.
+ */
+function departureItem(workflow, context, entry, facts) {
+  const { departure, status, groups, words } = entry;
+  const workId = workflow.workItem.id;
+  const name = stepName(workflow, departure.phase);
+  const one = entry.acceptAll !== true;
+  const files = listWords(departure.paths ?? []);
+  const decide = (as, extra = '') => `singularity-flow decision departure ${workId} --fetch --departure ${departure.id} --as ${as}${extra} --reason "<REASON>"`;
+  const effect = (decision, extra = {}) => ({ kind: 'departure', departure: departure.id, departureKind: departure.kind, decision, groups, ...extra });
+  const reason = { reason: textNeed('', departure.kind === 'supporting' ? SUPPORTING_REASON : REASON) };
+  const accept = ({ id = 'accept', label, words, changes = null, writes }) => ({ ...option(workflow, context, { id, label, words,
+    effects: [effect('accept', { writes, ...(changes ? { changes } : {}) })], needs: reason }), ...(one ? { oneByOne: true } : {}) });
+  let accepts = [];
+  if (departure.kind === 'path' && departure.clauses?.length) {
+    const changes = departure.paths.flatMap((file) => departure.clauses.map((clauseId) => ({ kind: 'add-location', clauseId, path: file })));
+    accepts = [{ ...accept({ label: 'Accept', words: `${files} becomes part of ${listWords(departure.clauses.map((id) => clauseName(workflow, id)))}'s delivery: a plan amendment names it, and no step is reset.`, changes, writes: 'plan-amendment' }),
+      chat: { command: decide('accepted') } }];
+  } else if (departure.kind === 'path') {
+    accepts = (facts.planRows ?? []).filter((row) => !row.testOnly || departure.paths.every(isTestAutomationPath)).map((row) => ({ ...accept({
+      id: `accept-${rowSlug(row.clauseId)}`.slice(0, 64), label: `Accept under ${clauseName(workflow, row.clauseId)}${row.result ? `: ${row.result}` : ''}`,
+      words: `${files} becomes part of ${clauseName(workflow, row.clauseId)}'s delivery: a plan amendment names it, and no step is reset.`,
+      changes: departure.paths.map((file) => ({ kind: 'add-location', clauseId: row.clauseId, path: file })), writes: 'plan-amendment' }),
+    chat: { command: decide('accepted', ` --clause ${row.clauseId}`) } }));
+  } else if (departure.kind === 'supporting') {
+    accepts = [{ ...accept({ label: 'Accept', words: `${files} is listed in the plan as a supporting change (${departure.class}) with your reason.`,
+      changes: departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class })), writes: 'plan-amendment' }), chat: { command: decide('accepted') } }];
+  } else if (departure.kind === 'wording') {
+    const target = stepName(workflow, departure.target?.phase);
+    // A forward amendment is approved while the step that found the defect is still open.
+    const open = facts.codeStepOpen === true;
+    accepts = [{ ...accept({ label: 'Accept', words: `${target}'s approved document is amended to this wording as its next generation; its old approval reads as amended by ${departure.id}, and each later step that read it is listed for revalidation.`, writes: 'forward-amendment' }),
+      ...(open ? { chat: { command: decide('accepted') } } : { available: false,
+        words: `${target}'s wording is amended while ${name} is open. ${name} awaits approval now: return it for changes (/sf-reject), then decide this.` }) }];
+  } else {
+    const own = facts.acceptance?.[departure.id];
+    accepts = [{ ...personalStep({ id: 'accept', label: departure.kind === 'clause' ? `Accept: change ${listWords(departure.clauses ?? [])}` : 'Accept this plan row change',
+      command: own, words: departure.kind === 'clause'
+        ? `An intent amendment changes the approved clauses; the scope's approvers decide it in their own terminal, and the steps that cite them reopen${facts.reopens?.[departure.id]?.length ? `: ${listWords(facts.reopens[departure.id].map((id) => stepName(workflow, id)))}` : ''}.`
+        : 'A plan row correction is reviewed in your own terminal with your reason; nothing else in the plan changes.',
+      decidedBy: stepDecidedBy(workflow, context, groups, 'You decide it in your own terminal.') }), oneByOne: true }];
+  }
+  const restore = ['path', 'supporting'].includes(departure.kind) ? `The model restores ${files} to what ${departure.paths.length === 1 ? 'it' : 'they'} held when this generation began; prepublish checks it.`
+    : 'The approved document stays as it was.';
+  // One label on every row, so one answer for all reads as itself on a card.
+  const reject = { ...option(workflow, context, { id: 'reject', label: 'Reject', words: restore, effects: [effect('reject')], needs: reason }),
+    chat: { command: decide('rejected') } };
+  const reopened = status === 'reopened' ? ` ${entry.acceptance?.id ?? 'Its acceptance'} accepted it, and ${listWords(entry.changed ?? [])} changed since, so it is asked again.` : '';
+  const tests = facts.tests?.[departure.id]?.length ? ` Tests changed under the same clause: ${listWords(facts.tests[departure.id])}.` : '';
+  return {
+    kind: 'departure', title: `${departure.id}: ${words}`.slice(0, 200),
+    why: `${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`,
+    options: [...accepts, reject],
+    details: { departure: departure.id, departureKind: departure.kind, status, ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
+      clauses: departure.clauses ?? [], acceptAll: !one, ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
+      commands: [`singularity-flow departure show ${departure.id} --work-id ${workId}`] }
+  };
+}
+
 /**
  * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
  * is a choice for an approver of the plan. One item per path, each option its row, with no answer
@@ -889,7 +955,8 @@ export const APPROVAL_HOLDING_KINDS = Object.freeze(['conformance-gap', 'upstrea
 export const PENDING_CONCEPTS = Object.freeze({
   'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
   'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting'] }),
+  // A code step's departures are decided on the list too [CQF:REQ-024].
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -904,7 +971,8 @@ export const PENDING_CONCEPTS = Object.freeze({
 const HOLD_KINDS = Object.freeze({
   APPROVAL_INTENT_AMENDMENT_PENDING: 'intent-amendment', INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'intent-amendment',
   DECISION_REQUIRED: 'routing-decision', PHASE_APPEAL_REVIEW_REQUIRED: 'appeal', PHASE_APPEAL_INTEGRITY: 'appeal',
-  STORY_PUBLICATION_PENDING: 'story-publication', CONFORMANCE_BLOCKING_VERDICTS: 'conformance-gap', STORY_COMPLETION_REFUSED: 'conformance-gap'
+  STORY_PUBLICATION_PENDING: 'story-publication', CONFORMANCE_BLOCKING_VERDICTS: 'conformance-gap', STORY_COMPLETION_REFUSED: 'conformance-gap',
+  DEPARTURES_UNDECIDED: 'departure'
 });
 
 /**
@@ -920,12 +988,15 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure']);
+
+/** Kinds that wait for the step's approval, never for its submission. */
+export const LATER_KINDS = Object.freeze(['owed-decision', 'departure']);
 
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'departure', 'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
@@ -992,7 +1063,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
       .map((entry) => owedItem(workflow, context, entry)),
     ...(pending.applicability ?? []).map((entry) => applicabilityItem(workflow, context, entry)),
     // Publication would refuse these before the step could ever await approval.
-    ...(facts.excludedChanges ? planPathItems(workflow, context, facts.excludedChanges) : [])
+    ...(facts.excludedChanges ? planPathItems(workflow, context, facts.excludedChanges) : []),
+    ...(facts.departures?.entries ?? []).map((entry) => departureItem(workflow, context, entry, facts.departures))
   ];
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
@@ -1051,7 +1123,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // What stops this step: what holds its approval; before it is submitted, everything but a sign-off
   // owed to the Story's ending (a test-run risk stops the submission, a sign-off stops nothing here).
   // A Node that would not suit the tests is said before any run, and nothing waits on it until one fails.
-  const stopsStep = (item) => item.holdsApproval || (!awaiting && item.kind !== 'owed-decision' && item.details?.stage !== 'early');
+  // A departure never stops its step: publish and submit go ahead, and only the approval waits for it [CQF:REQ-023].
+  const stopsStep = (item) => item.holdsApproval || (!awaiting && !LATER_KINDS.includes(item.kind) && item.details?.stage !== 'early');
   const holdingAll = decisions.filter(stopsStep).length;
   const others = decisions.length - holdingAll;
   const headline = !decisions.length && awaiting ? `${stepName(workflow, phaseId)} has nothing left to decide; its approval is next.`
@@ -1259,6 +1332,13 @@ export function effectWords(workflow, effect, values = {}) {
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `${(effect.changes ?? [effect.change]).map(words).join(', ')} (plan amendment)`;
   }
+  if (effect.kind === 'departure') {
+    const named = (effect.departures ?? [effect.departure]).join(', ');
+    if (effect.decision === 'reject') return `reject ${named}; the model restores what it changed (departure rejection)`;
+    if (effect.writes === 'forward-amendment') return `accept ${named}: amend the earlier step's document as its next generation (forward amendment)`;
+    const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
+    return `accept ${named}: ${(effect.changes ?? []).map(words).join(', ')} (plan amendment)`;
+  }
   if (effect.kind === 'node-pin') return `${effect.replaces ? `change ${effect.file} from ${effect.replaces} to ${effect.version}` : `create ${effect.file} holding ${effect.version}`} and list it as a supporting change, ${effect.class} (Node pin and plan amendment)`;
   if (effect.kind === 'scope-disposition') return `record scope item ${effect.item} as ${effect.disposition}${values.clause?.length ? `, carried by ${values.clause.map((id) => clauseName(workflow, id)).join(', ')}` : ''} (scope decision)`;
   if (effect.kind === 'completeness-review') return 'record that you reviewed the scope for completeness (completeness review)';
@@ -1280,7 +1360,11 @@ export async function runDecisionPlan(plan, apply) {
   const after = (index) => batches.slice(index + 1).flat().flatMap((later) => later.effects.map((entry) => ({ item: later.item, kind: entry.kind, effect: entry })));
   for (const [batchIndex, batch] of batches.entries()) {
     if (batch.length > 1) {
-      const effect = { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
+      const [first] = batch[0].effects;
+      // Departures given one answer are one record: one plan amendment, or one rejection, naming each.
+      const effect = first.kind === 'departure'
+        ? { ...first, departure: undefined, departures: batch.map((step) => step.effects[0].departure), changes: first.changes ? batch.flatMap((step) => step.effects[0].changes) : undefined }
+        : { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
       try {
         const record = await apply(effect, batch[0], {});
         recorded.push(...batch.map((step) => ({ item: step.item, kind: effect.kind, record })));
@@ -1313,12 +1397,15 @@ export function planBatches(plan) {
   const batches = [];
   const byReason = new Map();
   for (const step of plan.steps) {
-    const amends = step.effects.length === 1 && step.effects[0].kind === 'plan-amendment';
-    const open = amends ? byReason.get(step.values.reason) : null;
+    const [effect] = step.effects;
+    // A plan amendment, or departures decided alike, a wording one aside: each of those is its own forward amendment.
+    const key = step.effects.length !== 1 ? null : effect.kind === 'plan-amendment' ? `plan\u0000${step.values.reason}`
+      : effect.kind === 'departure' && effect.writes !== 'forward-amendment' ? `departure\u0000${effect.decision}\u0000${effect.writes ?? ''}\u0000${step.values.reason}` : null;
+    const open = key ? byReason.get(key) : null;
     if (open && open.length < MAX_PLAN_AMENDMENT_CHANGES) { open.push(step); continue; }
     const batch = [step];
     batches.push(batch);
-    if (amends) byReason.set(step.values.reason, batch);
+    if (key) byReason.set(key, batch);
   }
   return batches;
 }

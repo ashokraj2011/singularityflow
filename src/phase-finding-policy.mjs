@@ -73,10 +73,13 @@ const AUTHOR_CATEGORIES = new Set(['authoring', 'artifact', 'traceability', 'art
   'retained-evidence']);
 // Fixed by the step's own author in its draft, whatever check reports them: an Agent brief the
 // projection cannot see (for example written inside a template comment), an unclosed comment, a
-// code delivery the author has not finished, or a planned evidence file it has not produced yet.
+// code delivery the author has not finished, a planned evidence file it has not produced yet, or a
+// rejected departure it has not restored.
 const AUTHOR_CODES = new Set(['AGENT_BRIEF_SUMMARY_REQUIRED', 'AGENT_BRIEF_PRESERVED_SECTION_REQUIRED',
   'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED', 'AGENT_BRIEF_HEADING_AMBIGUOUS', 'ARTIFACT_COMMENT_UNCLOSED',
-  'CODE_DELIVERY_EVIDENCE_REQUIRED', 'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING']);
+  'CODE_DELIVERY_EVIDENCE_REQUIRED', 'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING',
+  // A departure a person rejected: the model restores the file in its own open generation [CQF:REQ-026].
+  'DEPARTURE_REJECTED_NOT_REVERTED']);
 // An honest comparison that finds the delivery incomplete: the gap is the delivering step's, so the
 // report's author never edits the verdict; that step's approvers decide an upstream issue.
 const UPSTREAM_DEFECT_CODES = new Set(['conformance.verdict-incomplete']);

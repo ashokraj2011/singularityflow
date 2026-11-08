@@ -915,6 +915,7 @@ Usage:
   singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT [--json]
   singularity-flow decision completeness [WORK-ID] [--fetch] --confirm INVENTORY-SHA256 --article ID=satisfied|exception|not-applicable... [--article-reason TEXT]... [--checklist FILE] --reason TEXT [--json]
   singularity-flow decision plan [WORK-ID] [--fetch] (--add-location CLAUSE=PATH | --add-supporting PATH=CLASS [--supporting-reason TEXT])... --reason TEXT [--json]
+  singularity-flow decision departure [WORK-ID] [--fetch] --departure DEP-ID [--departure DEP-ID]... --as accepted|rejected [--clause CLAUSE] --reason TEXT [--json]
   singularity-flow decision plan [WORK-ID] [--fetch] [--owner PHASE] (--add-row CLAUSE=PATH[,PATH] [--test PATH]... [--fulfillment KIND] [--steps STEP,...] | --set-fulfillment CLAUSE=KIND | --add-test CLAUSE=PATH | --remove-test CLAUSE=PATH | --replace-test CLAUSE=FROM:TO | --remove-location CLAUSE=PATH | --replace-location CLAUSE=FROM:TO)... --reason TEXT [--upstream-issue UPI-ID] [--dry-run] [--json]
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
   singularity-flow decision test-risk [WORK-ID] [--fetch] (--phase PHASE [--command ID [--cause-class CLASS] [--argv-sha256 DIGEST]] --cause TEXT --expires YYYY-MM-DD | --revoke TRR-ID) --reason TEXT [--json]
@@ -939,6 +940,9 @@ Usage:
   singularity-flow upstream-issue propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID] [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT [--work-id WORK-ID] [--json]
+  singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause --reason TEXT [--path FILE]... [--clause CLAUSE]... [--row-op OP] [--target STEP --file DRAFT] [--finding ID]... [--supersedes DEP-ID] [--work-id WORK-ID] [--json]
+  singularity-flow departure list [--phase PHASE] [--open] [--work-id WORK-ID] [--json]
+  singularity-flow departure show DEP-ID [--work-id WORK-ID] [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--rebind-remote sha256:...] [--json]

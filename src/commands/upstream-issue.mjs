@@ -354,19 +354,15 @@ async function proposeAmendment(root, config, workflow, options) {
   emit(options, workflow, 'propose-amendment', { slots: { amendment: proposal.id, phase: phaseId }, body: { proposal, decide }, changed: true });
 }
 
-/** The amended step's approvers install the proposal as its next approved generation, or reject it. */
-async function decideAmendment(root, config, workflow, amendmentId, options) {
-  if (optionString(options, 'confirm') !== amendmentId) refused(`Confirm the exact amendment: --confirm ${amendmentId}.`, 'FORWARD_AMENDMENT_CONFIRMATION_REQUIRED');
+/** One forward amendment decided in its own commit, with the amended step's new generation published beside it. */
+export async function commitForwardAmendmentDecision(root, config, workflow, { amendmentId, decision, reason, actor, agent = null }) {
   const proposal = (workflow.forwardAmendments ?? []).find((entry) => entry.id === amendmentId);
-  if (!proposal) refused(`${amendmentId || 'That amendment'} is not a forward amendment of this Story.`, 'FORWARD_AMENDMENT_NOT_FOUND');
-  const actor = actionActor(root);
-  const decision = optionString(options, 'decision');
   const { value } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: proposal.phase, generation: null,
     actor, agent: null, authorityGroup: null, payload: { decision: 'forward-amendment', amendment: amendmentId }
   }, `[${workflow.workItem.id}][forward-amendment] ${decision} ${amendmentId}`, async (aggregate) => {
     await assertNoPendingPublication(root, config, aggregate, 'decide a forward amendment');
-    return decideForwardAmendment(root, config, aggregate, { amendmentId, decision, reason: optionString(options, 'reason'), actor, agent: null });
+    return decideForwardAmendment(root, config, aggregate, { amendmentId, decision, reason, actor, agent });
   }, {
     eventFromResult: (result) => result.applied ? {
       actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup,
@@ -382,6 +378,41 @@ async function decideAmendment(root, config, workflow, amendmentId, options) {
       });
     }
   });
+  return value;
+}
+
+/**
+ * Accepting a wording departure [CQF:REQ-025, REQ-027]: its saved draft is proposed as a forward amendment
+ * of the earlier step, credited to whoever recorded the departure, then the person approves it as that
+ * step's next generation, whose origin names the departure. Two commits, as the two records have always had.
+ */
+export async function acceptWordingDeparture(root, config, workflow, { departure, reason, actor, agent = null }) {
+  const phaseId = departure.target?.phase;
+  const target = workflow.phases?.[phaseId];
+  if (!target?.requiredArtifact?.path || !departure.proposal?.path) refused(`${departure.id} names no earlier document and draft to amend.`, 'DEPARTURE_INVALID');
+  // Who may decide is checked before anything is written: a refused approver leaves no proposal behind.
+  requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, target.approvalPolicy, actor);
+  const artifact = `${workDirRelative(config, workflow.workItem.id)}/${target.requiredArtifact.path}`;
+  const expected = nextForwardAmendmentProposal(workDirRelative(config, workflow.workItem.id), workflow, artifact);
+  const { value: proposal } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+    actor, agent, authorityGroup: null, payload: { decision: 'forward-amendment', stage: 'proposed' }
+  }, `[${workflow.workItem.id}][forward-amendment] propose ${phaseId} from ${departure.id}`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'propose a forward amendment');
+    return proposeForwardAmendment(root, config, aggregate, { phaseId, reason: departure.reason, file: departure.proposal.path, actor, agent, departure });
+  }, { exactWorkItemPaths: [expected.proposedPath],
+    eventFromResult: (result) => ({ payload: { decision: 'forward-amendment', stage: 'proposed', amendment: result.id, departure: departure.id, reviewPacketSha256: null } }) });
+  return commitForwardAmendmentDecision(root, config, workflow, { amendmentId: proposal.id, decision: 'approve', reason, actor, agent });
+}
+
+/** The amended step's approvers install the proposal as its next approved generation, or reject it. */
+async function decideAmendment(root, config, workflow, amendmentId, options) {
+  if (optionString(options, 'confirm') !== amendmentId) refused(`Confirm the exact amendment: --confirm ${amendmentId}.`, 'FORWARD_AMENDMENT_CONFIRMATION_REQUIRED');
+  const proposal = (workflow.forwardAmendments ?? []).find((entry) => entry.id === amendmentId);
+  if (!proposal) refused(`${amendmentId || 'That amendment'} is not a forward amendment of this Story.`, 'FORWARD_AMENDMENT_NOT_FOUND');
+  const actor = actionActor(root);
+  const decision = optionString(options, 'decision');
+  const value = await commitForwardAmendmentDecision(root, config, workflow, { amendmentId, decision, reason: optionString(options, 'reason'), actor });
   const owed = value.applied ? pendingAmendmentRevalidations(workflow).filter((entry) => entry.amendment === amendmentId) : [];
   if (!optionBoolean(options, 'json')) {
     if (!value.applied) console.log(`Rejected ${amendmentId}; ${proposal.phase} keeps generation ${proposal.fromGeneration}.`);

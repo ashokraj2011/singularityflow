@@ -752,10 +752,9 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     const staleRepair = run(process.execPath, [CLI, '--no-model', 'appeal', 'repair-run', '--phase', 'implementation', '--confirm', sha('not this plan'), '--json'], f.root, true);
     assert.notEqual(staleRepair.status, 0); assert.match(staleRepair.stdout, /PHASE_REPAIR_PLAN_STALE/u);
     assert.equal(f.git('diff', '--cached').stdout, index);
+    // The packet is read-only; `appeal prepare` on the command line records it as a departure [CQF:REQ-029]
+    // (test/cqf-m2-departures.test.mjs), so the exact-diff review below is driven from the packet itself.
     const prepared = await preparePhaseAppeal(f.root, definition, workflow, request);
-    const preview = completeAgentResult(f.cli('appeal', 'prepare', '--add-location', `${WORK}:AC-001=src/helper.mjs`, '--reason', request.reason, '--json').stdout);
-    assert.deepEqual(preview.data.packet.binding, prepared.binding);
-    assert.deepEqual(preview.data.packet.diff, prepared.diff);
     assert.equal(f.git('rev-parse', 'HEAD').stdout.trim(), beforeHead, 'preparation is read-only');
     const protectedConfig = Object.assign(Object.create(Object.getPrototypeOf(definition)), definition,
       { governance: { ...definition.governance, protectedPaths: ['src/helper.mjs'] } });

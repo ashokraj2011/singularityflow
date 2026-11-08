@@ -1295,6 +1295,14 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
   const unresolved = requireReconciled ? await unreconciledCandidatePaths(root, config, workflow, phase, scope) : [];
+  // A file a person rejected as a departure goes back, by the model, in this generation [CQF:REQ-026].
+  const rejected = unresolved.length && (workflow.departures ?? []).length
+    ? (await import('./departures.mjs')).rejectedDeparturePaths(workflow, phase.id) : new Map();
+  const restore = unresolved.filter((candidate) => rejected.has(candidate));
+  if (restore.length) throw new SingularityFlowError(
+    `${[...new Set(restore.map((candidate) => rejected.get(candidate).id))].join(', ')} ${restore.length === 1 ? 'was' : 'were'} rejected, and ${restore.join(', ')} still ${restore.length === 1 ? 'holds' : 'hold'} the change. Restore each to what it held when this generation began (remove a file that is new), then recheck; nothing else is decided here.`, {
+      code: 'DEPARTURE_REJECTED_NOT_REVERTED', details: { workId: workflow.workItem.id, phase: phase.id, paths: restore,
+        departures: [...new Set(restore.map((candidate) => rejected.get(candidate).id))], repairScope: 'current-phase' } });
   if (unresolved.length) throw new SingularityFlowError(
     `These changed files would be excluded from ${phase.id}: ${unresolved.join(', ')}. Account for Story edits under an approved clause with a narrow plan amendment, or preserve unrelated edits through recovery's confirmed private-copy route. Resolve them here before publication; do not reset Planning or commit them manually.`, {
       code: 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED', details: {

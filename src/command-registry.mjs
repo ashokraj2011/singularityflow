@@ -5,11 +5,11 @@ import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowE
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index']);
-const STRUCTURED = new Set(['git-policy', 'outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard']);
+const STRUCTURED = new Set(['git-policy', 'outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
@@ -29,6 +29,8 @@ const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
 const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
+// A code step's departures [CQF:REQ-021]: the model records one, anyone reads them.
+const DEPARTURE_SUBCOMMANDS = Object.freeze(['record', 'list', 'show']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts'
@@ -161,6 +163,7 @@ const LAZY_MODULES = Object.freeze({
   skill: './commands/skill.mjs',
   instruction: './commands/instruction.mjs',
   'upstream-issue': './commands/upstream-issue.mjs',
+  departure: './commands/departure.mjs',
   decisions: './commands/decisions.mjs',
   call: './commands/call.mjs',
   outcome: './commands/outcome.mjs',
@@ -239,7 +242,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['instruction'], ['assign'], ['watch'], ['recover'], ['appeal'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['import'], ['imports'], ['marketplace'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
-  ['approve'], ['reject'], ['decision'], ['decisions'], ['upstream-issue'], ['app'], ['tests'], ['apm'], ['app-review'], ['git-policy'], ['outcome'], ['result'], ['call'], ['gateway'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
+  ['approve'], ['reject'], ['decision'], ['decisions'], ['upstream-issue'], ['departure'], ['app'], ['tests'], ['apm'], ['app-review'], ['git-policy'], ['outcome'], ['result'], ['call'], ['gateway'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['revision'], ['revise'], ['hook'], ['bootstrap'], ['secrets'], ['env'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
@@ -387,7 +390,7 @@ const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store'
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 // A person's choice at a workflow decision is governed like approve and reject; reading one is not.
 const DECISION_READ_SUBCOMMANDS = Object.freeze(['show']);
-const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan', 'risk', 'test-risk', 'test-narrowing', 'test-command', 'evidence-reuse', 'visual-profile', 'witness', 'witness-exception']);
+const DECISION_MUTATION_SUBCOMMANDS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing', 'test-command', 'evidence-reuse', 'visual-profile', 'witness', 'witness-exception']);
 const DECISION_SUBCOMMANDS = Object.freeze([...DECISION_READ_SUBCOMMANDS, ...DECISION_MUTATION_SUBCOMMANDS]);
 // A preview fetches and stages bytes and a check re-reads sources: neither changes governed state.
 const IMPORT_READ_SUBCOMMANDS = Object.freeze(['preview']);
@@ -567,6 +570,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
   instruction: Object.freeze(['list', 'show', 'create', 'edit', 'remove']),
   'upstream-issue': UPSTREAM_ISSUE_SUBCOMMANDS,
+  departure: DEPARTURE_SUBCOMMANDS,
   pause: Object.freeze(['on', 'off', 'status']),
   decision: DECISION_SUBCOMMANDS,
   import: IMPORT_SUBCOMMANDS,
@@ -1685,6 +1689,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     if (!GUARD_SUBCOMMANDS.includes(action)) return unknownSubcommand('guard', action, GUARD_SUBCOMMANDS);
     return never(`guard.${action}`, definition, GUARD_READS.includes(action) ? 'read' : 'mutation');
   }
+  if (definition.name === 'departure') {
+    const action = positionals[1] ?? 'list';
+    if (!DEPARTURE_SUBCOMMANDS.includes(action)) return unknownSubcommand('departure', action, DEPARTURE_SUBCOMMANDS);
+    return never(`departure.${action}`, definition, action === 'record' ? 'mutation' : 'read');
+  }
   if (definition.name === 'upstream-issue') {
     const action = positionals[1] ?? 'list';
     if (!UPSTREAM_ISSUE_SUBCOMMANDS.includes(action)) return unknownSubcommand('upstream-issue', action, UPSTREAM_ISSUE_SUBCOMMANDS);
@@ -1704,7 +1713,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     if (action === 'task-checkpoint') return never('appeal.task-checkpoint', definition, 'mutation');
     if (['repair-quarantine', 'task-quarantine'].includes(action)) return optionString(options, 'confirm')
       ? never(`appeal.${action}`, definition, 'mutation') : never(`appeal.${action}.preview`, definition, 'read');
-    return never(`appeal.${action}`, definition, ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read');
+    // `prepare` records its changes as departures [CQF:REQ-029]; the appeal reads stay reads.
+    return never(`appeal.${action}`, definition, ['prepare', 'submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read');
   }
   if (definition.name === 'review-source') {
     const subcommand = positionals[1];
@@ -1947,6 +1957,7 @@ export function operationCatalog() {
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
     ...['list', 'show'].map(name => never(`instruction.${name}`, commandDefinition('instruction'), 'read')),
     ...UPSTREAM_ISSUE_SUBCOMMANDS.map(name => never(`upstream-issue.${name}`, commandDefinition('upstream-issue'), name === 'list' ? 'read' : 'mutation')),
+    ...DEPARTURE_SUBCOMMANDS.map(name => never(`departure.${name}`, commandDefinition('departure'), name === 'record' ? 'mutation' : 'read')),
     never('decisions.show', commandDefinition('decisions'), 'read'),
     never('decisions.record', commandDefinition('decisions'), 'mutation'),
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),
@@ -1968,8 +1979,8 @@ export function operationCatalog() {
     ]),
     ...['context', 'decision-context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
     ...['stage', 'submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
-    ...['preflight', 'resolve', 'prepare', 'list', 'show', 'risk-prepare', 'repair-plan', 'repair-status', 'checkpoint-show', 'evidence-prepare'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
-    ...['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
+    ...['preflight', 'resolve', 'list', 'show', 'risk-prepare', 'repair-plan', 'repair-status', 'checkpoint-show', 'evidence-prepare'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
+    ...['prepare', 'submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
     never('appeal.repair-quarantine.preview', commandDefinition('appeal'), 'read'),
     never('appeal.repair-quarantine', commandDefinition('appeal'), 'mutation'),
     never('appeal.task-quarantine.preview', commandDefinition('appeal'), 'read'),

@@ -328,6 +328,22 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `The correction of plan ${slot(s.owner)} was cancelled; nothing was recorded.`,
     preserves: true
   },
+  'departure.record.succeeded': {
+    headline: (s) => `Recorded ${slot(s.departure)} (${slot(s.kind)}); publish goes ahead with it, and a person decides it before the step is approved.`,
+    preserves: false
+  },
+  'departure.list.succeeded': {
+    headline: (s) => `${slot(s.count, '0')} departure(s).`,
+    preserves: true
+  },
+  'departure.show.succeeded': {
+    headline: (s) => `${slot(s.departure)} is ${slot(s.status)}.`,
+    preserves: true
+  },
+  'decision.departure.succeeded': {
+    headline: (s) => `${slot(s.departures)} ${slot(s.decision)}.`,
+    preserves: false
+  },
   'upstream-issue.raise.succeeded': {
     headline: (s) => `Raised ${slot(s.count, '0')} upstream issue(s); the current step continues while the earlier step's approvers decide.`
       + (Number(s.unowned) > 0 ? ` ${slot(s.unowned)} recorded item(s) name no single earlier owning step and were not raised.` : ''),

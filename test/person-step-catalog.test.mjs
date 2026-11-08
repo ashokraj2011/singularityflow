@@ -51,5 +51,6 @@ test('what a chat, an approval and a /sf-decide turn may record are read from th
   assert.deepEqual([...IN_APPROVAL_EFFECTS].sort(), ['evidence-reuse', 'test-run-risk', 'upstream-issue', 'upstream-issue-decision', 'visual-profile']);
   for (const kind of IN_APPROVAL_EFFECTS) assert.equal(recordableInApproval({ effects: [{ kind }] }), true, kind);
   assert.equal(recordableInApproval({ effects: [{ kind: 'test-command' }] }), false, 'a test command changes what was reviewed');
-  assert.deepEqual([...DECIDE_SKILL_MUTATIONS].sort(), ['applicability', 'choose', 'completeness', 'plan', 'scope']);
+  // A departure's decision is a /sf-decide turn's too, held to what the person answered [CQF:REQ-024].
+  assert.deepEqual([...DECIDE_SKILL_MUTATIONS].sort(), ['applicability', 'choose', 'completeness', 'departure', 'plan', 'scope']);
 });

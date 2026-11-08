@@ -51,9 +51,9 @@ function exactPath(value, label) {
  * Each change is `{ kind: 'add-location', clauseId, path }` or `{ kind: 'add-supporting', path, class, reason }`.
  * `contentHashes` holds what each file held when this was decided, so a later change to that file is
  * a question again. It sits beside `changes`, which an appeal's decision binds exactly as it was reviewed.
- * A file that is not there yet has nothing to bind.
+ * A file that is not there yet has nothing to bind. `departures` names the departures it accepts.
  */
-export function recordPlanAmendment(workflow, { changes = [], reason, actor, authorityGroup, identityAssurance = null, at, plan = {}, contentHashes = {} }) {
+export function recordPlanAmendment(workflow, { changes = [], reason, actor, authorityGroup, identityAssurance = null, at, plan = {}, contentHashes = {}, departures = [] }) {
   if (!changes.length || changes.length > MAX_CHANGES) {
     throw new SingularityFlowError(`Name 1 to ${MAX_CHANGES} changes with --add-location <clause>=<path> or --add-supporting <path>=<class>.`, { code: 'PLAN_AMENDMENT_INVALID' });
   }
@@ -101,7 +101,10 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
   workflow.planAmendments ??= [];
   const amendment = {
     id: `PAM-${String(workflow.planAmendments.length + 1).padStart(3, '0')}`,
-    changes: normalized, ...(Object.keys(contentHashes).length ? { contentHashes } : {}), reason: text, actor, authorityGroup, identityAssurance, at
+    changes: normalized, ...(Object.keys(contentHashes).length ? { contentHashes } : {}),
+    // The departures this amendment accepts [CQF:REQ-025]: each is accepted while this record counts.
+    ...(departures.length ? { departures: [...new Set(departures)].sort() } : {}),
+    reason: text, actor, authorityGroup, identityAssurance, at
   };
   workflow.planAmendments.push(amendment);
   return amendment;
@@ -136,6 +139,20 @@ export function planAmendmentRecord(workflow) {
     claims: {}, accountedPaths,
     ...(supportingFileDetails.length ? { supportingFiles: supportingFileDetails.map((entry) => entry.path), supportingFileDetails } : {})
   };
+}
+
+/**
+ * The files a code step's departures carry into its candidate [CQF:REQ-022]: a file or supporting one's,
+ * unless replaced or rejected; `phaseId` null for every step's. Beside the plan's own paths, which every
+ * reader of these reads too (departures.mjs has the rest).
+ */
+export function departureCandidatePaths(workflow, phaseId = null) {
+  const departures = workflow?.departures ?? [];
+  if (!departures.length) return [];
+  const superseded = new Set(departures.map((entry) => entry.supersedes).filter(Boolean));
+  const rejected = new Set(countedRecords(workflow, workflow.departureDecisions).filter((entry) => entry.decision === 'rejected').flatMap((entry) => entry.departures ?? []));
+  return [...new Set(departures.filter((entry) => (!phaseId || entry.phase === phaseId) && ['path', 'supporting'].includes(entry.kind)
+    && !superseded.has(entry.id) && !rejected.has(entry.id)).flatMap((entry) => entry.paths ?? []))].sort();
 }
 
 /** Every path an amendment accounted for, across the planned records given. */

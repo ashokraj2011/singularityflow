@@ -637,6 +637,9 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   PHASE_REPAIR_JOURNAL_INVALID: 'author-repairs',
   PHASE_APPEAL_REVIEW_REQUIRED: 'someone-decides',
   PHASE_APPEAL_INTEGRITY: 'someone-decides',
+  // Each departure says who decides it on the list; a rejected one its author restores [CQF:REQ-023, REQ-026].
+  DEPARTURES_UNDECIDED: 'someone-decides',
+  DEPARTURE_REJECTED_NOT_REVERTED: 'author-repairs',
   TRP_DOCUMENT_GATE_BLOCKED: 'someone-decides',
   TRP_PHASE_GATE_BLOCKED: 'someone-decides',
   SKP_HOST_ENFORCEMENT_UNAVAILABLE: 'someone-decides',
@@ -744,7 +747,7 @@ function holdSummary(message) {
 }
 
 // A list item of its own carries each of these, with who decides it.
-const LISTED_HOLDS = Object.freeze(['DECISION_REQUIRED', 'CONFORMANCE_BLOCKING_VERDICTS', 'STORY_COMPLETION_REFUSED']);
+const LISTED_HOLDS = Object.freeze(['DECISION_REQUIRED', 'CONFORMANCE_BLOCKING_VERDICTS', 'STORY_COMPLETION_REFUSED', 'DEPARTURES_UNDECIDED']);
 // The refusals that say who else may decide (eligibleApprovers), and why this identity is not one of them.
 const IDENTITY_BARS = Object.freeze({ APPROVAL_IDENTITY_NOT_AUTHORIZED: null, APPROVAL_IDENTITY_MISSING: null,
   APPROVAL_IDENTITY_ALREADY_RECORDED: 'recorded', APPROVAL_SELF_APPROVAL_PROHIBITED: 'author' });

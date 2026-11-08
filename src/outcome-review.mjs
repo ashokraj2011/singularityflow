@@ -132,6 +132,10 @@ function deliveryValidation(review, delivered, graph) {
     phase: delivered?.id ?? null, generation: delivered?.generation ?? null, runs,
     diagnosticRuns: (delivery?.preflight ?? []).map(item => ({ commandId: item.commandId, status: item.record?.status ?? 'unavailable', tests: item.record?.tests ?? {} }))
   };
+  // The publish check's own passing runs: not the step's verdict, but what submission reuses on unchanged
+  // code [CQF:REQ-016]. Saying none was recorded sent a real chat to tell the person the tests had not run.
+  const publishCheck = tests.status === 'not-recorded' && tests.diagnosticRuns.length
+    && tests.diagnosticRuns.every(run => run.status === 'passed' && !run.tests.failed) ? tests.diagnosticRuns : [];
   const app = review.application;
   const checks = review.criteria.flatMap(criterion => criterion.checks.filter(check => check.method !== 'test')
     .map(check => ({ criterion: criterion.id, slot: check.slot, method: check.method, status: check.status })));
@@ -154,7 +158,9 @@ function deliveryValidation(review, delivered, graph) {
     question: `What would you like to validate for ${review.workId}?`, tests,
     steps: [
       { id: 'tests', label: 'Automated tests', status: tests.status, detail: tests.status === 'not-applicable'
-        ? 'This Story has no code delivery to test yet. Follow its current workflow step.' : tests.status === 'not-recorded'
+        ? 'This Story has no code delivery to test yet. Follow its current workflow step.' : publishCheck.length
+        ? `The publish check ran ${publishCheck.slice(0, 8).map(run => `${run.commandId} on this code: ${run.tests.passed ?? 'unknown'} passed, ${run.tests.failed ?? 0} failed`).join('; ')}. It becomes the step's recorded run at submission, which reuses it while the code is unchanged instead of running it again.`
+        : tests.status === 'not-recorded'
         ? 'No retained test execution is recorded for this delivery. Diagnostic passes do not replace publication checks.'
         : `${runs.length} recorded test command(s). ${runs.slice(0, 8).map(run => `${run.commandId}: ${run.status}; ${run.tests.passed ?? 'unknown'} passed, ${run.tests.failed ?? 'unknown'} failed, ${run.tests.skipped ?? 'unknown'} skipped.`).join(' ')} Passing counts alone do not establish clause acceptance.` },
       { id: 'application', label: 'Try the application or API', status: app.status === 'none-declared' ? 'setup-available'

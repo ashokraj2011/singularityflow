@@ -10,13 +10,16 @@ export function publishedFindingsSummary(evidence) {
   const counted = new Set(evidence.counted ?? []);
   const remaining = (evidence.findings ?? []).filter((finding) => counted.has(finding.fingerprint)).slice(0, 5)
     .map(({ id, tool, rule, severity, file, line, message }) => ({ id, tool, rule, severity, file, line, message }));
-  if (evidence.outcome === 'passed' && !unavailable.length) return null;
+  const existing = evidence.counts?.existing ?? 0;
+  if (evidence.outcome === 'passed' && !unavailable.length && !existing) return null;
   const parts = [];
   if (remaining.length) {
     parts.push(`${evidence.counts?.counted ?? remaining.length} finding(s) on changed lines remain after ${evidence.attempt ?? '?'} attempt(s)`
       + ` and go to the step's approvers (${remaining.slice(0, 3).map((finding) => `${finding.rule ?? finding.tool} at ${finding.file ?? '?'}:${finding.line ?? '?'}`).join('; ')})`);
   }
   if (unavailable.length) parts.push(`scanner${unavailable.length === 1 ? '' : 's'} ${unavailable.join(', ')} could not run and blocked nothing`);
+  // Findings on lines this Story did not change are shown, and count for nothing [CQF:REQ-042].
+  if (existing) parts.push(`${existing} existing finding(s) on lines this Story did not change count for nothing`);
   return { mode: evidence.mode, outcome: evidence.outcome, attempt: evidence.attempt ?? null,
     counts: { counted: evidence.counts?.counted ?? 0, newCode: evidence.counts?.newCode ?? 0, existing: evidence.counts?.existing ?? 0 },
     remaining, unavailable, words: `${parts.join('; ')}.` };

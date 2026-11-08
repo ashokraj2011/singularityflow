@@ -172,5 +172,6 @@ test('the refusal hands the code step bounded findings and a same-turn continuat
   const summary = publishedFindingsSummary({ mode: 'warn', outcome: 'warned', attempt: 3, counts: { counted: 1, newCode: 1, existing: 4 }, counted: [finding.fingerprint],
     findings: [finding], unavailable: [{ commandId: 'semgrep', reason: 'missing' }] });
   assert.deepEqual([summary.outcome, summary.remaining.map((entry) => entry.rule), summary.unavailable], ['warned', ['no-eval'], ['semgrep']]);
-  assert.match(summary.words, /1 finding\(s\) on changed lines remain after 3 attempt\(s\) and go to the step's approvers \(no-eval at src\/a\.js:2\); scanner semgrep could not run and blocked nothing\./u);
+  assert.match(summary.words, /1 finding\(s\) on changed lines remain after 3 attempt\(s\) and go to the step's approvers \(no-eval at src\/a\.js:2\); scanner semgrep could not run and blocked nothing; 4 existing finding\(s\) on lines this Story did not change count for nothing\./u);
+  assert.match(publishedFindingsSummary({ outcome: 'passed', unavailable: [], counts: { existing: 2 } }).words, /^2 existing finding\(s\)/u, 'existing findings are shown');
 });

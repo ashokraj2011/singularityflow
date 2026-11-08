@@ -362,7 +362,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // and submission reading CodeQL's alerts with no scanner of its own (state.mjs +201). The SonarQube and GitHub reads stay lazy
     // (findings/servers.mjs); no new eager file.
     // 9,559,800 (measured 9,559,794, commands/phase-lifecycle.mjs): the findings refusals name their catalog entry (finding-catalog.mjs +228).
-    assert.ok(closure.bytes <= 9_559_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,560,350 (measured 9,560,305, commands/phase-lifecycle.mjs): the findings loop loads only for a step with a scanner or CodeQL
+    // (state.mjs +511), so every other step's publication and submission imports none of it.
+    assert.ok(closure.bytes <= 9_560_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

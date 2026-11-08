@@ -9,6 +9,7 @@
  * stand-in program so that nothing here reaches the registry.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -84,13 +85,21 @@ const PLAN = (WORK) => [
   '## Risks and rollback', '', 'Risk is a wrong constant; rollback restores the previous module.', ''
 ].join('\n');
 
-test('adding a package with a known critical advisory holds the step until a person accepts it [CQF M5 acceptance]', slowLane({ timeout: 900_000 }), async (t) => {
-  const WORK = 'CQF-501';
+/**
+ * A Story at its implementation step that adds minimist 1.2.5, which has a known critical advisory,
+ * with npm audit as its security command. `securityReviewers` names that group's one member.
+ */
+async function storyAddingMinimist(t, WORK, { securityReviewers = null } = {}) {
   const audit = { id: 'npm-audit', kind: 'security', modelPolicy: 'never', argv: [process.execPath, 'tools/print-audit.mjs'],
     result: { adapter: 'npm-audit', path: '.sflow/results/npm-audit.json' } };
   const lock = (packages) => `${JSON.stringify({ name: 'value-app', lockfileVersion: 3, requires: true, packages: { '': { name: 'value-app' }, ...packages } }, null, 2)}\n`;
   const story = await approvedSpecificationStory(t, WORK, { configure: (configuration) => {
     configuration.phases.implementation.qualityCommands = [audit];
+    if (securityReviewers) {
+      configuration.approvalAuthorities['security-reviewers'] = { label: 'Security reviewers', members: [{ email: securityReviewers }] };
+      // Not enrolled into every group, as the proof-of-concept profile would enrol the Story's creator.
+      configuration.approvalSecurity = { profile: 'team', autoEnrollNewIdentities: false };
+    }
   }, beforeStart: async ({ root, git }) => {
     // The stand-in prints what npm audit printed for this lockfile; nothing here reaches the registry.
     await mkdir(path.join(root, 'tools'), { recursive: true });
@@ -125,6 +134,14 @@ test('adding a package with a known critical advisory holds the step until a per
   await writeFile(path.join(item, 'artifacts/implementation/operator-notes.md'), ['# Operator notes', '', 'Nothing changes for an operator.', ''].join('\n'));
   cli('artifact', 'scan', '--phase', 'implementation');
   const workflow = async () => JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  return { ...story, workflow };
+}
+
+
+test('adding a package with a known critical advisory holds the step until a person accepts it [CQF M5 acceptance]', slowLane({ timeout: 900_000 }), async (t) => {
+  const WORK = 'CQF-501';
+  const story = await storyAddingMinimist(t, WORK);
+  const { cli, workflow } = story;
 
   // Publication goes ahead: a vulnerable package is no finding to repair in the turn.
   const result = story.run(process.execPath, [CLI, '--no-model', 'phase', 'prepublish', 'implementation', '--for-agent', '--json', '--publish-if-ready'], { allowFailure: true });
@@ -166,4 +183,38 @@ test('adding a package with a known critical advisory holds the step until a per
   const approved = story.run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], { allowFailure: true });
   assert.equal(approved.status, 0, `${approved.stdout}\n${approved.stderr}`);
   assert.equal((await workflow()).phases.implementation.status, 'approved');
+});
+
+test('with security reviewers named, only they accept a vulnerable package, however the command names its kind [CQF:REQ-053, decision 10]', slowLane({ timeout: 900_000 }), async (t) => {
+  const WORK = 'CQF-502';
+  const story = await storyAddingMinimist(t, WORK, { securityReviewers: 'security.reviewer@example.com' });
+  const { root, workflow } = story;
+  const published = story.run(process.execPath, [CLI, '--no-model', 'phase', 'prepublish', 'implementation', '--for-agent', '--json', '--publish-if-ready'], { allowFailure: true });
+  assert.equal(published.status, 0, published.stdout.slice(0, 3000));
+  const submitted = story.run(process.execPath, [CLI, '--no-model', 'submit', 'implementation'], { allowFailure: true });
+  assert.equal(submitted.status, 0, `${submitted.stdout}\n${submitted.stderr}`);
+  const evidence = (await workflow()).phases.implementation.deliveryEvidence.submittedFindings;
+  const finding = evidence.findings.find((entry) => entry.fingerprint === evidence.dependencies.held[0]);
+  const shown = JSON.parse(story.cli('phase', 'show', 'implementation', '--json').stdout);
+  const hold = shown.approvalCheck.holds.find((entry) => entry.code === 'DEPENDENCY_VULNERABILITY_HELD');
+  assert.deepEqual([hold.who, hold.vulnerabilities[0].authorities], ['A security reviewer of this Story decides', ['security-reviewers']]);
+
+  const expires = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+  const decide = (identity, ...extra) => spawnSync(process.execPath, [CLI, '--no-model', 'decision', 'finding-risk', WORK, '--phase', 'implementation', '--finding', finding.id,
+    ...extra, '--reason', 'Only the CLI parser uses it, behind a fixed argument list.', '--expires', expires],
+  { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: identity } });
+  // The step's approver is no security reviewer: refused, and naming the finding as another kind changes nothing.
+  for (const extra of [[], ['--fingerprint', finding.fingerprint, '--rule', finding.rule, '--tool', finding.tool, '--kind', 'code-smell'],
+    ['--fingerprint', finding.fingerprint, '--rule', finding.rule, '--tool', finding.tool]]) {
+    const refused = decide('History Tester', ...extra);
+    assert.notEqual(refused.status, 0, JSON.stringify(extra));
+    assert.match(refused.stderr, /security-reviewers/u, refused.stderr);
+  }
+  assert.equal((await workflow()).findingRisks?.length ?? 0, 0, 'nothing was recorded');
+  const accepted = decide('Security Reviewer');
+  assert.equal(accepted.status, 0, accepted.stderr);
+  const [decision] = (await workflow()).findingRisks;
+  assert.deepEqual([decision.authorityGroup, decision.kind, decision.security], ['security-reviewers', 'dependency', true]);
+  const approved = story.run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], { allowFailure: true });
+  assert.equal(approved.status, 0, `${approved.stdout}\n${approved.stderr}`);
 });

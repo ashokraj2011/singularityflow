@@ -25,10 +25,16 @@ export function securityFinding(finding) {
   return finding?.feed === 'security' || SECURITY_KINDS.has(finding?.kind);
 }
 
-/** Who may accept `finding` on `phaseId`: the security reviewers for a security finding when the workflow names them, else the step approvers. */
+/**
+ * Who may accept `finding` on `phaseId`: the security reviewers for a security finding when the workflow
+ * names them, else the step approvers. A finding whose kind is not known (named on another checkout
+ * without --kind) is treated as a security finding, so leaving the kind out never moves a decision
+ * away from the security reviewers [decision 10].
+ */
 export function findingRiskAuthorities(workflow, phaseId, finding) {
   const registry = workflow?.resolution?.approvalAuthorities ?? {};
-  if (securityFinding(finding) && (registry[SECURITY_REVIEWERS]?.members?.length || registry[SECURITY_REVIEWERS]?.allowAnyGitIdentity === true)) {
+  const security = securityFinding(finding) || !finding?.kind;
+  if (security && (registry[SECURITY_REVIEWERS]?.members?.length || registry[SECURITY_REVIEWERS]?.allowAnyGitIdentity === true)) {
     return [SECURITY_REVIEWERS];
   }
   return testRunRiskAuthorities(workflow, phaseId);
@@ -66,7 +72,7 @@ export function recordFindingRisk(workflow, { phaseId, finding, reason, expires,
     id: `FRK-${String(workflow.findingRisks.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
     phase: phaseId, findingId: finding.id ?? null, fingerprint: finding.fingerprint, rule: finding.rule ?? null, tool: finding.tool,
     toolVersion: finding.toolVersion ?? null, ...(finding.file ? { file: finding.file } : {}), ...(finding.severity ? { severity: finding.severity } : {}),
-    ...(finding.kind ? { kind: finding.kind } : {}), security: securityFinding(finding),
+    ...(finding.kind ? { kind: finding.kind } : {}), security: securityFinding(finding) || !finding.kind,
     reason: why, expiresAt: expiry.toISOString(), actor, authorityGroup, identityAssurance, at
   };
   workflow.findingRisks.push(decision);

@@ -70,7 +70,7 @@ function namedFinding(findingId, options) {
 export async function findingRiskDecisionPart(root, config, workflow, { phaseId, revoke = null, finding = null, reason = '', expires = null }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   const target = revoke ? (workflow.findingRisks ?? []).find((entry) => !entry.revokes && entry.id === revoke) ?? null : null;
-  const groups = findingRiskAuthorities(workflow, phaseId, revoke ? { kind: target?.kind, feed: target?.security ? 'security' : null } : finding);
+  const groups = findingRiskAuthorities(workflow, phaseId, revoke ? { kind: target?.kind ?? null, feed: target?.security ? 'security' : null } : finding);
   if (!groups.length) {
     throw new SingularityFlowError(`Step ${phaseId} has no approval group, so nobody can accept its findings.`, { code: 'RISK_AUTHORITY_UNAVAILABLE' });
   }
@@ -119,7 +119,10 @@ export async function decisionFindingRiskCommand(positionals, options) {
   if (!revoke) {
     const findingId = optionString(options, 'finding') ?? '';
     if (!FINDING_ID.test(findingId)) throw new SingularityFlowError('Name the finding with --finding F-... as its refusal or review gave it.', { code: 'FINDING_RISK_INVALID' });
-    finding = namedFinding(findingId, options) ?? await knownFinding(root, workflow, phaseId, findingId);
+    // What this checkout recorded of the finding wins over what the options say of it, so a kind given
+    // on the command line can never move a security finding away from its security reviewers [decision 10].
+    const named = namedFinding(findingId, options);
+    finding = await knownFinding(root, workflow, phaseId, findingId) ?? named;
     if (!finding) {
       throw new SingularityFlowError(`No finding ${findingId} is recorded for ${phaseId} in this checkout. Run the command its refusal gave, with --fingerprint, --rule and --tool.`,
         { code: 'FINDING_RISK_NOT_FOUND' });

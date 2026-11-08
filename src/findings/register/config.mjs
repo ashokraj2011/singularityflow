@@ -1,6 +1,7 @@
 /**
  * What M6 reads from `singularity/findings.yml` [CQF Configuration]: each upload source's `columns:`
- * map, and the grouping of remediation Stories. The file is optional, and one that cannot be read is
+ * map, the grouping of remediation Stories, and what a code step does with the items on what it
+ * touches (`policy.bringIntoCodeStep`, REQ-066). The file is optional, and one that cannot be read is
  * reported and the defaults apply, so a mistake in it never stops an import or a Story.
  *
  * The `api`, `link`, `confluence` and `file` sources are for `findings sync` (REQ-064, later); they
@@ -23,9 +24,14 @@ export const STORY_DEFAULTS = Object.freeze({
   tlm: Object.freeze({ group: 'per-component', maximumFindings: 10 })
 });
 
+// touched: a code step lists the items on what it touches and fixes the eligible ones (decisions 18, 19);
+// list: it lists them and fixes none by default; off: it does not list them.
+export const BRING_INTO_CODE_STEP = Object.freeze(['touched', 'list', 'off']);
+
 const defaults = (warnings = [], present = false) => ({
   present, warnings, sources: { security: [], tlm: [] },
-  stories: { security: { ...STORY_DEFAULTS.security }, tlm: { ...STORY_DEFAULTS.tlm } }
+  stories: { security: { ...STORY_DEFAULTS.security }, tlm: { ...STORY_DEFAULTS.tlm } },
+  policy: { security: { bringIntoCodeStep: 'touched' }, tlm: { bringIntoCodeStep: 'touched' } }
 });
 
 /** The upload sources and Story grouping, or the defaults with the reason the file was not used. */
@@ -65,6 +71,11 @@ export async function readFindingsConfig(root) {
     if (maximum != null) {
       if (Number.isInteger(maximum) && maximum >= 1 && maximum <= 50) config.stories[feed].maximumFindings = maximum;
       else config.warnings.push(`${feed}.stories.maximumFindings must be a whole number from 1 to 50; ${STORY_DEFAULTS[feed].maximumFindings} applies.`);
+    }
+    const bring = section.policy && typeof section.policy === 'object' ? section.policy.bringIntoCodeStep : undefined;
+    if (bring != null) {
+      if (BRING_INTO_CODE_STEP.includes(bring)) config.policy[feed].bringIntoCodeStep = bring;
+      else config.warnings.push(`${feed}.policy.bringIntoCodeStep is ${BRING_INTO_CODE_STEP.join(', ')}; touched applies.`);
     }
   }
   return config;

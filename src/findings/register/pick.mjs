@@ -16,7 +16,8 @@ import { currentRepository, readRegister, registerDestination, registerLedger, w
 import { normalizeLedgerConfig } from '../../ledger-config.mjs';
 
 const LISTED_STATES = Object.freeze(['open', 'in-story']);
-const quoted = (value, maximum = 160) => {
+/** The team's own words as SFlow shows them: one line, no quotes or control characters, bounded, in quotes. */
+export const quoted = (value, maximum = 160) => {
   const text = String(value ?? '').replace(/[\u0000-\u001f\u007f"]+/gu, ' ').replace(/\s+/gu, ' ').trim();
   return `"${text.length <= maximum ? text : `${text.slice(0, maximum - 1)}…`}"`;
 };

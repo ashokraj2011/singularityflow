@@ -115,24 +115,32 @@ export function groupDescription(group) {
 }
 
 /** The files that can pin a component's version, read at `ref`; bounded, never executed. */
-const PIN_FILES = Object.freeze(['package.json', '.nvmrc', '.node-version', 'Dockerfile', 'requirements.txt', 'pyproject.toml', 'pom.xml',
+export const PIN_FILES = Object.freeze(['package.json', '.nvmrc', '.node-version', 'Dockerfile', 'requirements.txt', 'pyproject.toml', 'pom.xml',
   'build.gradle', 'build.gradle.kts', 'go.mod', '.python-version', '.java-version', '.tool-versions']);
 
 /** Every version `component` is pinned at in the files at `ref`: `[{ file, version }]`. */
 export function pinnedVersions(root, ref, component, { env = process.env } = {}) {
+  return pinnedIn((file) => {
+    const text = committedFileText(root, ref, file, { env });
+    return text && text.length <= 1024 * 1024 ? text : null;
+  }, component);
+}
+
+/**
+ * Every version `component` is pinned at in one module's pin files, each read with `read(file)` (text or
+ * null). `directory` is the module's folder, '' for the repository root; files are named from the root.
+ */
+export function pinnedIn(read, component, { directory = '' } = {}) {
   const name = String(component ?? '').trim();
   const lower = name.toLowerCase();
   const found = [];
-  const read = (file) => {
-    const text = committedFileText(root, ref, file, { env });
-    return text && text.length <= 1024 * 1024 ? text : null;
-  };
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const runtimes = { node: ['.nvmrc', '.node-version'], nodejs: ['.nvmrc', '.node-version'], python: ['.python-version'], java: ['.java-version'] };
-  for (const file of PIN_FILES) {
-    const text = read(file);
+  for (const base of PIN_FILES) {
+    const file = directory ? `${directory}/${base}` : base;
+    const text = name ? read(file) : null;
     if (!text) continue;
-    if (file === 'package.json') {
+    if (base === 'package.json') {
       try {
         const manifest = JSON.parse(text);
         for (const block of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
@@ -140,26 +148,26 @@ export function pinnedVersions(root, ref, component, { env = process.env } = {})
         }
         if (['node', 'nodejs'].includes(lower) && manifest.engines?.node) found.push({ file, version: String(manifest.engines.node) });
       } catch { /* not JSON: nothing pinned here */ }
-    } else if (runtimes[lower]?.includes(file)) {
+    } else if (runtimes[lower]?.includes(base)) {
       const version = text.trim().split(/\s+/u)[0];
       if (version) found.push({ file, version });
-    } else if (file === 'Dockerfile') {
+    } else if (base === 'Dockerfile') {
       for (const match of text.matchAll(/^\s*FROM\s+(?:--platform=\S+\s+)?(\S+?):(\S+)/gimu)) {
         if (match[1].toLowerCase().split('/').at(-1) === lower) found.push({ file, version: match[2] });
       }
-    } else if (file === '.tool-versions') {
+    } else if (base === '.tool-versions') {
       const match = new RegExp(`^${escaped}(?:js)?\\s+(\\S+)`, 'imu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file === 'requirements.txt' || file === 'pyproject.toml') {
+    } else if (base === 'requirements.txt' || base === 'pyproject.toml') {
       const match = new RegExp(`["']?${escaped}\\s*(?:==|>=|~=)\\s*([0-9][^\\s"',;]*)`, 'imu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file === 'pom.xml') {
+    } else if (base === 'pom.xml') {
       const match = new RegExp(`<artifactId>\\s*${escaped}[^<]*</artifactId>\\s*(?:<[^>]+>[^<]*</[^>]+>\\s*)*?<version>\\s*([^<\\s]+)\\s*</version>`, 'iu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file.startsWith('build.gradle')) {
+    } else if (base.startsWith('build.gradle')) {
       const match = new RegExp(`["'][^"':]+:${escaped}:([^"']+)["']`, 'iu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file === 'go.mod') {
+    } else if (base === 'go.mod') {
       const match = new RegExp(`^\\s*(?:require\\s+)?\\S*${escaped}\\s+v?([0-9][^\\s]*)`, 'imu').exec(text);
       if (match) found.push({ file, version: match[1] });
     }

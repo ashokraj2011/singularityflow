@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { assertSkillArtifactSetEvidence, catalogArtifactSet, memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
-import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
+import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { exactFileAtObject } from './git.mjs';
 import { authoredArtifactText, inspectManagedArtifactMetadata } from './publication-preflight.mjs';
 import { recordSha256 } from './records.mjs';

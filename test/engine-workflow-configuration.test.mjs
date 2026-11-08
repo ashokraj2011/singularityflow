@@ -54,10 +54,10 @@ test('compiler construction refuses missing, inherited, accessor and unrecognize
   assert.throws(()=>createWorkflowConfigurationCompiler(Object.create(composition.dependencies)),code);
   assert.throws(()=>createWorkflowConfigurationCompiler({...composition.dependencies,ready:true}),code);
   let called=false;const accessor={...composition.dependencies};
-  Object.defineProperty(accessor,'normalizeSpecPolicy',{enumerable:true,get(){called=true;throw new Error('do not execute');}});
+  Object.defineProperty(accessor,'normalizeCommitPolicyRuntime',{enumerable:true,get(){called=true;throw new Error('do not execute');}});
   assert.throws(()=>createWorkflowConfigurationCompiler(accessor),code);assert.equal(called,false);
   const extra={...composition.dependencies,[Symbol('hidden')]:true};assert.throws(()=>createWorkflowConfigurationCompiler(extra),code);
-  assert.throws(()=>createWorkflowConfigurationCompiler({...composition.dependencies,normalizeSpecPolicy:null}),code);
+  assert.throws(()=>createWorkflowConfigurationCompiler({...composition.dependencies,normalizeCommitPolicyRuntime:null}),code);
 });
 
 test('a compiler captures its trusted collaborators and does not read mutable construction state later',()=>{
@@ -66,6 +66,17 @@ test('a compiler captures its trusted collaborators and does not read mutable co
   const definition=compiler.validateDefinition(structuredClone(source));
   assert.deepEqual(compiler.resolveWorkType(definition,'spec-driven-standard'),native.resolveWorkType(native.validateDefinition(structuredClone(source)),'spec-driven-standard'));
   assert.equal(Object.isFrozen(compiler),true);
+});
+
+test('shared policy rules cannot be replaced through compiler construction',()=>{
+  for(const name of ['normalizeSessionPolicy','isTemplateReference','parseTemplateReference','normalizeTemplateCatalog',
+    'resolveTemplate','normalizeReworkLoops','normalizeRepairBudget','normalizeWorkTypeIntelligence','assertModelTask',
+    'normalizeHarnessImports','normalizeContextPolicy','normalizeTestRuntime','normalizeTokenEconomy',
+    'normalizeCodeDeliveryPolicy','normalizeSpecPolicy','assertDocumentStoragePolicy']) {
+    assert.equal(Object.hasOwn(composition.dependencies,name),false,name);
+    assert.throws(()=>createWorkflowConfigurationCompiler({...composition.dependencies,[name]:()=>({ready:true})}),
+      {code:'ENGINE_CONFIGURATION_COMPILER_INVALID'},name);
+  }
 });
 
 test('definition data cannot substitute a policy validator or waive convergence approval',()=>{

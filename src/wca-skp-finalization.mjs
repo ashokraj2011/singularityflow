@@ -14,7 +14,7 @@ import { verifySkillPackage } from './skp-package.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
 import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
-import { resolveTemplate } from './template-catalog.mjs';
+import { resolveTemplate } from "./kernel/configuration-policy.mjs";
 import { validateDefinition, resolveWorkType } from './config.mjs';
 import { planSharedSkillContractChanges, planSharedSkillContractGroupChanges,
   WCA_SHARED_SKILL_CONTRACT_GROUP_REVIEW_PROFILE } from './wca-workflow-changes.mjs';

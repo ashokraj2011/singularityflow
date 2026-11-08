@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 
 import { assessTokenAdmission } from './token-admission.mjs';
-import { normalizeTokenEconomy, selectedTokenEconomyProfile } from './token-economy.mjs';
+import { selectedTokenEconomyProfile } from './token-economy.mjs';
+import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 import { SingularityFlowError } from './util.mjs';
 
 const SECTION_ID = /^[a-z][a-z0-9-]{0,63}$/;

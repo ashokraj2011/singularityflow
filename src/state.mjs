@@ -28,7 +28,8 @@ import { reservePreparedDocumentSuccessor } from './prepared-document-successor.
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { normalizeTestRuntime } from "./kernel/configuration-policy.mjs";
 import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoice } from './intake-baseline.mjs';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,7 +62,8 @@ import { amendmentRetentionCandidates } from './phase-retention.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments } from './forward-amendments.mjs';
 
-import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
+import { contextBoundaryHandoff } from './context-policy.mjs';
+import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority, sameApprover } from './kernel/approval-policy.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -107,7 +109,8 @@ import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 
 import { planRowsOf } from './plan-amendments.mjs';
-import { buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes, evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy, readBoundSpecificationClaimMap, predecessorSpecClauses, plannedClaimsForObservedPhase } from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes, evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, readBoundSpecificationClaimMap, predecessorSpecClauses, plannedClaimsForObservedPhase } from './specifications.mjs';
+import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
@@ -135,7 +138,7 @@ export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 
-import { normalizeTokenEconomy } from './token-economy.mjs';
+import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import { captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, verifyWorkflowSnapshot } from './workflow-snapshots.mjs';

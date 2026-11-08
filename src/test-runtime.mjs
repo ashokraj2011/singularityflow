@@ -1,3 +1,5 @@
+import { normalizeTestRuntime } from './kernel/configuration-policy.mjs';
+export { normalizeTestRuntime } from './kernel/configuration-policy.mjs';
 /** Approved test-only runtime settings. Never change the caller's environment. */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -6,18 +8,6 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-const NODE_OPTIONS = new Set(['--no-experimental-webstorage']);
-
-export function normalizeTestRuntime(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).some(key => key !== 'nodeOptions')
-      || (Object.hasOwn(value, 'nodeOptions') && (!Array.isArray(value.nodeOptions)
-        || value.nodeOptions.some(flag => !NODE_OPTIONS.has(flag))))) {
-    throw new SingularityFlowError('repositoryReadiness.testRuntime supports only nodeOptions: [--no-experimental-webstorage].',
-      { code: 'TEST_RUNTIME_INVALID' });
-  }
-  return { nodeOptions: [...new Set(value.nodeOptions ?? [])].sort() };
-}
 
 /** test-run-environment.mjs [TCE:REQ-030]; an editor bundle loads the staged CLI's copy by URL. */
 export const gateTestEnvironmentModule = () => (globalThis.__SFLOW_EXTENSION_HOST__ === true

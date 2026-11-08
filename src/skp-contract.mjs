@@ -15,10 +15,10 @@ import path from 'node:path';
 
 import { normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { normalizeArtifactSet } from './artifact-sets.mjs';
-import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
+import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
-import { assertModelTask } from './model-tasks.mjs';
+import { assertModelTask } from "./kernel/configuration-policy.mjs";
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SKP_PARSER_PROFILE } from './skp-package.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';

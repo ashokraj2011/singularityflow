@@ -31,7 +31,7 @@ import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
-import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
+import { worldModelDisabledForWorkflow } from './kernel/configuration-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { phaseOwnsScope, scopeStepOf, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { deriveMutationContract, mutationToolProtocol } from './phase-mutation-contract.mjs';

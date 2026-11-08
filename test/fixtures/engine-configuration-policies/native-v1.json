@@ -1,0 +1,963 @@
+{
+  "baseline": "afa767fdc",
+  "results": [
+    {
+      "id": 0,
+      "family": "session",
+      "name": "normalizeSessionPolicy",
+      "status": "returned",
+      "value": {
+        "workItemSelection": "off",
+        "requireBeforeTools": false
+      }
+    },
+    {
+      "id": 1,
+      "family": "session",
+      "name": "normalizeSessionPolicy",
+      "status": "returned",
+      "value": {
+        "workItemSelection": "prompt",
+        "requireBeforeTools": true
+      }
+    },
+    {
+      "id": 2,
+      "family": "session",
+      "name": "normalizeSessionPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "session.requireBeforeTools must be boolean.",
+        "details": null
+      }
+    },
+    {
+      "id": 3,
+      "family": "session",
+      "name": "normalizeSessionPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "session contains unknown field 'unexpected'.",
+        "details": null
+      }
+    },
+    {
+      "id": 4,
+      "family": "template",
+      "name": "normalizeTemplateCatalog",
+      "status": "returned",
+      "value": {}
+    },
+    {
+      "id": 5,
+      "family": "template",
+      "name": "normalizeTemplateCatalog",
+      "status": "returned",
+      "value": {
+        "example": {
+          "id": "example",
+          "path": "common/example.md",
+          "label": "example",
+          "kind": null,
+          "description": null
+        }
+      }
+    },
+    {
+      "id": 6,
+      "family": "template",
+      "name": "normalizeTemplateCatalog",
+      "status": "returned",
+      "value": {
+        "example": {
+          "id": "example",
+          "path": "common/example.md",
+          "label": "Example",
+          "kind": "requirements",
+          "description": null
+        }
+      }
+    },
+    {
+      "id": 7,
+      "family": "template",
+      "name": "normalizeTemplateCatalog",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "TEMPLATE_PATH_INVALID",
+        "exitCode": 1,
+        "message": "templates.example.path must be a repository-relative path without '..'.",
+        "details": null
+      }
+    },
+    {
+      "id": 8,
+      "family": "template",
+      "name": "parseTemplateReference",
+      "status": "returned",
+      "value": "example"
+    },
+    {
+      "id": 9,
+      "family": "template",
+      "name": "parseTemplateReference",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "TEMPLATE_REFERENCE_INVALID",
+        "exitCode": 1,
+        "message": "Template reference 'template:Example' must be template:<id>, where the id is lower-case kebab-case.",
+        "details": {
+          "value": "template:Example"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "family": "template",
+      "name": "resolveTemplate",
+      "status": "returned",
+      "value": {
+        "source": "catalog",
+        "id": "example",
+        "path": "common/example.md",
+        "label": "example",
+        "kind": null
+      }
+    },
+    {
+      "id": 11,
+      "family": "template",
+      "name": "resolveTemplate",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "TEMPLATE_UNKNOWN",
+        "exitCode": 1,
+        "message": "Template references template 'absent', which the catalog does not declare. No templates are declared.",
+        "details": {
+          "id": "absent",
+          "known": []
+        }
+      }
+    },
+    {
+      "id": 12,
+      "family": "template",
+      "name": "resolveTemplate",
+      "status": "returned",
+      "value": {
+        "source": "agent",
+        "id": null,
+        "path": null,
+        "reference": "agent:example/default",
+        "label": "agent:example/default",
+        "kind": null
+      }
+    },
+    {
+      "id": 13,
+      "family": "template",
+      "name": "templatePath",
+      "status": "returned",
+      "value": "common/example.md"
+    },
+    {
+      "id": 14,
+      "family": "template",
+      "name": "templateReferences",
+      "status": "returned",
+      "value": [
+        "phase draft",
+        "workflow sample/draft"
+      ]
+    },
+    {
+      "id": 15,
+      "family": "repair",
+      "name": "normalizeReworkLoops",
+      "status": "returned",
+      "value": []
+    },
+    {
+      "id": 16,
+      "family": "repair",
+      "name": "normalizeReworkLoops",
+      "status": "returned",
+      "value": [
+        {
+          "from": "check",
+          "to": "repair",
+          "maxAttempts": 2
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "family": "repair",
+      "name": "normalizeReworkLoops",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "Work type 'work type' reworkLoops[0] must return from a later phase to an earlier phase.",
+        "details": null
+      }
+    },
+    {
+      "id": 18,
+      "family": "repair",
+      "name": "normalizeRepairBudget",
+      "status": "returned",
+      "value": null
+    },
+    {
+      "id": 19,
+      "family": "repair",
+      "name": "normalizeRepairBudget",
+      "status": "returned",
+      "value": {
+        "maxAttempts": 3,
+        "resetOnPhase": "scope"
+      }
+    },
+    {
+      "id": 20,
+      "family": "repair",
+      "name": "normalizeRepairBudget",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "Phase 'phase' repairBudget.maxAttempts must be an integer from 1 through 100.",
+        "details": null
+      }
+    },
+    {
+      "id": 21,
+      "family": "intelligence",
+      "name": "normalizeWorkTypeIntelligence",
+      "status": "returned",
+      "value": {
+        "worldModel": "inherit",
+        "ast": "inherit",
+        "agentBriefs": "inherit"
+      }
+    },
+    {
+      "id": 22,
+      "family": "intelligence",
+      "name": "normalizeWorkTypeIntelligence",
+      "status": "returned",
+      "value": {
+        "worldModel": "inherit",
+        "ast": "required-context",
+        "agentBriefs": "required"
+      }
+    },
+    {
+      "id": 23,
+      "family": "intelligence",
+      "name": "normalizeWorkTypeIntelligence",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "Work type intelligence.ast must be inherit, optional-context, required-context, off.",
+        "details": null
+      }
+    },
+    {
+      "id": 24,
+      "family": "intelligence",
+      "name": "astContextRequested",
+      "status": "returned",
+      "value": false
+    },
+    {
+      "id": 25,
+      "family": "task",
+      "name": "assertModelTask",
+      "status": "returned",
+      "value": "code"
+    },
+    {
+      "id": 26,
+      "family": "task",
+      "name": "assertModelTask",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "MODEL_TASK_UNKNOWN",
+        "exitCode": 1,
+        "message": "Model task 'invent' is not one of relay, clarify, reason, code, analyze, summarize. The task enum is closed: adding one is a reviewed schema change, not a configuration edit.",
+        "details": {
+          "task": "invent",
+          "allowed": [
+            "relay",
+            "clarify",
+            "reason",
+            "code",
+            "analyze",
+            "summarize"
+          ]
+        }
+      }
+    },
+    {
+      "id": 27,
+      "family": "task",
+      "name": "mappedContractClasses",
+      "status": "returned",
+      "value": [
+        "advisory-analysis",
+        "canonical-delegation",
+        "clarification-and-artifact",
+        "concise-relay",
+        "conversational-guidance",
+        "deterministic-mutation",
+        "explicit-selection",
+        "governed-review",
+        "guided-actions",
+        "scoped-repair"
+      ]
+    },
+    {
+      "id": 28,
+      "family": "task",
+      "name": "taskForContractClass",
+      "status": "returned",
+      "value": "clarify"
+    },
+    {
+      "id": 29,
+      "family": "task",
+      "name": "taskForContractClass",
+      "status": "returned",
+      "value": "code"
+    },
+    {
+      "id": 30,
+      "family": "task",
+      "name": "taskForContractClass",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "MODEL_TASK_UNMAPPED",
+        "exitCode": 1,
+        "message": "Contract class 'unknown-class' declares no model task. Every class must name one, or work of that class routes nowhere.",
+        "details": {
+          "contractClass": "unknown-class",
+          "mapped": [
+            "guided-actions",
+            "conversational-guidance",
+            "concise-relay",
+            "explicit-selection",
+            "governed-review",
+            "deterministic-mutation",
+            "canonical-delegation",
+            "advisory-analysis",
+            "scoped-repair"
+          ]
+        }
+      }
+    },
+    {
+      "id": 31,
+      "family": "harness",
+      "name": "normalizeHarnessImports",
+      "status": "returned",
+      "value": {
+        "mode": "off",
+        "previewTextBytes": 16384,
+        "totalEnvelopeBytes": 32768,
+        "knowledge": {
+          "enabled": false,
+          "maximumBytes": 8192
+        },
+        "conformance": {
+          "questionPrecedesMutation": "off",
+          "maximumActions": "off"
+        }
+      }
+    },
+    {
+      "id": 32,
+      "family": "harness",
+      "name": "normalizeHarnessImports",
+      "status": "returned",
+      "value": {
+        "mode": "record",
+        "previewTextBytes": 2048,
+        "totalEnvelopeBytes": 8192,
+        "knowledge": {
+          "enabled": false,
+          "maximumBytes": 8192
+        },
+        "conformance": {
+          "verbatimRelay": "off",
+          "questionPrecedesMutation": "off",
+          "maximumActions": "off",
+          "previewRespected": "off"
+        }
+      }
+    },
+    {
+      "id": 33,
+      "family": "harness",
+      "name": "normalizeHarnessImports",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "harnessImports.previewTextBytes must be smaller than totalEnvelopeBytes so metadata remains bounded.",
+        "details": null
+      }
+    },
+    {
+      "id": 34,
+      "family": "harness",
+      "name": "normalizeHarnessImports",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "Host-observed harness checkers cannot be enforced until exact host instrumentation is configured.",
+        "details": null
+      }
+    },
+    {
+      "id": 35,
+      "family": "context",
+      "name": "normalizeContextPolicy",
+      "status": "returned",
+      "value": {
+        "onApproval": "keep",
+        "onRejection": "keep",
+        "phaseOverrides": {}
+      }
+    },
+    {
+      "id": 36,
+      "family": "context",
+      "name": "normalizeContextPolicy",
+      "status": "returned",
+      "value": {
+        "onApproval": "new",
+        "onRejection": "keep",
+        "phaseOverrides": {
+          "draft": "compact"
+        }
+      }
+    },
+    {
+      "id": 37,
+      "family": "context",
+      "name": "normalizeContextPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "contextPolicy.phaseOverrides references unknown phase 'missing'.",
+        "details": null
+      }
+    },
+    {
+      "id": 38,
+      "family": "context",
+      "name": "normalizeContextPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "contextPolicy.phaseBoundary and contextPolicy.onApproval must match when both are configured.",
+        "details": null
+      }
+    },
+    {
+      "id": 39,
+      "family": "runtime",
+      "name": "normalizeTestRuntime",
+      "status": "returned",
+      "value": {
+        "nodeOptions": []
+      }
+    },
+    {
+      "id": 40,
+      "family": "runtime",
+      "name": "normalizeTestRuntime",
+      "status": "returned",
+      "value": {
+        "nodeOptions": [
+          "--no-experimental-webstorage"
+        ]
+      }
+    },
+    {
+      "id": 41,
+      "family": "runtime",
+      "name": "normalizeTestRuntime",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "TEST_RUNTIME_INVALID",
+        "exitCode": 1,
+        "message": "repositoryReadiness.testRuntime supports only nodeOptions: [--no-experimental-webstorage].",
+        "details": null
+      }
+    },
+    {
+      "id": 42,
+      "family": "tokens",
+      "name": "normalizeTokenEconomy",
+      "status": "returned",
+      "value": {
+        "enabled": true,
+        "mode": "observe",
+        "composer": "legacy-v1",
+        "profile": "standard",
+        "profiles": {
+          "standard": {
+            "maximumEstimatedPromptTokens": 18000,
+            "reservedOutputTokens": 6000,
+            "maxExpansionTokens": 8000,
+            "observationCapsuleTokens": 3000,
+            "policyOnBudgetBreach": "refuse"
+          }
+        },
+        "observationFirewall": true,
+        "progressiveRetrieval": true,
+        "historicalMemory": false,
+        "cacheStableComposition": true,
+        "providerTelemetry": "optional",
+        "ast": "optional"
+      }
+    },
+    {
+      "id": 43,
+      "family": "tokens",
+      "name": "normalizeTokenEconomy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "tokenEconomy.profile must be lower-case kebab-case.",
+        "details": null
+      }
+    },
+    {
+      "id": 44,
+      "family": "tokens",
+      "name": "normalizeTokenEconomy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "tokenEconomy.profile must be lower-case kebab-case.",
+        "details": null
+      }
+    },
+    {
+      "id": 45,
+      "family": "tokens",
+      "name": "normalizeTokenEconomy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "tokenEconomy.composer must be legacy-v1, tkr-v1; got 'unknown'.",
+        "details": null
+      }
+    },
+    {
+      "id": 46,
+      "family": "delivery",
+      "name": "normalizeCodeDeliveryPolicy",
+      "status": "returned",
+      "value": {
+        "schemaVersion": 2,
+        "mode": "enforce",
+        "generationBoundary": {
+          "requireBegin": true,
+          "dirtyStart": "block"
+        },
+        "changeSet": {
+          "renameDetection": "required",
+          "includeCommitted": true,
+          "includeIndex": true,
+          "includeWorktree": true,
+          "includeUntracked": true,
+          "symlinks": "reject"
+        },
+        "tests": {
+          "requireExecutableSource": true,
+          "minimumDiscovered": 1,
+          "minimumPassed": 1,
+          "executionAssurance": "module",
+          "stringCommands": "reject",
+          "unknownModelPolicy": "block",
+          "requireResultAdapter": true,
+          "requireAffectedModuleCoverage": true
+        },
+        "traceability": {
+          "source": "pinned-spec-index",
+          "requireNamespaceQualifiedIds": true,
+          "bareIdCompatibility": "unique-only",
+          "sourceBindings": "enforce"
+        },
+        "publication": {
+          "idempotency": "generation-intent"
+        },
+        "display": {
+          "source": "reference-preview",
+          "previewBytes": 4096,
+          "fullDocumentMaximumBytes": 65536
+        },
+        "model": {
+          "minimumAssurance": "unavailable"
+        }
+      }
+    },
+    {
+      "id": 47,
+      "family": "delivery",
+      "name": "normalizeCodeDeliveryPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "codeDelivery.tests.minimumPassed must be an integer from 1 through 1000000.",
+        "details": null
+      }
+    },
+    {
+      "id": 48,
+      "family": "delivery",
+      "name": "normalizeCodeDeliveryPolicy",
+      "status": "returned",
+      "value": {
+        "schemaVersion": 2,
+        "mode": "enforce",
+        "generationBoundary": {
+          "requireBegin": false,
+          "dirtyStart": "block"
+        },
+        "changeSet": {
+          "renameDetection": "required",
+          "includeCommitted": true,
+          "includeIndex": true,
+          "includeWorktree": true,
+          "includeUntracked": true,
+          "symlinks": "reject"
+        },
+        "tests": {
+          "requireExecutableSource": true,
+          "minimumDiscovered": 1,
+          "minimumPassed": 1,
+          "executionAssurance": "module",
+          "stringCommands": "reject",
+          "unknownModelPolicy": "block",
+          "requireResultAdapter": true,
+          "requireAffectedModuleCoverage": true
+        },
+        "traceability": {
+          "source": "pinned-spec-index",
+          "requireNamespaceQualifiedIds": true,
+          "bareIdCompatibility": "unique-only",
+          "sourceBindings": "enforce"
+        },
+        "publication": {
+          "idempotency": "generation-intent"
+        },
+        "display": {
+          "source": "reference-preview",
+          "previewBytes": 4096,
+          "fullDocumentMaximumBytes": 65536
+        },
+        "model": {
+          "minimumAssurance": "unavailable"
+        }
+      }
+    },
+    {
+      "id": 49,
+      "family": "spec",
+      "name": "normalizeSpecPolicy",
+      "status": "returned",
+      "value": {
+        "mode": "off",
+        "namespace": null,
+        "coverage": "off",
+        "acceptance": "off",
+        "conformanceRows": "qualified",
+        "testCommands": {},
+        "excludes": [
+          "singularity",
+          ".github/agents",
+          ".git",
+          "node_modules"
+        ],
+        "limits": {
+          "maxClausesPerArtifact": 2000,
+          "maxDependenciesPerClause": 100,
+          "maxPathsPerClaim": 1000,
+          "maxClaimBytes": 2097152
+        },
+        "compositionCache": "local"
+      }
+    },
+    {
+      "id": 50,
+      "family": "spec",
+      "name": "normalizeSpecPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "spec.acceptance must be off, presence, test-first, or verify.",
+        "details": null
+      }
+    },
+    {
+      "id": 51,
+      "family": "spec",
+      "name": "normalizeSpecPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "spec.mode must be off, record, or enforce.",
+        "details": null
+      }
+    },
+    {
+      "id": 52,
+      "family": "spec",
+      "name": "normalizeSpecPolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": null,
+        "exitCode": 1,
+        "message": "spec.limits.maxClausesPerArtifact must be an integer from 1 to 10000.",
+        "details": null
+      }
+    },
+    {
+      "id": 53,
+      "family": "documents",
+      "name": "documentStorageChoices",
+      "status": "returned",
+      "value": {
+        "allowed": [
+          "git",
+          "local"
+        ],
+        "default": "local"
+      }
+    },
+    {
+      "id": 54,
+      "family": "documents",
+      "name": "documentStorageChoices",
+      "status": "returned",
+      "value": {
+        "allowed": [
+          "git"
+        ],
+        "default": "git"
+      }
+    },
+    {
+      "id": 55,
+      "family": "documents",
+      "name": "resolveDocumentStorage",
+      "status": "returned",
+      "value": "local"
+    },
+    {
+      "id": 56,
+      "family": "documents",
+      "name": "resolveDocumentStorage",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "DOCUMENT_STORAGE_UNSUPPORTED",
+        "exitCode": 1,
+        "message": "Keeping Story documents in sharepoint is not available yet. Use --store git to commit the document, or --store local to keep it on this machine only.",
+        "details": {
+          "storage": "sharepoint"
+        }
+      }
+    },
+    {
+      "id": 57,
+      "family": "documents",
+      "name": "resolveDocumentStorage",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "DOCUMENT_STORAGE_NOT_ALLOWED",
+        "exitCode": 1,
+        "message": "This Story's document policy does not allow 'git' storage. Allowed: local.",
+        "details": {
+          "storage": "git",
+          "allowed": [
+            "local"
+          ]
+        }
+      }
+    },
+    {
+      "id": 58,
+      "family": "documents",
+      "name": "assertDocumentStoragePolicy",
+      "status": "returned",
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 59,
+      "family": "documents",
+      "name": "assertDocumentStoragePolicy",
+      "status": "refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "DOCUMENT_STORAGE_POLICY_INVALID",
+        "exitCode": 1,
+        "message": "documents.storage.default 'git' is not one of documents.storage.allowed.",
+        "details": null
+      }
+    }
+  ],
+  "functions": {
+    "session-policy.mjs:normalizeSessionPolicy": "1c4f4a31f988c7ef6f30b88257df78e5e3fa96a1613c27bfa9eb3df9661c3391",
+    "template-catalog.mjs:isTemplateReference": "f5f794668ada204dfea9051adff31af15ce8375fc928fcde66368d4ca50b6b48",
+    "template-catalog.mjs:parseTemplateReference": "fbfba87596c69a8d7d380f90dc46e0ff49e0ad0b59d2c1dd07a1eff813dbec91",
+    "template-catalog.mjs:assertRelativePath": "372d4883300ab62cdd66f0e1f2e4ce6555a28e8e9217ad7b8d3f89c597af1cf5",
+    "template-catalog.mjs:normalizeTemplateCatalog": "78f8af8e8682f24a86e381b367434ea9f5ad20b3529421d3599b1e649bbfce47",
+    "template-catalog.mjs:resolveTemplate": "cc38e022f5ba3ac7cf47398e109592c0ed00c6f75f0809eb286b0e828d5eef64",
+    "template-catalog.mjs:templatePath": "eb35cdd9b1b3986a25400b93a877e10188b58ee1a229ae106d972aa587a0b155",
+    "template-catalog.mjs:templateReferences": "c913780dc939055963a58ce7310b5d058ea66e5fe85e62da50c72dd8204e29fc",
+    "repair-budget.mjs:normalizeReworkLoops": "73cf44de3ba47e44cf91bbf00f7990c4e2bc366ebd44747f51875a71150b9832",
+    "repair-budget.mjs:normalizeRepairBudget": "5a4c5a58d7952452b1fa64c4f88b402ca3045fbd5e29e3da5a12421f74de763f",
+    "intelligence-policy.mjs:normalizeWorkTypeIntelligence": "40686ab6094f87dc089913352ffc932757332c960a3a9f080b2b886a6943851b",
+    "intelligence-policy.mjs:astContextRequired": "3c4984b5f4a342e7c460d3945c334a4c8a41de342ea1a97f378076c4148672b1",
+    "intelligence-policy.mjs:astContextRequested": "d806b103f308ad781726e84b03dc9a0d4ee227be57f41e155a9b04b5254ac055",
+    "model-tasks.mjs:assertModelTask": "4c204c2b6e499301d4e20ad58b9f90192316542cc8b6c496c4f11318dd84fae9",
+    "model-tasks.mjs:taskForContractClass": "5287d7a7ccc437f22f28ca6dc851c5c3a27d7446a104b3ba63c3e5e4cced8304",
+    "model-tasks.mjs:mappedContractClasses": "405405b1f87e04800eb2470aea6c32d0788a1e5fe011febe908637cf3ae0c249",
+    "model-tasks.mjs:generationTaskForPhase": "8c158c983d96dda5fce56674345cebf61309536e75b3e78436ec69259b3eb031",
+    "harness-import-policy.mjs:normalizeHarnessImports": "9e74833530701c01bbfbbda89a033614a7a022effebcb99ed5a8b81e582da826",
+    "context-policy.mjs:mode": "db0d1c8f73f468d99467da7562f09bfbadc3b0ce725d24df65ba4d0e92e83689",
+    "context-policy.mjs:normalizeContextPolicy": "14b45cf20353987df5cf7195ba883304775c707ac744c5fb92f4b77e4283f9c8",
+    "test-runtime.mjs:normalizeTestRuntime": "7d59926a40231791949fa3d8a88834b6626ad89c2cbe22536f1e5181a7460fc5",
+    "code-delivery-policy.mjs:enumValue": "7f9b4cd16094232c64cddae99ed4de93661acf3a00454f469e4d5f952f31710f",
+    "code-delivery-policy.mjs:booleanValue": "69f9e5613c53be2c622cd079dfbc96323208157583c15baf8c62a5e21c56cf4b",
+    "code-delivery-policy.mjs:requiredBoolean": "f3fdd912b9a4a2175ae6fff9193b3c15fb6f4a1b526036395a7817f6f43fbcf6",
+    "code-delivery-policy.mjs:integerValue": "2fe8c11cc47b4f66c785d2e9648634874fffed09dea67b2a7bc5b6bdfcb55894",
+    "code-delivery-policy.mjs:normalizeCodeDeliveryPolicy": "2358bc1cd3d4b3c71211f60d98d70447286295b0862887f63bc6c48b4961408c",
+    "specifications.mjs:normalizeSpecPolicy": "58ac899e7d8688d9888e9a88cc1a0069c8f2774114237b01f8be2044da0dca5b",
+    "token-economy.mjs:object": "ce5e3cf470bf7d985af0179fb407fd620dc97d235c3d474c6e3b963ade2aa5c6",
+    "token-economy.mjs:integer": "a40efaa5198d0cb83f9477311b9f0f341710e577f97de7c067bcafb0da05eefb",
+    "token-economy.mjs:enumeration": "ab86b75a2a3c645e726dabfeaf899d05b1da06b9c85dcd8310982ea90c8d31b4",
+    "token-economy.mjs:enabled": "a7ecd30d02e694f9d68ffe4ce0298ba6bd766e874418411ce5327e2503c566cc",
+    "token-economy.mjs:normalizeProfile": "4bbd8c3c24d21cec584e51803bcf9b054ddbf03e99a4fcc12961003b1948e7be",
+    "token-economy.mjs:normalizeTokenEconomy": "bc74915d2c2ff1bffbd6902a16b89eb801cca79e14edc53c9a01f106cdcc011f",
+    "document-storage-policy.mjs:fail": "fc68e3155b6cf05a845e1da309262e25ebf54d0cbbdf353eeda2ecaa5387ec95",
+    "document-storage-policy.mjs:documentStorageChoices": "8829203cad87bcc024bfe3138a0c1d6314b3684a1fb690802f8134ee3f0d76ea",
+    "document-storage-policy.mjs:resolveDocumentStorage": "a224ced6106f6635bb237b61f21dc42dfb8f04cff03a7d67227dc133b1232025",
+    "document-storage-policy.mjs:assertDocumentStoragePolicy": "3cbc8abd7d2ee3dba0732e2685778a0245488e5bbcf450307a7877903e9f6a36",
+    "intelligence-policy.mjs:astDisabledForWorkflow": "c5c13432e8b060b324f9f81ac3e46de1b3a0dac118ad2ae81da140d11b5f283d",
+    "intelligence-policy.mjs:worldModelDisabledForWorkflow": "8195a8a299cebe8e95a6334d1db9a6fc25b1aa67fc4389a5c6491c4be1c594a7"
+  },
+  "owners": {
+    "src/session-policy.mjs": [
+      "normalizeSessionPolicy"
+    ],
+    "src/template-catalog.mjs": [
+      "isTemplateReference",
+      "parseTemplateReference",
+      "normalizeTemplateCatalog",
+      "resolveTemplate",
+      "templatePath",
+      "templateReferences"
+    ],
+    "src/repair-budget.mjs": [
+      "normalizeReworkLoops",
+      "normalizeRepairBudget"
+    ],
+    "src/intelligence-policy.mjs": [
+      "WORK_TYPE_WORLD_MODEL_MODES",
+      "WORK_TYPE_AST_MODES",
+      "WORK_TYPE_AGENT_BRIEF_MODES",
+      "normalizeWorkTypeIntelligence",
+      "astContextRequired",
+      "astContextRequested",
+      "astDisabledForWorkflow",
+      "worldModelDisabledForWorkflow"
+    ],
+    "src/model-tasks.mjs": [
+      "MODEL_TASKS",
+      "DUAL_INTENT_CONTRACT_CLASS",
+      "assertModelTask",
+      "taskForContractClass",
+      "mappedContractClasses",
+      "generationTaskForPhase"
+    ],
+    "src/harness-import-policy.mjs": [
+      "HARNESS_IMPORTS_HARD_MAXIMUM_BYTES",
+      "HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES",
+      "HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES",
+      "HARNESS_IMPORTS_MODES",
+      "normalizeHarnessImports"
+    ],
+    "src/context-policy.mjs": [
+      "CONTEXT_BOUNDARY_MODES",
+      "normalizeContextPolicy"
+    ],
+    "src/test-runtime.mjs": [
+      "normalizeTestRuntime"
+    ],
+    "src/code-delivery-policy.mjs": [
+      "DEFAULT_CODE_DELIVERY_POLICY",
+      "normalizeCodeDeliveryPolicy"
+    ],
+    "src/specifications.mjs": [
+      "normalizeSpecPolicy"
+    ],
+    "src/token-economy.mjs": [
+      "TOKEN_ECONOMY_MODES",
+      "TOKEN_ECONOMY_COMPOSERS",
+      "normalizeTokenEconomy"
+    ],
+    "src/document-storage-policy.mjs": [
+      "DOCUMENT_STORAGE_KINDS",
+      "documentStorageChoices",
+      "resolveDocumentStorage",
+      "assertDocumentStoragePolicy"
+    ]
+  }
+}

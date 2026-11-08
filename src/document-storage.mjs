@@ -20,7 +20,7 @@ import path from 'node:path';
 import { gitCommonDir } from './git.mjs';
 import { SingularityFlowError } from './util.mjs';
 
-export { DOCUMENT_STORAGE_KINDS, assertDocumentStoragePolicy, resolveDocumentStorage } from './document-storage-policy.mjs';
+export { DOCUMENT_STORAGE_KINDS, assertDocumentStoragePolicy, resolveDocumentStorage } from "./kernel/configuration-policy.mjs";
 
 const LOCAL_STORE_DIRECTORY = 'singularity-flow-documents';
 // Where builds before the store moved kept it: inside the runtime directory a factory reset removes.

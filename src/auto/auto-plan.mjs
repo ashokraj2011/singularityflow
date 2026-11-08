@@ -16,7 +16,7 @@ import { storyBaseCatalog } from '../capability-start.mjs';
 import { previewChangeFlightPlan, readChangeFlightPlan } from '../change-flight-plan.mjs';
 import { loadDefinition, resolveWorkType } from '../config.mjs';
 import { branch, gitCommonDir, head, identity, validBranch } from '../git.mjs';
-import { generationTaskForPhase } from '../model-tasks.mjs';
+import { generationTaskForPhase } from "../kernel/configuration-policy.mjs";
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { loadEnvironmentDeclaration } from '../environment-declaration.mjs';

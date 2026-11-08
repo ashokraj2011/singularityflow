@@ -9,8 +9,7 @@ import { repoRoot } from './git.mjs';
 import { nowIso, run, secureRepositoryPath, SingularityFlowError, snapshot, writeText } from './util.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 
-import { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,
-  HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports } from './harness-import-policy.mjs';
+import { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES, HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 export { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,
   HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports };
 const HANDLE_PATTERN = /^sfref:v1:(story|initiative):([A-Za-z0-9][A-Za-z0-9._-]{0,127}):([a-f0-9]{12,64})$/;

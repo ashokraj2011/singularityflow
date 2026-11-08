@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
-import { assertModelTask, MODEL_TASKS } from './model-tasks.mjs';
+import { assertModelTask, MODEL_TASKS } from "./kernel/configuration-policy.mjs";
 import { canonicalJson } from './records.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 

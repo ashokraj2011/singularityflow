@@ -6,7 +6,7 @@ import { assertEpicPlanningTopology, usesEpicPlanningLifecycle, isInitiativeGene
 import { parseYamlText } from './yaml-parse-cache.mjs';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
-import { normalizeContextPolicy } from './context-policy.mjs';
+import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 
 export { usesEpicPlanningLifecycle };

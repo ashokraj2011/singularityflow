@@ -412,7 +412,7 @@ test('native sequence and role adapters render shared admission while confirmati
   const simulation = await read('src/workflow-lifecycle-simulation.mjs');
   assert.match(simulation, /sequenceAdmission as evaluateSequence/); assert.doesNotMatch(simulation, /from '\.\/sequence\.mjs'/);
   const identity = await read('src/build-identity.mjs'), manifest = await read('src/vsix-source-manifest.mjs');
-  for (const name of ['kernel/lifecycle-transitions.mjs','kernel/phase-admission.mjs','kernel/workflow-configuration.mjs']) {
+  for (const name of ['kernel/lifecycle-transitions.mjs','kernel/phase-admission.mjs','kernel/workflow-configuration.mjs','kernel/configuration-policy.mjs']) {
     assert.ok(identity.includes("'" + name + "'"), name + ' must invalidate advisory snapshots');
     assert.ok(manifest.includes("'src/" + name + "'"), name + ' must be present in staged CLI payloads');
   }
@@ -571,7 +571,29 @@ test('the installed configuration adapter composes one compiler and keeps runtim
   const alias=ts.createSourceFile('phase-overrides.mjs',await readFile(path.join(packageRoot,'src/phase-overrides.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
   assert.ok(alias.statements.every(ts.isExportDeclaration));
   for(const file of ['src/workflow-intent-catalog.mjs','src/workflow-intent-capabilities.mjs']) {
-    assert.match(await readFile(path.join(packageRoot,file),'utf8'),/'kernel\/workflow-configuration\.mjs'/,file);
+    const source=await readFile(path.join(packageRoot,file),'utf8');
+    assert.match(source,/'kernel\/workflow-configuration\.mjs'/,file);
+    assert.match(source,/'kernel\/configuration-policy\.mjs'/,file);
+  }
+});
+
+test('configuration policy rules have one pure owner while native runtime and rendering stay outside it',async()=>{
+  const core=await readFile(path.join(packageRoot,'src/kernel/configuration-policy.mjs'),'utf8');
+  const compiler=await readFile(path.join(packageRoot,'src/kernel/workflow-configuration.mjs'),'utf8');
+  assert.match(compiler,/from '\.\/configuration-policy\.mjs'/);
+  assert.doesNotMatch(core,/from ['"]node:|createHash|process\.|formatCommandRouteLines|contextBoundaryHandoff|readRecord|testRuntimeEnvironment|tokenEconomyDigest/);
+  const files=['session-policy','template-catalog','intelligence-policy','model-tasks','harness-import-policy','document-storage-policy'];
+  for(const name of files) {
+    const ast=ts.createSourceFile(name+'.mjs',await readFile(path.join(packageRoot,'src',name+'.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+    assert.ok(ast.statements.every(ts.isExportDeclaration),name+' must retain aliases only');
+  }
+  for(const [file,rule,native]of [['context-policy','normalizeContextPolicy','contextBoundaryHandoff'],
+    ['test-runtime','normalizeTestRuntime','testRuntimeEnvironment'],['token-economy','normalizeTokenEconomy','tokenEconomyDigest'],
+    ['specifications','normalizeSpecPolicy','extractClauses'],['code-delivery-policy','normalizeCodeDeliveryPolicy','normalizeApplicationReview'],
+    ['repair-budget','normalizeReworkLoops','consumeRepairAttempt']]) {
+    const source=await readFile(path.join(packageRoot,'src',file+'.mjs'),'utf8');
+    assert.equal(source.includes('function '+rule+'('),false,file);
+    assert.equal(source.includes('function '+native+'('),true,file);
   }
 });
 

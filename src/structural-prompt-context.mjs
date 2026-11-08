@@ -1,7 +1,7 @@
 import { astContext } from './ast-intelligence.mjs';
 import { createAstDerivation, persistAstDerivation } from './ast-evidence.mjs';
 import { loadDefinition } from './config.mjs';
-import { astContextRequested } from './intelligence-policy.mjs';
+import { astContextRequested } from "./kernel/configuration-policy.mjs";
 
 const MAX_FACTS = 50;
 // The model still receives at most 50 facts. The larger broker envelope budget carries the exact

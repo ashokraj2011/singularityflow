@@ -1,44 +1,7 @@
+import { normalizeContextPolicy } from './kernel/configuration-policy.mjs';
+export { CONTEXT_BOUNDARY_MODES, normalizeContextPolicy } from './kernel/configuration-policy.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
-import { SingularityFlowError } from './util.mjs';
-
-export const CONTEXT_BOUNDARY_MODES = new Set(['keep', 'compact', 'new']);
-
-function mode(value, label, fallback) {
-  const selected = value ?? fallback;
-  if (!CONTEXT_BOUNDARY_MODES.has(selected)) {
-    throw new SingularityFlowError(`${label} must be keep, compact, or new.`);
-  }
-  return selected;
-}
-
-export function normalizeContextPolicy(value = {}, { phaseIds = null, label = 'contextPolicy' } = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError(`${label} must be an object.`);
-  }
-  const allowed = new Set(['phaseBoundary', 'onApproval', 'onRejection', 'phaseOverrides']);
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
-  }
-  if (value.phaseBoundary != null && value.onApproval != null && value.phaseBoundary !== value.onApproval) {
-    throw new SingularityFlowError(`${label}.phaseBoundary and ${label}.onApproval must match when both are configured.`);
-  }
-  const onApproval = mode(value.onApproval ?? value.phaseBoundary, `${label}.onApproval`, 'keep');
-  const onRejection = mode(value.onRejection, `${label}.onRejection`, 'keep');
-  const overrides = value.phaseOverrides ?? {};
-  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
-    throw new SingularityFlowError(`${label}.phaseOverrides must be an object.`);
-  }
-  const known = phaseIds ? new Set(phaseIds) : null;
-  const phaseOverrides = {};
-  for (const [phaseId, selected] of Object.entries(overrides)) {
-    if (known && !known.has(phaseId)) {
-      throw new SingularityFlowError(`${label}.phaseOverrides references unknown phase '${phaseId}'.`);
-    }
-    phaseOverrides[phaseId] = mode(selected, `${label}.phaseOverrides.${phaseId}`);
-  }
-  return { onApproval, onRejection, phaseOverrides };
-}
 
 export function contextBoundaryMode(policy, phaseId, event = 'approval') {
   const normalized = normalizeContextPolicy(policy);

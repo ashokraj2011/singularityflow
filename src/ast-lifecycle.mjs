@@ -10,7 +10,7 @@ import {
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeJson } from './util.mjs';
-import { astDisabledForWorkflow } from './intelligence-policy.mjs';
+import { astDisabledForWorkflow } from './kernel/configuration-policy.mjs';
 import { sourceFileAt } from './source-inspection.mjs';
 
 function configuredPredicates(config, workflow = null) {

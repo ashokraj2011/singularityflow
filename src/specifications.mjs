@@ -1,6 +1,8 @@
+import { DEFAULT_SPECIFICATION_LIMITS as DEFAULT_LIMITS, normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
+export { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { lstat, readFile, readlink, readdir } from 'node:fs/promises';
+import { readFile, readlink, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -34,12 +36,6 @@ const SPECIFICATION_DEFINITION_KIND_SET = new Set(SPECIFICATION_DEFINITION_KINDS
 // different clauses for `Work-1:AC-001` and `WORK-1:AC-001`.
 const NAMESPACE = '[A-Za-z0-9][A-Za-z0-9._-]{0,63}';
 const ANCHOR = new RegExp(`\\[(${NAMESPACE}):(${GOVERNED_CLAUSE_TYPE_PATTERN})-(\\d{3})\\]`, 'gi');
-const DEFAULT_LIMITS = Object.freeze({
-  maxClausesPerArtifact: 2000,
-  maxDependenciesPerClause: 100,
-  maxPathsPerClaim: 1000,
-  maxClaimBytes: 2 * 1024 * 1024
-});
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -110,73 +106,6 @@ export function codeCoverageEnforcement(policy) {
   if (policy?.coverage === 'enforce') return 'enforce';
   if (policy?.coverage === 'record' && (policy.conformanceRows ?? 'qualified') === 'qualified') return 'qualified-ending';
   return null;
-}
-
-export function normalizeSpecPolicy(value = {}) {
-  if (value == null) value = {};
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError('spec must be an object.');
-  }
-  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'testCommands', 'excludes', 'limits', 'compositionCache']);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`spec contains unknown field '${key}'.`);
-  const mode = value.mode ?? 'off';
-  if (!['off', 'record', 'enforce'].includes(mode)) throw new SingularityFlowError('spec.mode must be off, record, or enforce.');
-  const namespace = value.namespace ?? null;
-  if (namespace != null && !/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(namespace)) {
-    throw new SingularityFlowError('spec.namespace must use upper-case letters, digits, dots, underscores, or hyphens.');
-  }
-  const coverage = value.coverage ?? mode;
-  if (!['off', 'record', 'enforce'].includes(coverage)) throw new SingularityFlowError('spec.coverage must be off, record, or enforce.');
-  const acceptance = value.acceptance ?? 'off';
-  if (!['off', 'presence', 'test-first', 'verify'].includes(acceptance)) {
-    throw new SingularityFlowError('spec.acceptance must be off, presence, test-first, or verify.');
-  }
-  // A pinned legacy Story keeps its historical report interpretation. New starter Stories require
-  // one explicit qualified conformance row per authoritative clause at the terminal gate.
-  // Newly resolved workflows use exact per-clause reports. Historical Story resolutions are
-  // checked through their pinned raw field, so an absent field there remains legacy behavior.
-  const conformanceRows = value.conformanceRows ?? 'qualified';
-  if (!['legacy', 'qualified'].includes(conformanceRows)) {
-    throw new SingularityFlowError('spec.conformanceRows must be legacy or qualified.');
-  }
-  const testCommands = value.testCommands ?? {};
-  if (!testCommands || typeof testCommands !== 'object' || Array.isArray(testCommands)) {
-    throw new SingularityFlowError('spec.testCommands must be an object keyed by command ID.');
-  }
-  for (const [id, command] of Object.entries(testCommands)) {
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw new SingularityFlowError(`spec.testCommands key '${id}' must be lower-case kebab-case.`);
-    if (!Array.isArray(command) || command.length < 1 || command.some((part) => typeof part !== 'string' || !part)) {
-      throw new SingularityFlowError(`spec.testCommands.${id} must be a non-empty argv array.`);
-    }
-  }
-  // A configured prefix left changed paths out of coverage, so application logic could escape
-  // requirement accounting [E2G-012]. Only the kernel's own governance roots stay outside it.
-  const governanceRoots = ['singularity', '.github/agents', '.git', 'node_modules'];
-  const configuredExcludes = value.excludes ?? [];
-  // A normalized policy carries the governance roots, so normalizing it again stays unchanged.
-  if (!Array.isArray(configuredExcludes) || configuredExcludes.some((item) => !governanceRoots.includes(item))) {
-    throw new SingularityFlowError(
-      'spec.excludes was retired because a path left out of coverage escaped requirement accounting. '
-      + "List a lockfile, build, CI, metadata or documentation change under the plan's Supporting files, "
-      + 'or account for a changed path with singularity-flow decision plan.',
-      { code: 'SPEC_EXCLUDES_RETIRED' }
-    );
-  }
-  const excludes = governanceRoots;
-  const limits = { ...DEFAULT_LIMITS, ...(value.limits ?? {}) };
-  for (const [key, maximum] of Object.entries({
-    maxClausesPerArtifact: 10000,
-    maxDependenciesPerClause: 1000,
-    maxPathsPerClaim: 10000,
-    maxClaimBytes: 10 * 1024 * 1024
-  })) {
-    if (!Number.isInteger(limits[key]) || limits[key] < 1 || limits[key] > maximum) {
-      throw new SingularityFlowError(`spec.limits.${key} must be an integer from 1 to ${maximum}.`);
-    }
-  }
-  const compositionCache = value.compositionCache ?? 'local';
-  if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  return { mode, namespace, coverage, acceptance, conformanceRows, testCommands, excludes, limits, compositionCache };
 }
 
 function lineNumber(text, offset) {

@@ -24,9 +24,8 @@ import { readRawObservation } from './observation-compiler.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { operationContext } from './operation-context.mjs';
-import {
-  normalizeTokenEconomy, selectedTokenEconomyProfile, tokenEconomyDigest
-} from './token-economy.mjs';
+import { selectedTokenEconomyProfile, tokenEconomyDigest } from './token-economy.mjs';
+import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { loadStoryAggregate } from './story-aggregate-read.mjs';
 import { loadConfig, storyWelEnrollmentStatus } from './state-stores.mjs';

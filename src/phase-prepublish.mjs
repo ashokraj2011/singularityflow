@@ -26,11 +26,8 @@ import { inspectPhaseRecovery } from './recovery-plan.mjs';
 import { testExecutionHandoff } from './test-execution-handoff.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
-import {
-  buildSpecIndex, canonicalJson, derivePlannedClaimMap, evaluateSpecAcceptance,
-  isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
-  predecessorSpecClauses
-} from './specifications.mjs';
+import { buildSpecIndex, canonicalJson, derivePlannedClaimMap, evaluateSpecAcceptance, isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses } from './specifications.mjs';
+import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { exists, posix, secureRepositoryPath, snapshot, SingularityFlowError } from './util.mjs';
 import { phaseFindingCode, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';

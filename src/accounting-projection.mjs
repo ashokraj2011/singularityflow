@@ -1,7 +1,7 @@
 /** Observation preferences only. This value can never authorize a workflow operation. */
 import { readConfigurationSource, configurationSourceBinding } from './configuration-source.mjs';
 import { normalizeLogging } from './logging.mjs';
-import { normalizeHarnessImports } from './harness-import-policy.mjs';
+import { normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 import { SingularityFlowError } from './util.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 

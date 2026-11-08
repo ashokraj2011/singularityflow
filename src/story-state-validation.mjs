@@ -6,10 +6,10 @@ import { currentPhase } from './kernel/phase-policy.mjs';
 import { exists } from "./util.mjs";
 import { isConvergencePhase } from "./kernel/phase-policy.mjs";
 import { ledgerStatus, refreshLedgerRemoteView } from "./ledger.mjs";
-import { normalizeContextPolicy } from "./context-policy.mjs";
+import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeLedgerConfig } from "./ledger-config.mjs";
 import { normalizeSequenceGates, normalizeSessionPolicy, resolveWorkType } from "./config.mjs";
-import { normalizeTokenEconomy } from "./token-economy.mjs";
+import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 import { default as path } from "node:path";
 import { prospectiveTestCommandAmendment } from './test-command-amendment-contracts.mjs';
 async function verifyAcceptedTestCommandAmendment(...args) { return (await import('./story-test-command-amendment.mjs')).verifyAcceptedTestCommandAmendment(...args); }

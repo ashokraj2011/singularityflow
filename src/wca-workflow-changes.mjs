@@ -8,7 +8,7 @@ import {
 } from './config.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
-import { normalizeTemplateCatalog } from './template-catalog.mjs';
+import { normalizeTemplateCatalog } from "./kernel/configuration-policy.mjs";
 import { compileSkillPhaseProposal } from './skp-contract.mjs';
 import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
 

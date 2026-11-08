@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import { assertStoryBranchNaming } from './story-branch-name.mjs';
 import { readConfigurationSource } from './configuration-source.mjs';
 import { validateTokenReportingPolicy } from './token-reporting-policy.mjs';
-import { normalizeSessionPolicy } from './session-policy.mjs';
-export { normalizeSessionPolicy } from './session-policy.mjs';
+import { normalizeSessionPolicy } from "./kernel/configuration-policy.mjs";
+export { normalizeSessionPolicy } from "./kernel/configuration-policy.mjs";
 import {
   cp, mkdir, readFile, readdir
 } from 'node:fs/promises';
@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { createWorkflowConfigurationCompiler, mergePhaseOverride, STEP_DESCRIPTION_LIMIT, DEFAULT_PLANNING_PROMPT, SEQUENCE_GATE_IDS } from './kernel/workflow-configuration.mjs';
 export { STEP_DESCRIPTION_LIMIT, DEFAULT_PLANNING_PROMPT, SEQUENCE_GATE_IDS } from './kernel/workflow-configuration.mjs';
-import { assertDocumentStoragePolicy } from './document-storage-policy.mjs';
+
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   ensureSecureRepositoryDirectory, mapLimit, repoRelative, secureRepositoryPath, SingularityFlowError, posix, run, snapshot, writeBytes
@@ -27,7 +27,7 @@ import { assertAttachedLibrarySkills } from './skill-library.mjs';
 import { isAgentTemplateReference, parseAgentTemplateReference } from './agent-document-parser.mjs';
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
-import { normalizeContextPolicy } from './context-policy.mjs';
+import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 
@@ -39,15 +39,14 @@ import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFI
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
-import { assertModelTask } from './model-tasks.mjs';
-import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
+
 import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeMarketplaces } from './marketplace.mjs';
-import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole } from './specifications.mjs';
-import { normalizeHarnessImports } from './harness-import-policy.mjs';
+import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specifications.mjs';
+import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
+import { normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
-import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
 
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
@@ -55,15 +54,14 @@ import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
-import { normalizeTestRuntime } from './test-runtime.mjs';
+
 import { normalizeAstPolicy } from './ast-policy.mjs';
-import { assertCodeDeliveryConfiguration, compiledSkillStep, normalizeCodeDeliveryPolicy, pinCodeDeliveryTask, stepOutputKind } from './code-delivery-policy.mjs';
+import { assertCodeDeliveryConfiguration, compiledSkillStep, pinCodeDeliveryTask, stepOutputKind } from './code-delivery-policy.mjs';
+import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
 import { normalizeIntegrations, normalizeStepActions, pinStepActions } from './step-actions.mjs';
-import {
-  normalizeWorkTypeIntelligence
-} from './intelligence-policy.mjs';
-import { normalizeTokenEconomy } from './token-economy.mjs';
+import { normalizeWorkTypeIntelligence } from "./kernel/configuration-policy.mjs";
+import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
 import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
@@ -112,8 +110,6 @@ const {
   absolutePath: path.isAbsolute,
   analysisLimits,
   assertCodeDeliveryConfiguration,
-  assertDocumentStoragePolicy,
-  assertModelTask,
   assertNoAutonomousConvergence,
   assertStoryBranchNaming,
   authoringSkillCatalog,
@@ -124,46 +120,32 @@ const {
   dropRemovedSettings,
   isAgentTemplateReference,
   isSpecificationDefinitionPhase,
-  isTemplateReference,
   normalizeAdhocPolicy,
   normalizeApplicationReview,
   normalizeArtifactSets,
   normalizeAstPolicy,
   normalizeAutoPolicy,
   normalizeAutoWorkTypePolicy,
-  normalizeCodeDeliveryPolicy,
   normalizeCommitPolicyRuntime,
-  normalizeContextPolicy,
   normalizeExternalCommand,
   normalizeFaultRepairPolicy,
-  normalizeHarnessImports,
   normalizeIntegrations,
   normalizeLedgerConfig,
   normalizeLogging,
   normalizeMarketplaces,
   normalizeMcpServers,
   normalizePhaseMcpPolicy,
-  normalizeRepairBudget,
-  normalizeReworkLoops,
-  normalizeSessionPolicy,
   normalizeSourceBoundary,
   normalizeSourceRoots,
-  normalizeSpecPolicy,
   normalizeStepActions,
   normalizeStorage,
-  normalizeTemplateCatalog,
   normalizeTestRecoveryPolicy,
-  normalizeTestRuntime,
-  normalizeTokenEconomy,
   normalizeWorkItemRoot,
-  normalizeWorkTypeIntelligence,
   parseAgentTemplateReference,
-  parseTemplateReference,
   pathBasename: path.posix.basename,
   pinCodeDeliveryTask,
   pinStepActions,
   posix,
-  resolveTemplate,
   skillPhasePrimaryOutputRole,
   specificationQualityPolicy,
   stepOutputKind,

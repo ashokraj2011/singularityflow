@@ -14,7 +14,7 @@ import { loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution }
 import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
 import { renderInitiativeGenerator } from './initiative-generators.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
-import { normalizeContextPolicy } from './context-policy.mjs';
+import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeJson, writeText
 } from './util.mjs';

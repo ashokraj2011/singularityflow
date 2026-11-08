@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { generationTaskForPhase } from '../model-tasks.mjs';
+import { generationTaskForPhase } from "../kernel/configuration-policy.mjs";
 import { loadModelTiers, tierLadder } from '../model-tiers.mjs';
 import { resolveModelProvider } from '../model-runner.mjs';
 import { modelProviderIds } from '../model-provider-registry.mjs';

@@ -19,7 +19,7 @@ import {
 import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
-import { normalizeCodeDeliveryPolicy } from './code-delivery-policy.mjs';
+import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { ARA_PHASE_SEMANTICS_PROFILE } from './phase-semantics.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { normalizeIntegrations } from './step-actions.mjs';
@@ -54,7 +54,7 @@ import { constitutionPolicy, parseConstitution } from './constitution.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { recordSha256 } from './records.mjs';
-import { isTemplateReference, parseTemplateReference } from './template-catalog.mjs';
+import { isTemplateReference, parseTemplateReference } from "./kernel/configuration-policy.mjs";
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';

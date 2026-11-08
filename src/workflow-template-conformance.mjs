@@ -26,7 +26,8 @@ import { requiredArtifactSections } from './artifact-required-sections.mjs';
 import { renderArtifactTemplateText } from './config.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import { scaffoldPlanningRows } from './phase-authoring-contract.mjs';
-import { extractClauses, inspectPlannedClaimMap, normalizeSpecPolicy, plannedClaimSource } from './specifications.mjs';
+import { extractClauses, inspectPlannedClaimMap, plannedClaimSource } from './specifications.mjs';
+import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 
 /** The Work ID templates are rendered with; any Story's ID renders the same structure. */
 export const SAMPLE_WORK_ID = 'CHECK-1';

@@ -9,13 +9,13 @@ import { configurationReadRoot, configurationReadScope, configurationReadSnapsho
 import { captureVerifiedConfigurationAssetBytes, inspectApprovedSkillPackage } from './configuration-branch.mjs';
 import { loadDefinition, validateDefinition, resolveWorkType, assertWorkTypeStartable, applyWorkflowCompatibility } from './config.mjs';
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
-import { MODEL_TASKS, assertModelTask } from './model-tasks.mjs';
+import { MODEL_TASKS, assertModelTask } from "./kernel/configuration-policy.mjs";
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { approvalPolicyCapacity, normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { inspectSkillPackageContents, readSealedSkillPackage } from './skp-package.mjs';
 import { validateConfiguredSkillPhase, compileSkillPhaseProposal } from './skp-contract.mjs';
-import { normalizeTemplateCatalog, resolveTemplate } from './template-catalog.mjs';
+import { normalizeTemplateCatalog, resolveTemplate } from "./kernel/configuration-policy.mjs";
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { openGitDraftStore } from './wca-git-drafts.mjs';
 import { scanEntries } from './secrets.mjs';

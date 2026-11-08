@@ -10,10 +10,8 @@ import { applicationPathContext, isApplicationChangeEntry, isApplicationPath } f
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import {
-  codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
-  normalizeSpecPolicy, plannedSupportingFiles, plannedProductSourcePaths
-} from './specifications.mjs';
+import { codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles, plannedProductSourcePaths } from './specifications.mjs';
+import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { workDir } from './story-paths.mjs';
 import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';

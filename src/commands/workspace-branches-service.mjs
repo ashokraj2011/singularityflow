@@ -11,7 +11,7 @@ import { applyTestRecoveryAdmission, prepareTestRecoveryIntake, testRecoveryChoi
 import { loadConfig, validateId } from '../state-stores.mjs';
 import { workflowCodeGeneration } from '../code-delivery-policy.mjs';
 import { resolveWorkType } from '../config.mjs';
-import { documentStorageChoices } from '../document-storage-policy.mjs';
+import { documentStorageChoices } from "../kernel/configuration-policy.mjs";
 import { mcpServerSetupCommands, mcpTargetOriginSteps, storyStartTargetUrlMode } from '../mcp-target.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority, refreshFailureGuidance } from '../git-remote-diagnostics.mjs';

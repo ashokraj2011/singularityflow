@@ -18,8 +18,8 @@ import {
   assertWorkflowReadinessChanges, DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, loadDefinition, normalizePlanning,
   resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
 } from './config.mjs';
-import { MODEL_TASKS } from './model-tasks.mjs';
-import { templateReferences } from './template-catalog.mjs';
+import { MODEL_TASKS } from "./kernel/configuration-policy.mjs";
+import { templateReferences } from "./kernel/configuration-policy.mjs";
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { documentCatalog, evidenceIsActive } from './documents.mjs';
 import {

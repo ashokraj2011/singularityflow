@@ -10,7 +10,7 @@ import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { readPromptGeneration } from '../inject.mjs';
-import { generationTaskForPhase } from '../model-tasks.mjs';
+import { generationTaskForPhase } from "../kernel/configuration-policy.mjs";
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { recordSha256 } from '../records.mjs';

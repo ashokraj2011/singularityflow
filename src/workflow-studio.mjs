@@ -45,7 +45,7 @@ import { mcpDescriptorPath, parseMcpServerDescriptor } from './mcp-descriptor.mj
 import { DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES } from './remote-fetch.mjs';
 import { importsStatus } from './asset-import.mjs';
 import { importableMcpServers } from './mcp-import.mjs';
-import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, templateReferences } from './template-catalog.mjs';
+import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, templateReferences } from "./kernel/configuration-policy.mjs";
 import { normalizeArtifactSet } from './artifact-sets.mjs';
 import { normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
 import {

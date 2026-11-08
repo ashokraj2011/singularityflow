@@ -249,6 +249,10 @@ every existing packaged validator; the native compatibility libraries remain exp
 remaining rules are portable. This does not enroll a namespace project or complete a headless
 Story, and it does not change installed configuration or lifecycle authority.
 
+The [shared configuration policy rules](ENGINE-SDK-CONFIGURATION-POLICIES.md) replace sixteen
+native compiler callbacks with direct kernel rules, preserving the twelve compatibility APIs.
+Remaining compiler dependencies and production namespace enrollment remain required work.
+
 [ADR 0018](adr/0018-sda-lifecycle-authority-options.md) keeps the Story branch as lifecycle authority,
 the state branch as proof/projection and `sflow/config` as configuration authority. The Git
 compatibility adapter preserves that layout. An alternate backend for an existing project requires

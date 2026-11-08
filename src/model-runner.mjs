@@ -9,7 +9,7 @@ import { resolveModelPromptTransport } from './model-provider-capability.mjs';
 import {
   DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES, stageModelPrompt
 } from './model-prompt-transport.mjs';
-import { assertModelTask } from './model-tasks.mjs';
+import { assertModelTask } from "./kernel/configuration-policy.mjs";
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError, writeJson } from './util.mjs';

@@ -1,0 +1,14 @@
+{
+  "component": {
+    "key": "payments-api",
+    "name": "payments-api",
+    "qualifier": "TRK",
+    "measures": [
+      { "metric": "complexity", "value": "41", "bestValue": false },
+      { "metric": "cognitive_complexity", "value": "37", "bestValue": false },
+      { "metric": "duplicated_lines_density", "value": "3.2", "bestValue": false },
+      { "metric": "new_coverage", "period": { "index": 1, "value": "71.4", "bestValue": false } }
+    ]
+  },
+  "period": { "mode": "REFERENCE_BRANCH", "date": "2026-11-01T09:00:00+0000", "parameter": "main" }
+}

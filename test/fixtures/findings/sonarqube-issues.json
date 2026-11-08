@@ -1,0 +1,78 @@
+{
+  "total": 4,
+  "p": 1,
+  "ps": 100,
+  "paging": { "pageIndex": 1, "pageSize": 100, "total": 4 },
+  "effortTotal": 37,
+  "issues": [
+    {
+      "key": "AYx1-cognitive",
+      "rule": "javascript:S3776",
+      "severity": "CRITICAL",
+      "component": "payments-api:src/pricing.js",
+      "project": "payments-api",
+      "line": 12,
+      "hash": "5d9f3a7c1b2e4f60a8b9c0d1e2f3a4b5",
+      "textRange": { "startLine": 12, "endLine": 12, "startOffset": 9, "endOffset": 17 },
+      "flows": [],
+      "status": "OPEN",
+      "issueStatus": "OPEN",
+      "message": "Refactor this function to reduce its Cognitive Complexity from 22 to the 15 allowed.",
+      "effort": "12min",
+      "debt": "12min",
+      "tags": ["brain-overload"],
+      "type": "CODE_SMELL",
+      "cleanCodeAttribute": "FOCUSED",
+      "cleanCodeAttributeCategory": "ADAPTABLE",
+      "impacts": [{ "softwareQuality": "MAINTAINABILITY", "severity": "HIGH" }],
+      "scope": "MAIN"
+    },
+    {
+      "key": "AYx2-vuln",
+      "rule": "javascript:S2076",
+      "severity": "BLOCKER",
+      "component": "payments-api:src/run.js",
+      "project": "payments-api",
+      "line": 4,
+      "hash": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "textRange": { "startLine": 4, "endLine": 5, "startOffset": 2, "endOffset": 40 },
+      "status": "OPEN",
+      "issueStatus": "OPEN",
+      "message": "Change this code to not construct the OS command from user-controlled data.",
+      "type": "VULNERABILITY",
+      "impacts": [{ "softwareQuality": "SECURITY", "severity": "BLOCKER" }],
+      "scope": "MAIN"
+    },
+    {
+      "key": "AYx3-wontfix",
+      "rule": "javascript:S1854",
+      "severity": "MAJOR",
+      "component": "payments-api:src/pricing.js",
+      "project": "payments-api",
+      "line": 30,
+      "status": "RESOLVED",
+      "issueStatus": "ACCEPTED",
+      "resolution": "WONTFIX",
+      "message": "Remove this useless assignment to variable \"total\".",
+      "type": "CODE_SMELL",
+      "impacts": [{ "softwareQuality": "MAINTAINABILITY", "severity": "MEDIUM" }]
+    },
+    {
+      "key": "AYx4-legacy",
+      "rule": "javascript:S1481",
+      "severity": "MINOR",
+      "component": "payments-api:lib/legacy.js",
+      "project": "payments-api",
+      "line": 7,
+      "status": "OPEN",
+      "message": "Remove the declaration of the unused 'x' variable.",
+      "type": "CODE_SMELL"
+    }
+  ],
+  "components": [
+    { "key": "payments-api:src/pricing.js", "enabled": true, "qualifier": "FIL", "name": "pricing.js", "longName": "src/pricing.js", "path": "src/pricing.js" },
+    { "key": "payments-api:src/run.js", "enabled": true, "qualifier": "FIL", "name": "run.js", "longName": "src/run.js", "path": "src/run.js" },
+    { "key": "payments-api", "enabled": true, "qualifier": "TRK", "name": "payments-api", "longName": "payments-api" }
+  ],
+  "facets": []
+}

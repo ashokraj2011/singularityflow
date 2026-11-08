@@ -1,0 +1,62 @@
+[
+  {
+    "number": 42,
+    "created_at": "2026-11-05T08:12:00Z",
+    "updated_at": "2026-11-05T08:12:00Z",
+    "url": "https://ghe.example.test/api/v3/repos/example-org/payments-api/code-scanning/alerts/42",
+    "html_url": "https://ghe.example.test/example-org/payments-api/security/code-scanning/42",
+    "state": "open",
+    "fixed_at": null,
+    "dismissed_by": null,
+    "dismissed_at": null,
+    "dismissed_reason": null,
+    "dismissed_comment": null,
+    "rule": {
+      "id": "js/sql-injection",
+      "severity": "error",
+      "description": "Database query built from user-controlled sources",
+      "name": "js/sql-injection",
+      "tags": ["external/cwe/cwe-089", "security"],
+      "security_severity_level": "high"
+    },
+    "tool": { "name": "CodeQL", "guid": null, "version": "2.19.3" },
+    "most_recent_instance": {
+      "ref": "refs/heads/sflow/pay-12",
+      "analysis_key": ".github/workflows/codeql.yml:analyze",
+      "environment": "{\"language\":\"javascript-typescript\"}",
+      "category": "/language:javascript-typescript",
+      "state": "open",
+      "commit_sha": "3f6c9a1e2b4d5c6e7f8091a2b3c4d5e6f7a8b9c0",
+      "message": { "text": "This query string depends on a user-provided value." },
+      "location": { "path": "src/db.js", "start_line": 14, "end_line": 14, "start_column": 20, "end_column": 61 },
+      "classifications": []
+    },
+    "instances_url": "https://ghe.example.test/api/v3/repos/example-org/payments-api/code-scanning/alerts/42/instances"
+  },
+  {
+    "number": 7,
+    "created_at": "2026-10-01T08:12:00Z",
+    "url": "https://ghe.example.test/api/v3/repos/example-org/payments-api/code-scanning/alerts/7",
+    "html_url": "https://ghe.example.test/example-org/payments-api/security/code-scanning/7",
+    "state": "open",
+    "rule": {
+      "id": "js/useless-assignment-to-local",
+      "severity": "warning",
+      "description": "Useless assignment to local variable",
+      "name": "js/useless-assignment-to-local",
+      "tags": ["maintainability", "correctness"],
+      "security_severity_level": null
+    },
+    "tool": { "name": "CodeQL", "guid": null, "version": "2.19.3" },
+    "most_recent_instance": {
+      "ref": "refs/heads/sflow/pay-12",
+      "analysis_key": ".github/workflows/codeql.yml:analyze",
+      "category": "/language:javascript-typescript",
+      "state": "open",
+      "commit_sha": "3f6c9a1e2b4d5c6e7f8091a2b3c4d5e6f7a8b9c0",
+      "message": { "text": "The value assigned to total here is unused." },
+      "location": { "path": "lib/legacy.js", "start_line": 30, "end_line": 30, "start_column": 3, "end_column": 12 },
+      "classifications": []
+    }
+  }
+]

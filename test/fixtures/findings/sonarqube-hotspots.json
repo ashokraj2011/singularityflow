@@ -1,0 +1,36 @@
+{
+  "paging": { "pageIndex": 1, "pageSize": 100, "total": 2 },
+  "hotspots": [
+    {
+      "key": "AYh1-hotspot",
+      "component": "payments-api:src/token.js",
+      "project": "payments-api",
+      "securityCategory": "weak-cryptography",
+      "vulnerabilityProbability": "MEDIUM",
+      "status": "TO_REVIEW",
+      "line": 9,
+      "message": "Make sure that using this pseudorandom number generator is safe here.",
+      "creationDate": "2026-11-01T10:00:00+0000",
+      "updateDate": "2026-11-01T10:00:00+0000",
+      "textRange": { "startLine": 9, "endLine": 9, "startOffset": 16, "endOffset": 29 },
+      "flows": [],
+      "ruleKey": "javascript:S2245",
+      "messageFormattings": []
+    },
+    {
+      "key": "AYh2-safe",
+      "component": "payments-api:src/token.js",
+      "project": "payments-api",
+      "securityCategory": "weak-cryptography",
+      "vulnerabilityProbability": "MEDIUM",
+      "status": "REVIEWED",
+      "resolution": "SAFE",
+      "line": 20,
+      "message": "Make sure that using this pseudorandom number generator is safe here.",
+      "ruleKey": "javascript:S2245"
+    }
+  ],
+  "components": [
+    { "key": "payments-api:src/token.js", "qualifier": "FIL", "name": "token.js", "longName": "src/token.js", "path": "src/token.js" }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "organization": "GitHub",
+          "semanticVersion": "2.19.3",
+          "notifications": [],
+          "rules": []
+        },
+        "extensions": [
+          {
+            "name": "codeql/javascript-queries",
+            "semanticVersion": "1.2.3",
+            "rules": [
+              {
+                "id": "js/sql-injection",
+                "name": "js/sql-injection",
+                "shortDescription": { "text": "Database query built from user-controlled sources" },
+                "defaultConfiguration": { "enabled": true, "level": "error" },
+                "properties": {
+                  "tags": ["security", "external/cwe/cwe-089"],
+                  "kind": "path-problem",
+                  "precision": "high",
+                  "security-severity": "8.8"
+                }
+              },
+              {
+                "id": "js/unused-local-variable",
+                "name": "js/unused-local-variable",
+                "shortDescription": { "text": "Unused variable, import, function or class" },
+                "defaultConfiguration": { "enabled": true, "level": "note" },
+                "properties": { "tags": ["maintainability"], "kind": "problem", "precision": "very-high" }
+              }
+            ],
+            "locations": [{ "uri": "file:///home/runner/.codeql/packages/codeql/javascript-queries/1.2.3/", "description": { "text": "The QL pack root directory." } }]
+          }
+        ]
+      },
+      "invocations": [{ "executionSuccessful": true, "toolExecutionNotifications": [] }],
+      "artifacts": [
+        { "location": { "uri": "src/db.js", "uriBaseId": "%SRCROOT%", "index": 0 } },
+        { "location": { "uri": "src/util.js", "uriBaseId": "%SRCROOT%", "index": 1 } }
+      ],
+      "results": [
+        {
+          "ruleId": "js/sql-injection",
+          "rule": { "id": "js/sql-injection", "index": 0, "toolComponent": { "index": 0 } },
+          "message": { "text": "This query string depends on a [user-provided value](1)." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/db.js", "uriBaseId": "%SRCROOT%", "index": 0 },
+                "region": { "startLine": 14, "startColumn": 20, "endColumn": 61 }
+              }
+            }
+          ],
+          "partialFingerprints": { "primaryLocationLineHash": "a1b2c3d4e5f60718:1", "primaryLocationStartColumnFingerprint": "15" },
+          "codeFlows": [],
+          "relatedLocations": []
+        },
+        {
+          "ruleId": "js/unused-local-variable",
+          "rule": { "id": "js/unused-local-variable", "index": 1, "toolComponent": { "index": 0 } },
+          "message": { "text": "Unused variable tmp." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/util.js", "uriBaseId": "%SRCROOT%", "index": 1 },
+                "region": { "startLine": 3, "startColumn": 7, "endColumn": 10 }
+              }
+            }
+          ],
+          "partialFingerprints": { "primaryLocationLineHash": "0011223344556677:1" }
+        },
+        {
+          "ruleId": "js/unused-local-variable",
+          "rule": { "id": "js/unused-local-variable", "index": 1, "toolComponent": { "index": 0 } },
+          "message": { "text": "Unused variable old." },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/util.js", "uriBaseId": "%SRCROOT%", "index": 1 }, "region": { "startLine": 9 } } }],
+          "suppressions": [{ "kind": "inSource" }]
+        }
+      ],
+      "columnKind": "utf16CodeUnits",
+      "properties": { "semmle.formatSpecifier": "sarif-latest" }
+    }
+  ]
+}

@@ -81,8 +81,8 @@ test('a wording departure is a draft copy, accepted as the design\'s next genera
   assert.deepEqual([departure.target.phase, departure.target.generation], ['design', 1]);
   assert.match(departure.diff, /\+.*a caller may keep a copy/u);
   assert.equal(await readFile(design, 'utf8'), approved, 'the approved design is untouched');
-  assert.equal(await readFile(path.join(repo.root, departure.proposal.path), 'utf8'), await readFile(draft, 'utf8'), 'the draft is saved with the record');
-  repo.must('rm', [draft]);
+  assert.match(await readFile(path.join(repo.root, departure.proposal.path), 'utf8'), /a caller may keep a copy/u, 'the draft is saved with the record');
+  await assert.rejects(readFile(draft), { code: 'ENOENT' }, 'and leaves the checkout, so it is no departure of its own');
 
   // Decided on the list while the code step is open: one row, Accept all covers wording that names no clause.
   const packet = repo.sflowJson('decisions', 'QF-1').value.data;

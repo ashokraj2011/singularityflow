@@ -66,7 +66,7 @@ async function record(options) {
     supersedes: optionString(options, 'supersedes')
   }, { actor: actionActor(root), agent });
   if (!optionBoolean(options, 'json')) {
-    console.log(`Recorded ${recorded.id}: ${departureWords(recorded)}. Keep working: publish goes ahead with it, and a person decides it on the decisions table before ${workflow.phases[recorded.phase]?.label ?? recorded.phase} is approved.`);
+    console.log(`Recorded ${recorded.id}: ${departureWords(recorded)}.${recorded.proposal ? ` The draft is kept with the record at ${recorded.proposal.path}.` : ''} Keep working: publish goes ahead with it, and a person decides it on the decisions table before ${workflow.phases[recorded.phase]?.label ?? recorded.phase} is approved.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'departure.record', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },

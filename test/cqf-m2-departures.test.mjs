@@ -13,11 +13,13 @@ import YAML from 'yaml';
 
 import { cli, repository, startQuickFix } from './helpers/run-and-test-fixture.mjs';
 
-async function draft(t) {
+async function draft(t, { agentStep = false } = {}) {
   const repo = await repository(t, { implementCommands: false });
   const configPath = path.join(repo.root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] };
+  // A code step the agent authors, as /sf-code does, and a person may still author by hand.
+  if (agentStep) config.phases.implement.generation = { requirement: 'required', task: 'code' };
   await writeFile(configPath, YAML.stringify(config));
   repo.must('git', ['add', 'singularity/workflow.yml']);
   repo.must('git', ['commit', '-m', 'Require a human implementation review in this fixture']);
@@ -114,6 +116,8 @@ test('a rejected departure is restored by the model in the same generation, and 
   assert.match(JSON.stringify(held.value.findings), /DEPARTURE_REJECTED_NOT_REVERTED/u);
   assert.match(held.value.departures.words, /DEP-001 was rejected: restore index\.html/u);
   assert.equal((await state(repo)).departures.length, 1, 'a rejected file is never recorded again');
+  // The next turn hears it from its entry, not from a person.
+  assert.deepEqual(repo.sflowJson('phase', 'enter').value.departures.rejected.map((entry) => entry.id), ['DEP-001']);
   // The file was new in this generation, so restoring it is removing it.
   repo.must('rm', ['index.html']);
   const clean = repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
@@ -214,4 +218,20 @@ test('appeal prepare records a departure for each change it names, and the appea
   repo.sflowJson('appeal', 'prepare', '--phase', 'implement', '--add-location', 'QF-1:AC-001=index.html',
     '--reason', 'The entry page shows the approved value, so it belongs to AC-001.');
   assert.equal((await state(repo)).departures.length, 1);
+});
+
+test('the agent\'s publication records a left-out file itself when no prepublish ran first, and another producer\'s does not', async (t) => {
+  const repo = await draft(t, { agentStep: true });
+  const summary = path.join(repo.root, 'singularity/work-items/QF-1/artifacts/implement/implementation-summary.md');
+  await writeFile(summary, `${await readFile(summary, 'utf8')}\n## What changed\n\nThe value module returns the approved value 2, and a new entry page shows it to every visitor.\n`);
+  // Any producer but the agent records nothing: what is left out stays its author's to account for.
+  const own = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'human', '--channel', 'manual-in-place', '--json']);
+  assert.notEqual(own.status, 0);
+  assert.match(own.stdout + own.stderr, /GENERATION_EXCLUDED_CHANGES_UNRESOLVED/u, (own.stdout + own.stderr).slice(-1500));
+  assert.equal((await state(repo)).departures, undefined, 'no departure is recorded for another producer');
+  const agent = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
+  assert.equal(agent.status, 0, agent.stdout + agent.stderr);
+  const recorded = await state(repo);
+  assert.deepEqual(recorded.departures.map((entry) => [entry.id, entry.paths, entry.recordedBy]), [['DEP-001', ['index.html'], 'sflow']]);
+  assert.ok(recorded.phases.implement.deliveryEvidence.sourcePaths.includes('index.html'));
 });

@@ -247,6 +247,12 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
   const [recorded] = await commitDepartures(root, config, workflow, [{ kind, phase: phase.id, generation: Number(phase.generationIntent?.generation ?? 0), paths: ['path', 'supporting'].includes(kind) ? files : [],
     contentHashes, baseHashes, target, diff, clauses: request.clauses ?? [], supportingClass, change, proposal, reason: request.reason,
     findings: request.findings ?? [], recordedBy: 'agent', supersedes: request.supersedes ?? null }], { actor, agent, saved });
+  // The draft now lives in the Story's record. A copy left in the checkout, never committed, would be a
+  // departure of its own at the next prepublish, so it goes; a file Git holds stays as it is.
+  if (proposal) {
+    const [{ exactFileAtObject, head }, { rm }] = await Promise.all([import('./git.mjs'), import('node:fs/promises')]);
+    if (!exactFileAtObject(root, head(root), posix(request.file))) await rm(path.join(root, posix(request.file)), { force: true });
+  }
   return recorded;
 }
 
@@ -444,7 +450,7 @@ export async function assertDeparturesDecided(root, config, workflow, phase) {
 }
 
 /**
- * What prepublish tells the step about its departures, or null when it has none: what was recorded now,
+ * What prepublish and phase entry tell the step about its departures, or null when none waits: what was recorded now,
  * what waits for a person (nothing for the model to ask), and what a person rejected, which the model
  * restores in this generation.
  */
@@ -455,6 +461,8 @@ export async function departureSummary(root, workflow, phase, recordedNow = []) 
     paths: entry.departure.paths, status: entry.status, words: departureWords(entry.departure) }));
   const open = pick(['open', 'reopened']);
   const rejected = pick(['rejected']);
+  // Decided and done: nothing to say to the step.
+  if (!recordedNow.length && !open.length && !rejected.length) return null;
   const name = phase.label ?? phase.id;
   const words = [
     recordedNow.length ? `Recorded ${recordedNow.map((entry) => `${entry.id} (${entry.paths.join(', ')})`).join(', ')} as ${recordedNow.length === 1 ? 'a departure' : 'departures'} from the approved plan.` : '',

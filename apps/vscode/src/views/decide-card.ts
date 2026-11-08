@@ -17,7 +17,8 @@ import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
+import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, evidencePaths, GUARD_WORDS, guardRoute, openRows,
+  type DecideDraft } from './decide-card-page.ts';
 
 export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; remaining?: string[]; next?: unknown }
 
@@ -71,21 +72,28 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     const reread = async () => { packet = await readList(client, workId).catch(() => packet); };
     const optionOf = (message: InboundMessage) => packet.items.find((item) => item.id === stringField(message, 'item'))
       ?.options.find((option) => option.id === stringField(message, 'option'));
+    // A row's own step, or a held package's accept command for a person who may accept it [CQF:REQ-052]: always from the list as read.
+    const commandOf = (message: InboundMessage) => {
+      const hold = stringField(message, 'hold');
+      if (hold === null) return optionOf(message)?.action?.command ?? null;
+      const entry = /^\d{1,2}$/u.test(hold) ? packet.approvalEvidence?.hold?.entries?.[Number(hold)] : undefined;
+      return entry?.allowed === true && typeof entry.command === 'string' ? entry.command : null;
+    };
     const router = registerMessageRouter('singularityFlow.decide', {
       'decide.cancel': () => finish(notNow()),
       'decide.open': async (message) => {
         const file = stringField(message, 'path');
-        if (!file || !packet.repositoryPath || !packet.items.some((item) => item.details?.path === file)) return;
+        if (!file || !packet.repositoryPath || !(packet.items.some((item) => item.details?.path === file) || evidencePaths(packet).includes(file))) return;
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(packet.repositoryPath, file)), { viewColumn: vscode.ViewColumn.Beside, preview: true })
           .then(undefined, () => vscode.window.showInformationMessage(`${file} is not in this checkout now; it may have been removed.`));
       },
       'decide.copy': async (message) => {
-        const command = optionOf(message)?.action?.command;
+        const command = commandOf(message);
         if (command) { await vscode.env.clipboard.writeText(command); void vscode.window.setStatusBarMessage('$(clippy) Copied.', 3_000); }
       },
       // Typed, not run: the person presses Enter themselves, in a terminal this page opened in the Story's checkout.
       'decide.terminal': (message) => {
-        const command = optionOf(message)?.action?.command;
+        const command = commandOf(message);
         if (!command) return;
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);
         terminal.show(false);

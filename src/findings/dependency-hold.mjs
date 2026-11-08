@@ -45,6 +45,12 @@ function vulnerability(workflow, phase, finding) {
     command: findingRiskDecisionCommand(workflow, { phaseId: phase.id, finding }) };
 }
 
+/** The held vulnerabilities as the hold names them, the first ten, and how many more: what the approval surfaces show. */
+export function heldVulnerabilities(workflow, phase, { at = new Date().toISOString() } = {}) {
+  const held = heldDependencyVulnerabilities(workflow, phase, { at });
+  return { entries: held.slice(0, SHOWN).map((finding) => vulnerability(workflow, phase, finding)), more: Math.max(0, held.length - SHOWN) };
+}
+
 /** The code step's approval waits while a held vulnerability is neither fixed nor accepted by a person. */
 export function assertDependencyVulnerabilitiesDecided(workflow, phase, { at = new Date().toISOString() } = {}) {
   const held = heldDependencyVulnerabilities(workflow, phase, { at });

@@ -75,12 +75,65 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
     return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${option.oneByOne ? ' data-one="1"' : ''}${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}</option>`;
   }).join('')}</select>` : '';
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
-  const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label)}.</span> <span class="muted">This one stays in your terminal.</span>
+  // A label that already ends a sentence (a hold's route often does) gets no second full stop.
+  const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">This one stays in your terminal.</span>
       <code>${escape(option.action!.command!)}</code>
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   return `<tr data-item="${escape(item.id)}" data-title="${escape(item.title)}">
     <td>${what}</td><td>${select}${reviews}${own}</td><td class="dc-fields">${choices.length ? fieldsHtml(item, entered) : ''}</td></tr>`;
+}
+
+/** Files the evidence names: the page opens these beside it, as it opens a row's file. */
+export function evidencePaths(packet: DecisionPacket): string[] {
+  const evidence = packet.approvalEvidence;
+  return [...new Set([...(evidence?.coverage?.files ?? []).map((file) => file.path), ...(evidence?.proof?.assertionCheck?.tests ?? []).map((entry) => entry.path),
+    ...(evidence?.findings?.letThrough ?? []).map((finding) => finding.file)].filter((file): file is string => typeof file === 'string' && file.length > 0))];
+}
+
+const fileLink = (file: string) => `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>`;
+/** The engine's words for a line, with the file it names as a link to open: the words stay the engine's. */
+const linked = (words: string, file: string | null | undefined) => (file && words.includes(file) ? escape(words).replace(escape(file), fileLink(file)) : escape(words));
+
+/**
+ * What the step's records say beside its decisions [CQF:REQ-031, REQ-033, REQ-034, REQ-052, REQ-055]: the
+ * changed lines its tests ran, each criterion's tests, the findings the loop let through, the vulnerable new
+ * package that holds the approval and the command a person who may accept it runs, and the required checks.
+ * Evidence only: no choice here, and a held package's command is the person's own, typed into their terminal.
+ */
+export function evidenceHtml(packet: DecisionPacket): string {
+  const evidence = packet.approvalEvidence;
+  if (!evidence) return '';
+  const part = (title: string, body: string, warn: boolean) => `<section class="dc-ev${warn ? ' dc-ev-warn' : ''}"><h3>${escape(title)}</h3>${body}</section>`;
+  const list = (items: string[]) => (items.length ? `<ul class="dc-ev-list">${items.map((item) => `<li>${item}</li>`).join('')}</ul>` : '');
+  const more = (count?: number) => (count ? `<p class="muted">And ${count} more.</p>` : '');
+  const { coverage, proof, findings, hold, requiredChecks } = evidence;
+  // A held package whose command a row above already offers is not offered twice.
+  const offered = new Set(decideRows(packet).filter((item) => item.decidedBy?.allowed).flatMap((item) => ownSteps(item).map((option) => option.action?.command)));
+  const holdStep = (entry: NonNullable<typeof hold>['entries'][number], index: number) => (!entry.allowed
+    ? `<span class="muted">Share this with them: <code>/sf-decide ${escape(packet.workId)}</code></span>`
+    : offered.has(entry.command) ? '<span class="muted">Its command is on the hold\'s row above.</span>'
+      : `<div class="dc-own"><span>Accept it with your reason and an expiry of at most 90 days.</span> <span class="muted">This one stays in your terminal.</span>
+      <code>${escape(entry.command)}</code>
+      <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
+      <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
+  const parts = [
+    coverage ? part('Changed-line coverage', `<p>${escape(coverage.words)}</p>${list((coverage.files ?? []).map((file) => linked(file.words, file.path)))}${more(coverage.more)}`,
+      coverage.status !== 'measured' || coverage.below === true) : '',
+    proof ? part('Criteria and the tests that prove them', `${list(proof.criteria.map((entry) => escape(entry.words)))}${more(proof.more)}${proof.assertionCheck
+      ? `<p>${escape(proof.assertionCheck.words)}</p>${list(proof.assertionCheck.tests.map((entry) => `'${escape(entry.name)}' at ${fileLink(entry.path)}${entry.line ? `:${entry.line}` : ''} asserts nothing`))}` : ''}`,
+    proof.criteria.some((entry) => entry.silent > 0 || entry.tests === 0) || proof.assertionCheck?.status === 'incomplete') : '',
+    findings ? part('Findings the loop let through', `<p>${escape(findings.words)}</p>${list(findings.letThrough.map((finding) =>
+      `<span class="dc-sev">${escape(finding.severity)}</span> ${linked(finding.words.replace(new RegExp(`^${finding.severity} `, 'u'), ''), finding.file)}`))}${more(findings.more)}`,
+    findings.letThrough.some((finding) => !finding.accepted)) : '',
+    hold ? part('Vulnerable dependency hold', `<p>${escape(hold.words)}</p>${hold.entries.map((entry, index) => `<div class="dc-hold"><strong>${escape(entry.words)}</strong>
+      <span class="muted">${escape(entry.who)}</span>${holdStep(entry, index)}</div>`).join('')}${more(hold.more)}`, true) : '',
+    requiredChecks ? part('GitHub required checks', `${requiredChecks.words ? `<p>${escape(requiredChecks.words)}</p>` : ''}${list(requiredChecks.checks.map((check) =>
+      `${escape(check.name)}: <span class="dc-check dc-check-${escape(check.status)}">${escape(check.status)}</span>`))}`,
+    requiredChecks.status !== 'read' || requiredChecks.checks.some((check) => check.status !== 'passed')) : ''
+  ].join('');
+  return `<section class="dc-evidence" aria-label="Evidence for this approval"><h2>Evidence for this approval</h2>
+    <p class="muted">${escape(evidence.words)}</p>${parts}</section>`;
 }
 
 export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null } = {}): string {
@@ -100,6 +153,7 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>
     </table></div>
+    ${evidenceHtml(packet)}
     <footer><button type="button" class="secondary" data-cancel>Not now</button>
       <button type="button" data-review${yours && !busy ? '' : ' disabled'}>Review and record</button></footer>
   </main>`;
@@ -176,6 +230,21 @@ export const DECIDE_STYLE = `
 .dc-link { all:unset; cursor:pointer; color:var(--vscode-textLink-foreground); overflow-wrap:anywhere; font-weight:600; }
 .dc-link:hover, .dc-link:focus-visible { text-decoration:underline; }
 .dc footer { display:flex; gap:.5rem; justify-content:flex-end; position:sticky; bottom:0; padding:.5rem 0; background:var(--vscode-editor-background); }
+.dc-evidence { display:grid; gap:.75rem; min-width:0; }
+.dc-evidence h2 { margin:0; font-size:1.1em; }
+.dc-evidence > p { margin:0; }
+.dc-ev { border-left:3px solid var(--sf-border-color, var(--vscode-panel-border)); padding:.1rem 0 .1rem .75rem; min-width:0; }
+.dc-ev-warn { border-left-color:var(--sf-wait, var(--vscode-editorWarning-foreground)); }
+.dc-ev h3 { margin:0 0 .25rem; font-size:1em; }
+.dc-ev p { margin:.2rem 0; overflow-wrap:anywhere; }
+.dc-ev-list { margin:.25rem 0; padding-left:1.25rem; }
+.dc-ev-list li { margin:.15rem 0; overflow-wrap:anywhere; }
+.dc-sev { display:inline-block; padding:0 .35rem; border-radius:3px; font-size:.85em; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
+.dc-hold { display:grid; gap:.3rem; margin:.4rem 0; justify-items:start; min-width:0; }
+.dc-hold strong { overflow-wrap:anywhere; }
+.dc-check { font-weight:600; }
+.dc-check-passed { color:var(--sf-ok, var(--vscode-testing-iconPassed)); }
+.dc-check-failed { color:var(--sf-bad, var(--vscode-errorForeground)); }
 .dc-error { color:var(--vscode-errorForeground); margin:0; }
 .dc-notice { margin:0; }
 `;
@@ -208,6 +277,9 @@ document.addEventListener('change', (event) => { const row = event.target.closes
 document.addEventListener('click', (event) => {
   const open = event.target.closest('[data-open]');
   if (open) return vscode.postMessage({ type: 'decide.open', path: open.dataset.open });
+  // A held package's own command, by its place in the evidence: the extension reads the command from the list itself.
+  const held = event.target.closest('[data-hold-terminal],[data-hold-copy]');
+  if (held) return vscode.postMessage({ type: held.dataset.holdTerminal !== undefined ? 'decide.terminal' : 'decide.copy', hold: held.dataset.holdTerminal ?? held.dataset.holdCopy });
   const step = event.target.closest('[data-terminal],[data-copy],[data-witness]');
   if (step) {
     const row = step.closest('tr[data-item]');

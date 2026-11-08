@@ -42,10 +42,37 @@ function howWords(item) {
   return own.length ? `Stays in your terminal: \`${own[0].action.command}\`` : (item.options[0]?.words ?? '');
 }
 
+const line = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').trim();
+const more = (count) => (count ? [`  - And ${count} more.`] : []);
+
+/**
+ * What the step's records say beside its decisions, in the engine's words, as the VS Code card shows them
+ * [CQF:REQ-031, REQ-033, REQ-034, REQ-052, REQ-055]. Evidence only: nothing here is a choice, and a held
+ * package's accept command is the person's own, for their terminal. [] when the list carries none.
+ */
+export function evidenceLines(packet) {
+  const evidence = packet.approvalEvidence;
+  if (!evidence) return [];
+  const { coverage, proof, findings, hold, requiredChecks } = evidence;
+  // A held package whose command a row above already offers is not offered twice.
+  const offered = new Set(cardRows(packet).filter((item) => item.decidedBy?.allowed && !item.options.some(choosable) && !reviews(item).length)
+    .map((item) => ownSteps(item)[0]?.action.command).filter(Boolean));
+  const holdStep = (entry) => (!entry.allowed ? `    Share this with them: /sf-decide ${packet.workId}`
+    : offered.has(entry.command) ? '    Its command is on the hold\'s row above.' : `    Stays in your terminal: \`${line(entry.command)}\``);
+  return ['', `**Evidence for this approval.** ${line(evidence.words)}`, '',
+    ...(coverage ? [`- **Changed-line coverage.** ${line(coverage.words)}`, ...(coverage.files ?? []).map((file) => `  - ${line(file.words)}`), ...more(coverage.more)] : []),
+    ...(proof ? ['- **Criteria and the tests that prove them.**', ...proof.criteria.map((entry) => `  - ${line(entry.words)}`), ...more(proof.more),
+      ...(proof.assertionCheck ? [`  - ${line(proof.assertionCheck.words)}`] : [])] : []),
+    ...(findings ? [`- **Findings the loop let through.** ${line(findings.words)}`, ...findings.letThrough.map((finding) => `  - ${line(finding.words)}`), ...more(findings.more)] : []),
+    ...(hold ? [`- **Vulnerable dependency hold.** ${line(hold.words)}`, ...hold.entries.flatMap((entry) => [`  - ${line(entry.words)}. ${line(entry.who)}`, holdStep(entry)]),
+      ...more(hold.more)] : []),
+    ...(requiredChecks ? [`- **GitHub required checks.** ${line(requiredChecks.words ?? requiredChecks.checks.map((check) => `${check.name} ${check.status}`).join(' · '))}`] : [])];
+}
+
 export function decisionsTable(packet) {
   const rows = cardRows(packet).map((item) => `| ${cell(itemName(item))} | ${cell(item.why)} | ${cell(howWords(item))} |`);
   return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`, '',
-    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows].join('\n');
+    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...evidenceLines(packet)].join('\n');
 }
 
 /**

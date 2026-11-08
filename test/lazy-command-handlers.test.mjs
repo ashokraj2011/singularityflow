@@ -412,7 +412,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // know the findings-remediation workflow (packaged-asset-history.mjs, packaged-workflow-history.mjs +631). The command, its
     // workbook reader and its register stay lazy.
     // 9,589,300 (measured 9,589,274, commands/phase-lifecycle.mjs): the security and TLM findings register merged too; its growth is above.
-    assert.ok(closure.bytes <= 9_589_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,587,450 (measured 9,587,396, commands/phase-lifecycle.mjs): a code step's composed context names a departure for what the approved
+    // documents lack, not an upstream issue (phase-authoring-contract.mjs, phase-prompt-composer.mjs) [CQF:REQ-020].
+    // 9,590,450 (measured 9,590,416, commands/phase-lifecycle.mjs): the paid run's two fixes merged too.
+    assert.ok(closure.bytes <= 9_590_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

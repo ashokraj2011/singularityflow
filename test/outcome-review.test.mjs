@@ -118,6 +118,12 @@ test('validation summarizes only the bound delivery and never promotes diagnosti
   const diagnostic = guide([], [{ commandId: 'unit', record: run().record }]);
   assert.equal(diagnostic.tests.status, 'not-recorded');
   assert.equal(diagnostic.tests.diagnosticRuns[0].status, 'passed');
+  // The publish check's passing run is named as what submission reuses, never as "no test ran" [CQF:REQ-016].
+  const named = diagnostic.steps.find(step => step.id === 'tests').detail;
+  assert.match(named, /^The publish check ran unit on this code: 15 passed, 0 failed\. It becomes the step's recorded run at submission, which reuses it while the code is unchanged/u);
+  assert.doesNotMatch(named, /No retained test execution/u);
+  const failedCheck = guide([], [{ commandId: 'unit', record: run({ status: 'failed', exitCode: 1, tests: { passed: 14, failed: 1 } }).record }]);
+  assert.match(failedCheck.steps.find(step => step.id === 'tests').detail, /No retained test execution is recorded/u, 'a failed check is never named as reusable');
   assert.equal(guide([run()]).tests.status, 'passed');
   assert.match(guide([run()]).steps.find(step => step.id === 'tests').detail, /15 passed, 0 failed, 0 skipped/);
   for (const patch of [{ countsForStep: false }, { terminal: false }, { status: 'passed', exitCode: null }, { tests: { passed: 14, skipped: 1 } }]) {

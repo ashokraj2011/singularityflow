@@ -19,7 +19,8 @@ import { readXlsx } from '../workbook/xlsx.mjs';
 import { defaultSource, readFindingsConfig, sourceColumns } from './config.mjs';
 import { FEEDS, matchHeaders, normalizeRow, repositoryMatches, sheetFeed } from './format.mjs';
 import { addItemsToRegister, withImportRecord } from './model.mjs';
-import { currentRepository, readRegister, registerDestination, registerLedger, writeRegister } from './store.mjs';
+import { reconcileClosedStories } from './remediation.mjs';
+import { currentRepository, readRegister, registerDestination, registerLedger, repositorySettings, writeRegister } from './store.mjs';
 
 const SOURCE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const MAXIMUM_REJECTED_KEPT = 200;
@@ -129,8 +130,13 @@ export async function importFindings(root, file, {
   const importId = `IMP-${at.replace(/[-:]/gu, '').slice(0, 15)}-${sha256.slice(7, 13)}`;
   const who = identity(root, { offline: true, env });
   const counts = {};
+  const settings = await repositorySettings(root);
+  let storiesMoved = [];
   const apply = (register) => {
-    let next = register;
+    // Items whose Story has closed move on first (REQ-068), so the source's rows meet their current state.
+    const reconciled = reconcileClosedStories(root, register, { ...settings, at, env });
+    storiesMoved = reconciled.moved;
+    let next = reconciled.register;
     for (const name of feeds) {
       const { register: added, changes } = addItemsToRegister(next, name, perFeed[name].items, { source: chosenSource, importId, at });
       next = added;
@@ -178,6 +184,7 @@ export async function importFindings(root, file, {
     `import ${importId} from ${chosenSource}: ${feeds.map((name) => `${name} ${counts[name]?.imported ?? 0} rows`).join(', ')}`, { env });
   return {
     ...base, feeds: counts, store: written.store, storeReason: written.reason, storeMessage: written.message,
-    ...(written.store === 'state-branch' ? { branch: ledger.branch, commit: written.commit ?? null } : {}), written: true
+    ...(written.store === 'state-branch' ? { branch: ledger.branch, commit: written.commit ?? null } : {}), written: true,
+    ...(storiesMoved.length ? { storiesClosed: storiesMoved } : {})
   };
 }

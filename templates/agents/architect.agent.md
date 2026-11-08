@@ -5,8 +5,8 @@ model: [auto]
 tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Architect"
-  sflow-phases: "design,implementation-spec,fix-design,fix-spec,planning,convergence"
-  sflow-default-for: "design,implementation-spec,fix-design,fix-spec,planning,convergence"
+  sflow-phases: "design,implementation-spec,fix-design,fix-spec,planning,convergence,remediation-plan"
+  sflow-default-for: "design,implementation-spec,fix-design,fix-spec,planning,convergence,remediation-plan"
   sflow-model-task: "reason"
 ---
 

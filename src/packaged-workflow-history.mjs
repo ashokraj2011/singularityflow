@@ -277,10 +277,13 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'quick-fix': '01398a0d4124462b07ee451bd27ee9b1b4af94046df803a31170f2efbf87d0e6',
     'reference-driven-build': 'b786e7026caae3a2a41130bd55b97f656de6e3c0c0a2e3390963532f996f9b62',
     'spec-code-test-loop': 'f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b',
-    'spec-driven-standard': 'c4006042d4bc9388096e5a71da3d1831ab4ef2cbbf123a6fd0612300549ff30e'
+    'spec-driven-standard': 'c4006042d4bc9388096e5a71da3d1831ab4ef2cbbf123a6fd0612300549ff30e',
+    'findings-remediation': '34e975e5c19105aba55707169ec1cc8ab75d9db7601d9d062741a81b458c0499'
   }),
   phases: Object.freeze({
     'careful-change': 'f1d09fc9b2581f97a19b8b6557810ba62d3f98bb92b2a26a4edd1c09d55c5cef',
+    'findings-intake': '8f096ce5c0680bff417bf0861a69b974bdeef710e5fcfad90cf2918b90a88859',
+    'remediation-plan': '7689d8b7ab5c10c31e09f9fa807e82a3e6b1886c9ca4d31e2f2081eceef45213',
     'demo-instruction-intake': '521a52d220ad7df8dc67933a10a7410f60fcb3839fe585cbcd3b9b38d078c1f0',
     'demo-instruction-test': '03d2174959b490fc63ab3db7575a6b96577e4ff99e63fe3c1b62f097705ea5e9',
     'demo-instruction-repair': '7e8ae07b42be559af1aec7e521065a42a8b58ee834435d2a3478bd288494cf90',

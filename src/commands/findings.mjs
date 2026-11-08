@@ -13,10 +13,11 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link']);
+const SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start']);
 const OPTIONS = Object.freeze({
   template: ['out', 'json'], import: ['feed', 'source', 'dry-run', 'json'],
-  list: ['feed', 'state', 'all-repositories', 'limit', 'json', 'for-agent'], link: ['address', 'json']
+  list: ['feed', 'state', 'all-repositories', 'limit', 'json', 'for-agent'], link: ['address', 'json'],
+  plan: ['feed', 'all-repositories', 'json', 'for-agent'], start: ['work-id', 'from-branch', 'fetch', 'isolated-worktree', 'json']
 });
 // What `list` shows unless --state says otherwise: everything not closed, accepted or waived.
 const ACTIVE_STATES = Object.freeze(['open', 'in-story', 'fixed-awaiting-proof', 'fixed-awaiting-rescan', 'not-in-latest-import']);
@@ -55,13 +56,15 @@ export async function findingsCommand(positionals, options = {}) {
   }
   const unknown = Object.keys(options).filter((key) => ![...OPTIONS[subcommand], 'timings'].includes(key)).sort();
   if (unknown.length) fail(`findings ${subcommand} does not accept ${unknown.map((key) => `--${key}`).join(', ')}.`);
-  const operands = { template: 0, import: 1, list: 0, link: 1 }[subcommand];
+  const operands = { template: 0, import: 1, list: 0, link: 1, plan: 0, start: 1 }[subcommand];
   if (positionals.length > 2 + operands) fail(`findings ${subcommand} takes ${operands ? 'one operand' : 'no operand'}: ${positionals.slice(2 + operands).join(' ')}.`);
   if (subcommand === 'template') return templateCommand(options);
   const { repoRoot } = await import('../git-execution.mjs');
   const root = repoRoot(process.cwd());
   if (subcommand === 'list') return listCommand(root, options);
   if (subcommand === 'link') return linkCommand(root, positionals[2], options);
+  if (subcommand === 'plan') return planCommand(root, options);
+  if (subcommand === 'start') return startRemediation(root, positionals[2], options);
   if (!positionals[2]) fail('Name the workbook or CSV file: singularity-flow findings import FILE [--feed security|tlm] [--source NAME].');
   const { importFindings } = await import('../findings/register/import.mjs');
   return importFindings(root, positionals[2], {
@@ -98,6 +101,56 @@ async function listCommand(root, options) {
     ...(read.damaged.length ? { damaged: read.damaged } : {}),
     lastImport: lastImport ? { importId: lastImport.importId, at: lastImport.at, source: lastImport.source, file: lastImport.file?.name ?? null } : null
   };
+}
+
+async function remediationGroups(root, options) {
+  const [{ readRegister, currentRepository }, { readFindingsConfig }, { planGroups }] = await Promise.all([
+    import('../findings/register/store.mjs'), import('../findings/register/config.mjs'), import('../findings/register/remediation.mjs')]);
+  const read = await readRegister(root);
+  const [repository, config] = await Promise.all([currentRepository(root, read.ledger), readFindingsConfig(root)]);
+  const feed = optionString(options, 'feed');
+  if (feed && !['security', 'tlm'].includes(feed)) fail(`--feed is security or tlm, not '${feed.slice(0, 40)}'.`);
+  const groups = planGroups(read.register, repository, { stories: config.stories, allRepositories: optionBoolean(options, 'all-repositories') })
+    .filter((group) => !feed || group.feed === feed);
+  return { read, repository, config, groups };
+}
+
+async function planCommand(root, options) {
+  const { read, repository, config, groups } = await remediationGroups(root, options);
+  return {
+    schemaVersion: 1, resultType: 'sflow-findings-plan', location: read.location,
+    repository: optionBoolean(options, 'all-repositories') ? null : repository.slug ?? repository.name,
+    grouping: { security: `per repository by due date, at most ${config.stories.security.maximumFindings} a Story`, tlm: 'per component' },
+    groups: groups.map((group) => ({ ...group, command: `singularity-flow findings start ${group.id}` })),
+    ...(config.warnings.length ? { warnings: config.warnings } : {})
+  };
+}
+
+/** Open a findings-remediation Story for one group, through Story start itself. */
+async function startRemediation(root, groupId, options) {
+  if (!groupId) fail('Name the group: singularity-flow findings start GROUP-ID (singularity-flow findings plan lists them).');
+  // This repository's groups: a remediation Story starts in the repository whose items it fixes.
+  const { groups } = await remediationGroups(root, {});
+  const group = groups.find((entry) => entry.id === groupId);
+  if (!group) {
+    fail(`No remediation group '${String(groupId).slice(0, 80)}'. Groups now: ${groups.map((entry) => entry.id).join(', ') || 'none (nothing is open)'}.`, 'FINDINGS_GROUP_UNKNOWN',
+      { nextAction: 'singularity-flow findings plan' });
+  }
+  const [{ groupDescription }, { repositorySettings }, { startCommand }] = await Promise.all([
+    import('../findings/register/remediation.mjs'), import('../findings/register/store.mjs'), import('./start.mjs')]);
+  const settings = await repositorySettings(root);
+  const workId = optionString(options, 'work-id') ?? group.workId;
+  // All existing tests run in a remediation Story (decision 22); its clauses are the group's items.
+  await startCommand(['start', workId], {
+    title: group.title, description: groupDescription(group), 'work-type': 'findings-remediation',
+    address: group.items.map((item) => item.id).join(','), 'test-execution-mode': 'all-configured',
+    'from-branch': optionString(options, 'from-branch') ?? settings.defaultBranch,
+    ...(optionBoolean(options, 'fetch') ? { fetch: true } : {}), ...(optionBoolean(options, 'isolated-worktree') ? { 'isolated-worktree': true } : {}),
+    ...(optionBoolean(options, 'json') ? { json: true } : {})
+  });
+  return { schemaVersion: 1, resultType: 'sflow-findings-start', group: group.id, workId, items: group.items.map((item) => item.id),
+    majorUpgrades: group.majorUpgrades,
+    next: { command: `singularity-flow auto plan --story ${workId} --json`, label: 'Plan its Auto flight to a tested Candidate; a person confirms the plan and approves the result.' } };
 }
 
 async function linkCommand(root, workId, options) {
@@ -150,6 +203,16 @@ function printResult(result) {
     if (result.lastImport) console.log(`Last import: ${result.lastImport.importId} from ${result.lastImport.source} at ${result.lastImport.at}.`);
     return;
   }
+  if (result.resultType === 'sflow-findings-plan') {
+    console.log(`Remediation groups${result.repository ? ` for ${result.repository}` : ''}: security ${result.grouping.security}; TLM ${result.grouping.tlm}.`);
+    if (!result.groups.length) console.log('Nothing is open to remediate.');
+    for (const group of result.groups) {
+      console.log(`  ${group.id}: ${group.title} (${group.count} item${group.count === 1 ? '' : 's'}: ${group.items.map((item) => item.id).join(', ')})`);
+      if (group.majorUpgrades.length) console.log(`    Major upgrade, listed for a person and never made by itself: ${group.majorUpgrades.join(', ')}.`);
+      console.log(`    Start it: ${group.command}`);
+    }
+    return;
+  }
   if (result.resultType === 'sflow-findings-link') {
     console.log(result.marked.length ? `In Story ${result.workId}: ${result.marked.join(', ')}.` : `Nothing was marked for Story ${result.workId}.`);
     for (const entry of result.skipped) console.log(`  Not marked: ${entry.id}, because ${entry.reason}.`);
@@ -160,6 +223,14 @@ function printResult(result) {
 
 export async function run(_argv, { positionals, options = {} }) {
   const result = await findingsCommand(positionals, options);
+  // findings start prints through Story start itself; only its next step is added in prose.
+  if (result.resultType === 'sflow-findings-start') {
+    if (!optionBoolean(options, 'json')) {
+      if (result.majorUpgrades.length) console.log(`Major upgrades listed for a person, never made by themselves: ${result.majorUpgrades.join(', ')}.`);
+      console.log(`Next: ${result.next.label}\n  ${result.next.command}`);
+    }
+    return result;
+  }
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else printResult(result);
   return result;

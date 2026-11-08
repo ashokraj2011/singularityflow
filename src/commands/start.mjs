@@ -2004,7 +2004,7 @@ async function startCommandAtRoot(positionals, options) {
     ? await readJson(path.join(workDir(root, config, workflow.workItem.id), workflow.testPolicy.path)).catch(() => null) : null;
   // The picked items are "in a Story" now that the Story exists; a mark that cannot land is said.
   const findingsMark = addressedFindings?.picked.length
-    ? await (await import('../findings/register/pick.mjs')).markFindingsInStory(root, addressedFindings.picked, workflow.workItem.id, { ledger: config.ledger ?? {} })
+    ? await (await import('../findings/register/pick.mjs')).markFindingsInStory(root, addressedFindings.picked, workflow.workItem.id, { branch: workflow.workItem.branch, ledger: config.ledger ?? {} })
     : null;
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },

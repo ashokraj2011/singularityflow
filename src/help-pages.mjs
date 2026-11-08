@@ -1514,7 +1514,14 @@ const PAGES = Object.freeze({
       'findings list shows this repository\'s items (every repository with --all-repositories), most severe and soonest',
       'due first, with the Story that addresses each. It reads the state ref this clone has and never fetches. A new Story',
       'picks items with start --address ID,...: each becomes a clause with its proof and is "in a Story". findings link',
-      'marks them when the Story\'s own start could not write the register.'
+      'marks them when the Story\'s own start could not write the register.',
+      'findings plan previews remediation Stories: security findings per repository by due date, at most ten a Story',
+      '(stories.maximumFindings in findings.yml), and TLM items per component. findings start opens a Story of the seeded',
+      'findings-remediation workflow for one group, through start itself: its items are its clauses, it runs all existing',
+      'tests, and a major upgrade is listed for a person and never made by itself. Its Auto flight to a tested Candidate is',
+      'planned with auto plan --story, which a person confirms. An import moves items whose Story has closed: a TLM item to',
+      'closed when the default branch pins at least its target version, else fixed awaiting proof; a security finding to',
+      'fixed awaiting rescan, which closes when the security team\'s next list no longer calls it open.'
     ],
     options: [
       ['--out FILE', 'template only: where to write the workbook (.xlsx). The default is sflow-findings-template.xlsx here.'],
@@ -1524,13 +1531,17 @@ const PAGES = Object.freeze({
       ['--state active|all|STATE', 'list only: active (the default: not closed, accepted or waived), all, or one state such as open or in-story.'],
       ['--all-repositories', 'list only: every repository\'s items, not only this one\'s.'],
       ['--address ID,...', 'link only: the items the named Story addresses.'],
-      ['--json', 'Machine-readable output (sflow-findings-template, sflow-findings-import, sflow-findings-list, sflow-findings-link).']
+      ['--work-id ID', 'start only: the new Story\'s ID; the default is FIX- and the group, such as FIX-TLM-NODE.'],
+      ['--from-branch BRANCH', 'start only: the base branch; the default is the repository\'s default branch.'],
+      ['--json', 'Machine-readable output (sflow-findings-template, -import, -list, -link, -plan; start prints Story start\'s own result).']
     ],
     examples: [
       ['singularity-flow findings template --out ~/Desktop/findings.xlsx', 'Write an empty workbook for the security team and the TLM owners to fill in.'],
       ['singularity-flow findings import ~/Downloads/findings.xlsx --dry-run', 'See what an import would add, change and reject.'],
       ['singularity-flow findings import tlm.csv --feed tlm --source tlm-owners', 'Import the TLM list from a CSV export.'],
       ['singularity-flow findings list', 'This repository\'s open items, and the Stories addressing them.'],
+      ['singularity-flow findings plan', 'Preview the remediation Stories for what is open.'],
+      ['singularity-flow findings start tlm-node --from-branch main', 'Open a findings-remediation Story for the node upgrade.'],
       ['singularity-flow start PAY-7 --from-branch main --work-type bugfix --title "Fix the order search" --address SEC-1001', 'Start a Story that addresses SEC-1001.']
     ],
     seeAlso: ['start', 'tests', 'decision']

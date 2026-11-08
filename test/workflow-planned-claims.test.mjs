@@ -24,6 +24,10 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
     mode: 'required', clausePhases: ['fix-spec'], owners: { implementation: 'fix-spec' }
   },
   chore: { mode: 'disabled' },
+  // Security and TLM remediation (CQF M6): each picked item is an intake clause; the plan owns the code step.
+  'findings-remediation': {
+    mode: 'required', clausePhases: ['findings-intake'], owners: { implementation: 'remediation-plan' }
+  },
   'figma-mobile': {
     mode: 'required', clausePhases: ['mobile-spec'], owners: { implementation: 'mobile-spec' }
   },

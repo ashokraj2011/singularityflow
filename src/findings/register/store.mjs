@@ -44,6 +44,15 @@ export async function registerLedger(root) {
   return normalizeLedgerConfig((await loadConfig(root))?.ledger ?? {});
 }
 
+/** What the register's Story reads need from workflow.yml: the default branch, remote and work-item root. */
+export async function repositorySettings(root) {
+  const { existsSync } = await import('node:fs');
+  const config = existsSync(path.join(root, 'singularity', 'workflow.yml'))
+    ? await (await import('../../state-stores.mjs')).loadConfig(root).catch(() => ({})) : {};
+  return { defaultBranch: config.defaultBaseBranch ?? 'main', remote: config.git?.remote ?? 'origin',
+    workItemRoot: config.workItemRoot ?? 'singularity/work-items' };
+}
+
 /** This repository as the register names repositories: `owner/name` from its remote, and its name. */
 export async function currentRepository(root, ledger, { env = process.env } = {}) {
   const { configuredRemoteIdentity } = await import('../../git-remote-diagnostics.mjs');
@@ -141,7 +150,7 @@ export async function registerDestination(root, ledger, { runCommand = run, env 
     return { store: 'local', reason: 'no-remote', message: `This repository has no remote '${ledger.remote}', so the register is kept on this computer.` };
   }
   const host = classifyGitHost(identity.url);
-  if (host.provider !== 'github') return { store: 'state-branch', visibility: 'private', reason: 'not-github', message: `${host.label ?? 'This remote'} is treated as private: the register goes to the ${ledger.branch} branch.` };
+  if (host.provider !== 'github') return { store: 'state-branch', visibility: 'private', reason: 'not-github', message: `The remote is ${host.label ?? 'not GitHub'}, so it counts as private: the register goes to the ${ledger.branch} branch.` };
   const cached = await cachedVisibility(root);
   const slug = repositoryKey(identity.url);
   let visibility = cached?.slug === slug ? cached.visibility : null;

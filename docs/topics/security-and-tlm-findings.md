@@ -14,6 +14,8 @@ questions:
   - Where does SFlow keep the imported findings?
   - Why did my import stay on this computer?
   - How does a Story address a security finding or TLM item?
+  - How do I open a remediation Story for security findings or TLM items?
+  - When does an item close?
 keywords:
   - excel
   - xlsx
@@ -28,7 +30,7 @@ related:
   - findings
   - starting-work
   - configuration
-version: 3
+version: 4
 ---
 The security team and the technology lifecycle (TLM) owners give SFlow their lists as one Excel workbook in SFlow's format, or as one CSV file per list. Later the same rows come from the security team's URL; both land in one register.
 
@@ -38,7 +40,7 @@ Use this topic to get the workbook template and to see what each column means. N
 
 ## Use it from each surface
 
-- **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register, and `sflow findings list` shows this repository's items. `sflow start ... --address ID,...` picks items for a new Story.
+- **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register, and `sflow findings list` shows this repository's items. `sflow start ... --address ID,...` picks items for a new Story. `sflow findings plan` previews remediation Stories and `sflow findings start <GROUP-ID>` opens one.
 - **Copilot:** `/sf-findings` runs the same commands. `/sf-start` offers the open items, none picked, and passes the ones you pick.
 - **VS Code:** the new-Story form lists the open items as tick boxes, none ticked. The Findings view lists the register.
 
@@ -59,6 +61,18 @@ A new Story is shown the register's open items for its repository, highest sever
 - **Both:** all existing tests run, and the build passes.
 
 If a Story started but could not write the register, it says so and names `sflow findings link <WORK-ID> --address ID,...`.
+
+## Remediation Stories
+
+An item is addressed either inside a development Story or by a Story of its own, of the seeded workflow **findings-remediation** (Security and TLM remediation): findings intake (the picked items, one clause each), remediation plan (the fix per item), implementation (the code step, with its findings loop), verification (all existing tests run) and conformance. Like the other seeded workflows it is read-only; duplicate it to change it.
+
+`sflow findings plan` previews the groups: security findings per repository by due date, at most ten a Story (`stories: { maximumFindings }` in findings.yml), and TLM items per component. `sflow findings start <GROUP-ID> [--work-id ID] [--from-branch BRANCH]` opens the Story for one group through Story start itself. A patch or minor upgrade, and a critical or high code finding with a known fix, are the code step's to make. A **major upgrade is listed for a person** in the remediation plan and is never made by itself. The Story's Auto flight to a tested Candidate is planned with `sflow auto plan --story <WORK-ID>`, which a person confirms; a person approves the Candidate.
+
+A repository initialized before this build has no findings-remediation workflow until its configuration is refreshed (`/sf-refresh-configuration`).
+
+## When an item closes
+
+When a Story that addresses items has closed, the next import moves them on. A TLM item closes when the default branch's manifest, lockfile or runtime file (`package.json`, `.nvmrc`, `.node-version`, a Dockerfile `FROM`, `requirements.txt`, `pyproject.toml`, `pom.xml`, `build.gradle`, `go.mod`) pins at least its target version, and is **fixed, awaiting proof** until it does. A security finding is **fixed, awaiting rescan**: it closes when the security team's next list no longer calls it open.
 
 ## The workbook
 

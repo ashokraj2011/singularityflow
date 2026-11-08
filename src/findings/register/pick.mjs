@@ -119,7 +119,7 @@ export async function resolveAddressedFindings(root, ids, { ledger = null, env =
  * Mark picked items "in a Story" in the register, where the register may be written. Never throws:
  * a Story that started stays started, and the result says what to run when the mark did not land.
  */
-export async function markFindingsInStory(root, picked, workId, { ledger = null, env = process.env, at = new Date().toISOString(), runCommand = undefined } = {}) {
+export async function markFindingsInStory(root, picked, workId, { branch = null, ledger = null, env = process.env, at = new Date().toISOString(), runCommand = undefined } = {}) {
   if (!picked.length) return { marked: [] };
   try {
     const settings = ledger ? normalizeLedgerConfig(ledger) : await registerLedger(root);
@@ -131,7 +131,7 @@ export async function markFindingsInStory(root, picked, workId, { ledger = null,
       for (const feed of ['security', 'tlm']) {
         const ids = picked.filter((entry) => entry.feed === feed).map((entry) => entry.id);
         if (!ids.length) continue;
-        const result = setItemStates(next, feed, ids, 'in-story', { at, reason: `picked by Story ${workId}`, story: { workId, linkedAt: at } });
+        const result = setItemStates(next, feed, ids, 'in-story', { at, reason: `picked by Story ${workId}`, story: { workId, ...(branch && branch !== workId ? { branch } : {}), linkedAt: at } });
         next = result.register;
         moved.push(...result.moved);
       }

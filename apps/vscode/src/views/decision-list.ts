@@ -83,7 +83,8 @@ export class DecisionListPanel implements vscode.Disposable {
     'decisions.refresh': () => this.guard(() => this.load()),
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
     'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
-    'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option'))
+    'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option')),
+    'decisions.open': (message) => this.open(stringField(message, 'item'), stringField(message, 'option'))
   });
 
   /** One operation at a time: a second click while one runs does nothing. */
@@ -207,6 +208,15 @@ export class DecisionListPanel implements vscode.Disposable {
     if (!value) return;
     await vscode.env.clipboard.writeText(value);
     void vscode.window.setStatusBarMessage('$(clippy) Copied.', 3_000);
+  }
+
+  /** Open the file a person's own step names (an intent-amendment draft): the engine's path from this list, never one the page sends. */
+  private async open(itemId: string | null, optionId: string | null): Promise<void> {
+    const option = this.packet?.items.find((entry) => entry.id === itemId)?.options.find((entry) => entry.id === optionId);
+    const file = option?.action?.file;
+    if (!file || !path.isAbsolute(file)) return;
+    try { await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false }); }
+    catch (error) { this.error = `The draft could not be opened: ${(error as Error).message}`; this.render(); }
   }
 
   private render(): void {

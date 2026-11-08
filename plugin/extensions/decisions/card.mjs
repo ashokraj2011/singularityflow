@@ -195,8 +195,12 @@ const answersDocument = (packet, answers) => {
   return { choose: Object.fromEntries(answers.map((entry) => [entry.item, entry.option])), reason: column('reason'), cause: column('cause'), expires: column('expires'), clause: column('clause'), article: column('article'), confirm: packet.packetSha256 };
 };
 
+/** A choice that writes a draft of an amendment, never a record [SCS:REQ-020]. */
+const draftsOnly = (option) => Boolean(option?.effects?.length) && option.effects.every((effect) => effect.kind === 'intent-amendment-draft');
+
 export function confirmForm(packet, answers) {
   const items = new Map(cardRows(packet).map((item) => [item.id, item]));
+  const drafts = answers.filter((entry) => draftsOnly(items.get(entry.item)?.options.find((option) => option.id === entry.option)));
   const words = answers.map((entry) => {
     const item = items.get(entry.item);
     const label = item?.options.find((option) => option.id === entry.option)?.label ?? entry.option;
@@ -204,7 +208,9 @@ export function confirmForm(packet, answers) {
     return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.clause ? ` Carried by ${entry.clause}.` : ''}${articles ? ` ${articles}.` : ''}${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause.replace(/\.+$/u, '')}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
   });
   const left = openRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable) && !answers.some((entry) => entry.item === item.id));
-  return { message: [`Record ${answers.length} decision${answers.length === 1 ? '' : 's'} on ${packet.workId}, each under your name:`, ...words,
+  const head = drafts.length === answers.length ? `Draft ${answers.length === 1 ? 'this amendment' : `${answers.length} amendments`} on ${packet.workId}; nothing is recorded or decided:`
+    : `Record ${answers.length - drafts.length} decision${answers.length - drafts.length === 1 ? '' : 's'} on ${packet.workId}, each under your name${drafts.length ? `, and write ${drafts.length === 1 ? 'a draft' : `${drafts.length} drafts`}, which records nothing` : ''}:`;
+  return { message: [head, ...words,
     ...(left.length ? [`Still undecided: ${left.map(itemName).join(', ')}`] : [])].join('\n'),
   requestedSchema: { type: 'object', required: ['confirm'], properties: { confirm: { type: 'string', title: 'I reviewed this exact change', enum: [RECORD, NOT_NOW] } } } };
 }
@@ -304,6 +310,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
   const recorded = [];
   // What was decided, in its own words: this is what the agent reports back, and a record's ID does not say it.
   const decided = [];
+  // Drafts written, never recorded: where each is and what is next [SCS:REQ-020].
+  const drafted = [];
   const asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   if (asked.cancelled) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
   if (asked.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(asked.refused) };
@@ -315,6 +323,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
       const result = await record(packet, answersDocument(packet, answers));
       recorded.push(...(result.recorded ?? []).map((entry) => entry.record ?? entry.item));
       decided.push(...(result.decided ?? []).map((entry) => entry.words));
+      drafted.push(...(result.drafted ?? []).map((entry) => `Drafted at ${entry.path}. ${entry.next?.words ?? ''}`.trim()));
       answers = [];
     } catch (error) {
       // With SF Guard the signature is taken in the person's own terminal: one command, nothing to fill in, the same questions there.
@@ -348,6 +357,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
     }
   }
   const remaining = openRows(packet).map((item) => itemName(item));
-  return { status: recorded.length ? 'recorded' : 'cancelled', recorded, decided, remaining,
-    message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}` };
+  return { status: recorded.length ? 'recorded' : drafted.length ? 'drafted' : 'cancelled', recorded, decided, ...(drafted.length ? { drafted } : {}), remaining,
+    message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
+      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}` };
 }

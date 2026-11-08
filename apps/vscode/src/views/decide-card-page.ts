@@ -76,7 +76,9 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   }).join('')}</select>` : '';
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
   // A label that already ends a sentence (a hold's route often does) gets no second full stop.
+  // A drafted amendment is written in the editor before its command runs [SCS:REQ-021]: the page opens the engine's own file.
   const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label.replace(/[.!?]+$/u, ''))}.</span> <span class="muted">This one stays in your terminal.</span>
+      ${option.action?.file ? `<span class="muted">${escape(option.words ?? '')}</span><button type="button" data-draft="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.action!.command!)}</code>
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
@@ -199,6 +201,20 @@ export function decideSummary(packet: DecisionPacket, choices: readonly Decision
   return [...lines, ...(left.length ? ['', `Still undecided: ${left.map((item) => item.title).join('; ')}`] : [])].join('\n');
 }
 
+/** Whether every chosen answer only drafts an amendment: a file written, never a record or a decision [SCS:REQ-020]. */
+export function draftsOnly(packet: DecisionPacket, choices: readonly DecisionChoice[]): boolean {
+  return choices.length > 0 && choices.every((choice) => {
+    const effects = decideRows(packet).find((entry) => entry.id === choice.item)?.options.find((entry) => entry.id === choice.option)?.effects ?? [];
+    return effects.length > 0 && effects.every((effect) => effect.kind === 'intent-amendment-draft');
+  });
+}
+
+/** The engine's own draft file a row's step names, from the list as read; null when none does. */
+export function draftFileOf(packet: DecisionPacket, itemId: string | null = null): string | null {
+  const file = decideRows(packet).filter((item) => !itemId || item.id === itemId).flatMap((item) => item.options).map((option) => option.action?.file).find((entry) => typeof entry === 'string' && entry);
+  return file ?? null;
+}
+
 /** With SF Guard the signature is taken in the person's own terminal: the one command with nothing to fill in, which asks the same questions there. */
 export const guardRoute = (workId: string) => `singularity-flow decisions record ${workId}`;
 export const GUARD_WORDS = 'This Story signs each decision with SF Guard, and Touch ID is taken in your own terminal, so nothing was written here. Put this in a terminal and press Enter; it asks the same questions and shows the card to sign.';
@@ -280,6 +296,8 @@ document.addEventListener('click', (event) => {
   // A held package's own command, by its place in the evidence: the extension reads the command from the list itself.
   const held = event.target.closest('[data-hold-terminal],[data-hold-copy]');
   if (held) return vscode.postMessage({ type: held.dataset.holdTerminal !== undefined ? 'decide.terminal' : 'decide.copy', hold: held.dataset.holdTerminal ?? held.dataset.holdCopy });
+  const drafted = event.target.closest('[data-draft]');
+  if (drafted) return vscode.postMessage({ type: 'decide.draft', item: drafted.closest('tr[data-item]').dataset.item, option: drafted.dataset.draft });
   const step = event.target.closest('[data-terminal],[data-copy],[data-witness]');
   if (step) {
     const row = step.closest('tr[data-item]');

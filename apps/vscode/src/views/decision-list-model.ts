@@ -36,7 +36,9 @@ export interface DecisionOptionPacket {
   available?: boolean;
   /** A departure decided on its own row with its own reason, never by one answer for all [CQF:REQ-024]. */
   oneByOne?: boolean;
-  action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string } };
+  action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string };
+    /** A file the person writes before running the command (an intent-amendment draft), named by the engine. */
+    file?: string };
 }
 
 export interface DecisionItemPacket {
@@ -110,7 +112,7 @@ export interface DecisionOptionRow {
   /** Why it is not a button, in the engine's words, when it is not. */
   notChoosable: string | null;
   /** A person's own action (take the screenshot and record it): its command, never run here. */
-  yours: { command: string; alternativeCommands: string[]; humanReview?: boolean } | null;
+  yours: { command: string; alternativeCommands: string[]; humanReview?: boolean; file?: string } | null;
   needs: DecisionNeeds;
 }
 
@@ -132,6 +134,8 @@ export interface DecisionListOutcome {
   remaining: string[];
   /** What was decided, one entry a decision, in its own words: a record's ID does not say it. */
   decided?: string[];
+  /** Drafts written, never recorded: where each is and what is next [SCS:REQ-020]. */
+  drafted?: string[];
 }
 
 export interface DecisionListView {
@@ -184,7 +188,8 @@ function ordered(options: DecisionOptionPacket[]): DecisionOptionPacket[] {
 }
 
 export function optionRow(option: DecisionOptionPacket): DecisionOptionRow {
-  const yours = option.action?.command ? { command: option.action.command, alternativeCommands: option.action.alternativeCommands ?? [], ...(option.action.humanReview ? { humanReview: true } : {}) } : null;
+  const yours = option.action?.command ? { command: option.action.command, alternativeCommands: option.action.alternativeCommands ?? [], ...(option.action.humanReview ? { humanReview: true } : {}),
+    ...(typeof option.action.file === 'string' && option.action.file ? { file: option.action.file } : {}) } : null;
   const recorded = option.recordable !== false;
   const available = option.available !== false;
   const allowed = option.decidedBy?.allowed === true;
@@ -415,9 +420,15 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
       .map((entry) => `${entry!.item}: ${entry!.words ?? ''}`.trim());
     const remaining = (Array.isArray(data.remaining) ? data.remaining : []).map((value) => object(value)).filter(Boolean)
       .map((entry) => `${entry!.id}: ${entry!.title ?? ''}`.trim());
+    // A draft is a file written, not a record: said apart, with where it is and what is next.
+    const drafted = (Array.isArray(data.drafted) ? data.drafted : []).map((value) => object(value)).filter(Boolean)
+      .map((entry) => `${entry!.item}: drafted at ${String(entry!.path ?? '')}. ${String(object(entry!.next)?.words ?? '')}`.trim());
+    const recordLine = recorded.length || !drafted.length ? `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.` : '';
+    const draftLine = drafted.length ? `Drafted ${drafted.length === 1 ? 'the amendment' : `${drafted.length} amendments`}; a draft is not a record, and nothing is decided until it is proposed and approved.` : '';
     return {
-      outcome: { kind: 'recorded', message: `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}`,
-        recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string') },
+      outcome: { kind: 'recorded', message: `${[recordLine, draftLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}`,
+        recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string'),
+        ...(drafted.length ? { drafted } : {}) },
       packet: null
     };
   }

@@ -333,3 +333,17 @@ test('both hosts show the same facts from the one list', async () => {
     assert.ok(table.includes(words), `the table lacks: ${words}`);
   }
 });
+
+test('Update the spec on the forms writes a draft: the confirmation and the result say it is not a record, and where it is [SCS:REQ-020]', async () => {
+  const draft = { id: 'update-spec', label: 'Update the spec: draft Intake\'s amendment', recommended: false, words: 'Writes a draft.',
+    effects: [{ kind: 'intent-amendment-draft', phase: 'intake', clauses: ['PAY-1:AC-001'] }], needs: { reason: { default: '', minimum: 20, maximum: 1000 } }, decidedBy: allowed };
+  const list = packet({ items: [{ id: 'd1', kind: 'conformance-gap', title: 'AC-001 is deviated in the Conformance report', why: 'The code differs.', decidedBy: allowed, options: [draft] }] });
+  const answers = [{ item: 'd1', title: list.items[0].title, option: 'update-spec', reason: 'Legacy callers rely on the longer wait.' }];
+  assert.match(confirmForm(list, answers).message, /^Draft this amendment on PAY-1; nothing is recorded or decided:/u);
+  const where = '/repo/.git/singularity-flow/intent-amendment-drafts/PAY-1.md';
+  const { ui } = person([accept({ decision0: draft.label }), accept({ reason: answers[0].reason }), accept({ confirm: RECORD })], [list, { ...list, items: [] }]);
+  ui.record = async () => ({ recorded: [], decided: [], drafted: [{ item: 'd1', path: where, next: { words: 'Write the wording, then propose it.' } }] });
+  const result = await runCard(ui);
+  assert.equal(result.status, 'drafted');
+  assert.match(result.message, new RegExp(`^No decision was recorded\\. Drafted at ${where.replace(/[./]/gu, '\\$&')}\\. Write the wording, then propose it\\.`, 'u'));
+});

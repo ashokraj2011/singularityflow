@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, GUARD_WORDS, guardRoute, openRows, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
+import { DECIDE_SCRIPT, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, GUARD_WORDS, guardRoute, openRows, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionAnswersFromChoices } from '../apps/vscode/src/views/decision-list-model.ts';
 
 const allowed = { allowed: true, words: 'You may decide this (Plan approvers).', groups: ['planners'] };
@@ -225,4 +225,31 @@ test('without a coverage report the card says coverage was not measured and why'
     words: 'Coverage not measured: no test command of this step wrote a coverage report SFlow reads. It refuses nothing.' } };
   const html = evidenceHtml(packet({ approvalEvidence: evidence }));
   assert.match(html, /<section class="dc-ev dc-ev-warn"><h3>Changed-line coverage<\/h3><p>Coverage not measured: no test command of this step wrote a coverage report SFlow reads\. It refuses nothing\.<\/p><\/section>/u);
+});
+
+const DRAFT = '/repo/.git/singularity-flow/intent-amendment-drafts/PAY-1.md';
+const difference = (options) => ({ id: 'd1', kind: 'conformance-gap', title: 'AC-001 is deviated in the Conformance report', why: 'The code differs.', decidedBy: allowed, details: {}, options });
+const drafting = { id: 'update-spec', label: 'Update the spec: draft Intake\'s amendment', recommended: false, words: 'Writes a draft.', needs: { reason: { default: '', minimum: 20, maximum: 1000 } },
+  effects: [{ kind: 'intent-amendment-draft', phase: 'intake', clauses: ['PAY-1:AC-001'], path: DRAFT }], decidedBy: allowed };
+
+test('Update the spec is a choice with a reason; it only drafts, so the person confirms a draft, not a decision [SCS:REQ-020]', () => {
+  const list = packet({ items: [difference([drafting, choice('accept-risk', 'Accept the difference for now')])] });
+  assert.match(decideHtml(list), /<option value="update-spec" data-needs="reason">Update the spec: draft Intake&#39;s amendment<\/option>/u);
+  assert.equal(draftsOnly(list, [{ item: 'd1', option: 'update-spec', reason: 'Legacy callers rely on the longer wait.' }]), true);
+  assert.equal(draftsOnly(list, [{ item: 'd1', option: 'accept-risk', reason: 'Accepted until the next release.' }]), false);
+  assert.equal(draftFileOf(list), null, 'nothing is drafted yet');
+});
+
+test('drafted, the row\'s own step opens the engine\'s draft, and the card asks for it only by item and option [SCS:REQ-021, REQ-022]', async () => {
+  const written = { id: 'update-spec', label: 'Update the spec: write the draft and propose it', recommended: false, recordable: false, effects: [], needs: {}, decidedBy: allowed,
+    words: `The draft is at ${DRAFT}.`, action: { command: `singularity-flow story intent-amendment propose --work-id PAY-1 --file "${DRAFT}" --reason "<why the specification changes>"`, alternativeCommands: [], file: DRAFT } };
+  const list = packet({ items: [difference([written, choice('accept-risk', 'Accept the difference for now')])] });
+  const html = decideHtml(list);
+  assert.match(html, /Update the spec: write the draft and propose it\.<\/span> <span class="muted">This one stays in your terminal\.<\/span>\s*<span class="muted">The draft is at [^<]+<\/span><button type="button" data-draft="update-spec">Open the draft<\/button>/u);
+  assert.equal(draftFileOf(list), DRAFT);
+  assert.match(DECIDE_SCRIPT, /vscode\.postMessage\(\{ type: 'decide\.draft', item: drafted\.closest\('tr\[data-item\]'\)\.dataset\.item, option: drafted\.dataset\.draft \}\)/u);
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url), 'utf8');
+  assert.match(source, /'decide\.draft': async \(message\) => \{\n\s+const file = optionOf\(message\)\?\.action\?\.file;/u, 'only the file the list names opens');
+  assert.match(source, /if \(outcome\.drafted\?\.length\) \{[\s\S]*await reread\(\);[\s\S]*const file = draftFileOf\(packet\);[\s\S]*return render\(null, /u, 'the page stays, re-read, and opens the draft');
 });

@@ -329,3 +329,33 @@ test('an unchosen option\'s fields are disabled, so only the chosen option is va
   assert.match(DECISION_LIST_SCRIPT, /for \(const block of form\.querySelectorAll\('\[data-needs-for\]\[hidden\]'\)\) hide\(block, true\);/u,
     'blocks hidden when the page is drawn, including items the person may not decide, start disabled');
 });
+
+test('Update the spec on a difference: a draft is written, not recorded, and its next step opens the engine\'s draft [SCS:REQ-020, REQ-022]', () => {
+  const draftPath = '/repo/.git/singularity-flow/intent-amendment-drafts/DECIDE-1.md';
+  const done = model.decisionRecordOutcome({ data: { recorded: [], decided: [], drafted: [{ item: 'd1', path: draftPath, clauses: ['DECIDE-1:AC-001'], slots: 1,
+    next: { command: `singularity-flow story intent-amendment propose --work-id DECIDE-1 --file "${draftPath}" --reason "<why>"`, words: 'Write the wording, then propose it.' } }],
+  remaining: [{ id: 'd1', title: 'AC-001 is deviated' }] } }).outcome;
+  assert.equal(done.kind, 'recorded');
+  assert.equal(done.message, 'Drafted the amendment; a draft is not a record, and nothing is decided until it is proposed and approved.');
+  assert.deepEqual(done.drafted, [`d1: drafted at ${draftPath}. Write the wording, then propose it.`]);
+  const shown = decisionListHtml({ ...model.buildDecisionListView(packet()), outcome: done });
+  assert.match(shown, /Drafted, not recorded:<\/strong><\/p><ul><li>d1: drafted at \/repo\/\.git\/singularity-flow\/intent-amendment-drafts\/DECIDE-1\.md\./u);
+  // Drafted: the person's own step carries the draft, and the page offers to open it.
+  const drafted = packet();
+  drafted.items = [{ id: 'd1', kind: 'conformance-gap', title: 'AC-001 is deviated in the Conformance report', why: `A draft is at ${draftPath}.`,
+    options: [{ id: 'update-spec', label: 'Update the spec: write the draft and propose it', recommended: false, words: 'Write it, then propose it.', effects: [], needs: {}, recordable: false,
+      action: { command: `singularity-flow story intent-amendment propose --work-id DECIDE-1 --file "${draftPath}" --reason "<why the specification changes>"`, alternativeCommands: [], file: draftPath },
+      decidedBy: { groups: [], labels: [], allowed: true, words: 'Anyone working on this Story may write and propose it.' } }],
+    decidedBy: yours }];
+  const view = model.buildDecisionListView(drafted);
+  assert.equal(view.items[0].options[0].yours.file, draftPath);
+  const html = decisionListHtml(view);
+  assert.match(html, /data-yours="update-spec"[\s\S]*data-open-item="d1" data-open-option="update-spec">Open the draft<\/button>[\s\S]*<code>singularity-flow story intent-amendment propose/u);
+  assert.match(DECISION_LIST_SCRIPT, /type: 'decisions\.open', item: open\.dataset\.openItem, option: open\.dataset\.openOption/u);
+});
+
+test('the page opens only the file the engine named, from the list it holds', async () => {
+  const panel = await readFile(source('views/decision-list.ts'), 'utf8');
+  assert.match(panel, /'decisions\.open': \(message\) => this\.open\(stringField\(message, 'item'\), stringField\(message, 'option'\)\)/u);
+  assert.match(panel, /const file = option\?\.action\?\.file;\s*if \(!file \|\| !path\.isAbsolute\(file\)\) return;/u);
+});

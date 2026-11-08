@@ -809,6 +809,7 @@ Usage:
   singularity-flow findings link <WORK-ID> --address ID,... [--json]
   singularity-flow findings plan [--feed security|tlm] [--all-repositories] [--json]
   singularity-flow findings start <GROUP-ID> [--work-id ID] [--from-branch BRANCH] [--fetch] [--isolated-worktree] [--json]
+  singularity-flow findings report [--out FILE] [--feed security|tlm] [--all-repositories] [--json]
   singularity-flow git-policy discover|show [--json]
   singularity-flow git-policy plan|validate --operation sha256:<OWNER-ISSUED-ID> [--json]
   singularity-flow guard status [--json]

@@ -367,12 +367,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,560,700 (measured 9,560,664, commands/phase-lifecycle.mjs): a later step reads CodeQL's alerts too (state.mjs +359). The read stays lazy.
     // 9,560,850 (measured 9,560,832, commands/phase-lifecycle.mjs): the findings loop loads from the CLI source, out of the VS Code
     // gateway bundle, which it had grown by 28 modules (state.mjs +168).
-    // 9,563,850 (measured 9,563,842, commands/phase-lifecycle.mjs): the findings command and its import preview classify in
-    // command-registry.mjs (+1,217), map to /sf-findings (command-skills.mjs +29) and take --all-repositories (util.mjs +70); a
+    // 9,563,900 (measured 9,563,852, commands/phase-lifecycle.mjs): the findings command and its import preview classify in
+    // command-registry.mjs (+1,227), map to /sf-findings (command-skills.mjs +29) and take --all-repositories (util.mjs +70); a
     // Story's picked findings are clauses of its source (scope/extract.mjs, state.mjs findingsSection); the release registries
     // know the findings-remediation workflow (packaged-asset-history.mjs, packaged-workflow-history.mjs +631). The command, its
     // workbook reader and its register stay lazy.
-    assert.ok(closure.bytes <= 9_563_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_563_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

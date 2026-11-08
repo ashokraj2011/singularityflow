@@ -16,6 +16,7 @@ questions:
   - How does a Story address a security finding or TLM item?
   - How do I open a remediation Story for security findings or TLM items?
   - When does an item close?
+  - How do I tell the security team what was fixed?
 keywords:
   - excel
   - xlsx
@@ -30,7 +31,7 @@ related:
   - findings
   - starting-work
   - configuration
-version: 4
+version: 5
 ---
 The security team and the technology lifecycle (TLM) owners give SFlow their lists as one Excel workbook in SFlow's format, or as one CSV file per list. Later the same rows come from the security team's URL; both land in one register.
 
@@ -40,7 +41,7 @@ Use this topic to get the workbook template and to see what each column means. N
 
 ## Use it from each surface
 
-- **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register, and `sflow findings list` shows this repository's items. `sflow start ... --address ID,...` picks items for a new Story. `sflow findings plan` previews remediation Stories and `sflow findings start <GROUP-ID>` opens one.
+- **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register, and `sflow findings list` shows this repository's items. `sflow start ... --address ID,...` picks items for a new Story. `sflow findings plan` previews remediation Stories and `sflow findings start <GROUP-ID>` opens one. `sflow findings report --out FILE` writes the update for the security team.
 - **Copilot:** `/sf-findings` runs the same commands. `/sf-start` offers the open items, none picked, and passes the ones you pick.
 - **VS Code:** the new-Story form lists the open items as tick boxes, none ticked. The Findings view lists the register.
 
@@ -106,6 +107,10 @@ A later import from the same source replaces that source's rows. An item it no l
 Each item has a state: open, in a Story (with the Story's ID), fixed awaiting proof, fixed awaiting rescan, closed, accepted risk, waiver, or not in the latest import.
 
 The state branch can be read by anyone who can read the repository. So on a **public** repository the register stays in this clone's private local store (in the Git directory, never committed), and the import says why. A GitHub remote is asked through `gh api` (read-only, gh's own sign-in); any other remote counts as private. When that cannot be checked (gh missing, signed out or offline), or the state branch cannot be written, the register stays local this time and the import says so; the next import that can publish carries it.
+
+## The update for the security team
+
+`sflow findings report [--out FILE]` writes the update in the same workbook format: both sheets, every column, and three more: **SFlow state**, **Story** (the Story that addresses the item) and **Evidence** (the proof, such as `.nvmrc pins 22.4.1` on the default branch), with the date of the last change. Items whose Story has closed move on first, and the register is written, so the report and the register agree. **A person sends it.** SFlow never sends anything by itself. It never overwrites a file. The report imports again as the team's own sheet; its extra columns are left unused.
 
 ## State and safety
 

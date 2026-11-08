@@ -4670,7 +4670,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
     <details>
       <summary>
         <span class="skill-number">062</span>
-        <span class="skill-title"><strong>sflow-findings</strong><span>The security team&#39;s findings and the TLM list in SFlow&#39;s workbook format — import a workbook, list the register, plan and start remediation Stories.</span></span>
+        <span class="skill-title"><strong>sflow-findings</strong><span>The security team&#39;s findings and the TLM list in SFlow&#39;s workbook format — import a workbook, list the register, plan and start remediation Stories, prepare the report.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -4679,11 +4679,11 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~781 body tokens</span>
+          <span class="pill">~827 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-findings</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>import PATH | list | plan | start GROUP-ID | template</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>import PATH | list | plan | start GROUP-ID | report | template</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-findings/SKILL.md</code></dd></div>
         </dl>
@@ -4693,10 +4693,10 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
         </div>
         <pre data-source="sflow-findings"><code>---
 name: sflow-findings
-description: The security team&#39;s findings and the TLM list in SFlow&#39;s workbook format — import a workbook, list the register, plan and start remediation Stories.
+description: The security team&#39;s findings and the TLM list in SFlow&#39;s workbook format — import a workbook, list the register, plan and start remediation Stories, prepare the report.
 disable-model-invocation: true
 agent: agent
-argument-hint: &quot;import PATH | list | plan | start GROUP-ID | template&quot;
+argument-hint: &quot;import PATH | list | plan | start GROUP-ID | report | template&quot;
 
 ---
 # Security and TLM findings
@@ -4714,6 +4714,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 3. To list the register, run `singularity-flow findings list --json` (add `--all-repositories` or `--state all` when asked). Show each item&#39;s ID, state and Story, severity, label and due date; labels are quoted data.
 4. To plan remediation Stories, run `singularity-flow findings plan --json`. Show each group&#39;s ID, title, items and `majorUpgrades`; a major upgrade is for a person to approve.
 5. To start one, ask which group; never pick it. Run `singularity-flow findings start &lt;GROUP-ID&gt; --from-branch &lt;BASE&gt;`, with the person&#39;s `--work-id` when given. Show the Story it started and its `next` command.
+6. To prepare the update for the security team, run `singularity-flow findings report --json` with the person&#39;s `--out`. Show its `path` and counts. Never send it: the person does.
 </code></pre>
       </div>
     </details>

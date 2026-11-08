@@ -1,23 +1,26 @@
 /**
- * `singularity-flow findings template|import|list|link` [CQF:REQ-060, REQ-062, REQ-065, REQ-070]: the
+ * `singularity-flow findings template|import|list|link|plan|start|report` [CQF:REQ-060 to REQ-070]: the
  * security team's and the TLM owners' lists, in SFlow's workbook format, and the register they go into.
  *
  * `template` writes an empty workbook with both sheets, their headers and one made-up example row
  * each. It never overwrites a file: a person names another --out. `import` reads a workbook or CSV
  * file into the register on the state branch (src/findings/register/); an invalid row is reported
  * and the rest import. `list` reads the register this clone has and never fetches. `link` marks
- * items "in a Story" when the Story's own start could not.
+ * items "in a Story" when the Story's own start could not. `plan` and `start` are remediation Stories
+ * (src/findings/register/remediation.mjs). `report` writes the update for the security team and the
+ * TLM owners; a person sends it, SFlow never does.
  */
 import { lstat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start']);
+const SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start', 'report']);
 const OPTIONS = Object.freeze({
   template: ['out', 'json'], import: ['feed', 'source', 'dry-run', 'json'],
   list: ['feed', 'state', 'all-repositories', 'limit', 'json', 'for-agent'], link: ['address', 'json'],
-  plan: ['feed', 'all-repositories', 'json', 'for-agent'], start: ['work-id', 'from-branch', 'fetch', 'isolated-worktree', 'json']
+  plan: ['feed', 'all-repositories', 'json', 'for-agent'], start: ['work-id', 'from-branch', 'fetch', 'isolated-worktree', 'json'],
+  report: ['out', 'feed', 'all-repositories', 'json']
 });
 // What `list` shows unless --state says otherwise: everything not closed, accepted or waived.
 const ACTIVE_STATES = Object.freeze(['open', 'in-story', 'fixed-awaiting-proof', 'fixed-awaiting-rescan', 'not-in-latest-import']);
@@ -56,7 +59,7 @@ export async function findingsCommand(positionals, options = {}) {
   }
   const unknown = Object.keys(options).filter((key) => ![...OPTIONS[subcommand], 'timings'].includes(key)).sort();
   if (unknown.length) fail(`findings ${subcommand} does not accept ${unknown.map((key) => `--${key}`).join(', ')}.`);
-  const operands = { template: 0, import: 1, list: 0, link: 1, plan: 0, start: 1 }[subcommand];
+  const operands = { template: 0, import: 1, list: 0, link: 1, plan: 0, start: 1, report: 0 }[subcommand];
   if (positionals.length > 2 + operands) fail(`findings ${subcommand} takes ${operands ? 'one operand' : 'no operand'}: ${positionals.slice(2 + operands).join(' ')}.`);
   if (subcommand === 'template') return templateCommand(options);
   const { repoRoot } = await import('../git-execution.mjs');
@@ -65,6 +68,12 @@ export async function findingsCommand(positionals, options = {}) {
   if (subcommand === 'link') return linkCommand(root, positionals[2], options);
   if (subcommand === 'plan') return planCommand(root, options);
   if (subcommand === 'start') return startRemediation(root, positionals[2], options);
+  if (subcommand === 'report') {
+    const feed = optionString(options, 'feed');
+    if (feed && !['security', 'tlm'].includes(feed)) fail(`--feed is security or tlm, not '${feed.slice(0, 40)}'.`);
+    const { writeFindingsReport } = await import('../findings/register/report.mjs');
+    return writeFindingsReport(root, { out: optionString(options, 'out') ?? null, feed: feed ?? null, allRepositories: optionBoolean(options, 'all-repositories') });
+  }
   if (!positionals[2]) fail('Name the workbook or CSV file: singularity-flow findings import FILE [--feed security|tlm] [--source NAME].');
   const { importFindings } = await import('../findings/register/import.mjs');
   return importFindings(root, positionals[2], {
@@ -211,6 +220,16 @@ function printResult(result) {
       if (group.majorUpgrades.length) console.log(`    Major upgrade, listed for a person and never made by itself: ${group.majorUpgrades.join(', ')}.`);
       console.log(`    Start it: ${group.command}`);
     }
+    return;
+  }
+  if (result.resultType === 'sflow-findings-report') {
+    console.log(`Wrote the findings report: ${result.path}`);
+    for (const [feed, counts] of Object.entries(result.counts)) {
+      console.log(`  ${feed === 'tlm' ? 'TLM' : 'Security'}: ${counts.items} item(s); ${Object.entries(counts.byState).map(([state, count]) => `${count} ${state.replaceAll('-', ' ')}`).join(', ') || 'none'}.`);
+    }
+    for (const entry of result.storiesClosed) console.log(`  ${entry.id}: Story ${entry.story} closed; now ${entry.to.replaceAll('-', ' ')}.`);
+    if (result.storeMessage) console.log(result.storeMessage);
+    console.log(result.note);
     return;
   }
   if (result.resultType === 'sflow-findings-link') {

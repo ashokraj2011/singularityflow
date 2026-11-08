@@ -30,7 +30,7 @@ const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remot
 const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
 // Security team and TLM findings [CQF:REQ-070]: template writes a new local file; import and link write
 // the register on the state branch, and import --dry-run is a read.
-const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start']);
+const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start', 'report']);
 const FINDINGS_READS = Object.freeze(['list', 'plan']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 

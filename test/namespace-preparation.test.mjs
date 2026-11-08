@@ -13,12 +13,15 @@ import { createEngine } from '../src/engine-sdk/index.mjs';
 for(const backend of ['filesystem','sqlite','application']) {
   test(`${backend}: preparation retains actual template bytes only in device-local drafts`,async t=>{
     const f=await namespacePreparationFixture(t,{backend}),before=await f.head();
-    assert.equal((await f.read(f.engine)).manifest.status,'missing');
+    const missing=await f.read(f.engine);
+    assert.equal(missing.manifest.status,'missing');
+    assert.equal(missing.manifest.contract,'sflow-phase-working-draft-manifest/v1');
     const prepared=await f.engine.run('phase.prepare',{workId:f.inputs.workId,phaseId:'intake'});
     assert.equal(prepared.status,'prepared');assert.equal(prepared.generation,1);assert.equal(prepared.effects.localDraftSaved,true);
     assert.equal(prepared.effects.committed,false);assert.equal(prepared.effects.generationOpened,false);
     assert.equal(prepared.manifest.inputContext.generation,1);assert.equal(prepared.manifest.inputContext.integrityVerified,false);
     const draft=await f.read(f.engine);assert.equal(draft.manifest.status,'open');
+    assert.equal(draft.manifest.contract,'sflow-phase-working-draft-manifest/v1');
     assert.equal(draft.manifest.artifact.content.text,'# Intake\n\n## Requirements\n\n## Acceptance criteria\n');
     assert.equal(draft.manifest.artifact.reference.namespace,'local');
     assert.deepEqual(await f.head(),before,'preparation never changes canonical lifecycle state');

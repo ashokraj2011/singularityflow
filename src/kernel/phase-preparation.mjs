@@ -108,7 +108,7 @@ export function phaseDraftReadManifest(workId,phaseId,facts,maximumBytes=65_536)
   if(!facts||facts.workId!==workId||facts.phase!==phaseId||!['missing','open','stale'].includes(facts.status))bad();
   if(facts.status==='missing') {
     if(Object.keys(facts).length!==3)bad();
-    return {schemaVersion:1,contract:'sflow-phase-draft-manifest/v1',workId,phase:phaseId,status:'missing',draft:null,artifact:null};
+    return {schemaVersion:1,contract:'sflow-phase-working-draft-manifest/v1',workId,phase:phaseId,status:'missing',draft:null,artifact:null};
   }
   const d=facts.draft,a=facts.artifact;
   if(!exact(facts,['workId','phase','status','draft','artifact'])||!d||!exact(d,['generation','revision','bodySha256','baseRevision','currentRevision','createdAt','actor','agentId'])
@@ -124,7 +124,7 @@ export function phaseDraftReadManifest(workId,phaseId,facts,maximumBytes=65_536)
       ||typeof content.truncated!=='boolean'||utf8Bytes(content.text)!==content.bytes||content.bytes>a.reference.bytes||content.bytes>maximumBytes
       ||content.truncated!==(content.bytes<a.reference.bytes))bad();
   }else if(!exact(content,['kind','bytes'])||content.kind!=='binary'||content.bytes!==a.reference.bytes)bad();
-  return {schemaVersion:1,contract:'sflow-phase-draft-manifest/v1',...facts};
+  return {schemaVersion:1,contract:'sflow-phase-working-draft-manifest/v1',...facts};
 }
 export function phaseDraftMutationResult(input,facts,operation) {
   if(!facts||!exact(facts,['workId','phase','operationId','generation','revision','bodySha256','artifact','recordedAt','principalId','replayed'])

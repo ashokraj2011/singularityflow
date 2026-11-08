@@ -74,7 +74,7 @@ Physical paths, caller-supplied identity and claimed approval are not operation 
 write retains the actual content digest and previous private body. A stale editor cannot
 overwrite a newer accepted head.
 
-`sflow-phase-draft-manifest/v1` distinguishes `missing`, `open` and `stale`. An existing draft
+`sflow-phase-working-draft-manifest/v1` distinguishes `missing`, `open` and `stale`. An existing draft
 reports its private revision and body digest, generation, original author and time, basis and
 current Story revisions, relative artifact key and actual content reference. UTF-8 previews
 preserve the BOM and complete multibyte characters within both the requested and configured

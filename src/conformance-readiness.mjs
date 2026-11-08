@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  conformanceTableRows, conformanceVerdictGaps, contradictedConformanceVerdicts, duplicateQualifiedConformanceRows, missingQualifiedConformanceRows, unreadConformanceTables
+  conformanceTableRows, conformanceVerdictGaps, contradictedConformanceVerdicts, decidesConformanceDifferences, duplicateQualifiedConformanceRows,
+  missingQualifiedConformanceRows, unreadConformanceTables, unstatedConformanceDifferences
 } from './conformance-verdicts.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
@@ -204,6 +205,10 @@ const VERDICT_SUMMARY = /<!-- singularity-flow:verdict-summary:start -->[\s\S]*?
 function verdictCoverage(gap) {
   const owner = gap.owner ?? 'the delivering step';
   if (gap.status === 'decided' && gap.outcome === 'evidence-reuse') return `covered by ${gap.issue}: ${gap.reuse}.`;
+  // [SCS:REQ-013, REQ-023] The spec followed the code, or the code's own departure was accepted.
+  if (gap.status === 'decided' && gap.outcome === 'amended') return `settled by ${gap.issue}: ${owner}'s document now says what the code does.`;
+  if (gap.status === 'decided' && gap.outcome === 'departure') return `settled by ${gap.issue}, a departure a person accepted.`;
+  if (gap.status === 'amending') return `${gap.issue} is updating ${owner}'s document to match the code; not decided yet.`;
   if (gap.status === 'decided') {
     return `covered by ${gap.issue} (${gap.outcome === 'accept-risk' ? `accepted risk until ${String(gap.expiresAt ?? '').slice(0, 10)}` : 'dismissed'}).`;
   }
@@ -223,7 +228,9 @@ export function verdictSummaryBlock(markdown, workflow, phaseId, { now = undefin
   return [
     VERDICT_SUMMARY_START,
     'Engine-written from the clause table; keep it. The table is the only place a verdict is stated.', '',
-    ...(gaps.length ? gaps.map((gap) => `- \`${gap.clauseId}\`: ${gap.verdict}; ${verdictCoverage(gap)}`) : ['- No clause in the table is partial or missing.']),
+    ...(gaps.length ? gaps.map((gap) => `- \`${gap.clauseId}\`: ${gap.verdict}; ${verdictCoverage(gap)}`)
+      // A Story pinned before deviated and unplanned rows were decided keeps its exact sentence, so its summary stays current.
+      : [decidesConformanceDifferences(workflow) ? '- No clause in the table is partial, missing, deviated or unplanned.' : '- No clause in the table is partial or missing.']),
     VERDICT_SUMMARY_END
   ].join('\n');
 }
@@ -278,7 +285,14 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
     ...inspectConformanceReportContract(markdown, {
       rowsQualified, expected: rowsQualified ? [] : await traceableConformanceIds(root, config, workflow)
     }),
-    ...inspectSelfApprovalDisclosures(markdown, workflow)
+    ...inspectSelfApprovalDisclosures(markdown, workflow),
+    // A person deciding a deviated or unplanned row needs the difference in words [SCS:REQ-011]. The
+    // author repairs it in the same turn; no gate reads this, so an approved report is never refused for it.
+    ...(decidesConformanceDifferences(workflow) ? unstatedConformanceDifferences(markdown).map((row) => ({
+      code: 'conformance.deviation-unstated', clauseId: row.clauseId, line: row.line,
+      message: `conformance ${row.clauseId} is ${row.verdict} on line ${row.line} but does not say what differs: write it in the row's Deviation cell`
+        + ` (or after the verdict, such as "${row.verdict} (code waits 10 s; the clause says 5 s)"), so the person deciding it can read the difference`
+    })) : [])
   ].map((finding) => ({
     ...finding, path: relative
   }));

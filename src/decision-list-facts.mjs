@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { conformancePhasesOf, isConformancePhase } from './phase-roles.mjs';
-import { OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, decisionHeadline, decisionListRoute, decisionListRouteLine,
+import { DIFFERENCE_VERDICTS, OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, decisionHeadline, decisionListRoute, decisionListRouteLine,
   upstreamIssueStates } from './upstream-routes.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -82,7 +82,8 @@ async function reportGaps(root, config, workflow, step, at) {
   const gaps = conformanceGapDecisions(workflow, step.id, verdicts, { now: at, reused, satisfied })
     .filter((gap) => gap.status !== 'decided')
     .map((gap) => ({ report: step.id, clauseId: gap.clauseId, verdict: gap.verdict, line: gap.line ?? null, owner: gap.owner,
-      status: gap.status, issue: gap.issue, expiresAt: gap.expiresAt ?? null, choices: gap.choices, ...(gap.evidenceSatisfied ? { evidenceSatisfied: true } : {}) }));
+      status: gap.status, issue: gap.issue, expiresAt: gap.expiresAt ?? null, choices: gap.choices, ...(gap.evidenceSatisfied ? { evidenceSatisfied: true } : {}),
+      ...(Object.hasOwn(gap, 'difference') ? { difference: gap.difference ?? null } : {}) }));
   return { gaps, digest: sha256(report), reused };
 }
 
@@ -123,8 +124,11 @@ export function decisionGroups(workflow, { gaps = [], issues = [], includeAllIss
   const open = new Map(issues.filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status)).map((state) => [state.issue.id, state]));
   const groups = new Map();
   for (const gap of gaps) {
+    // A row whose amendment waits for its approvers is that amendment's own item; it still holds approval [SCS:REQ-023].
+    if (gap.status === 'amending') continue;
     const issue = gap.issue && open.has(gap.issue) ? open.get(gap.issue) : null;
-    const key = issue ? `issue:${issue.issue.id}` : `unraised:${gap.report}:${gap.owner}`;
+    // A deviated or unplanned row is decided with other choices than a gap, so it is its own problem [SCS:REQ-012].
+    const key = issue ? `issue:${issue.issue.id}` : `unraised:${gap.report}:${gap.owner}${DIFFERENCE_VERDICTS.includes(gap.verdict) ? ':difference' : ''}`;
     if (!groups.has(key)) groups.set(key, { kind: 'conformance-gap', issue: issue ? { ...issue.issue, status: issue.status, decision: issue.decision } : null,
       owner: issue?.issue.phase ?? gap.owner, gaps: [] });
     const existing = groups.get(key).gaps;

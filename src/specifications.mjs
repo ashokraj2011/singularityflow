@@ -117,7 +117,7 @@ export function normalizeSpecPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError('spec must be an object.');
   }
-  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'testCommands', 'excludes', 'limits', 'compositionCache']);
+  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`spec contains unknown field '${key}'.`);
   const mode = value.mode ?? 'off';
   if (!['off', 'record', 'enforce'].includes(mode)) throw new SingularityFlowError('spec.mode must be off, record, or enforce.');
@@ -138,6 +138,14 @@ export function normalizeSpecPolicy(value = {}) {
   const conformanceRows = value.conformanceRows ?? 'qualified';
   if (!['legacy', 'qualified'].includes(conformanceRows)) {
     throw new SingularityFlowError('spec.conformanceRows must be legacy or qualified.');
+  }
+  // Which conformance verdicts a person decides before approval [SCS:REQ-010]. New Stories pin `decide`:
+  // deviated and unplanned rows are decided like partial and missing ones. A Story pinned before this
+  // field has none, and reads as `legacy` (partial and missing only), so an upgrade never holds a report
+  // approved under the older rule; readers check the pinned raw field, as for conformanceRows.
+  const conformanceDifferences = value.conformanceDifferences ?? 'decide';
+  if (!['legacy', 'decide'].includes(conformanceDifferences)) {
+    throw new SingularityFlowError('spec.conformanceDifferences must be legacy or decide.');
   }
   const testCommands = value.testCommands ?? {};
   if (!testCommands || typeof testCommands !== 'object' || Array.isArray(testCommands)) {
@@ -176,7 +184,7 @@ export function normalizeSpecPolicy(value = {}) {
   }
   const compositionCache = value.compositionCache ?? 'local';
   if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  return { mode, namespace, coverage, acceptance, conformanceRows, testCommands, excludes, limits, compositionCache };
+  return { mode, namespace, coverage, acceptance, conformanceRows, conformanceDifferences, testCommands, excludes, limits, compositionCache };
 }
 
 function lineNumber(text, offset) {

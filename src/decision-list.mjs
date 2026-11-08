@@ -28,7 +28,7 @@ import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
-import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
@@ -172,9 +172,73 @@ function coveringCandidate(candidates, clauses) {
 
 const returnLegal = upstreamReturnLegal;
 
+/**
+ * One item for deviated or unplanned rows [SCS:REQ-012]: the code differs from what the clause says, so a
+ * person decides which one changes. Fix the code (return to the code step), update the spec (write the
+ * owning step's document as the code does it, decided by its approvers), accept it for now until a
+ * date, or dismiss a wrong row. Only existing records are written, under their own authority rules.
+ */
+function differenceItem(workflow, context, group) {
+  const { issue, owner, gaps } = group;
+  const clauses = [...new Set(gaps.map((gap) => gap.clauseId))];
+  const names = listWords(clauses.map((clause) => clauseName(workflow, clause)));
+  const verdicts = [...new Set(gaps.map((gap) => gap.verdict))];
+  const reports = [...new Set(gaps.map((gap) => gap.report))];
+  const reportWords = listWords(reports.map((id) => `${stepName(workflow, id)} report`));
+  const isAre = clauses.length === 1 ? 'is' : 'are';
+  const ownerName = stepName(workflow, owner);
+  const said = gaps.filter((gap) => gap.difference).map((gap) => `${clauseName(workflow, gap.clauseId)}: ${String(gap.difference).slice(0, 300)}`);
+  const why = [`The ${reportWords} marks ${names} ${listWords(verdicts)}: the code does not do what ${clauses.length === 1 ? 'it says' : 'they say'}.`,
+    ...(said.length ? [`It says: ${said.join('; ')}.`] : []),
+    ...(issue ? [`A problem reported against ${ownerName} names ${clauses.length === 1 ? 'it' : 'them'} and is not decided yet.`] : []),
+    'Decide which one changes: the code or the spec. The verdict stays as written.'];
+  const target = issue ?? { id: null, phase: owner };
+  const raise = issue ? [] : [{ kind: 'upstream-issue', phase: owner, about: clauses.join(', ').slice(0, 200),
+    problem: `The ${reportWords} marks ${clauses.join(', ')} ${listWords(verdicts)}: ${(said.join('; ') || 'the code differs from the clause').slice(0, 600)}. Raised from the decision list.` }];
+  const choices = gaps.flatMap((gap) => gap.choices ?? []);
+  const fix = choices.find((choice) => choice.kind === 'fix-code' && choice.command);
+  const update = choices.find((choice) => choice.kind === 'update-spec' && choice.command);
+  const options = [];
+  if (fix) {
+    options.push({ ...personalStep({ id: 'fix-code', label: `Fix the code: return to ${stepName(workflow, fix.owner)}`, command: fix.command,
+      words: `The code is changed to do what ${names} ${clauses.length === 1 ? 'says' : 'say'}; the steps after it run again and the report is written again.` }),
+    decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: reports[0] }], context) });
+  }
+  if (update) {
+    const scopeName = stepName(workflow, update.owner);
+    options.push({ ...personalStep({ id: 'update-spec', label: `Update the spec: amend ${scopeName}`, command: update.command,
+      words: `Draft ${scopeName}'s scope with a slot for ${clauses.length === 1 ? 'this clause' : 'these clauses'}, write ${clauses.length === 1 ? 'it' : 'them'} as the code does it, `
+        + `and propose it (story intent-amendment propose). ${scopeName}'s approvers decide it; nothing is rewound.` }),
+    decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: update.owner }], context) });
+  }
+  options.push(option(workflow, context, {
+    id: 'accept-risk', label: 'Accept the difference for now, until a date',
+    words: `The code and ${names} stay different until the date, then it needs a decision again.`,
+    effects: [...raise, issueDecision(target, 'accept-risk')],
+    needs: { expires: expiryNeed(context.at), reason: textNeed(`Accepted for now: ${names} ${isAre} ${listWords(verdicts)} as the ${reportWords} says.`, REASON) }
+  }));
+  options.push(option(workflow, context, {
+    id: 'dismiss', label: 'Dismiss it: the row is wrong',
+    words: 'Use this only when the code does what the clause says; the verdict itself is never edited.',
+    effects: [...raise, issueDecision(target, 'dismiss')],
+    needs: { reason: textNeed(`Dismissed: the code does what ${names} ${clauses.length === 1 ? 'says' : 'say'}; the report's row is wrong.`, REASON) }
+  }));
+  return {
+    kind: 'conformance-gap',
+    title: `${names} ${isAre} ${listWords(verdicts)} in the ${reportWords}`,
+    why: why.join(' '),
+    options,
+    details: { clauses, verdicts, owner, reports, issue: issue?.id ?? null, issueStatus: issue?.status ?? (issue ? 'open' : 'unraised'),
+      differences: gaps.map((gap) => ({ clause: gap.clauseId, verdict: gap.verdict, difference: gap.difference ?? null })),
+      supersedes: issue ? (context.facts.issues ?? []).filter((state) => state.supersededBy === issue.id).map((state) => state.issue.id) : [],
+      reuse: null, rule: CONFORMANCE_GAP_RULE, commands: [...new Set(choices.map((choice) => choice.command).filter(Boolean))] }
+  };
+}
+
 /** One item for a conformance gap, with the open upstream issue that names its clauses when there is one. */
 function gapItem(workflow, context, group) {
   const { issue, owner, gaps } = group;
+  if (gaps.length && gaps.every((gap) => DIFFERENCE_VERDICTS.includes(gap.verdict))) return differenceItem(workflow, context, group);
   const clauses = [...new Set(gaps.map((gap) => gap.clauseId))];
   const names = listWords(clauses.map((clause) => clauseName(workflow, clause)));
   const verdicts = [...new Set(gaps.map((gap) => gap.verdict))];

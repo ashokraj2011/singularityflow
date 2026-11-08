@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 92
+version: 93
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1647,9 +1647,21 @@ Tags establish traceable locations, not behavioral correctness; test execution
 and human review remain separate. Reviewed test-only and non-code
 work, and work types that omit scope, do not acquire a product-source tag obligation.
 
+`spec.conformanceDifferences` (`decide`, the default, or `legacy`) says which conformance
+verdicts a person decides before the conformance step is approved. Under `decide`, a
+`deviated` or `unplanned` row is decided like a `partial` or `missing` one, and it must say what
+differs in its Deviation cell or after its verdict. A person picks one of four choices:
+- fix the code (return to the code step);
+- update the spec (`story intent-amendment draft --clause ID`, then `propose`; the scope approvers decide it);
+- accept it for now until a date;
+- dismiss a wrong row.
+
+An unplanned row whose files a departure already covers, accepted by a person, counts as decided.
+Under `legacy`, only `partial` and `missing` rows are decided.
+
 These settings are pinned when a Story starts. Existing published or active
-Stories retain their prior `sourceBindings: off` / `conformanceRows: legacy`
-behavior when those fields were absent; a framework update does not rewrite
+Stories retain their prior `sourceBindings: off` / `conformanceRows: legacy` /
+`conformanceDifferences: legacy` behavior when those fields were absent; a framework update does not rewrite
 their policy or approvals. To migrate a repository, review and merge its
 configuration change, then start a **new** Story against that approved
 configuration. Do not hand-edit a protected workflow path in an active Story.

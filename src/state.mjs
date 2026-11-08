@@ -122,7 +122,7 @@ import {
   beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
-import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
+import { conformanceVerdictGaps, decidesConformanceDifferences } from './conformance-verdicts.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
@@ -6976,7 +6976,8 @@ export async function evaluateApproval(root, config, workflow, {
           const lead = decisionRefusalLead(workflow, phase.id, { gaps: refusal.gaps.map((gap) => ({ ...gap, report: phase.id })),
             issues: upstreamIssueStates(workflow, approvedAt), includeAllIssues: phaseEndsStory(workflow, phase) });
           throw new SingularityFlowError(
-            `${lead ? `${lead.headline} ${lead.route}\n` : ''}Phase '${phase.id}' cannot be approved until a person decides each partial or missing clause:\n- `
+            `${lead ? `${lead.headline} ${lead.route}\n` : ''}Phase '${phase.id}' cannot be approved until a person decides each ${
+              decidesConformanceDifferences(workflow) ? 'partial, missing, deviated or unplanned' : 'partial or missing'} clause:\n- `
             + `${refusal.lines.join('\n- ')}\n${CONFORMANCE_GAP_RULE}`,
             { code: 'CONFORMANCE_BLOCKING_VERDICTS', details: { ...refusal.details,
               ...(lead ? { decisions: { count: lead.count, headline: lead.headline }, nextAction: lead.nextAction,

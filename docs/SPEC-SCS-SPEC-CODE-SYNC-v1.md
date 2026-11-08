@@ -74,18 +74,24 @@ A person picks one of these for each difference, and each choice writes only rec
 | Choice | Records written | Decided by |
 |---|---|---|
 | **Fix the code** | return to the code step (`reject --to`), or convergence `rework` | the step's approvers |
-| **Update the spec** | an upstream issue with outcome `amend` and a drafted amendment of the clause's owning document: an intent amendment when the clause is in the Story's scope document, a forward amendment otherwise (M2); convergence `update-intent` | that document's approvers |
-| **Accept for now** | accepted risk on the upstream issue, with a reason and an expiry of at most 90 days | the approvers of the step that owns the clause |
-| **The verdict is wrong** | `dismiss` with a reason; the report's next generation corrects the row | the approvers of the step that owns the clause |
+| **Update the spec** | an intent amendment of the Story's scope (`story intent-amendment draft --clause`, then `propose`): the step that defines clauses changes only this way, and a forward amendment refuses it. For a document step's wording, a forward amendment proposed for an upstream issue. Convergence `update-intent` | the scope step's approvers (a document step's own approvers for its wording) |
+| **Accept for now** | accepted risk on the upstream issue, with a reason and an expiry of at most 90 days | the approvers of the step that defines the clause (the scope step) |
+| **The verdict is wrong** | `dismiss` with a reason; the report's next generation corrects the row | the approvers of the step that defines the clause (the scope step) |
 
 ## M1 Every disagreeing verdict is a decision `[SCS:REQ-010]`
+
+Built 2026-11-08. New Stories pin `spec.conformanceDifferences: decide`. A Story pinned before the field
+existed reads as `legacy` and keeps partial and missing only, so no approved report is held by an upgrade.
 
 - `[SCS:REQ-010]` `deviated` and `unplanned` rows become decision items, as `partial` and `missing`
   are. Approval of the conformance step and the terminal gate hold until each is decided. Publishing
   the report is not held.
 - `[SCS:REQ-011]` A `deviated` or `unplanned` row states what differs in its Deviation cell. The
   draft check refuses an empty cell for these verdicts, and the model repairs it in the same turn.
-- `[SCS:REQ-012]` Each item offers the four choices in the Model table, with the existing authority rules.
+- `[SCS:REQ-012]` Each item offers the four choices in the Model table, with the existing authority rules. A
+  difference is owned by the scope step; fixing the code returns to the code step. An intent or forward
+  amendment waiting for its approvers holds the row as *amending*: it still holds approval, and the
+  amendment is its own item in the list.
 - `[SCS:REQ-013]` An `unplanned` row whose paths an accepted departure already covers is decided by
   that departure. It is shown as decided, with the departure's ID, never asked twice.
 - `[SCS:REQ-014]` A `deviated` row on a clause an approved intent or forward amendment already
@@ -94,9 +100,9 @@ A person picks one of these for each difference, and each choice writes only rec
 
 ## M2 "Update the spec" in one choice `[SCS:REQ-020]`
 
-- `[SCS:REQ-020]` Choosing **Update the spec** writes the upstream issue with outcome `amend` and a
-  drafted amendment of the clause's owning document. The draft is built from the approved bytes,
-  model-free, with one marked slot per clause holding:
+- `[SCS:REQ-020]` Choosing **Update the spec** drafts the intent amendment for the clause without a
+  command to copy. In M1 the choice is the `story intent-amendment draft --clause` command. The draft is
+  built from the approved bytes, model-free, with one marked slot per clause holding:
   - the verdict;
   - the Deviation cell;
   - the person's reason.

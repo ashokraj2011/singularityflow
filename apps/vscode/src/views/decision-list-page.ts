@@ -153,9 +153,15 @@ export const DECISION_LIST_SCRIPT = `
   const progress = form.querySelector('[data-progress]');
   const items = () => Array.from(form.querySelectorAll('.dl-item[data-allowed="true"]'));
   const pressed = (item) => item.querySelector('[data-option][aria-pressed="true"]');
+  // A hidden option's fields are disabled too: the browser validates every required field of a form,
+  // hidden or not, so an unchosen option's empty reason silently stopped Review on any item with two such options.
+  function hide(block, hidden) {
+    block.hidden = hidden;
+    for (const field of block.querySelectorAll('[data-field]')) field.disabled = hidden;
+  }
   function show(item) {
     const chosen = pressed(item);
-    for (const block of item.querySelectorAll('[data-needs-for]')) block.hidden = !chosen || block.dataset.needsFor !== chosen.dataset.option;
+    for (const block of item.querySelectorAll('[data-needs-for]')) hide(block, !chosen || block.dataset.needsFor !== chosen.dataset.option);
   }
   function choices() {
     return items().flatMap((item) => {
@@ -199,6 +205,7 @@ export const DECISION_LIST_SCRIPT = `
     if (review) review.disabled = true;
     api.postMessage({ type: 'decisions.review', digest: form.dataset.digest, choices: chosen });
   });
+  for (const block of form.querySelectorAll('[data-needs-for][hidden]')) hide(block, true);
   for (const item of items()) show(item);
   sync();
 })();

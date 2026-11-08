@@ -2,6 +2,9 @@ import { clauseMentionPattern, normalizeQualifiedClauseId } from './traceability
 import { parseMarkdownStructure } from './markdown-structure.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { discrepancyItemSha256 } from './records.mjs';
+import { DIFFERENCE_VERDICTS, decidesConformanceDifferences } from './conformance-differences.mjs';
+
+export { DIFFERENCE_VERDICTS, decidesConformanceDifferences };
 
 const BLOCKING = new Set(['missing', 'partial']);
 const CLAUSE_HEADERS = new Set(['clause id', 'clause', 'id', 'criterion', 'specification clause']);
@@ -77,7 +80,8 @@ export function conformanceTableRows(markdown) {
         const headers = candidate.map(heading);
         const clause = headers.findIndex((value) => CLAUSE_HEADERS.has(value));
         const verdict = headers.findIndex((value) => value === 'verdict');
-        columns = clause >= 0 && verdict >= 0 ? { clause, verdict } : null;
+        const deviation = headers.findIndex((value) => value === 'deviation');
+        columns = clause >= 0 && verdict >= 0 ? { clause, verdict, deviation } : null;
       } else columns = null;
       candidate = null;
       continue;
@@ -90,7 +94,10 @@ export function conformanceTableRows(markdown) {
     rows.push({
       clauseId: plainCell(cells[columns.clause]),
       verdict: plainCell(cells[columns.verdict]).toLowerCase(),
-      line: index + 1
+      line: index + 1,
+      // What the row says differs, and every cell, for a deviated or unplanned row [SCS:REQ-011, REQ-013].
+      ...(columns.deviation >= 0 ? { deviation: plainCell(cells[columns.deviation] ?? '') } : {}),
+      text: cells.map(plainCell).join(' | ')
     });
   }
   return rows;
@@ -138,8 +145,19 @@ export function duplicateQualifiedConformanceRows(markdown) {
   return [...duplicates];
 }
 
-/** Partial and missing table verdicts with the line each is stated on. */
-function incompleteVerdictRows(markdown) {
+/** What a deviated or unplanned row says differs: its Deviation cell, else the note after its verdict word. */
+function statedDifference(row) {
+  const cell = String(row.deviation ?? '').trim();
+  if (cell && !/^(?:todo\b.*|n\/?a|none|-+|—)$/iu.test(cell)) return cell;
+  const note = String(row.verdict ?? '').replace(/^(?:deviated|unplanned)\b[\s(\-–—]*/u, '').replace(/\)\s*$/u, '').trim();
+  return note || null;
+}
+
+/**
+ * Partial and missing table verdicts with the line each is stated on, and deviated and unplanned ones
+ * too when the Story decides them [SCS:REQ-010].
+ */
+function incompleteVerdictRows(markdown, { differences = false } = {}) {
   const identified = conformanceTableRows(markdown);
   // Historical custom reports may predate named comparison headers. Preserve the former
   // fifth-column interpretation only when no named comparison table is present at all.
@@ -147,9 +165,24 @@ function incompleteVerdictRows(markdown) {
     const cells = tableCells(line);
     return cells?.length >= 5 ? [{ clauseId: plainCell(cells[0]), verdict: plainCell(cells[4]).toLowerCase(), line: index + 1 }] : [];
   });
-  return rows.flatMap(({ clauseId, verdict, line }) => {
-    const status = /^(missing|partial)(?:\s|\(|$)/u.exec(verdict)?.[1];
-    return status && BLOCKING.has(status) ? [{ clauseId, verdict: status, line }] : [];
+  return rows.flatMap((row) => {
+    const { clauseId, verdict, line } = row;
+    const status = /^(missing|partial|deviated|unplanned)(?:\s|\(|$)/u.exec(verdict)?.[1];
+    if (status && BLOCKING.has(status)) return [{ clauseId, verdict: status, line }];
+    if (!status || !differences || !DIFFERENCE_VERDICTS.includes(status)) return [];
+    return [{ clauseId, verdict: status, line, difference: statedDifference(row), rowText: row.text ?? '' }];
+  });
+}
+
+/**
+ * Deviated and unplanned rows that do not say what differs [SCS:REQ-011]: a person deciding one needs
+ * the difference in words. A draft finding the report's author repairs in the same turn; read only
+ * where the Story decides these rows, and never by a gate, so no approved report is refused for it.
+ */
+export function unstatedConformanceDifferences(markdown) {
+  return conformanceTableRows(markdown).flatMap((row) => {
+    const status = /^(deviated|unplanned)(?:\s|\(|$)/u.exec(row.verdict)?.[1];
+    return status && !statedDifference(row) ? [{ clauseId: row.clauseId, verdict: status, line: row.line }] : [];
   });
 }
 
@@ -158,17 +191,19 @@ export function blockingConformanceVerdicts(markdown) {
 }
 
 /**
- * Each clause the report's table honestly calls partial or missing, once, with its line. The gap
+ * Each clause the report's table honestly calls partial or missing, once, with its line, and deviated
+ * or unplanned when the Story decides those [SCS:REQ-010], with what the row says differs. The gap
  * may bind to an existing issue owned by an earlier step; it never stops report publication, and a
  * person decides the gap before approval. No issue/decision is written by this reader.
  */
 export function conformanceVerdictGaps(markdown, { workflow = null, phaseId = null } = {}) {
   const seen = new Set();
-  const gaps = incompleteVerdictRows(markdown).flatMap((row) => {
+  const gaps = incompleteVerdictRows(markdown, { differences: decidesConformanceDifferences(workflow) }).flatMap((row) => {
     const clauseId = normalizeQualifiedClauseId(row.clauseId) ?? row.clauseId;
     if (!clauseId || seen.has(clauseId.toUpperCase())) return [];
     seen.add(clauseId.toUpperCase());
-    return [{ clauseId, verdict: row.verdict, line: row.line ?? null }];
+    return [{ clauseId, verdict: row.verdict, line: row.line ?? null,
+      ...(DIFFERENCE_VERDICTS.includes(row.verdict) ? { difference: row.difference ?? null, rowText: row.rowText ?? '' } : {}) }];
   });
   if (!workflow || !phaseId || !gaps.length) return gaps;
   return linkReportIssues(markdown, workflow, phaseId, gaps);

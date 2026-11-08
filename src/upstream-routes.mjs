@@ -11,8 +11,12 @@
  */
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
+import { departureStandsAccepted } from './departure-acceptance.mjs';
 import { intentAmendmentSource, latestStepBefore, scopeStepOf } from './phase-roles.mjs';
 import { clauseMentionPattern } from './traceability-ids.mjs';
+import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
+
+export { DIFFERENCE_VERDICTS };
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 
 /**
@@ -198,6 +202,29 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
   const reject = (target) => ['reject', phaseId, '--work-id', workId, '--to', target, '--reason', '<why>'];
   const later = submitted ? '' : ` once ${phaseId} is submitted`;
   const decide = issue ? ['upstream-issue', 'decide', issue.id, '--work-id', workId] : null;
+  // A deviated or unplanned row says the code differs from the clause [SCS:REQ-012]: fix the code,
+  // update the spec through the owning step's approvers, accept it for now, or dismiss it. A recorded
+  // run proves tests ran, never that the code says what the clause says, so reuse is not a way out.
+  if (DIFFERENCE_VERDICTS.includes(gap.verdict)) {
+    const problem = gap.verdict === 'unplanned' ? '<what the code does that the clause does not ask for>' : '<how the code differs from the clause>';
+    // The clause is stated by the step that defines scope, which changes only through a reviewed intent
+    // amendment (a forward amendment refuses a step that defines clauses).
+    const scope = scopeStepOf(workflow)?.id ?? null;
+    return Object.freeze([
+      ...(submitted && returnable(phaseId) ? [gapChoice('correct-report', phaseId, reject(phaseId), '/sf-reject',
+        `${clause}: if the row is wrong, return ${phaseId} so its author corrects it.`)] : []),
+      ...(scope ? [gapChoice('update-spec', scope, ['story', 'intent-amendment', 'draft', '--clause', clause, '--work-id', workId, '--out', '<amended scope file>'], null,
+        `Update the spec: draft ${scope}'s scope with a slot for ${clause}, write it as the code does it, then propose it with story intent-amendment propose; ${scope}'s approvers decide it.`)] : []),
+      issue
+        ? gapChoice('decide-upstream-issue', owner, [...decide, '--outcome', 'accept-risk', '--expires', '<YYYY-MM-DD>', '--reason', '<why>'], '/sf-decide',
+          `${issue.id}: ${owner}'s approvers accept ${clause} for now, or dismiss it.`)
+        : gapChoice('raise-upstream-issue', owner, ['upstream-issue', 'raise', '--phase', owner, '--about', clause,
+          '--problem', problem, '--work-id', workId], '/sf-decide',
+        `${clause}: report once to ${owner}'s approvers; they accept it for now or dismiss it.`),
+      gapChoice('fix-code', codeStep ?? owner, codeStep && returnable(codeStep) ? reject(codeStep) : null, codeStep && returnable(codeStep) ? '/sf-reject' : null,
+        codeStep ? `Fix the code: return to ${codeStep}${later} so the code does what ${clause} says.` : 'No code step delivers this here.')
+    ]);
+  }
   return Object.freeze([
     // The record reads this clause satisfied, so the report is the first thing a person may want to look at again.
     ...(gap.evidenceSatisfied && submitted && returnable(phaseId) ? [gapChoice('correct-report', phaseId, reject(phaseId), '/sf-reject',
@@ -223,6 +250,53 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
   ]);
 }
 
+const sameId = (left, right) => String(left ?? '').toUpperCase() === String(right ?? '').toUpperCase();
+
+/**
+ * How a deviated or unplanned row is settled other than by a dated risk or a dismissal [SCS:REQ-013,
+ * REQ-022, REQ-023], or null:
+ * - the spec followed the code: an approved intent amendment names the clause (the step that defines
+ *   clauses changes only that way), or a forward amendment proposed for an issue that names it
+ *   (`propose-amendment --issue`) is approved; that issue is then closed by its approvers with `amend`
+ *   and the amendment's link, its own existing step;
+ * - an intent or forward amendment waiting for its approvers holds the row as `amending`;
+ * - an unplanned row is the code's own departure, accepted already: a departure of the Story whose
+ *   clauses name the clause, or whose files the row names.
+ */
+function differenceSettlement(workflow, gap, named, owner) {
+  const done = (fields) => Object.freeze({ ...gap, status: 'decided', expiresAt: null, choices: Object.freeze([]), ...fields });
+  const intent = (workflow?.intentAmendments ?? []).findLast((entry) => entry?.status === 'approved'
+    && (entry.clauses ?? []).some((id) => sameId(id, gap.clauseId)));
+  if (intent) return done({ owner, issue: intent.id, outcome: 'amended' });
+  const workId = workflow?.workItem?.id ?? '<WORK-ID>';
+  const proposed = (workflow?.intentAmendments ?? []).findLast((entry) => entry?.status === 'proposed'
+    && (entry.clauses ?? []).some((id) => sameId(id, gap.clauseId)));
+  if (proposed) {
+    return Object.freeze({ ...gap, owner, status: 'amending', issue: proposed.id, outcome: null, expiresAt: null,
+      choices: Object.freeze([gapChoice('decide-intent-amendment', owner, ['story', 'intent-amendment', 'decide', proposed.id, '--decision', 'approve|reject',
+        '--confirm', proposed.id, '--work-id', workId], null, `${proposed.id}: the scope approvers decide the spec updated to match the code.`)]) });
+  }
+  for (const state of [...named].reverse()) {
+    const proposal = (workflow?.forwardAmendments ?? []).findLast((entry) => entry.upstreamIssue === state.issue.id);
+    if (!proposal) continue;
+    const decision = countedRecords(workflow, workflow?.forwardAmendmentDecisions).findLast((entry) => entry.amendment === proposal.id);
+    if (decision?.decision === 'approved') return done({ owner: state.issue.phase, issue: proposal.id, outcome: 'amended' });
+    if (!decision) {
+      return Object.freeze({ ...gap, owner: state.issue.phase, status: 'amending', issue: proposal.id, outcome: null, expiresAt: null,
+        choices: Object.freeze([gapChoice('decide-amendment', state.issue.phase, ['upstream-issue', 'decide-amendment', proposal.id, '--work-id', workId,
+          '--decision', 'approve|reject', '--reason', '<why>', '--confirm', proposal.id], '/sf-decide',
+        `${proposal.id}: ${state.issue.phase}'s approvers decide the document updated to match the code.`)]) });
+    }
+  }
+  if (gap.verdict === 'unplanned') {
+    const text = String(gap.rowText ?? '');
+    const departure = (workflow?.departures ?? []).findLast((entry) => departureStandsAccepted(workflow, entry)
+      && ((entry.clauses ?? []).some((id) => sameId(id, gap.clauseId)) || (entry.paths ?? []).some((file) => file && text.includes(file))));
+    if (departure) return done({ owner: departure.phase, issue: departure.id, outcome: 'departure' });
+  }
+  return null;
+}
+
 /**
  * Whether a person has decided each partial or missing clause [owner decision 2026-10-19]. A clause
  * is decided by a linked upstream issue (authored reference, source provenance or exact clause)
@@ -237,6 +311,8 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
   const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
   const earlier = order.slice(0, Math.max(0, order.indexOf(phaseId)));
   const eligible = states.filter((state) => !state.supersededBy && earlier.includes(state.issue.phase));
+  const scope = scopeStepOf(workflow)?.id;
+  const differenceOwner = scope && earlier.includes(scope) ? scope : owner;
   return (gaps ?? []).flatMap((gap) => {
     // Exact row/source-item links take precedence over generic clause mentions. A decided issue
     // about the same clause but another problem must not clear the report's explicitly named gap.
@@ -258,18 +334,25 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
       return Object.freeze({ ...gap, owner: covering.issue.phase, status: 'decided', issue: covering.issue.id,
         outcome: covering.decision.outcome, expiresAt: covering.decision.expiresAt ?? null, choices: Object.freeze([]) });
     }
+    if (DIFFERENCE_VERDICTS.includes(gap.verdict)) {
+      const settled = differenceSettlement(workflow, gap, named, differenceOwner);
+      if (settled) return settled;
+    }
     // A person approved reusing a run an earlier step recorded for this clause (decision
     // evidence-reuse, still bound to unchanged source): that is the human decision for the gap. It is
     // labelled as that step's run and never certifies a run this report's steps did not record.
-    const reuse = (reused ?? []).find((entry) => (entry.clauses ?? []).some((id) => String(id).toUpperCase() === String(gap.clauseId).toUpperCase()));
+    const reuse = DIFFERENCE_VERDICTS.includes(gap.verdict) ? null
+      : (reused ?? []).find((entry) => (entry.clauses ?? []).some((id) => String(id).toUpperCase() === String(gap.clauseId).toUpperCase()));
     if (reuse) {
       return Object.freeze({ ...gap, owner: reuse.recordedBy ?? owner, status: 'decided', issue: reuse.id, outcome: 'evidence-reuse',
         expiresAt: reuse.expiresAt ?? null, reuse: reuse.label, choices: Object.freeze([]) });
     }
     // A superseded issue owes nothing; its replacement names the clause if it carries the gap.
     return (pendingIssues.length ? pendingIssues : [null]).map((pending) => {
-      const gapOwner = pending?.issue.phase ?? owner;
-      const evidenceSatisfied = !pending && readsSatisfied(gap.clauseId);
+      // A deviated or unplanned row is the spec's question as much as the code's: the step that defines
+      // scope owns it, and fixing the code is one of its choices [SCS:REQ-012].
+      const gapOwner = pending?.issue.phase ?? (DIFFERENCE_VERDICTS.includes(gap.verdict) ? differenceOwner : owner);
+      const evidenceSatisfied = !pending && !DIFFERENCE_VERDICTS.includes(gap.verdict) && readsSatisfied(gap.clauseId);
       return Object.freeze({ ...gap, owner: gapOwner, status: pending ? pending.status === 'expired' ? 'expired' : 'undecided' : 'unraised',
         issue: pending?.issue.id ?? null, outcome: null, expiresAt: pending?.decision?.expiresAt ?? null, ...(evidenceSatisfied ? { evidenceSatisfied } : {}),
         choices: conformanceGapRoutes(workflow, phaseId, { ...gap, owner: gapOwner, evidenceSatisfied }, pending?.issue ?? null) });
@@ -280,7 +363,8 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
 /** One line for an undecided gap: its verdict and who decides it next. */
 export function conformanceGapLine(gap) {
   const owner = gap.owner ?? 'the owning step';
-  const state = gap.status === 'expired' ? `${gap.issue}'s accepted risk expired at ${gap.expiresAt}; ${owner}'s approvers decide it again`
+  const state = gap.status === 'amending' ? `${gap.issue} is updating ${owner}'s document to match the code; ${owner}'s approvers decide it`
+    : gap.status === 'expired' ? `${gap.issue}'s accepted risk expired at ${gap.expiresAt}; ${owner}'s approvers decide it again`
     : gap.status === 'undecided' ? `${gap.issue} awaits ${owner}'s approvers`
       // Telling them to raise a problem against a step nothing shows at fault sent them after the wrong thing (bin-opr2).
       : gap.evidenceSatisfied ? `no linked issue, and the recorded evidence reads it satisfied, so nothing shows ${owner} at fault. A person returns this report to correct it, or, if ${owner} does owe something, raises it on the list`

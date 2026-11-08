@@ -21,6 +21,7 @@
  */
 import { departureCandidatePaths } from './plan-amendments.mjs';
 import { countedRecords, isWithdrawn } from './presence/counted.mjs';
+import { departureAcceptance, departureRejection } from './departure-acceptance.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
 export const DEPARTURE_KINDS = Object.freeze(['path', 'supporting', 'plan-row', 'test', 'wording', 'clause', 'finding']);
@@ -137,47 +138,7 @@ function departureDecision(workflow, decision, { departures, reason, actor, auth
   return record;
 }
 
-// The same plan row change, whatever the row's digest was when it was asked for.
-const sameOperation = (left, right) => {
-  const strip = ({ previousClaimSha256, ...rest } = {}) => JSON.stringify(Object.keys(rest).sort().map((key) => [key, rest[key]]));
-  return strip(left) === strip(right);
-};
-
-/**
- * The counted record that accepted a departure, or null: a decided plan amendment naming it, the approved
- * forward amendment proposed from it, a plan row correction asking for its exact change since it was
- * recorded, or the approved intent amendment proposed from it. `hashes` is what that record bound for each file.
- */
-export function departureAcceptance(workflow, departure) {
-  if (['path', 'supporting'].includes(departure.kind)) {
-    const amendment = countedRecords(workflow, workflow?.planAmendments)
-      .filter((entry) => (entry.departures ?? []).includes(departure.id) && !isWithdrawn(workflow, entry)).at(-1);
-    return amendment ? { kind: 'plan-amendment', id: amendment.id, at: amendment.at, hashes: amendment.contentHashes ?? {} } : null;
-  }
-  if (departure.kind === 'wording') {
-    const proposal = (workflow?.forwardAmendments ?? []).findLast((entry) => entry.departure === departure.id);
-    const decision = proposal ? countedRecords(workflow, workflow?.forwardAmendmentDecisions).findLast((entry) => entry.amendment === proposal.id) : null;
-    return decision?.decision === 'approved' ? { kind: 'forward-amendment', id: proposal.id, at: decision.at, hashes: null } : null;
-  }
-  if (departure.kind === 'clause') {
-    const amendment = (workflow?.intentAmendments ?? []).findLast((entry) => entry.departure === departure.id && entry.status === 'approved');
-    return amendment ? { kind: 'intent-amendment', id: amendment.id, at: amendment.decision?.at ?? amendment.at ?? null, hashes: null } : null;
-  }
-  if (departure.kind === 'finding') {
-    const accepted = countedRecords(workflow, workflow?.departureDecisions)
-      .filter((entry) => entry.decision === 'accepted' && (entry.departures ?? []).includes(departure.id)).at(-1);
-    return accepted ? { kind: 'departure-acceptance', id: accepted.id, at: accepted.at, hashes: accepted.hashes ?? {} } : null;
-  }
-  const correction = countedRecords(workflow, workflow?.planRowCorrections)
-    .filter((entry) => String(entry.at) >= String(departure.at) && (entry.operations ?? []).some((operation) => sameOperation(operation, departure.change))).at(-1);
-  return correction ? { kind: 'plan-row-correction', id: correction.id, at: correction.at, hashes: null } : null;
-}
-
-/** The latest counted rejection of a departure, or null. */
-export function departureRejection(workflow, departure) {
-  return countedRecords(workflow, workflow?.departureDecisions)
-    .filter((entry) => entry.decision === 'rejected' && (entry.departures ?? []).includes(departure.id)).at(-1) ?? null;
-}
+export { departureAcceptance, departureRejection } from './departure-acceptance.mjs';
 
 /**
  * Where a departure stands, with `hashes` of what each of its files holds now (null: absent; a file not

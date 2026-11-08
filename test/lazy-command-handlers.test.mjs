@@ -69,7 +69,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 469: the runner table (test-runners.mjs), an import-free leaf, which code-delivery-tests.mjs reads a report's language from.
     // 470: person-step-catalog.mjs, one leaf holding what the guard, SF Guard and the review rules read of a person's steps.
     // 471: step-sheet-route.mjs, the leaf that reads a sheet's next step as a route.
-    assert.ok(closure.files.size <= 471, `${file} loads ${closure.files.size} local files (budget 471; retired graph 597)`);
+    // 473: spec–code sync M1's two import-free leaves (conformance-differences.mjs, departure-acceptance.mjs), which the
+    // conformance gap decisions read so approval and the gates decide deviated and unplanned rows without loading the
+    // report reader or the departure model [SCS:REQ-010, REQ-013].
+    assert.ok(closure.files.size <= 473, `${file} loads ${closure.files.size} local files (budget 473; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -415,7 +418,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,587,450 (measured 9,587,396, commands/phase-lifecycle.mjs): a code step's composed context names a departure for what the approved
     // documents lack, not an upstream issue (phase-authoring-contract.mjs, phase-prompt-composer.mjs) [CQF:REQ-020].
     // 9,590,450 (measured 9,590,416, commands/phase-lifecycle.mjs): the paid run's two fixes merged too.
-    assert.ok(closure.bytes <= 9_590_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,606,400 (measured 9,606,339, commands/phase-lifecycle.mjs): spec–code sync M1 decides deviated and unplanned
+    // conformance rows (upstream-routes.mjs, conformance-verdicts.mjs, conformance-readiness.mjs, decision-list.mjs, the
+    // pinned spec.conformanceDifferences in specifications.mjs and the two leaves above), +15,905 on every entry [SCS:REQ-010].
+    assert.ok(closure.bytes <= 9_606_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -616,7 +622,8 @@ test('the common session projection does not import attach, state stores or publ
   // dispatch, and the release registries' findings-remediation entries (+631).
   // 4,178,150 (measured 4,178,141): the security and TLM findings register merged too; its growth is above.
   // 4,178,200 (measured 4,178,152): a fix on the way's files are a departure's candidate files (plan-amendments.mjs +11) [CQF:REQ-066].
-  assert.ok(current.bytes <= 4_178_200, `session current loads ${current.bytes} source bytes`);
+  // 4,178,900 (measured 4,178,856): the pinned spec.conformanceDifferences in specifications.mjs [SCS:REQ-010].
+  assert.ok(current.bytes <= 4_178_900, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

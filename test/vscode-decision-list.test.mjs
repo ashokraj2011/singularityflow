@@ -320,3 +320,12 @@ test('the extension wires the page: a palette command, the lazy panel, and the a
   const actions = await readFile(source('actions.ts'), 'utf8');
   assert.match(actions, /\['decisions', request\.workId, '--phase', request\.phaseId, '--json'\]\)\.catch\(\(\) => null\)/u, 'a failed read adds nothing; the gate still decides');
 });
+
+// The browser validates every required field of a form, hidden or not: an unchosen option's empty reason
+// stopped Review silently on any item with two options that ask for one (accept for now and dismiss).
+test('an unchosen option\'s fields are disabled, so only the chosen option is validated when a person reviews', () => {
+  assert.match(DECISION_LIST_SCRIPT, /function hide\(block, hidden\) \{\s*block\.hidden = hidden;\s*for \(const field of block\.querySelectorAll\('\[data-field\]'\)\) field\.disabled = hidden;/u);
+  assert.match(DECISION_LIST_SCRIPT, /for \(const block of item\.querySelectorAll\('\[data-needs-for\]'\)\) hide\(block, /u);
+  assert.match(DECISION_LIST_SCRIPT, /for \(const block of form\.querySelectorAll\('\[data-needs-for\]\[hidden\]'\)\) hide\(block, true\);/u,
+    'blocks hidden when the page is drawn, including items the person may not decide, start disabled');
+});

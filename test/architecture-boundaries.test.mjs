@@ -49,7 +49,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'source', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries] });
   assert.deepEqual(report.problems, []);
@@ -274,6 +274,7 @@ test('project enrollment owns only explicit namespace ports and cannot select in
 test('explicit configuration approval cannot discover or select installed authority',async()=>{
   const owner='src/engine-storage/namespace-configuration.mjs';
   const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs',
+    '../kernel/artifact-content.mjs',
     '../engine-compatibility/node-namespace-configuration.mjs','../kernel/namespace-configuration.mjs','../kernel/project-enrollment.mjs',
     '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/content/contract.mjs',
     './namespace-lifecycle-contract.mjs','./namespace-configuration-contract.mjs','./namespace-configuration-codec.mjs','./namespace-configuration-reader.mjs']);

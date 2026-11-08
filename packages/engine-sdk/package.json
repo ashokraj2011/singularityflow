@@ -12,6 +12,7 @@
     "./errors": { "types": "./dist/errors.d.mts", "import": "./dist/errors.mjs" },
     "./namespace": { "types": "./dist/namespace.d.mts", "import": "./dist/namespace.mjs" },
     "./content": { "types": "./dist/content.d.mts", "import": "./dist/content.mjs" },
+    "./artifacts": { "types": "./dist/artifacts.d.mts", "import": "./dist/artifacts.mjs" },
     "./source": { "types": "./dist/source.d.mts", "import": "./dist/source.mjs" },
     "./sources/filesystem": { "types": "./dist/sources/filesystem.d.mts", "import": "./dist/sources/filesystem.mjs" },
     "./hosts/namespace-reader": { "types": "./dist/hosts/namespace-reader.d.mts", "import": "./dist/hosts/namespace-reader.mjs" },

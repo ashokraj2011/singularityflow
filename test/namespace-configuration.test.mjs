@@ -43,7 +43,28 @@ test('agent selection uses the unchanged native rule and captured pre-edit outco
   assert.equal(createHash('sha256').update(mapped.initializer.getText(ast)).digest('hex'),fixture.mappedAgentSha256);
 });
 
+test('retained agent-backed artifact templates use the same token rule without remote discovery',async t=>{
+  const f=await namespaceConfigurationFixture(t),source=structuredClone(f.source),key='agent:analyst/artifact';
+  source.definition.phases.intake.defaultTemplate=key;
+  source.templates=[{path:key,body:await f.putText('# Intake\n\n{{not-supported}}\n')}];
+  const ref=await f.store(source);
+  await assert.rejects(f.engine.run(operation,{...f.inputs,source:ref,confirm:ref.sha256}),failure=>
+    failure.code==='ENGINE_CONFIGURATION_INVALID'&&failure.details.key===key&&failure.details.phase==='intake'
+    &&failure.cause?.message.includes('{{not-supported}}'));
+  assert.equal((await f.head()).status,'missing');
+});
+
 for(const backend of ['filesystem','sqlite','application']) {
+  test(`${backend}: unsupported template tokens are refused before configuration approval or preparation`,async t=>{
+    const f=await namespaceConfigurationFixture(t,{backend});
+    const source=structuredClone(f.source);source.templates[0].body=await f.putText('# Intake\n\n{{not-supported}}\n');
+    const ref=await f.store(source);
+    await assert.rejects(f.engine.run(operation,{...f.inputs,source:ref,confirm:ref.sha256}),failure=>
+      failure.code==='ENGINE_CONFIGURATION_INVALID'&&failure.details.key==='singularity/templates/intake.md'
+      &&failure.details.phase==='intake'&&failure.cause?.message.includes('{{not-supported}}'));
+    assert.equal((await f.head()).status,'missing');
+    assert.equal((await f.list('evidence')).entries.filter(entry=>entry.key.startsWith('configuration/approvals/')).length,0);
+  });
   test(`${backend}: real enrollment and approval retain the complete explicit content closure`,async t=>{
     const f=await namespaceConfigurationFixture(t,{backend}),result=await f.engine.run(operation,f.inputs);
     assert.equal(result.status,'approved');assert.equal(result.principalId,'application-owner');assert.equal(result.replayed,false);

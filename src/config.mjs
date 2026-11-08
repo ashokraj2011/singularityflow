@@ -64,12 +64,13 @@ import {
   hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
   isRetiredPackagedAsset, packagedAssetSha256
 } from './packaged-asset-history.mjs';
-import { normalizeMarkdownHeading, parseMarkdownStructure } from './kernel/artifact-content.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure, renderArtifactTemplateText } from './kernel/artifact-content.mjs';
+export { ARTIFACT_TEMPLATE_TOKENS, normalizeArtifactTemplateCompatibility, validateArtifactTemplateText,
+  renderArtifactTemplateText } from './kernel/artifact-content.mjs';
 import {
   loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
 } from './environment-declaration.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
-import { renderClauseNamespaces } from './foundation/traceability-ids.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -938,31 +939,6 @@ export async function snapshotResolution(root, definition, resolved) {
   };
 }
 
-export const ARTIFACT_TEMPLATE_TOKENS = Object.freeze({
-  workId: '{{work.id}}',
-  workTitle: '{{work.title}}',
-  workType: '{{work.type}}',
-  phaseId: '{{phase.id}}',
-  phaseLabel: '{{phase.label}}',
-  inputs: '{{inputs}}'
-});
-
-/** Render legacy packaged tokens in already-created repositories without permitting new use. */
-export function normalizeArtifactTemplateCompatibility(text, variables) {
-  return renderClauseNamespaces(text, '{{WORK_ID}}', variables.id).replaceAll('{{WORK_ID}}', variables.id ?? '');
-}
-
-/** Exact same token admission as the renderer, usable before any artifact is written. */
-export function validateArtifactTemplateText(sourceText, variables = {}, phaseId = 'captured') {
-  const text = normalizeArtifactTemplateCompatibility(sourceText, variables);
-  const supported = new Set(Object.values(ARTIFACT_TEMPLATE_TOKENS));
-  const unsupported = [...new Set(text.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])].filter((token) => !supported.has(token));
-  if (unsupported.length) throw new SingularityFlowError(
-    `Artifact template for phase '${phaseId}' contains unsupported token(s): ${unsupported.join(', ')}. Supported tokens: ${[...supported].join(', ')}.`
-  );
-  return text;
-}
-
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
   let sourceText;
   if (variables.retainedTemplate) {
@@ -1003,25 +979,6 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
     sourceText = await readFile(file.absolute, 'utf8');
   }
   return renderArtifactTemplateText(sourceText, resolvedPhase, variables);
-}
-
-/**
- * The text a step's template renders to when a Story enters the step: the same token admission,
- * clause namespaces and replacements, from template bytes already read. `workflow check` renders
- * team templates through this so it judges exactly what an author would start from.
- */
-export function renderArtifactTemplateText(sourceText, resolvedPhase, variables) {
-  let text = renderClauseNamespaces(validateArtifactTemplateText(sourceText, variables, resolvedPhase.id), ARTIFACT_TEMPLATE_TOKENS.workId, variables.id);
-  const replacements = {
-    [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,
-    [ARTIFACT_TEMPLATE_TOKENS.workTitle]: variables.title,
-    [ARTIFACT_TEMPLATE_TOKENS.workType]: variables.workType,
-    [ARTIFACT_TEMPLATE_TOKENS.phaseId]: resolvedPhase.id,
-    [ARTIFACT_TEMPLATE_TOKENS.phaseLabel]: resolvedPhase.label,
-    [ARTIFACT_TEMPLATE_TOKENS.inputs]: variables.inputs ?? ''
-  };
-  for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
-  return text;
 }
 
 export async function agentPrompt(root, definition, agentId) {

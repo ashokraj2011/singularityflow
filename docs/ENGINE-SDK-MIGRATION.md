@@ -91,6 +91,11 @@ observations and original receipts without storing source code or physical roots
 not open a generation or claim execution readiness; portable preparation and lifecycle execution
 still require their own policy ports.
 
+The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
+and the explicit SDK one content-rule owner, with captured native rendering for all shipped
+workflows. Namespace approval checks real referenced template text before accepting it. Actual
+machine-local draft preparation and complete lifecycle execution remain required Phase 7 gates.
+
 The [upstream operation boundary](ENGINE-SDK-UPSTREAM-OPERATIONS.md) covers author-raised issues,
 owner decisions, forward proposals and decisions, downstream revalidation and the read-only list.
 These routes keep their existing CLI output and native Git authority.

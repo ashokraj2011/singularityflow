@@ -1,7 +1,48 @@
 /** Pure artifact text, structure and authored-content rules. No file, hash or provider access. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { qualifiedClauseMatches } from '../foundation/traceability-ids.mjs';
+import { qualifiedClauseMatches, renderClauseNamespaces } from '../foundation/traceability-ids.mjs';
 import { nextPhaseGeneration } from './phase-policy.mjs';
+
+/** Artifact content substitution, not model prompt wording or native resource discovery. */
+export const ARTIFACT_TEMPLATE_TOKENS = Object.freeze({
+  workId: '{{work.id}}',
+  workTitle: '{{work.title}}',
+  workType: '{{work.type}}',
+  phaseId: '{{phase.id}}',
+  phaseLabel: '{{phase.label}}',
+  inputs: '{{inputs}}'
+});
+
+/** Render legacy packaged tokens in already-created repositories without permitting new use. */
+export function normalizeArtifactTemplateCompatibility(text, variables) {
+  return renderClauseNamespaces(text, '{{WORK_ID}}', variables.id).replaceAll('{{WORK_ID}}', variables.id ?? '');
+}
+
+/** Exact token admission for bytes already obtained by the host. */
+export function validateArtifactTemplateText(sourceText, variables = {}, phaseId = 'captured') {
+  const text = normalizeArtifactTemplateCompatibility(sourceText, variables);
+  const supported = new Set(Object.values(ARTIFACT_TEMPLATE_TOKENS));
+  const unsupported = [...new Set(text.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])].filter((token) => !supported.has(token));
+  if (unsupported.length) throw new SingularityFlowError(
+    `Artifact template for phase '${phaseId}' contains unsupported token(s): ${unsupported.join(', ')}. Supported tokens: ${[...supported].join(', ')}.`
+  );
+  return text;
+}
+
+/** Replaces only the declared artifact tokens; the source wording remains host-owned. */
+export function renderArtifactTemplateText(sourceText, resolvedPhase, variables) {
+  let text = renderClauseNamespaces(validateArtifactTemplateText(sourceText, variables, resolvedPhase.id), ARTIFACT_TEMPLATE_TOKENS.workId, variables.id);
+  const replacements = {
+    [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,
+    [ARTIFACT_TEMPLATE_TOKENS.workTitle]: variables.title,
+    [ARTIFACT_TEMPLATE_TOKENS.workType]: variables.workType,
+    [ARTIFACT_TEMPLATE_TOKENS.phaseId]: resolvedPhase.id,
+    [ARTIFACT_TEMPLATE_TOKENS.phaseLabel]: resolvedPhase.label,
+    [ARTIFACT_TEMPLATE_TOKENS.inputs]: variables.inputs ?? ''
+  };
+  for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
+  return text;
+}
 
 export const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
 export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\r?\n[\s\S]*?\r?\n-->\s*/;

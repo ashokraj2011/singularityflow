@@ -1,0 +1,612 @@
+{
+  "schemaVersion": 1,
+  "referenceCommit": "d78273423",
+  "bodies": {
+    "ARTIFACT_TEMPLATE_TOKENS": "624b14baab38f4069350636623c82a7c5a8abd4809142ddaa95cf71ef90aa7c6",
+    "normalizeArtifactTemplateCompatibility": "82028372e560d2e9d896582f28f9f3b770fe2939b1ce9d3bf8595531732f6d68",
+    "validateArtifactTemplateText": "080bc505ae050d382bf9bb6ab30de2fd149dd7a065050a66a5296c13b62ca8e0",
+    "renderArtifactTemplateText": "2fb01c3e374ddf15403a0a19f77ce8fe51e4ca3c79c54cc0121a334eb2faf369"
+  },
+  "variables": {
+    "id": "TEMPLATE-1",
+    "title": "A converter — observed behavior",
+    "inputs": "## Approved inputs\n\nExact source and acceptance bindings.\n"
+  },
+  "results": [
+    {
+      "workType": "feature",
+      "phase": "intake",
+      "template": "singularity/templates/feature/intake.md",
+      "sourceSha256": "eb53814f46f12ea3d93d1629164bd7ff22a3a54feceff7f7dd55670caeb5dbab",
+      "renderedSha256": "7a71c6f7b8dc3f92f13b556546407d1a2b9642254caaa40c92ceeb2984df4b49"
+    },
+    {
+      "workType": "feature",
+      "phase": "requirements",
+      "template": "singularity/templates/feature/requirements.md",
+      "sourceSha256": "32016db8ed6fadd6596e7dc702647cff95cdee1a203b38395d7ba5626dd8134e",
+      "renderedSha256": "9a5fd23d934cd787c00ef85ae8a66933e1eb40bc6b6c3ee0763c29e23fe7a796"
+    },
+    {
+      "workType": "feature",
+      "phase": "design",
+      "template": "singularity/templates/feature/design.md",
+      "sourceSha256": "8b7455f464a7025efa92942c272a04e3c0a3ab2a4d3eb438703cc14e230bc856",
+      "renderedSha256": "a4fe4df5b189e777417d5a4f29f1084a407c56afacad859100f95f2759d8641b"
+    },
+    {
+      "workType": "feature",
+      "phase": "implementation-spec",
+      "template": "singularity/templates/feature/implementation-spec.md",
+      "sourceSha256": "775affeb36ab41074d9953109f7459efca860c5d31465c8d5592ad986f311adf",
+      "renderedSha256": "2ac0b808929cc8f2b3ca8f9913e4f3846b9735f72fd6a75786378cc7a42bede0"
+    },
+    {
+      "workType": "feature",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "feature",
+      "phase": "verification",
+      "template": "singularity/templates/common/verification.md",
+      "sourceSha256": "fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0",
+      "renderedSha256": "4eddfa629872aef00aac576e38e52fa63dd3320158f8fe95526f6e997d13490e"
+    },
+    {
+      "workType": "feature",
+      "phase": "conformance",
+      "template": "singularity/templates/common/conformance.md",
+      "sourceSha256": "be71314c915f967e1f1c3d5789fed1d192fda5ed33371cb1aff94b665669b9da",
+      "renderedSha256": "55bb27bbadba8be004ad562841b17238b46be6edf2089353aec2d664b915647e"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "intake",
+      "template": "singularity/templates/bugfix/intake.md",
+      "sourceSha256": "c0aa89555e400e9c78c782021b1928175607f32ad20773c70fae04b28ced320c",
+      "renderedSha256": "b054fb5a1ff8a1f5057797f674a4f9964780864b39b7c608fbdfbe5a6b0b3818"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "reproduction",
+      "template": "singularity/templates/bugfix/reproduction.md",
+      "sourceSha256": "f134541a5c15fdd80e958741e0576df94bf0de63a3d095717ede84e6fd0adbfb",
+      "renderedSha256": "3fdf152466f665e8bbdec21bd4e4ad66ecae99fb20036a3e805254a91621988d"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "fix-design",
+      "template": "singularity/templates/bugfix/fix-design.md",
+      "sourceSha256": "cee7774777fd55a3740ebd9f2cafd100702d52617ae307f80e35764229c7867e",
+      "renderedSha256": "e63f9a4d995018b80ddcdaa392ad9f6263165e1c36aa42330c268368f7476ebc"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "fix-spec",
+      "template": "singularity/templates/bugfix/fix-spec.md",
+      "sourceSha256": "f62cb2f1e2d275d6826b2f47c356db23a006594b3673d3727af387169851067d",
+      "renderedSha256": "aefcc924cc8fb64d71151604646a78f0ef2058bf580ccd9d25c7ff99866c6b0f"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "verification",
+      "template": "singularity/templates/common/verification.md",
+      "sourceSha256": "fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0",
+      "renderedSha256": "4eddfa629872aef00aac576e38e52fa63dd3320158f8fe95526f6e997d13490e"
+    },
+    {
+      "workType": "bugfix",
+      "phase": "conformance",
+      "template": "singularity/templates/common/conformance.md",
+      "sourceSha256": "be71314c915f967e1f1c3d5789fed1d192fda5ed33371cb1aff94b665669b9da",
+      "renderedSha256": "55bb27bbadba8be004ad562841b17238b46be6edf2089353aec2d664b915647e"
+    },
+    {
+      "workType": "chore",
+      "phase": "intake",
+      "template": "singularity/templates/chore/intake.md",
+      "sourceSha256": "7fe95857aaee8f87eb8762e362a2c09bb3d9c7d62d02a4b6a161f0dabecd59d8",
+      "renderedSha256": "797a9c0ad835b3f8b18e0e6715ea8a02e26fda60082af97128142b68d32543a9"
+    },
+    {
+      "workType": "chore",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "chore",
+      "phase": "verification",
+      "template": "singularity/templates/common/verification.md",
+      "sourceSha256": "fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0",
+      "renderedSha256": "4eddfa629872aef00aac576e38e52fa63dd3320158f8fe95526f6e997d13490e"
+    },
+    {
+      "workType": "chore",
+      "phase": "conformance",
+      "template": "singularity/templates/common/conformance.md",
+      "sourceSha256": "be71314c915f967e1f1c3d5789fed1d192fda5ed33371cb1aff94b665669b9da",
+      "renderedSha256": "55bb27bbadba8be004ad562841b17238b46be6edf2089353aec2d664b915647e"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "design-intake",
+      "template": "singularity/templates/figma-mobile/design-intake.md",
+      "sourceSha256": "39e83b9ecf10bad9249070d4f3267e8d2ec2412bfbfb6e46ead396e888f682b3",
+      "renderedSha256": "f879211068859a1b3e373d4729fe50c04c4befff33b7a8fe6a0e72349924c91c"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "design-inventory",
+      "template": "singularity/templates/figma-mobile/design-inventory.md",
+      "sourceSha256": "822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079",
+      "renderedSha256": "d81ce4d3860bce8b70b9448851ca9e72e8047bf66ad98c82051ac501e87f1895"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "component-mapping",
+      "template": "singularity/templates/figma-mobile/component-mapping.md",
+      "sourceSha256": "cdea8a1e3defa73ade72bdaaac162ecd9b8b43817aa319d7e712e2de2eb296a3",
+      "renderedSha256": "5dfce397974f9c094bb30f35e49ccbc1a273fa3ddc7de4025f3372b45312026c"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "mobile-spec",
+      "template": "singularity/templates/figma-mobile/mobile-spec.md",
+      "sourceSha256": "5f25f3417be372a7073ac5ba2676b0e47ea302ff54d1db64270448d635db6d98",
+      "renderedSha256": "92d2041ec64a00e1cdf384b4052e9253503b184cd4a4903eab5bf40a143df3be"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "implementation",
+      "template": "singularity/templates/figma-mobile/implementation.md",
+      "sourceSha256": "69b5b75886dcc41da4e3063c7ceb6ff805251f98dd40ee41b2bf5de660dc74da",
+      "renderedSha256": "0fddd3850dd7885361bbb04975920e13d562fb220ad9052efa22f9a89412b091"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "visual-verification",
+      "template": "singularity/templates/figma-mobile/visual-verification.md",
+      "sourceSha256": "0c732adf496717a4c2034cff347408d9e6e4bb5f9556152b226fa1e376e48bf5",
+      "renderedSha256": "8f77e0bb736d6376efc867f2009c31e5a8b1036c2d26f646f2a21dd685638c75"
+    },
+    {
+      "workType": "figma-mobile",
+      "phase": "conformance",
+      "template": "singularity/templates/figma-mobile/conformance.md",
+      "sourceSha256": "bc82839bff97575e16deddd8beb1a35a110180651ac2f78aeedbd95aee45b185",
+      "renderedSha256": "ef3912485b163cdee51e9c31501f0c53b57a590b73cc482dd2cf4b25dba70984"
+    },
+    {
+      "workType": "quick-fix",
+      "phase": "intake",
+      "template": "singularity/templates/quick-fix/intake.md",
+      "sourceSha256": "3a90e48c46e2fa39dbf8c382d1a278f97d58807f8670b4d27b0008c6da6a8e23",
+      "renderedSha256": "0a875cf39e64112a60f579b5f668340db03f0fa4fea92db8b0b1fe6324b0238b"
+    },
+    {
+      "workType": "quick-fix",
+      "phase": "implement",
+      "template": "singularity/templates/quick-fix/implement.md",
+      "sourceSha256": "dff093133a1be4c93115cfbbb0d994c8ce391fc19279caee30b441ec27a05c0a",
+      "renderedSha256": "66a21078a0a19850613e08679bc8bb66021c1024acf9e70a94d0433c7ad988eb"
+    },
+    {
+      "workType": "quick-fix",
+      "phase": "verify",
+      "template": "singularity/templates/quick-fix/verify.md",
+      "sourceSha256": "a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27",
+      "renderedSha256": "660d80809fa65be673de1ad561d7b0d71e431989ec3d307b7646ed49b23b2fa8"
+    },
+    {
+      "workType": "careful-change",
+      "phase": "careful-change",
+      "template": "singularity/templates/common/careful-change.md",
+      "sourceSha256": "28de53a2eec7fb9d0cb495102e1e064a8b201615d9a599038064d2524d403dfc",
+      "renderedSha256": "28de53a2eec7fb9d0cb495102e1e064a8b201615d9a599038064d2524d403dfc"
+    },
+    {
+      "workType": "classic-delivery",
+      "phase": "intake",
+      "template": "singularity/templates/classic-delivery/intake.md",
+      "sourceSha256": "54e29e22388aebec1dfd70e9046dfd3f88b60b6479b2ee4a58b93200fbd581eb",
+      "renderedSha256": "fd693beb8bdda78b7db8792fb26e42f49da80d580eac58ff8965ac42b1f70c0e"
+    },
+    {
+      "workType": "classic-delivery",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "classic-delivery",
+      "phase": "testing",
+      "template": "singularity/templates/classic-delivery/testing.md",
+      "sourceSha256": "af701aa3de1057e07f62f88753dfdd633185e7e66d83bc6ae7c66e93ed507bd9",
+      "renderedSha256": "541a43786b3908bf74f89d72321cac1b6764c6cba0c2fe70f74c85fa72b8c7d5"
+    },
+    {
+      "workType": "classic-delivery",
+      "phase": "conformance",
+      "template": "singularity/templates/classic-delivery/code-checking.md",
+      "sourceSha256": "16a83f4541e9267591ae6b08204b8746f9a2a3271b0e35bc24b422025a273796",
+      "renderedSha256": "615fa0929a0951c7ee3eec57b0477c5ba5a827c7391fd2f6fc0e7de77cbef598"
+    },
+    {
+      "workType": "spec-code-test-loop",
+      "phase": "specification",
+      "template": "singularity/templates/spec-code-test-loop/specification.md",
+      "sourceSha256": "13c535747dc428cd0a9a4f31a4f4fdce29d4f8fd4f43a8062579f96e0d37c6fe",
+      "renderedSha256": "fc433625f2eb6bb5d32f213261426ba926d97156c003879b1cfff0fd221ecd04"
+    },
+    {
+      "workType": "spec-code-test-loop",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "spec-code-test-loop",
+      "phase": "testing",
+      "template": "singularity/templates/spec-code-test-loop/testing.md",
+      "sourceSha256": "dfc7d52ec93a94c33507ba76bada5459577895d714160136f4ec46bfcf0660d2",
+      "renderedSha256": "dfce9c008ea82c9b993fcb69ca83e0f74f1e2ac588c95eba5a7edc011374af0f"
+    },
+    {
+      "workType": "spec-code-test-loop",
+      "phase": "conformance",
+      "template": "singularity/templates/spec-code-test-loop/conformance.md",
+      "sourceSha256": "bb2f9e6d23b3814949db9e1538ae140a8b24d47e2debe4cc54682c95851a1ebc",
+      "renderedSha256": "9b69b4abf6db54bdffae6fc6ca81362cbd5e0d29e070484078c2c435e9ae0a85"
+    },
+    {
+      "workType": "document-test-repair",
+      "phase": "document-intake",
+      "template": "singularity/templates/document-test-repair/intake.md",
+      "sourceSha256": "aba7b2017e29b11d89d5b3cc3d1eb0457a8177321904dc0fd2c20d9ae4d3bcd9",
+      "renderedSha256": "e29de74b37513faaf05748c9f09993e511a1f7cf8f49c7369fe704a4f86a97a7"
+    },
+    {
+      "workType": "document-test-repair",
+      "phase": "scenario-check",
+      "template": "singularity/templates/document-test-repair/check.md",
+      "sourceSha256": "2dcb5121d1577a3a26ca6527f9107336b632600dab21c5fe4c215c23cb84f438",
+      "renderedSha256": "05303a72d6c9f8c10df1c58644b1085b48e7bab97333f529b78f29fe7e60baed"
+    },
+    {
+      "workType": "document-test-repair",
+      "phase": "scenario-repair",
+      "template": "singularity/templates/document-test-repair/repair.md",
+      "sourceSha256": "51f9d673c5614e202ff9e40aa5e5dd2ba8042fbe87354dd502a0e5497bca2628",
+      "renderedSha256": "2bb49aed65600e3b933941adb137da8093e34a0cede457c23146a25228c98ec0"
+    },
+    {
+      "workType": "document-test-repair",
+      "phase": "scenario-retest",
+      "template": "singularity/templates/document-test-repair/check.md",
+      "sourceSha256": "2dcb5121d1577a3a26ca6527f9107336b632600dab21c5fe4c215c23cb84f438",
+      "renderedSha256": "05303a72d6c9f8c10df1c58644b1085b48e7bab97333f529b78f29fe7e60baed"
+    },
+    {
+      "workType": "demo-web-e2e-testing",
+      "phase": "demo-web-intake",
+      "template": "singularity/templates/demo-web-e2e-testing/intake.md",
+      "sourceSha256": "90c4f1684bdb932884707041d8787f5f9225963994e2605098cc74b0218c57b1",
+      "renderedSha256": "fc97ec53b24759abf4c19790458cab2d62b0b4d76a19fe09537cf7d35fcc0093"
+    },
+    {
+      "workType": "demo-web-e2e-testing",
+      "phase": "demo-web-check",
+      "template": "singularity/templates/demo-web-e2e-testing/check.md",
+      "sourceSha256": "31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5",
+      "renderedSha256": "5672e3d5c405e3bdc78202cbcc7e4c321d8e173365c4f688ef57c5f026444ae8"
+    },
+    {
+      "workType": "demo-web-e2e-testing",
+      "phase": "demo-web-repair",
+      "template": "singularity/templates/demo-web-e2e-testing/repair.md",
+      "sourceSha256": "5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f",
+      "renderedSha256": "44f6ee504ac868d1dd95bab76d0b7fb9375f747795f412e07c651ed3cc910b83"
+    },
+    {
+      "workType": "demo-web-e2e-testing",
+      "phase": "demo-web-retest",
+      "template": "singularity/templates/demo-web-e2e-testing/check.md",
+      "sourceSha256": "31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5",
+      "renderedSha256": "5672e3d5c405e3bdc78202cbcc7e4c321d8e173365c4f688ef57c5f026444ae8"
+    },
+    {
+      "workType": "demo-check-repair-close",
+      "phase": "demo-intake",
+      "template": "singularity/templates/demo-check-repair-close/intake.md",
+      "sourceSha256": "7fb9e7b8f42b328702d386d5c99d9dc56bae106dc4b8f3a38297a4e073076d8f",
+      "renderedSha256": "4203706f0f5838b2be53ffbab53b2bff4c84f94bb95c41cc74d16d9aa5b78788"
+    },
+    {
+      "workType": "demo-check-repair-close",
+      "phase": "demo-check",
+      "template": "singularity/templates/demo-check-repair-close/check.md",
+      "sourceSha256": "cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663",
+      "renderedSha256": "2b423125818bd98f14192fe269ac180f5657c4c782028cecdbf284e5dd4e6567"
+    },
+    {
+      "workType": "demo-check-repair-close",
+      "phase": "demo-repair",
+      "template": "singularity/templates/demo-check-repair-close/repair.md",
+      "sourceSha256": "66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30",
+      "renderedSha256": "a414c8d9e97bfe9db9f22c62c06184d01b5f07efd7b7155164579adba861b569"
+    },
+    {
+      "workType": "demo-check-repair-close",
+      "phase": "demo-close",
+      "template": "singularity/templates/demo-check-repair-close/close.md",
+      "sourceSha256": "9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6",
+      "renderedSha256": "e4ca195d5d0f76978c00f9eea8ad72751a8bfff6df34ab05620b88b3c14b6732"
+    },
+    {
+      "workType": "demo-instruction-test-loop",
+      "phase": "demo-instruction-intake",
+      "template": "singularity/templates/demo-check-repair-close/intake.md",
+      "sourceSha256": "7fb9e7b8f42b328702d386d5c99d9dc56bae106dc4b8f3a38297a4e073076d8f",
+      "renderedSha256": "4203706f0f5838b2be53ffbab53b2bff4c84f94bb95c41cc74d16d9aa5b78788"
+    },
+    {
+      "workType": "demo-instruction-test-loop",
+      "phase": "demo-instruction-test",
+      "template": "singularity/templates/demo-check-repair-close/check.md",
+      "sourceSha256": "cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663",
+      "renderedSha256": "2b423125818bd98f14192fe269ac180f5657c4c782028cecdbf284e5dd4e6567"
+    },
+    {
+      "workType": "demo-instruction-test-loop",
+      "phase": "demo-instruction-repair",
+      "template": "singularity/templates/demo-check-repair-close/repair.md",
+      "sourceSha256": "66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30",
+      "renderedSha256": "a414c8d9e97bfe9db9f22c62c06184d01b5f07efd7b7155164579adba861b569"
+    },
+    {
+      "workType": "demo-instruction-test-loop",
+      "phase": "demo-instruction-close",
+      "template": "singularity/templates/demo-check-repair-close/close.md",
+      "sourceSha256": "9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6",
+      "renderedSha256": "e4ca195d5d0f76978c00f9eea8ad72751a8bfff6df34ab05620b88b3c14b6732"
+    },
+    {
+      "workType": "poc-lite",
+      "phase": "poc-lite-plan",
+      "template": "singularity/templates/poc-lite/plan.md",
+      "sourceSha256": "b4748d5dca1e0fdef282f9f679c32ed360d5534a975a4361a2e925dfb1beca8e",
+      "renderedSha256": "da6395bab40594e1f7e40ddb1f7981130f416958c919f5750647556f55e382a6"
+    },
+    {
+      "workType": "poc-lite",
+      "phase": "poc-lite-act",
+      "template": "singularity/templates/poc-lite/act.md",
+      "sourceSha256": "f9c3c015c593a51b7d3fd11ba5ec9fc104eaf00f45e2c78ea50a9b78d061c383",
+      "renderedSha256": "d2b3e3c8d218cd56ac598221db7ac315622d7805af731d1367939b2c5762e1ec"
+    },
+    {
+      "workType": "poc-lite",
+      "phase": "poc-lite-verify",
+      "template": "singularity/templates/poc-lite/verify.md",
+      "sourceSha256": "c31624345a1b3803f1cfe267b670e570e1ad1ae3742e88898d123f962b913a58",
+      "renderedSha256": "c882a3566bb7fff5fb42463f7d04a8e421eb7cf7fa2384cef32f87e0005290c6"
+    },
+    {
+      "workType": "poc-lite",
+      "phase": "poc-lite-finalize",
+      "template": "singularity/templates/poc-lite/finalize.md",
+      "sourceSha256": "7e9e55b2d7199199b757780b78c83abcc35c0f9a48b6760e68b106282ef9cc57",
+      "renderedSha256": "3d935fd263da1e0185e53539a89c2a7dc604e8fc6472f2d18a3be63aa454f441"
+    },
+    {
+      "workType": "benchmarking-a",
+      "phase": "intake",
+      "template": "singularity/templates/benchmark/intake.md",
+      "sourceSha256": "49107281e2e461ede0e000edb51bf9f22aec85ddc84acbd1781680076f795f5c",
+      "renderedSha256": "7db0518fd788e32f2774fc486caf25e640899720b973af200d41f0fbb61b0010"
+    },
+    {
+      "workType": "benchmarking-a",
+      "phase": "design",
+      "template": "singularity/templates/benchmark/design.md",
+      "sourceSha256": "fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d",
+      "renderedSha256": "476b1aecd47bbf46d75476d4e134545dd64fa1ebeb236b906045d2ee2a24c489"
+    },
+    {
+      "workType": "benchmarking-a",
+      "phase": "implementation",
+      "template": "singularity/templates/benchmark/implementation.md",
+      "sourceSha256": "e25ab3d9104c4ddaef541191d544ea032c35f551b9538ad77a38628ca1a58db6",
+      "renderedSha256": "ca3b302a1aa775b7ea4bc0b75c87ee7d779787a6fecedeada230fde2889e7960"
+    },
+    {
+      "workType": "benchmarking-a",
+      "phase": "testing",
+      "template": "singularity/templates/benchmark/testing.md",
+      "sourceSha256": "a9338f04dbe1be3ad988c331f9b45bab335a4661fb367f2c4f110609049fb9a8",
+      "renderedSha256": "80f6fcdf9695e042e286067ecf9733efed057eb0676d66d60545272061ea250f"
+    },
+    {
+      "workType": "benchmarking-a",
+      "phase": "conformance",
+      "template": "singularity/templates/benchmark/conformance.md",
+      "sourceSha256": "417aeb68ea4af698cbfbdf4b2b1aa17fa5d12c447bc1a1f8a1b9ed300402ff0a",
+      "renderedSha256": "250e4ed385d8fe8df82d6de564fec478abeb21fc0ae4a615e168127707cd93bb"
+    },
+    {
+      "workType": "benchmarking-b",
+      "phase": "intake",
+      "template": "singularity/templates/benchmark/intake.md",
+      "sourceSha256": "49107281e2e461ede0e000edb51bf9f22aec85ddc84acbd1781680076f795f5c",
+      "renderedSha256": "7db0518fd788e32f2774fc486caf25e640899720b973af200d41f0fbb61b0010"
+    },
+    {
+      "workType": "benchmarking-b",
+      "phase": "design",
+      "template": "singularity/templates/benchmark/design.md",
+      "sourceSha256": "fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d",
+      "renderedSha256": "476b1aecd47bbf46d75476d4e134545dd64fa1ebeb236b906045d2ee2a24c489"
+    },
+    {
+      "workType": "benchmarking-b",
+      "phase": "implementation",
+      "template": "singularity/templates/benchmark/implementation.md",
+      "sourceSha256": "e25ab3d9104c4ddaef541191d544ea032c35f551b9538ad77a38628ca1a58db6",
+      "renderedSha256": "ca3b302a1aa775b7ea4bc0b75c87ee7d779787a6fecedeada230fde2889e7960"
+    },
+    {
+      "workType": "benchmarking-b",
+      "phase": "testing",
+      "template": "singularity/templates/benchmark/testing.md",
+      "sourceSha256": "a9338f04dbe1be3ad988c331f9b45bab335a4661fb367f2c4f110609049fb9a8",
+      "renderedSha256": "80f6fcdf9695e042e286067ecf9733efed057eb0676d66d60545272061ea250f"
+    },
+    {
+      "workType": "benchmarking-b",
+      "phase": "conformance",
+      "template": "singularity/templates/benchmark/conformance.md",
+      "sourceSha256": "417aeb68ea4af698cbfbdf4b2b1aa17fa5d12c447bc1a1f8a1b9ed300402ff0a",
+      "renderedSha256": "250e4ed385d8fe8df82d6de564fec478abeb21fc0ae4a615e168127707cd93bb"
+    },
+    {
+      "workType": "poc-workflow",
+      "phase": "poc-intake",
+      "template": "singularity/templates/poc-workflow/intake.md",
+      "sourceSha256": "48c577ec3df824a95022a4abdd02a09f0c1040ed7f057b1150bd05a0beff4a14",
+      "renderedSha256": "cfb7aaa1ba518c9b63b69f3d6d8b2cf3d10099c1a3cc6b0e11c2f90b3af48c16"
+    },
+    {
+      "workType": "poc-workflow",
+      "phase": "poc-impact-analysis",
+      "template": "singularity/templates/poc-workflow/impact-analysis.md",
+      "sourceSha256": "16b58133b53c74c225f9e0a10b36301678d3ae5cd1a2686f23d1cbe414ec6c93",
+      "renderedSha256": "bf0d346e97379e4a173ac89367a69e97f145a7d778b142af91d10aa9d478eaf3"
+    },
+    {
+      "workType": "poc-workflow",
+      "phase": "poc-ui-exploration",
+      "template": "singularity/templates/poc-workflow/ui-exploration.md",
+      "sourceSha256": "ba1d1918737d8753d51c1d59b368eab9980dbf0b587ddaab88174c68bdd986b1",
+      "renderedSha256": "45c9ec9e93280f0bba878883dee89fc97b4572deaa38e091d04b91b6bd1fc33a"
+    },
+    {
+      "workType": "poc-workflow",
+      "phase": "poc-test-generation",
+      "template": "singularity/templates/poc-workflow/test-generation.md",
+      "sourceSha256": "6fa0c17056fe263eb9f47699a84a0759a899b8e67c35a3d53df8961f1ca59b25",
+      "renderedSha256": "45d9818d08355c49d8fa76a93ef2631b0697303a71f4481fd5b26a78913ae071"
+    },
+    {
+      "workType": "poc-workflow",
+      "phase": "poc-validation",
+      "template": "singularity/templates/poc-workflow/validation.md",
+      "sourceSha256": "b1d121afbd49c09538d221cbac60b352a21f7eb7699bc4cba08d35b88ba47fb6",
+      "renderedSha256": "60c5b5d7d3f0b7e8844c8d3bd2da9febc8a1496d8f897aeacf3918cbd12043f6"
+    },
+    {
+      "workType": "poc-workflow",
+      "phase": "poc-publication-review",
+      "template": "singularity/templates/poc-workflow/publication-review.md",
+      "sourceSha256": "e5d0e59595e5dd01899883adf781a728bdc6636a07efe4290b57c55b808288d1",
+      "renderedSha256": "b077791023a1aad14add06d4fb6dc74c7d14678e88a070de9c5f18a65d375bc5"
+    },
+    {
+      "workType": "reference-driven-build",
+      "phase": "specification",
+      "template": "singularity/templates/spec-driven/spec.md",
+      "sourceSha256": "fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb",
+      "renderedSha256": "da92fad2cd7852a3dcd1a151ee1a631fa71d560c4fc30569c3ccffb8ad487c54"
+    },
+    {
+      "workType": "reference-driven-build",
+      "phase": "planning",
+      "template": "singularity/templates/spec-driven/plan.md",
+      "sourceSha256": "589ff56b9968fba0b7feb05abb0d0f974fad2d2747df16c5a485f52e23744914",
+      "renderedSha256": "965be88d0ae0f0d00c5d6db34b3266a8e8334b3ebf07568859d7f5111f8d0db2"
+    },
+    {
+      "workType": "reference-driven-build",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "reference-driven-build",
+      "phase": "convergence",
+      "template": "singularity/templates/spec-driven/convergence.md",
+      "sourceSha256": "eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2",
+      "renderedSha256": "906a1d83dbd65abb916b5c2d4c331eb8cb048edc4f83de3e4efd0b26702d6b75"
+    },
+    {
+      "workType": "reference-driven-build",
+      "phase": "verification",
+      "template": "singularity/templates/common/verification.md",
+      "sourceSha256": "fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0",
+      "renderedSha256": "4eddfa629872aef00aac576e38e52fa63dd3320158f8fe95526f6e997d13490e"
+    },
+    {
+      "workType": "reference-driven-build",
+      "phase": "release",
+      "template": "singularity/templates/spec-driven/release.md",
+      "sourceSha256": "8f3e84e8e19dfc851d9948f20fbd48c0e43e5d8df9c747404d602106930e14fe",
+      "renderedSha256": "323c16f32c251a93c0a7490a862a73a29df878c191a9da413ffa1f0a44dcbaf5"
+    },
+    {
+      "workType": "spec-driven-standard",
+      "phase": "specification",
+      "template": "singularity/templates/spec-driven/spec.md",
+      "sourceSha256": "fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb",
+      "renderedSha256": "da92fad2cd7852a3dcd1a151ee1a631fa71d560c4fc30569c3ccffb8ad487c54"
+    },
+    {
+      "workType": "spec-driven-standard",
+      "phase": "planning",
+      "template": "singularity/templates/spec-driven/plan.md",
+      "sourceSha256": "589ff56b9968fba0b7feb05abb0d0f974fad2d2747df16c5a485f52e23744914",
+      "renderedSha256": "965be88d0ae0f0d00c5d6db34b3266a8e8334b3ebf07568859d7f5111f8d0db2"
+    },
+    {
+      "workType": "spec-driven-standard",
+      "phase": "implementation",
+      "template": "singularity/templates/common/implementation.md",
+      "sourceSha256": "2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54",
+      "renderedSha256": "c2707b89f82fcaaea59ff5200aaead795adb3ddb92520fb86f18a08bd0d68d6c"
+    },
+    {
+      "workType": "spec-driven-standard",
+      "phase": "convergence",
+      "template": "singularity/templates/spec-driven/convergence.md",
+      "sourceSha256": "eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2",
+      "renderedSha256": "906a1d83dbd65abb916b5c2d4c331eb8cb048edc4f83de3e4efd0b26702d6b75"
+    },
+    {
+      "workType": "spec-driven-standard",
+      "phase": "verification",
+      "template": "singularity/templates/common/verification.md",
+      "sourceSha256": "fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0",
+      "renderedSha256": "4eddfa629872aef00aac576e38e52fa63dd3320158f8fe95526f6e997d13490e"
+    },
+    {
+      "workType": "spec-driven-standard",
+      "phase": "release",
+      "template": "singularity/templates/spec-driven/release.md",
+      "sourceSha256": "8f3e84e8e19dfc851d9948f20fbd48c0e43e5d8df9c747404d602106930e14fe",
+      "renderedSha256": "323c16f32c251a93c0a7490a862a73a29df878c191a9da413ffa1f0a44dcbaf5"
+    }
+  ]
+}

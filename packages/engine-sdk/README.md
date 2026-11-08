@@ -55,6 +55,7 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `storage/journal`: versioned journal-port constant and shared pure transaction reducer.
 - `errors`: the same error constructor used by the engine and every bundled storage entry.
 - `content`: draft immutable byte/reference contract, separate from metadata transaction limits.
+- `artifacts`: pure artifact token validation, legacy compatibility and template text rendering.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-project`: explicitly enroll a new namespace project through `project.enroll`.

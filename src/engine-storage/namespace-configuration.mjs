@@ -4,6 +4,7 @@ import { createNamespaceConfigurationCodec } from './namespace-configuration-cod
 import { createNamespaceConfigurationObserver } from './namespace-configuration-reader.mjs';
 import { createEngine } from '../engine-sdk/index.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
+import { validateArtifactTemplateText } from '../kernel/artifact-content.mjs';
 import { NODE_NAMESPACE_CONFIGURATION_COMPILER } from '../engine-compatibility/node-namespace-configuration.mjs';
 import { namespaceConfigurationJsonValues } from '../kernel/namespace-configuration.mjs';
 import { projectConfigurationAccess, projectEnrollmentTimestamp, CONFIGURATION_PACKAGE_MAXIMUM_BYTES } from '../kernel/project-enrollment.mjs';
@@ -39,11 +40,22 @@ export function createNamespaceConfigurationEngine({ records, content, scope, au
   const {stored,record,bytes,json}=createNamespaceConfigurationObserver({records,content,scope,authority});
   async function compile(inputs,signal) {
     cancelled(signal); const result=NODE_NAMESPACE_CONFIGURATION_COMPILER.compile(json(await bytes(inputs.source,signal)),inputs.source);
+    const templatePhases=new Map();
+    for(const workflow of Object.values(result.compiled.workflows))for(const phase of workflow.phases) {
+      const key=String(phase.template).startsWith('agent:')?phase.template:`${result.compiled.definition.templatesRoot}/${phase.template}`;
+      if(!templatePhases.has(key))templatePhases.set(key,phase.id);
+    }
     for(const resource of result.resources) {
       cancelled(signal); const data=await bytes(resource.reference,signal);
       if(resource.kind!=='file') {
-        try {const text=new TextDecoder('utf-8',{fatal:true}).decode(data);if(!text.trim()||text.includes('\0'))throw new Error('Empty or NUL-containing text resource.');}
+        let text;
+        try {text=new TextDecoder('utf-8',{fatal:true}).decode(data);if(!text.trim()||text.includes('\0'))throw new Error('Empty or NUL-containing text resource.');}
         catch(cause){throw error('A configuration text resource is empty or not UTF-8.','ENGINE_CONFIGURATION_INVALID',{kind:resource.kind,key:resource.key},cause);}
+        if(resource.kind==='template'&&templatePhases.has(resource.key)) {
+          const phase=templatePhases.get(resource.key);
+          try {validateArtifactTemplateText(text,{id:'TEMPLATE'},phase);}
+          catch(cause){throw error(cause.message,'ENGINE_CONFIGURATION_INVALID',{kind:resource.kind,key:resource.key,phase},cause);}
+        }
       }
     }
     const data=Buffer.from(configurationJson.encode(result.compiled));

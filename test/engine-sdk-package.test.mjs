@@ -75,6 +75,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       } });
       const sdk = await import('${packageName}');
       assert.equal(sdk.ENGINE_CONTRACT, 'sflow-engine/v1');
+      const artifacts = await import('${packageName}/artifacts');
+      assert.equal(artifacts.renderArtifactTemplateText('{{work.id}} {{phase.label}}',
+        {id:'team-review',label:'Team review'},{id:'T-1'}),'T-1 Team review');
+      assert.equal(artifacts.normalizeArtifactTemplateCompatibility('{{WORK_ID}}',{id:'T-1'}),'T-1');
+      assert.throws(()=>artifacts.validateArtifactTemplateText('{{unsupported}}'),error=>error instanceof sdk.SingularityFlowError);
       let calls = 0;
       const original = Object.freeze(new Error('trusted host unavailable'));
       const engine = sdk.createEngine({ ports: { publication: Object.fromEntries(
@@ -363,6 +368,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
       import type { EngineInputs, EngineOperation, EngineResult } from '${packageName}';
+      import { ARTIFACT_TEMPLATE_TOKENS, renderArtifactTemplateText, validateArtifactTemplateText } from '${packageName}/artifacts';
       import { createFilesystemNamespaceStore } from '${packageName}/storage/filesystem';
       import { createSqliteNamespaceStore } from '${packageName}/storage/sqlite';
       import { createApplicationNamespaceStore } from '${packageName}/storage/application';
@@ -379,6 +385,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       const engine=createEngine({ports:{publication:{load:async()=>{throw new Error('host');},retained:async()=>null,
         prepare:async()=>null,commit:async()=>null,finish:async()=>null}}});
+      const artifact:string=renderArtifactTemplateText(ARTIFACT_TEMPLATE_TOKENS.workId,{id:'scope'},{id:'example'});
+      validateArtifactTemplateText(artifact);
+      // @ts-expect-error A phase needs an explicit logical identifier, never a physical root.
+      renderArtifactTemplateText('',{root:'/another/checkout'},{});
+      // @ts-expect-error Artifact token values are text, not claimed readiness objects.
+      renderArtifactTemplateText('',{id:'scope'},{inputs:{ready:true}});
       const check:Promise<EngineResult<'phase.publish'>>=engine.publishPhase({workId:'example'});
       const operation:EngineOperation=ENGINE_HELPERS.publishPhase;
       const input:EngineInputs['phase.enter']={workId:'example',compose:true};

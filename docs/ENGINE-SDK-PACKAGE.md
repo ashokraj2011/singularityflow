@@ -71,3 +71,8 @@ and `hosts/namespace-source` entries. Its installed archive exercises actual fil
 conditional namespace acceptance and cross-process acknowledgement. Filesystem I/O is confined
 to the explicit SGOS entry, outside the core import. Its metadata is a source observation, not
 Git history, archived file content, generation readiness or completed phase execution.
+
+The [artifact-template content rules](ENGINE-SDK-ARTIFACT-TEMPLATES.md) add the pure `artifacts`
+entry. The native renderer and the SDK use the same token and namespace rules over text already
+supplied by the host. Namespace approval validates referenced template tokens before acceptance.
+Source reads, model instructions and machine-private draft persistence retain separate owners.

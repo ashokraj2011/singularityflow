@@ -13,7 +13,7 @@ export async function workflowIntentCapabilities() {
     'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs', 'kernel/phase-policy.mjs',
     'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'foundation/package.json', 'configuration-read-scope.mjs',
     'kernel/workflow-obligations.mjs', 'kernel/phase-responsibilities.mjs',
-    'engine-compatibility/node-workflow-obligations.mjs', 'foundation/record-schema.mjs', 'records.mjs',
+    'engine-compatibility/node-workflow-obligations.mjs', 'foundation/record-schema.mjs', 'foundation/failures.mjs', 'records.mjs',
     'kernel/auto-policy.mjs', 'kernel/adhoc-policy.mjs', 'kernel/mcp-policy.mjs', 'kernel/step-action-policy.mjs', 'workflow-intent-capabilities.mjs'];
   const hash = createHash('sha256');
   for (const file of required) hash.update(file).update('\0').update(await readFile(path.join(PACKAGE_ROOT, 'src', file)));

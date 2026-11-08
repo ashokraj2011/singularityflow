@@ -42,7 +42,8 @@ test('moved compiler rule bodies retain their native syntax except the explicit 
   visit(ast);assert.deepEqual([...found].sort(),Object.keys(baseline.syntax).sort());
   assert.equal(mergePhaseOverride,compatibilityMerge);
   assert.equal(native.mergePhaseOverride,mergePhaseOverride);
-  for(const [name,fn]of Object.entries(composition.compiler))if(Object.hasOwn(native,name))assert.equal(fn,native[name],name);
+  for(const [name,fn]of Object.entries(composition.compiler))if(Object.hasOwn(native,name)&&name!=='validateDefinition')assert.equal(fn,native[name],name);
+  assert.equal(native.validateDefinition.length,composition.compiler.validateDefinition.length);
 });
 
 test('compiler construction refuses missing, inherited, accessor and unrecognized collaborators',()=>{
@@ -122,7 +123,8 @@ test('relative path interpretation is an explicit host fact for both platform gr
 
 test('the opt-in runtime policy loader is invoked at its original checkpoint and preserves the real error',()=>{
   const failure=new Error('runtime loader failure');failure.code='NATIVE_POLICY_LOAD_FAILED';let reads=0;
-  const compiler=createWorkflowConfigurationCompiler({...composition.dependencies,normalizeCommitPolicyRuntime:()=>{reads++;throw failure;}});
+  const compiler=createWorkflowConfigurationCompiler({...composition.dependencies,commitPolicyRuntime:Object.freeze({
+    ...composition.dependencies.commitPolicyRuntime,assertAvailable(){assert.equal(arguments.length,0);reads++;throw failure;}})});
   compiler.validateDefinition(structuredClone(source));assert.equal(reads,0);
   const definition=structuredClone(source);definition.git.commitPolicy={};
   assert.throws(()=>compiler.validateDefinition(definition),error=>error===failure);assert.equal(reads,1);

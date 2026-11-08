@@ -77,7 +77,7 @@ test('all 17 native network, DNS, index and fetch function bodies are unchanged'
 });
 
 test('compilation owns both former rules and native consumers share the actual core bindings', () => {
-  assert.equal(Object.keys(installed.dependencies).length, 7);
+  assert.equal(Object.keys(installed.dependencies).length, 8);
   assert.equal(installed.dependencies.networkAddressSyntax, NODE_NETWORK_ADDRESS_SYNTAX);
   for (const name of ['normalizeMarketplaces', 'worldModelStateAuthority']) {
     assert.equal(Object.hasOwn(installed.dependencies, name), false);

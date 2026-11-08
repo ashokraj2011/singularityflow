@@ -68,7 +68,7 @@ test('native readers share exact compiler functions; the workflow compiler canno
   for (const [name, fn] of Object.entries(compiler)) assert.equal(skillModules.native[name], fn, name);
   assert.equal(createSkillPhaseContractCompiler(NODE_CONFIGURATION_PATH_SYNTAX, NODE_TEXT_DIGESTS), compiler);
   assert.equal(Object.isFrozen(compiler), true);
-  assert.equal(Object.keys(installed.dependencies).length, 7);
+  assert.equal(Object.keys(installed.dependencies).length, 8);
   assert.equal(Object.hasOwn(installed.dependencies, 'validateConfiguredSkillPhase'), false);
   assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, validateConfiguredSkillPhase: () => ({ ready: true }) }),
     { code: 'ENGINE_CONFIGURATION_COMPILER_INVALID' });

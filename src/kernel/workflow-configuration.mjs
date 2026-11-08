@@ -1,5 +1,5 @@
 import { createSkillPhaseContractCompiler } from './skill-phase-contract.mjs';
-import { createApplicationReviewPolicyValidator, createMarketplacePolicyCompiler } from './configuration-policy.mjs';
+import { createApplicationReviewPolicyValidator, createMarketplacePolicyCompiler, createRepositoryCommitPolicyCompiler, commitPolicyRuntimeCompatibility } from './configuration-policy.mjs';
 import { worldModelStateAuthority } from './configuration-declarations.mjs';
 import { createWorkflowObligationCompiler } from './workflow-obligations.mjs';
 import { specificationQualityPolicy, isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specification-policy.mjs';
@@ -95,7 +95,8 @@ const CONFIGURATION_COLLABORATORS = Object.freeze([
     "AUTHORING_SKILL_ID",
     "authoringSkillCatalog",
     "recordBytes",
-    "normalizeCommitPolicyRuntime",
+    "commitPolicyRuntime",
+    "commitTextSyntax",
     "networkAddressSyntax",
     "pathSyntax",
     "textDigests"
@@ -122,20 +123,26 @@ export function createWorkflowConfigurationCompiler(dependencies) {
     AUTHORING_SKILL_ID,
     authoringSkillCatalog,
     recordBytes,
-    normalizeCommitPolicyRuntime,
+    commitPolicyRuntime,
+    commitTextSyntax,
     networkAddressSyntax,
     pathSyntax,
     textDigests
   } = dependencies;
   if ([
     authoringSkillCatalog,
-    normalizeCommitPolicyRuntime,
   ].some(value => typeof value !== 'function') || !(AUTHORING_SKILL_ID instanceof RegExp)) {
     throw new SingularityFlowError('Configuration compilation requires every packaged policy collaborator.', { code: 'ENGINE_CONFIGURATION_COMPILER_INVALID' });
   }
   const { validateConfiguredSkillPhase } = createSkillPhaseContractCompiler(pathSyntax, textDigests);
   const normalizeApplicationReview = createApplicationReviewPolicyValidator(recordBytes);
   const { normalizeMarketplaces } = createMarketplacePolicyCompiler(networkAddressSyntax);
+  const { normalizeCommitPolicy } = createRepositoryCommitPolicyCompiler(recordBytes, commitTextSyntax);
+  const commitRuntime = commitPolicyRuntimeCompatibility(commitPolicyRuntime);
+  const normalizeCommitPolicyRuntime = value => {
+    commitRuntime.assertAvailable();
+    return normalizeCommitPolicy(value);
+  };
   const compileObligationGraph = createWorkflowObligationCompiler(textDigests);
   const { path, posix } = configurationPathSyntax(pathSyntax);
   const { constitutionPolicy } = constitutionConfigurationPolicies(pathSyntax);

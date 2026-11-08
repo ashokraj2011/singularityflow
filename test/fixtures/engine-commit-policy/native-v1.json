@@ -1,0 +1,2364 @@
+{
+  "baseline": "15b711b3a4a8ef34b86079b2b373c83cc945da44",
+  "policies": [
+    {
+      "id": "absent",
+      "value": {
+        "value": null,
+        "sha256": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      }
+    },
+    {
+      "id": "null",
+      "value": {
+        "value": null,
+        "sha256": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      }
+    },
+    {
+      "id": "ordinary",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "enforce",
+          "subjectTemplate": "{trackingKey}: {summary}",
+          "subjectPattern": "^[A-Z][A-Z0-9]*-[0-9]+: .+$",
+          "tracking": {
+            "required": true,
+            "allowedKinds": [
+              "story"
+            ],
+            "bindings": {
+              "story": "repository-story"
+            }
+          },
+          "validation": {
+            "adapter": "registered-checks",
+            "profile": "message-v1"
+          },
+          "profiles": {
+            "message-v1": {
+              "schemaVersion": 1,
+              "adapter": "registered-checks",
+              "platforms": [
+                "darwin",
+                "win32",
+                "linux"
+              ],
+              "checks": [
+                {
+                  "id": "message",
+                  "rule": "message-envelope"
+                }
+              ],
+              "coverage": [
+                {
+                  "stage": "repository-message",
+                  "checks": [
+                    "message"
+                  ]
+                }
+              ],
+              "inputs": []
+            }
+          },
+          "maxSubjectBytes": 120
+        },
+        "sha256": "sha256:ca082148df0604f51a366c5fc2c3ca66198e371dffbb0615fc28bcce17ab91e4"
+      }
+    },
+    {
+      "id": "off",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "off"
+        },
+        "sha256": "sha256:9260689a80ab94fe7c81606cbc6618256115fa533c71c1e1697148bb1769c215"
+      }
+    },
+    {
+      "id": "discover",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "discover"
+        },
+        "sha256": "sha256:b8c2bd5fc713e26c1c00071b3f455a60bd4b22215a19a7adce0292f4f6d3d558"
+      }
+    },
+    {
+      "id": "array",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "git.commitPolicy must be an object.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "boolean",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "git.commitPolicy must be an object.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "class",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "git.commitPolicy must be an object.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "git.commitPolicy has unsupported fields: ignoreHooks.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "missing-version",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Durable record 'repository-commit-policy' has no valid schemaVersion.",
+        "code": "SCHEMA_VERSION_MISSING",
+        "exitCode": 1,
+        "details": {
+          "family": "repository-commit-policy",
+          "received": null
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "future-version",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Durable record 'repository-commit-policy' is stored at schema version 2 (v2), above this build's readable range v1–v1; it was written by a newer sflow — upgrade to read it.",
+        "code": "SCHEMA_VERSION_FUTURE",
+        "exitCode": 1,
+        "details": {
+          "family": "repository-commit-policy",
+          "storedVersion": 2,
+          "readable": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-mode",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "commitPolicy.mode must be one of off, discover, enforce.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "inactive-extra",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "inactive commit policy has unsupported fields: validation.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "missing-summary",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "subjectTemplate requires one summary and distinct registered placeholders.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "duplicate-summary",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "subjectTemplate requires one summary and distinct registered placeholders.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-placeholder",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "subjectTemplate requires one summary and distinct registered placeholders.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unsupported-pattern",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "zero-bytes",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "maxSubjectBytes must be between 1 and 8192.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "large-bytes",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "maxSubjectBytes must be between 1 and 8192.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "tracking-without-placeholder",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A required tracking reference must appear in the subject template.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-tracking-flag",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "tracking.required must be boolean.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "duplicate-kinds",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "tracking.allowedKinds must contain distinct registered identifiers.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "branch-template",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "enforce",
+          "subjectTemplate": "{trackingKey}: {summary}",
+          "subjectPattern": "^[A-Z][A-Z0-9]*-[0-9]+: .+$",
+          "tracking": {
+            "required": true,
+            "branchTemplate": "feature/{trackingKey}",
+            "allowedKinds": [
+              "story"
+            ]
+          },
+          "validation": {
+            "adapter": "registered-checks",
+            "profile": "message-v1"
+          },
+          "profiles": {
+            "message-v1": {
+              "schemaVersion": 1,
+              "adapter": "registered-checks",
+              "platforms": [
+                "darwin",
+                "win32",
+                "linux"
+              ],
+              "checks": [
+                {
+                  "id": "message",
+                  "rule": "message-envelope"
+                }
+              ],
+              "coverage": [
+                {
+                  "stage": "repository-message",
+                  "checks": [
+                    "message"
+                  ]
+                }
+              ],
+              "inputs": []
+            }
+          },
+          "maxSubjectBytes": 120
+        },
+        "sha256": "sha256:94b40c42fcf4a924b80bad926d9c9f8940fd504da3826ccdb96890e7e8fa3b08"
+      }
+    },
+    {
+      "id": "invalid-branch-template",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "branchTemplate must contain exactly one trackingKey placeholder.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-binding",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "tracking binding must be one of repository-story, approved-planning-story, approved-tracking-reference, approved-maintenance-story.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-adapter",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "validation.adapter must be one of registered-checks, native-git.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-profile",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Durable record 'repository-commit-policy-profile' has no valid schemaVersion.",
+        "code": "SCHEMA_VERSION_MISSING",
+        "exitCode": 1,
+        "details": {
+          "family": "repository-commit-policy-profile",
+          "received": null
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "types",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "enforce",
+          "subjectTemplate": "{trackingKey}: {summary}",
+          "subjectPattern": "^[A-Z][A-Z0-9]*-[0-9]+: .+$",
+          "tracking": {
+            "required": true,
+            "allowedKinds": [
+              "story"
+            ],
+            "bindings": {
+              "story": "repository-story"
+            }
+          },
+          "validation": {
+            "adapter": "registered-checks",
+            "profile": "message-v1"
+          },
+          "profiles": {
+            "message-v1": {
+              "schemaVersion": 1,
+              "adapter": "registered-checks",
+              "platforms": [
+                "darwin",
+                "win32",
+                "linux"
+              ],
+              "checks": [
+                {
+                  "id": "message",
+                  "rule": "message-envelope"
+                }
+              ],
+              "coverage": [
+                {
+                  "stage": "repository-message",
+                  "checks": [
+                    "message"
+                  ]
+                }
+              ],
+              "inputs": []
+            }
+          },
+          "types": [
+            "fix"
+          ],
+          "scopes": [
+            "api"
+          ],
+          "defaults": {
+            "type": "fix",
+            "scope": "api"
+          },
+          "maxSubjectBytes": 120
+        },
+        "sha256": "sha256:b98111758e3670347252da40a88d4968b1d9502f195656f3a4794c7fd2c34438"
+      }
+    },
+    {
+      "id": "duplicate-types",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "types must contain distinct registered identifiers.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "body",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "enforce",
+          "subjectTemplate": "{trackingKey}: {summary}",
+          "subjectPattern": "^[A-Z][A-Z0-9]*-[0-9]+: .+$",
+          "tracking": {
+            "required": true,
+            "allowedKinds": [
+              "story"
+            ],
+            "bindings": {
+              "story": "repository-story"
+            }
+          },
+          "validation": {
+            "adapter": "registered-checks",
+            "profile": "message-v1"
+          },
+          "profiles": {
+            "message-v1": {
+              "schemaVersion": 1,
+              "adapter": "registered-checks",
+              "platforms": [
+                "darwin",
+                "win32",
+                "linux"
+              ],
+              "checks": [
+                {
+                  "id": "message",
+                  "rule": "message-envelope"
+                }
+              ],
+              "coverage": [
+                {
+                  "stage": "repository-message",
+                  "checks": [
+                    "message"
+                  ]
+                }
+              ],
+              "inputs": []
+            }
+          },
+          "body": {
+            "maxBytes": 400,
+            "requiredTrailers": [
+              "Evidence"
+            ],
+            "pattern": "^.*$"
+          },
+          "maxSubjectBytes": 120
+        },
+        "sha256": "sha256:ab414cc0fa124a8e8ea59e413fc9ab75520988e4ead66cb1066cc7f4fb6ca302"
+      }
+    },
+    {
+      "id": "invalid-body",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "body.maxBytes must be between 1 and 65536.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "signing",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "enforce",
+          "subjectTemplate": "{trackingKey}: {summary}",
+          "subjectPattern": "^[A-Z][A-Z0-9]*-[0-9]+: .+$",
+          "tracking": {
+            "required": true,
+            "allowedKinds": [
+              "story"
+            ],
+            "bindings": {
+              "story": "repository-story"
+            }
+          },
+          "validation": {
+            "adapter": "registered-checks",
+            "profile": "message-v1"
+          },
+          "profiles": {
+            "message-v1": {
+              "schemaVersion": 1,
+              "adapter": "registered-checks",
+              "platforms": [
+                "darwin",
+                "win32",
+                "linux"
+              ],
+              "checks": [
+                {
+                  "id": "message",
+                  "rule": "message-envelope"
+                }
+              ],
+              "coverage": [
+                {
+                  "stage": "repository-message",
+                  "checks": [
+                    "message"
+                  ]
+                }
+              ],
+              "inputs": []
+            }
+          },
+          "signing": {
+            "required": true
+          },
+          "maxSubjectBytes": 120
+        },
+        "sha256": "sha256:521fe77d6a9d20cf4d5a943e36c18ef7cf0a346ceb6a6ae66d1eb559026d1ccb"
+      }
+    },
+    {
+      "id": "floor-conflict",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Repository policy conflicts with the mandatory organization floor.",
+        "code": "RCP_POLICY_CONFLICT",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-outgoing",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "outgoingRange must be one of latest, new-commits.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-metadata-path",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "incomplete-metadata-scope",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A metadata profile requires explicit profile, refs, paths and purposes.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "native-profile",
+      "value": {
+        "value": {
+          "schemaVersion": 1,
+          "mode": "enforce",
+          "subjectTemplate": "{trackingKey}: {summary}",
+          "subjectPattern": "^[A-Z][A-Z0-9]*-[0-9]+: .+$",
+          "tracking": {
+            "required": true,
+            "allowedKinds": [
+              "story"
+            ],
+            "bindings": {
+              "story": "repository-story"
+            }
+          },
+          "validation": {
+            "adapter": "native-git",
+            "profile": "native-v1"
+          },
+          "profiles": {
+            "native-v1": {
+              "schemaVersion": 1,
+              "adapter": "native-git",
+              "platforms": [
+                "darwin"
+              ],
+              "checks": [],
+              "coverage": [
+                {
+                  "stage": "commit-msg",
+                  "path": "@hooks/commit-msg",
+                  "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "checks": []
+                }
+              ],
+              "native": {
+                "context": "original-worktree-private-git",
+                "gitDirectory": "candidate-compatible",
+                "timeoutMs": 120000,
+                "maxOutputBytes": 65536,
+                "maximumObservedFiles": 20000,
+                "maximumObservedBytes": 268435456
+              },
+              "inputs": []
+            }
+          },
+          "maxSubjectBytes": 120
+        },
+        "sha256": "sha256:f50f2def43162e98a79feedcf9f56eb4fd1173a1757edaeeb62e7cbfebcfafe4"
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "registered",
+      "value": {
+        "schemaVersion": 1,
+        "adapter": "registered-checks",
+        "platforms": [
+          "darwin",
+          "win32",
+          "linux"
+        ],
+        "checks": [
+          {
+            "id": "message",
+            "rule": "message-envelope"
+          }
+        ],
+        "coverage": [
+          {
+            "stage": "repository-message",
+            "checks": [
+              "message"
+            ]
+          }
+        ],
+        "inputs": [],
+        "profileSha256": "sha256:e7b57c7cc1820940c32a4a802ff100d4cac8c1ee724cf208918e16a37753873e"
+      }
+    },
+    {
+      "id": "native",
+      "value": {
+        "schemaVersion": 1,
+        "adapter": "native-git",
+        "platforms": [
+          "darwin"
+        ],
+        "checks": [],
+        "coverage": [
+          {
+            "stage": "commit-msg",
+            "path": "@hooks/commit-msg",
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "checks": []
+          }
+        ],
+        "native": {
+          "context": "original-worktree-private-git",
+          "gitDirectory": "candidate-compatible",
+          "timeoutMs": 120000,
+          "maxOutputBytes": 65536,
+          "maximumObservedFiles": 20000,
+          "maximumObservedBytes": 268435456
+        },
+        "inputs": [],
+        "profileSha256": "sha256:f496c2460c9e2b794c87ab3ad8df2f4fe52d5a6d3078ac4c94f45ef541e7ac01"
+      }
+    },
+    {
+      "id": "mismatched",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "The selected immutable profile does not match the required adapter/schema.",
+        "code": "RCP_VALIDATION_UNSUPPORTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "missing-version",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Durable record 'repository-commit-policy-profile' has no valid schemaVersion.",
+        "code": "SCHEMA_VERSION_MISSING",
+        "exitCode": 1,
+        "details": {
+          "family": "repository-commit-policy-profile",
+          "received": null
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "future-version",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Durable record 'repository-commit-policy-profile' is stored at schema version 2 (v2), above this build's readable range v1–v1; it was written by a newer sflow — upgrade to read it.",
+        "code": "SCHEMA_VERSION_FUTURE",
+        "exitCode": 1,
+        "details": {
+          "family": "repository-commit-policy-profile",
+          "storedVersion": 2,
+          "readable": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "no-platforms",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A profile must declare its supported host platforms.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-platform",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A profile must declare its supported host platforms.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-check",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Each check needs a distinct identifier and an installed registered rule.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "duplicate-check",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Each check needs a distinct identifier and an installed registered rule.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-path",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unbound-input",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Every declared dependency/configuration input needs an immutable SHA-256.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-stage",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Coverage names an unsupported stage.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unbound-hook",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Hook equivalence must bind its path and exact SHA-256 together.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-coverage-check",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Coverage must reference the profile’s installed checks.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "empty-required-checks",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Pre-commit equivalence requires an actual registered check.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "normalization",
+      "value": {
+        "schemaVersion": 1,
+        "adapter": "registered-checks",
+        "platforms": [
+          "darwin",
+          "win32",
+          "linux"
+        ],
+        "checks": [
+          {
+            "id": "message",
+            "rule": "message-envelope"
+          }
+        ],
+        "coverage": [
+          {
+            "stage": "repository-message",
+            "checks": [
+              "message"
+            ]
+          }
+        ],
+        "normalization": {
+          "steps": [
+            {
+              "rule": "ensure-final-newline",
+              "paths": [
+                "src/file.js"
+              ]
+            }
+          ],
+          "maximumChangedAttempts": 2
+        },
+        "inputs": [],
+        "profileSha256": "sha256:92d36e5fb2946e4a77a9781d4806f834bf8ba9d17d49ae6b014ee6aaf80afd43"
+      }
+    },
+    {
+      "id": "invalid-normalization",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Normalization requires a finite owner-approved attempt budget and bounded steps.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "unsupported-normalizer",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A normalization step requires a registered formatter and exact path scope.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "native-claim",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A registered-check profile cannot claim native execution.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "wrong-native-context",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Native validation requires an explicitly compatible private Git directory and the original worktree/branch semantics.",
+        "code": "RCP_VALIDATION_UNSUPPORTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "native-limits",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Native timeoutMs exceeds its installed bound.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "native-transform",
+      "value": {
+        "schemaVersion": 1,
+        "adapter": "native-git",
+        "platforms": [
+          "darwin"
+        ],
+        "checks": [],
+        "coverage": [
+          {
+            "stage": "commit-msg",
+            "path": "@hooks/commit-msg",
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "checks": []
+          }
+        ],
+        "native": {
+          "context": "original-worktree-private-git",
+          "gitDirectory": "candidate-compatible",
+          "messageTransform": {
+            "producer": "commit-msg",
+            "placement": "subject-suffix",
+            "delimiter": " ",
+            "prefix": "timestamp=",
+            "encoding": "unix-seconds",
+            "maximumClockSkewSeconds": 10
+          },
+          "timeoutMs": 120000,
+          "maxOutputBytes": 65536,
+          "maximumObservedFiles": 20000,
+          "maximumObservedBytes": 268435456
+        },
+        "inputs": [],
+        "profileSha256": "sha256:a3cad142f1a4367042569df7f4b36ac8566e1724de8e68cbd8816589588dc67f"
+      }
+    },
+    {
+      "id": "path-22",
+      "value": "src/file.js"
+    },
+    {
+      "id": "path-23",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-24",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-25",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-26",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-27",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-28",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-29",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Policy paths must be exact portable repository-relative files or directories.",
+        "code": "RCP_POLICY_INVALID",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "path-30",
+      "value": "con.js"
+    }
+  ],
+  "patterns": [
+    {
+      "id": "0",
+      "value": [
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "1",
+      "value": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "2",
+      "value": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "3",
+      "value": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "4",
+      "value": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "5",
+      "value": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "6",
+      "value": [
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "7",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "8",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "9",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "10",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "11",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "12",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "13",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "14",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "15",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "16",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "17",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "18",
+      "error": {
+        "name": "Error",
+        "constructor": "Error",
+        "message": "Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.",
+        "code": "RCP_PATTERN_UNSUPPORTED",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "ordinary",
+      "value": "WEB-221: Add endpoint\n\nEvidence: ready"
+    },
+    {
+      "id": "retained",
+      "value": "WEB-221: Add endpoint"
+    },
+    {
+      "id": "other-story",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "A supplied compliant-looking header belongs to different tracking/type/scope context; it cannot be reprefixed.",
+        "code": "RCP_TRACKING_KEY_MISMATCH",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "missing-key",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Commit message requires a valid trackingKey.",
+        "code": "RCP_TRACKING_KEY_REQUIRED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "injected-key",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Commit message requires a valid trackingKey.",
+        "code": "RCP_TRACKING_KEY_REQUIRED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-message",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "The complete proposed commit message is invalid or too large.",
+        "code": "RCP_MESSAGE_REJECTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "utf8-overflow",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "The commit subject is empty, contains control characters or exceeds its UTF-8 byte limit.",
+        "code": "RCP_MESSAGE_REJECTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "required-trailer",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Exactly one Evidence trailer is required.",
+        "code": "RCP_MESSAGE_REJECTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "duplicate-trailer",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Exactly one Evidence trailer is required.",
+        "code": "RCP_MESSAGE_REJECTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "types",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "The type is not in the adopted allowlist.",
+        "code": "RCP_MESSAGE_REJECTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "bad-draft-type",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "The complete proposed commit message is invalid or too large.",
+        "code": "RCP_MESSAGE_REJECTED",
+        "exitCode": 1,
+        "details": {
+          "nextAction": {
+            "copilot": "/sf-git-policy show",
+            "shell": "singularity-flow git-policy show --json",
+            "vscode": "@sflow /git-policy",
+            "command": "singularity-flow git-policy show --json",
+            "copilotCommand": "/sf-git-policy show",
+            "modelFreeCommand": "@sflow /git-policy"
+          }
+        },
+        "cause": null
+      }
+    },
+    {
+      "id": "digest-11",
+      "value": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+    },
+    {
+      "id": "digest-12",
+      "value": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "id": "digest-13",
+      "value": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "id": "digest-14",
+      "value": "sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    },
+    {
+      "id": "digest-15",
+      "value": "sha256:26d3dc06568a21d23a8f685a06a67a6a4db0fb914346d454295f08e82466bb3b"
+    },
+    {
+      "id": "digest-16",
+      "value": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "id": "digest-17",
+      "error": {
+        "name": "TypeError",
+        "constructor": "TypeError",
+        "message": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined",
+        "code": "ERR_INVALID_ARG_TYPE",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "digest-18",
+      "error": {
+        "name": "TypeError",
+        "constructor": "TypeError",
+        "message": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined",
+        "code": "ERR_INVALID_ARG_TYPE",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "digest-19",
+      "error": {
+        "name": "TypeError",
+        "constructor": "TypeError",
+        "message": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined",
+        "code": "ERR_INVALID_ARG_TYPE",
+        "exitCode": null,
+        "details": null,
+        "cause": null
+      }
+    }
+  ],
+  "exports": {
+    "policy": [
+      "COMMIT_HOOK_STAGES",
+      "RCP_NAMESPACE",
+      "RCP_PURPOSES",
+      "RCP_SCHEMA_VERSION",
+      "RCP_STATUSES",
+      "commitTemplateFields",
+      "normalizeCommitPolicy",
+      "rcpDigest",
+      "rcpFailure",
+      "renderCommitMessage",
+      "strictObject",
+      "validateCommitMessage"
+    ],
+    "profile": [
+      "REGISTERED_COMMIT_CHECKS",
+      "REGISTERED_COMMIT_FORMATTERS",
+      "normalizeCommitProfile",
+      "policyPath"
+    ],
+    "pattern": [
+      "compileCommitPattern"
+    ]
+  },
+  "vocabulary": {
+    "RCP_NAMESPACE": "RCP",
+    "RCP_SCHEMA_VERSION": 1,
+    "COMMIT_HOOK_STAGES": [
+      "pre-commit",
+      "prepare-commit-msg",
+      "commit-msg",
+      "post-commit",
+      "pre-push"
+    ],
+    "RCP_STATUSES": [
+      "passed",
+      "rejected",
+      "tool-unavailable",
+      "timed-out",
+      "interrupted",
+      "unproven",
+      "not-applicable"
+    ],
+    "RCP_PURPOSES": [
+      "story",
+      "initiative",
+      "run",
+      "configuration",
+      "ledger",
+      "maintenance",
+      "candidate",
+      "recovery"
+    ]
+  },
+  "families": {
+    "repository-commit-policy": {
+      "id": "repository-commit-policy",
+      "currentVersion": 1,
+      "minimumReadableVersion": 1,
+      "maximumReadableVersion": 1,
+      "steps": [],
+      "paths": [],
+      "immutable": true,
+      "unversionedAs": null,
+      "migrationPolicy": "migrate-on-read",
+      "model": "never"
+    },
+    "repository-commit-policy-profile": {
+      "id": "repository-commit-policy-profile",
+      "currentVersion": 1,
+      "minimumReadableVersion": 1,
+      "maximumReadableVersion": 1,
+      "steps": [],
+      "paths": [],
+      "immutable": true,
+      "unversionedAs": null,
+      "migrationPolicy": "migrate-on-read",
+      "model": "never"
+    }
+  },
+  "registry": [
+    {
+      "id": "repository-commit-policy-profile",
+      "currentVersion": 1,
+      "minimumReadableVersion": 1,
+      "maximumReadableVersion": 1,
+      "immutable": true,
+      "model": "never",
+      "unversionedAs": null,
+      "migrationPolicy": "migrate-on-read"
+    },
+    {
+      "id": "repository-commit-policy",
+      "currentVersion": 1,
+      "minimumReadableVersion": 1,
+      "maximumReadableVersion": 1,
+      "immutable": true,
+      "model": "never",
+      "unversionedAs": null,
+      "migrationPolicy": "migrate-on-read"
+    }
+  ],
+  "functions": {
+    "src/repository-commit-policy/policy.mjs:rcpFailure": {
+      "owner": "src/repository-commit-policy/diagnostics.mjs",
+      "factory": null,
+      "sha256": "6cbcde7c1c55f2325fe96478f9f7cfd099eba08c71552720755f24515479a986"
+    },
+    "src/repository-commit-policy/policy.mjs:strictObject": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "2dbf98199bbe5f560dd2c515138827bb3ff129f0820c12b7c6677ae94db83394"
+    },
+    "src/repository-commit-policy/policy.mjs:rcpDigest": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "85560b96707268a322f554bf224133763f1af8ec8c083833dbf4b2937f58a7fe"
+    },
+    "src/repository-commit-policy/policy.mjs:text": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "1f058c8922dc5139d76a2eb5f488fc7d4f053b959762a6f7e9e230bf7dac48b7"
+    },
+    "src/repository-commit-policy/policy.mjs:enumeration": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "92fc802feeacfa9c225f312364236dc36e0e433d7f1570ef22e7dc31f3de9899"
+    },
+    "src/repository-commit-policy/policy.mjs:list": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "393bb9ee5d4cd2ccfc97ff7f6c944e5ac297cc2d42404cfc87ea039ff8ee3c69"
+    },
+    "src/repository-commit-policy/policy.mjs:commitTemplateFields": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "15890330081b6a3afa2fb5da288a472d70d31876ac21b5e3f456d88344030dc0"
+    },
+    "src/repository-commit-policy/policy.mjs:normalizeCommitPolicy": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "1f397ea42daba4861d59db59b42524be0f2acfcb5bf6cbc15ccf0076ba678c67"
+    },
+    "src/repository-commit-policy/policy.mjs:renderCommitMessage": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "4de7ec8eb61f8ff3bee4d07c0432514f0f83b8e76be78058a0b036b1cc06308e"
+    },
+    "src/repository-commit-policy/policy.mjs:validateCommitMessage": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "120597098bbf71d66a4285f313c63040e9f49d46629203a2a6f9ae987493301a"
+    },
+    "src/repository-commit-policy/profile.mjs:policyPath": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "f03a4e30c5c688d92b8ef49b5dfb70dd1c5925c894893523dbec90a8e1a7aad0"
+    },
+    "src/repository-commit-policy/profile.mjs:normalizeCommitProfile": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "c95008e2b66465871c78e7d8d88a2df104045455cda33ebca5e03ee39fbcd5d2"
+    },
+    "src/repository-commit-policy/pattern.mjs:compileCommitPattern": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "2134875b9b64f0d34154abbcadd001d5cf0a159b82cf91867a9ec8b067f181bb"
+    }
+  },
+  "constants": {
+    "src/repository-commit-policy/policy.mjs:RCP_NAMESPACE": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "21ba17fb716e4b93daec43826890fbb95f4718c7850a6beff66c962020f6fbc4"
+    },
+    "src/repository-commit-policy/policy.mjs:COMMIT_HOOK_STAGES": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "05ce6d47e732d62dd9a2972c3a348366f1a995eb8bce235c340a33c4df5a964e"
+    },
+    "src/repository-commit-policy/policy.mjs:RCP_STATUSES": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "c781ba7d678ad003678152d2e4f847f0f0fb091baa4dcbbbaf55199b586ec496"
+    },
+    "src/repository-commit-policy/policy.mjs:RCP_PURPOSES": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "4aa7e515856f93a7e346e83b40473d4adf4c15bb3c0f32b258f076e4497c8451"
+    },
+    "src/repository-commit-policy/policy.mjs:FIELDS": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "03d93c05cb02af66244398de41c7a2995668fe716c7b076a039a39602b49c869"
+    },
+    "src/repository-commit-policy/policy.mjs:TOKEN": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "4a9690c3b8567d30776369d0aa3384928af6a3c9918d40de87157eabd5268cd2"
+    },
+    "src/repository-commit-policy/profile.mjs:REGISTERED_COMMIT_CHECKS": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "e708aa7253cfc603da8e04b73aaa5a2a2fa734c4f18e11f1166a222bf6d1a70f"
+    },
+    "src/repository-commit-policy/profile.mjs:REGISTERED_COMMIT_FORMATTERS": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": null,
+      "sha256": "d6f686c48e2f4dd7c392c0457f20e7102b6ae516f4df496651f808b8fcebfaa7"
+    },
+    "src/repository-commit-policy/profile.mjs:hash": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "factory": "createRepositoryCommitPolicyCompiler",
+      "sha256": "ff533e804eb0fbc51f727346987beb001184041e5b4254da8426745992dfae5d"
+    }
+  },
+  "functionSignatures": {
+    "src/repository-commit-policy/policy.mjs:rcpFailure": {
+      "name": "rcpFailure",
+      "length": 2
+    },
+    "src/repository-commit-policy/policy.mjs:strictObject": {
+      "name": "strictObject",
+      "length": 3
+    },
+    "src/repository-commit-policy/policy.mjs:rcpDigest": {
+      "name": "rcpDigest",
+      "length": 1
+    },
+    "src/repository-commit-policy/policy.mjs:commitTemplateFields": {
+      "name": "commitTemplateFields",
+      "length": 1
+    },
+    "src/repository-commit-policy/policy.mjs:normalizeCommitPolicy": {
+      "name": "normalizeCommitPolicy",
+      "length": 1
+    },
+    "src/repository-commit-policy/policy.mjs:renderCommitMessage": {
+      "name": "renderCommitMessage",
+      "length": 3
+    },
+    "src/repository-commit-policy/policy.mjs:validateCommitMessage": {
+      "name": "validateCommitMessage",
+      "length": 2
+    },
+    "src/repository-commit-policy/profile.mjs:policyPath": {
+      "name": "policyPath",
+      "length": 1
+    },
+    "src/repository-commit-policy/profile.mjs:normalizeCommitProfile": {
+      "name": "normalizeCommitProfile",
+      "length": 2
+    },
+    "src/repository-commit-policy/pattern.mjs:compileCommitPattern": {
+      "name": "compileCommitPattern",
+      "length": 1
+    }
+  }
+}

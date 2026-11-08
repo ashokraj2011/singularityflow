@@ -1,4 +1,6 @@
-import { NODE_TEXT_DIGESTS, NODE_RECORD_BYTES } from './records.mjs';
+import { NODE_TEXT_DIGESTS, NODE_RECORD_BYTES, NODE_TEXT_VALUE_SYNTAX } from './records.mjs';
+import { PolicyViolation } from './foundation/failures.mjs';
+import { COMMIT_POLICY_RUNTIME_PROFILE } from './kernel/configuration-policy.mjs';
 import { NODE_CONFIGURATION_PATH_SYNTAX } from './engine-compatibility/node-configuration-path.mjs';
 import { NODE_NETWORK_ADDRESS_SYNTAX } from './engine-compatibility/node-network-syntax.mjs';
 import { createRequire } from 'node:module';
@@ -74,6 +76,10 @@ export const CONTROL_ROOT = 'singularity';
 
 // This installed composition retains every existing policy validator. Operation inputs cannot
 // supply these collaborators or create an approved configuration by returning a readiness flag.
+const NATIVE_COMMIT_POLICY_RUNTIME = /* @__PURE__ */ Object.freeze({
+  profile: COMMIT_POLICY_RUNTIME_PROFILE,
+  assertAvailable() { requireCommitPolicyRuntime(); }
+});
 const {
   normalizeReferenceRepositoryPolicy,
   normalizePlannedClaimsPolicy,
@@ -87,7 +93,7 @@ const {
   normalizeRepositoryReadinessPolicy,
   normalizePlanning,
   normalizeModelProviders,
-  validateDefinition,
+  validateDefinition: validateDefinitionCore,
   resolveWorkType,
   assertRelative,
   declaredCatalogValue
@@ -95,7 +101,8 @@ const {
   AUTHORING_SKILL_ID,
   authoringSkillCatalog,
   recordBytes: NODE_RECORD_BYTES,
-  normalizeCommitPolicyRuntime,
+  commitPolicyRuntime: NATIVE_COMMIT_POLICY_RUNTIME,
+  commitTextSyntax: NODE_TEXT_VALUE_SYNTAX,
   networkAddressSyntax: NODE_NETWORK_ADDRESS_SYNTAX,
   pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX,
   textDigests: NODE_TEXT_DIGESTS
@@ -113,14 +120,29 @@ export {
   normalizeRepositoryReadinessPolicy,
   normalizePlanning,
   normalizeModelProviders,
-  validateDefinition,
   resolveWorkType
 };
 
-function normalizeCommitPolicyRuntime(value) {
+/** Native error projection only; every definition rule runs in the shared compiler. */
+export function validateDefinition(definition) {
+  try { return Reflect.apply(validateDefinitionCore, undefined, arguments); }
+  catch (error) {
+    if (error instanceof PolicyViolation && typeof error.code === 'string' && error.code.startsWith('RCP_')) {
+      requireCommitPolicyRuntime().rcpFailure(error.code, error.message, error.details);
+    }
+    throw error;
+  }
+}
+
+function requireCommitPolicyRuntime() {
   if (!process.features.require_module) throw new SingularityFlowError('Repository commit policy requires the SFlow-managed runtime or Node 22.12 or later.', {code: 'RCP_RUNTIME_UNSUPPORTED'});
   const policyModule = path.join(PACKAGE_ROOT, 'src/repository-commit-policy/policy.mjs');
-  return createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule).normalizeCommitPolicy(value);
+  const loaded = createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule);
+  if (typeof loaded.normalizeCommitPolicy !== 'function') {
+    // Preserve the original native member-call failure for an incompatible installed module.
+    createRequire(path.join(PACKAGE_ROOT, 'package.json'))(policyModule).normalizeCommitPolicy(undefined);
+  }
+  return loaded;
 }
 const LEGACY_CONTROL_ROOT = '.singularity';
 /**

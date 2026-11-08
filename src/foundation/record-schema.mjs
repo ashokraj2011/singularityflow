@@ -7,6 +7,34 @@ const TEXT_DIGEST_CAPABILITIES = new WeakMap();
 export const RECORD_BYTES_PROFILE = 'sflow-record-bytes/utf8-v1';
 const RECORD_BYTE_SYNTAX = new WeakMap();
 
+export const TEXT_VALUE_SYNTAX_PROFILE = 'sflow-text-values/utf8-sha256-v1';
+const TEXT_VALUE_SYNTAX = new WeakMap();
+
+/** Raw text primitives retain their native invalid-value errors; rules own valid-domain checks. */
+export function textValueSyntax(port) {
+  const invalid = () => { throw new SingularityFlowError('Text rules require one frozen, explicit UTF-8 size/hash capability.', { code: 'ENGINE_TEXT_VALUE_SYNTAX_INVALID' }); };
+  if (!port || typeof port !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(port)) || !Object.isFrozen(port)) invalid();
+  const fields = Object.getOwnPropertyDescriptors(port), keys = Reflect.ownKeys(fields);
+  if (keys.length !== 3 || keys.some(key => !['profile', 'byteLengthUtf8', 'sha256Utf8'].includes(key))) invalid();
+  for (const key of keys) if (!fields[key].enumerable || !Object.hasOwn(fields[key], 'value')
+    || (key === 'profile' ? fields[key].value !== TEXT_VALUE_SYNTAX_PROFILE : typeof fields[key].value !== 'function')) invalid();
+  if (TEXT_VALUE_SYNTAX.has(port)) return TEXT_VALUE_SYNTAX.get(port);
+  const size = fields.byteLengthUtf8.value, hash = fields.sha256Utf8.value;
+  const syntax = Object.freeze({
+    byteLengthUtf8(value) {
+      const result = Reflect.apply(size, port, [value]);
+      if (!Number.isSafeInteger(result) || result < 0) throw new SingularityFlowError('Text syntax did not return an exact UTF-8 byte count.', { code: 'ENGINE_TEXT_VALUE_SYNTAX_RESULT_INVALID' });
+      return result;
+    },
+    sha256Utf8(value) {
+      const result = Reflect.apply(hash, port, [value]);
+      if (typeof result !== 'string' || !/^[a-f0-9]{64}$/u.test(result)) throw new SingularityFlowError('Text syntax did not return an exact lowercase SHA-256 digest.', { code: 'ENGINE_TEXT_VALUE_SYNTAX_RESULT_INVALID' });
+      return result;
+    }
+  });
+  TEXT_VALUE_SYNTAX.set(port, syntax); return syntax;
+}
+
 /** Capture byte-value primitives only. Parsing, cloning and schema admission belong to foundation. */
 export function recordJsonSyntax(port) {
   const invalid = () => { throw new SingularityFlowError('Record parsing requires one frozen, explicit UTF-8 byte capability.', {
@@ -48,6 +76,13 @@ export function recordJsonSyntax(port) {
 export const APPLICATION_REVIEW_POLICY_SCHEMA = Object.freeze({ id: 'application-review-policy',
   currentVersion: 1, minimumReadableVersion: 1, maximumReadableVersion: 1, unversionedAs: 1,
   immutable: true, migrationPolicy: 'migrate-on-read' });
+
+export const REPOSITORY_COMMIT_POLICY_SCHEMAS = Object.freeze({
+  policy: Object.freeze({ id: 'repository-commit-policy', currentVersion: 1, minimumReadableVersion: 1,
+    maximumReadableVersion: 1, unversionedAs: null, immutable: true, migrationPolicy: 'migrate-on-read' }),
+  profile: Object.freeze({ id: 'repository-commit-policy-profile', currentVersion: 1, minimumReadableVersion: 1,
+    maximumReadableVersion: 1, unversionedAs: null, immutable: true, migrationPolicy: 'migrate-on-read' })
+});
 
 /** Capture a synchronous text primitive without invoking it or evaluating an accessor. */
 export function textDigestCapability(port) {

@@ -8,7 +8,7 @@
 import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
-  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, recordJsonSyntax } from './foundation/record-schema.mjs';
+  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, recordJsonSyntax } from './foundation/record-schema.mjs';
 
 const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
 
@@ -3257,12 +3257,12 @@ const families = [
   family({ id: 'initiative-invalidation-record', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/invalidations\/records\/[a-f0-9]{64}\.json$/], immutable: true }),
   family({ id: 'initiative-approval-summary', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/approvals\/SUMMARY\.json$/] }),
   family({ id: 'story-lineage', currentVersion: 1 }),
-  family({ id: 'repository-commit-policy-profile', currentVersion: 1, immutable: true }),
+  family(REPOSITORY_COMMIT_POLICY_SCHEMAS.profile),
   family({ id: 'repository-commit-policy-evidence', currentVersion: 1, immutable: true,
     paths: [/^\$state\/evidence\/repository-commit-policy\/[a-f0-9]{40}(?:[a-f0-9]{24})?\.json$/] }),
   family({ id: 'repository-commit-policy-object-binding', currentVersion: 1, immutable: true,
     paths: [/^\$git\/repository-commit-policy\/objects\/[a-f0-9]{40}(?:[a-f0-9]{24})?\.json$/] }),
-  family({ id: 'repository-commit-policy', currentVersion: 1, immutable: true }),
+  family(REPOSITORY_COMMIT_POLICY_SCHEMAS.policy),
   family({ id: 'repository-commit-policy-discovery', currentVersion: 1, immutable: true,
     paths: [/^\$git\/repository-commit-policy\/records\/discovery\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'repository-commit-policy-plan', currentVersion: 1, immutable: true,

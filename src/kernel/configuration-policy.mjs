@@ -1,6 +1,6 @@
 /** Shared workflow policy values and validators. No host, source-control, provider or storage access. */
-import { SingularityFlowError } from '../foundation/failures.mjs';
-import { APPLICATION_REVIEW_POLICY_SCHEMA, admitRecordSchemaVersion, recordJsonSyntax } from '../foundation/record-schema.mjs';
+import { SingularityFlowError, PolicyViolation } from '../foundation/failures.mjs';
+import { APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, admitRecordSchemaVersion, recordJsonSyntax, textValueSyntax } from '../foundation/record-schema.mjs';
 
 // session-policy.mjs
 
@@ -1107,4 +1107,337 @@ function normalizeMarketplaces(value = {}) {
     marketplaceFailure: fail, marketplaceText: text, isMarketplaceId: value => ID.test(value) });
   MARKETPLACE_POLICY_COMPILERS.set(port, binding);
   return binding;
+}
+
+
+// Repository commit-policy rules. Runtime module availability and command guidance stay native.
+export const RCP_NAMESPACE = 'RCP';
+
+export const RCP_SCHEMA_VERSION = REPOSITORY_COMMIT_POLICY_SCHEMAS.policy.currentVersion;
+
+export const COMMIT_HOOK_STAGES = Object.freeze(['pre-commit', 'prepare-commit-msg', 'commit-msg', 'post-commit', 'pre-push']);
+
+export const RCP_STATUSES = Object.freeze(['passed', 'rejected', 'tool-unavailable', 'timed-out', 'interrupted', 'unproven', 'not-applicable']);
+
+export const RCP_PURPOSES = Object.freeze(['story', 'initiative', 'run', 'configuration', 'ledger', 'maintenance', 'candidate', 'recovery']);
+
+export const REGISTERED_COMMIT_CHECKS = Object.freeze({
+  'message-envelope': { stage: 'message', effects: 'none', protocol: 'rcp-exact-message/v1' },
+  'no-trailing-whitespace': { stage: 'content', effects: 'none', protocol: 'rcp-exact-tree-blobs/v1' },
+  'final-newline': { stage: 'content', effects: 'none', protocol: 'rcp-exact-tree-blobs/v1' },
+  'valid-utf8': { stage: 'content', effects: 'none', protocol: 'rcp-exact-tree-blobs/v1' }
+});
+
+export const REGISTERED_COMMIT_FORMATTERS = Object.freeze(['trim-trailing-whitespace', 'ensure-final-newline']);
+
+/** RCP bounded pattern engine: anchored concatenations, classes and repetitions, no backtracking. */
+export function compileCommitPattern(source) {
+  const fail = () => { throw Object.assign(new Error('Commit patterns must be anchored and use literals, classes or bounded repetitions; groups, alternation, lookarounds and backreferences are unsupported.'), { code: 'RCP_PATTERN_UNSUPPORTED' }); };
+  if (typeof source !== 'string' || source.length > 512 || !source.startsWith('^') || !source.endsWith('$')) fail();
+  const body = source.slice(1, -1), states = [];
+  const state = () => { if (states.length >= 1024) fail(); const s = { edges: [], epsilon: [] }; states.push(s); return states.length - 1; };
+  const start = state(); let current = start, index = 0;
+  function escaped() {
+    const char = body[index++];
+    if (char === 'd') return c => /^[0-9]$/u.test(c);
+    if (char === 'w') return c => /^[A-Za-z0-9_]$/u.test(c);
+    if (char === 's') return c => c === ' ' || c === '\t';
+    if (char && '.[]{}()*+?^$|\\/-: '.includes(char)) return c => c === char;
+    return fail();
+  }
+  while (index < body.length) {
+    let matches; const char = body[index++];
+    if (char === '\\') matches = escaped();
+    else if (char === '.') matches = c => c !== '\n' && c !== '\r';
+    else if (char === '[') {
+      let inverted = false; if (body[index] === '^') { inverted = true; index++; }
+      const predicates = []; let closed = false;
+      while (index < body.length) {
+        let c = body[index++];
+        if (c === ']' && predicates.length) { closed = true; break; }
+        if (c === '\\') { predicates.push(escaped()); continue; }
+        if (body[index] === '-' && body[index + 1] && body[index + 1] !== ']') {
+          index++; const end = body[index++]; if (c > end || end === '\\') fail();
+          predicates.push(v => v >= c && v <= end);
+        } else predicates.push(v => v === c);
+      }
+      if (!closed) fail();
+      matches = c => inverted !== predicates.some(predicate => predicate(c));
+    } else if ('()|^$*+?{}'.includes(char) || /[\r\n\u0000]/u.test(char)) fail();
+    else matches = c => c === char;
+    let minimum = 1, maximum = 1;
+    if (body[index] === '*') { minimum = 0; maximum = Infinity; index++; }
+    else if (body[index] === '+') { maximum = Infinity; index++; }
+    else if (body[index] === '?') { minimum = 0; index++; }
+    else if (body[index] === '{') {
+      const found = /^\{(\d{1,3})(?:,(\d{0,3}))?\}/u.exec(body.slice(index));
+      if (!found) fail();
+      minimum = Number(found[1]); maximum = found[2] === undefined ? minimum : found[2] === '' ? Infinity : Number(found[2]);
+      if (minimum > 128 || maximum < minimum || (maximum !== Infinity && maximum > 128)) fail();
+      index += found[0].length;
+    }
+    for (let n = 0; n < minimum; n++) { const next = state(); states[current].edges.push({ matches, next }); current = next; }
+    if (maximum === Infinity) { states[current].edges.push({ matches, next: current }); }
+    else for (let n = minimum; n < maximum; n++) {
+      const next = state(); states[current].epsilon.push(next); states[current].edges.push({ matches, next }); current = next;
+    }
+  }
+  const accept = current;
+  function closure(input) {
+    const seen = new Set(input), queue = [...input];
+    for (let n = 0; n < queue.length; n++) for (const next of states[queue[n]].epsilon) if (!seen.has(next)) { seen.add(next); queue.push(next); }
+    return seen;
+  }
+  return text => {
+    if (typeof text !== 'string' || text.length > 8192) return false;
+    let active = closure([start]);
+    for (const char of text) {
+      const next = new Set();
+      for (const id of active) for (const edge of states[id].edges) if (edge.matches(char)) next.add(edge.next);
+      active = closure(next); if (!active.size) return false;
+    }
+    return active.has(accept);
+  };
+}
+
+const REPOSITORY_COMMIT_POLICY_COMPILERS = new WeakMap();
+export const COMMIT_POLICY_RUNTIME_PROFILE = 'sflow-commit-policy-runtime/v1';
+const COMMIT_POLICY_RUNTIMES = new WeakMap();
+
+/** Capture a no-input availability assertion, never a policy validator or decision. */
+export function commitPolicyRuntimeCompatibility(port) {
+  const invalid = () => { throw new SingularityFlowError('Commit-policy compatibility requires an explicit frozen runtime capability.', { code: 'ENGINE_COMMIT_POLICY_RUNTIME_INVALID' }); };
+  if (!port || typeof port !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(port)) || !Object.isFrozen(port)) invalid();
+  const fields=Object.getOwnPropertyDescriptors(port), keys=Reflect.ownKeys(fields);
+  if(keys.length!==2||keys.some(key=>!['profile','assertAvailable'].includes(key)))invalid();
+  for(const key of keys)if(!fields[key].enumerable||!Object.hasOwn(fields[key],'value')
+    ||(key==='profile'?fields[key].value!==COMMIT_POLICY_RUNTIME_PROFILE:typeof fields[key].value!=='function'))invalid();
+  if(COMMIT_POLICY_RUNTIMES.has(port))return COMMIT_POLICY_RUNTIMES.get(port);
+  const assert=fields.assertAvailable.value;
+  const runtime=Object.freeze({assertAvailable(){
+    const result=Reflect.apply(assert,port,[]);
+    if(result!==undefined)throw new SingularityFlowError('Commit-policy runtime assertion returned a value instead of completing.',{code:'ENGINE_COMMIT_POLICY_RUNTIME_RESULT_INVALID'});
+  }});
+  COMMIT_POLICY_RUNTIMES.set(port,runtime);return runtime;
+}
+
+export function createRepositoryCommitPolicyCompiler(recordBytes, textValues) {
+  const syntax=recordJsonSyntax(recordBytes), textSyntax=textValueSyntax(textValues);
+  let byText=REPOSITORY_COMMIT_POLICY_COMPILERS.get(recordBytes);
+  if(!byText){byText=new WeakMap();REPOSITORY_COMMIT_POLICY_COMPILERS.set(recordBytes,byText);}
+  if(byText.has(textValues))return byText.get(textValues);
+  const schemas=Object.freeze({[REPOSITORY_COMMIT_POLICY_SCHEMAS.policy.id]:REPOSITORY_COMMIT_POLICY_SCHEMAS.policy,
+    [REPOSITORY_COMMIT_POLICY_SCHEMAS.profile.id]:REPOSITORY_COMMIT_POLICY_SCHEMAS.profile});
+  const readPolicyRecord=(family,value)=>{
+    if(!Object.hasOwn(schemas,family))throw new SingularityFlowError(`Unknown durable record family '${family}'.`,{code:'SCHEMA_FAMILY_UNKNOWN',details:{family}});
+    return admitRecordSchemaVersion(schemas[family],syntax.parseObject(value));
+  };
+  const rcpFailure=(code,message,details={})=>{throw new PolicyViolation(message,{code,details});};
+const FIELDS = new Set(['trackingKey', 'summary', 'type', 'scope', 'phase']);
+
+const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/u;
+
+function strictObject(value, fields, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) rcpFailure('RCP_POLICY_INVALID', `${label} must be an object.`);
+  const unknown = Object.keys(value).filter(key => !fields.includes(key));
+  if (unknown.length) rcpFailure('RCP_POLICY_INVALID', `${label} has unsupported fields: ${unknown.join(', ')}.`);
+  return value;
+}
+
+function rcpDigest(value) {
+  const sorted = item => Array.isArray(item) ? item.map(sorted) : item && typeof item === 'object'
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, sorted(item[key])])) : item;
+  return `sha256:${textSyntax.sha256Utf8(JSON.stringify(sorted(value)))}`;
+}
+
+function text(value, label, maximum = 4096) {
+  if (typeof value !== 'string' || !value.trim() || textSyntax.byteLengthUtf8(value) > maximum || /[\r\n\u0000]/u.test(value)) rcpFailure('RCP_POLICY_INVALID', `${label} must be nonempty single-line text within ${maximum} bytes.`);
+  return value;
+}
+
+function enumeration(value, values, label) { if (!values.includes(value)) rcpFailure('RCP_POLICY_INVALID', `${label} must be one of ${values.join(', ')}.`); return value; }
+
+function list(value, label) { if (!Array.isArray(value) || value.length > 128 || value.some(item => typeof item !== 'string' || !TOKEN.test(item)) || new Set(value).size !== value.length) rcpFailure('RCP_POLICY_INVALID', `${label} must contain distinct registered identifiers.`); return [...value]; }
+
+function commitTemplateFields(template) {
+  text(template, 'subjectTemplate', 1024);
+  const fields = [...template.matchAll(/\{([A-Za-z][A-Za-z0-9]*)\}/gu)].map(found => found[1]);
+  if (/[{}]/u.test(template.replace(/\{[A-Za-z][A-Za-z0-9]*\}/gu, '')) || fields.some(field => !FIELDS.has(field))
+      || fields.filter(field => field === 'summary').length !== 1 || new Set(fields).size !== fields.length) rcpFailure('RCP_POLICY_INVALID', 'subjectTemplate requires one summary and distinct registered placeholders.');
+  return fields;
+}
+
+function normalizeCommitPolicy(value) {
+  if (value == null) return null;
+  strictObject(value, ['schemaVersion', 'mode', 'subjectTemplate', 'subjectPattern', 'maxSubjectBytes', 'tracking', 'validation', 'profiles', 'metadata', 'defaults', 'types', 'scopes', 'body', 'signing', 'outgoingRange', 'organizationFloor'], 'git.commitPolicy');
+  const policy = structuredClone(readPolicyRecord('repository-commit-policy', value).record);
+  enumeration(policy.mode, ['off', 'discover', 'enforce'], 'commitPolicy.mode');
+  if (policy.mode !== 'enforce' && policy.subjectTemplate === undefined) {strictObject(policy, ['schemaVersion','mode'], 'inactive commit policy');return policy;}
+  const fields = commitTemplateFields(policy.subjectTemplate);
+  if (!Number.isSafeInteger(policy.maxSubjectBytes ?? 120) || (policy.maxSubjectBytes ?? 120) < 1 || (policy.maxSubjectBytes ?? 120) > 8192) rcpFailure('RCP_POLICY_INVALID', 'maxSubjectBytes must be between 1 and 8192.');
+  policy.maxSubjectBytes ??= 120;
+  if (policy.subjectPattern) compileCommitPattern(policy.subjectPattern);
+  policy.tracking ??= { required: fields.includes('trackingKey'), allowedKinds: ['story'], bindings: {} };
+  strictObject(policy.tracking, ['required', 'allowedKinds', 'bindings', 'references', 'keyPattern', 'requireBranchAgreement', 'branchTemplate'], 'tracking');
+  if (typeof policy.tracking.required !== 'boolean') rcpFailure('RCP_POLICY_INVALID', 'tracking.required must be boolean.');
+  if (policy.tracking.required && !fields.includes('trackingKey')) rcpFailure('RCP_POLICY_INVALID', 'A required tracking reference must appear in the subject template.');
+  policy.tracking.allowedKinds = list(policy.tracking.allowedKinds ?? ['story'], 'tracking.allowedKinds');
+  if (policy.tracking.keyPattern) compileCommitPattern(policy.tracking.keyPattern);
+  if (policy.tracking.requireBranchAgreement != null && typeof policy.tracking.requireBranchAgreement !== 'boolean') rcpFailure('RCP_POLICY_INVALID', 'requireBranchAgreement must be boolean.');
+  if (policy.tracking.branchTemplate != null) {
+    text(policy.tracking.branchTemplate, 'branchTemplate', 256);
+    if (policy.tracking.branchTemplate.split('{trackingKey}').length !== 2 || /[{}]/u.test(policy.tracking.branchTemplate.replace('{trackingKey}', ''))) rcpFailure('RCP_POLICY_INVALID', 'branchTemplate must contain exactly one trackingKey placeholder.');
+  }
+  strictObject(policy.tracking.bindings ?? {}, RCP_PURPOSES, 'tracking.bindings');
+  for (const selector of Object.values(policy.tracking.bindings ?? {})) enumeration(selector, ['repository-story', 'approved-planning-story', 'approved-tracking-reference', 'approved-maintenance-story'], 'tracking binding');
+  strictObject(policy.tracking.references ?? {}, Object.keys(policy.tracking.references ?? {}), 'tracking.references');
+  for (const [id, ref] of Object.entries(policy.tracking.references ?? {})) {
+    text(id, 'tracking reference id', 128);
+    strictObject(ref, ['kind', 'key', 'subjectId', 'repository', 'immutableIssueId'], 'tracking reference');
+    for (const name of ['kind', 'key', 'subjectId', 'repository']) text(ref[name], `tracking reference ${name}`, 256);
+  }
+  strictObject(policy.validation ?? {}, ['adapter', 'profile'], 'validation');
+  enumeration(policy.validation?.adapter, ['registered-checks', 'native-git'], 'validation.adapter');
+  text(policy.validation?.profile, 'validation.profile', 128);
+  strictObject(policy.profiles ?? {}, Object.keys(policy.profiles ?? {}), 'profiles');
+  for (const [name, profile] of Object.entries(policy.profiles ?? {})) {
+    if (!TOKEN.test(name)) rcpFailure('RCP_POLICY_INVALID', 'Profile aliases must be registered identifiers.');
+    const normalized = normalizeCommitProfile(profile, profile.adapter);
+    const { profileSha256: _digest, ...definition } = normalized;
+    policy.profiles[name] = definition;
+  }
+  for (const name of ['types', 'scopes']) if (policy[name] != null) policy[name] = list(policy[name], name);
+  strictObject(policy.defaults ?? {}, ['type', 'scope'], 'defaults');
+  for (const [name, entry] of Object.entries(policy.defaults ?? {})) text(entry, `default ${name}`, 128);
+  strictObject(policy.body ?? {}, ['maxBytes', 'requiredTrailers', 'pattern'], 'body');
+  if (policy.body?.pattern) compileCommitPattern(policy.body.pattern);
+  if (policy.body?.maxBytes != null && (!Number.isSafeInteger(policy.body.maxBytes) || policy.body.maxBytes < 1 || policy.body.maxBytes > 65536)) rcpFailure('RCP_POLICY_INVALID', 'body.maxBytes must be between 1 and 65536.');
+  if (policy.body?.requiredTrailers != null && (!Array.isArray(policy.body.requiredTrailers) || policy.body.requiredTrailers.length > 128)) rcpFailure('RCP_POLICY_INVALID', 'requiredTrailers must be a bounded array.');
+  for (const trailer of policy.body?.requiredTrailers ?? []) text(trailer, 'required trailer', 128);
+  strictObject(policy.signing ?? {}, ['required'], 'signing');
+  if (policy.signing?.required != null && typeof policy.signing.required !== 'boolean') rcpFailure('RCP_POLICY_INVALID', 'signing.required must be boolean.');
+  if (policy.outgoingRange != null) enumeration(policy.outgoingRange, ['latest', 'new-commits'], 'outgoingRange');
+  strictObject(policy.metadata ?? {}, ['mode', 'profile', 'refs', 'paths', 'purposes', 'requireBranchAgreement'], 'metadata');
+  enumeration(policy.metadata?.mode ?? 'same-policy', ['same-policy', 'scoped-profile'], 'metadata.mode');
+  for (const listName of ['refs', 'purposes']) if (policy.metadata?.[listName] != null) list(policy.metadata[listName], `metadata.${listName}`);
+  if (policy.metadata?.paths != null) {
+    if (!Array.isArray(policy.metadata.paths) || policy.metadata.paths.length > 128 || new Set(policy.metadata.paths).size !== policy.metadata.paths.length) rcpFailure('RCP_POLICY_INVALID', 'metadata.paths must be a bounded array of distinct repository paths.');
+    policy.metadata.paths.forEach(policyPath);
+  }
+  if (policy.metadata?.mode === 'scoped-profile' && (!policy.metadata.profile || !policy.metadata.refs?.length || !policy.metadata.paths?.length || !policy.metadata.purposes?.length)) rcpFailure('RCP_POLICY_INVALID', 'A metadata profile requires explicit profile, refs, paths and purposes.');
+  if (policy.metadata?.requireBranchAgreement != null && (typeof policy.metadata.requireBranchAgreement !== 'boolean' || policy.metadata.mode !== 'scoped-profile')) rcpFailure('RCP_POLICY_INVALID', 'A metadata branch exception requires an explicit scoped profile and boolean requireBranchAgreement.');
+  if (policy.organizationFloor != null) {
+    strictObject(policy.organizationFloor, ['subjectPattern', 'trackingRequired', 'signingRequired', 'requiredCoverage'], 'organizationFloor');
+    if (policy.organizationFloor.subjectPattern) compileCommitPattern(policy.organizationFloor.subjectPattern);
+    if (policy.organizationFloor.trackingRequired && !policy.tracking.required || policy.organizationFloor.signingRequired && !policy.signing?.required) rcpFailure('RCP_POLICY_CONFLICT', 'Repository policy conflicts with the mandatory organization floor.');
+  }
+  return policy;
+}
+
+function renderCommitMessage(policy, draft, context) {
+  if (typeof draft !== 'string' || draft.includes('\0') || textSyntax.byteLengthUtf8(draft) > 65536) rcpFailure('RCP_MESSAGE_REJECTED', 'The complete proposed commit message is invalid or too large.');
+  const [original, ...body] = draft.replace(/\r\n/gu, '\n').split('\n');
+  const values = { ...policy.defaults, ...context, summary: context.summary ?? original };
+  for (const field of commitTemplateFields(policy.subjectTemplate)) {
+    if (typeof values[field] !== 'string' || !values[field].trim() || /[\r\n\u0000]/u.test(values[field])) rcpFailure(field === 'trackingKey' ? 'RCP_TRACKING_KEY_REQUIRED' : 'RCP_MESSAGE_REJECTED', `Commit message requires a valid ${field}.`);
+  }
+  // A kernel-produced, already compliant header is retained rather than prefixed twice.
+  const pieces = policy.subjectTemplate.split('{summary}');
+  const substitute = part => part.replace(/\{(trackingKey|type|scope|phase)\}/gu, (_match, key) => values[key]);
+  const prefix = substitute(pieces[0]), suffix = substitute(pieces[1]);
+  if (policy.subjectPattern && compileCommitPattern(policy.subjectPattern)(original)
+      && !original.startsWith(prefix)) rcpFailure('RCP_TRACKING_KEY_MISMATCH', 'A supplied compliant-looking header belongs to different tracking/type/scope context; it cannot be reprefixed.');
+  if (context.summary == null && original.startsWith(prefix) && original.endsWith(suffix) && original.length > prefix.length + suffix.length) values.summary = original.slice(prefix.length, suffix ? -suffix.length : undefined);
+  const subject = policy.subjectTemplate.replace(/\{([A-Za-z]+)\}/gu, (_match, name) => values[name]);
+  const message = [subject, ...body].join('\n');
+  validateCommitMessage(policy, message, { ...context, expectedSubject: subject });
+  return message;
+}
+
+function validateCommitMessage(policy, message, context = {}) {
+  const subject = message.split('\n')[0];
+  if (!subject.trim() || /[\r\n\u0000]/u.test(subject) || textSyntax.byteLengthUtf8(subject) > policy.maxSubjectBytes) rcpFailure('RCP_MESSAGE_REJECTED', 'The commit subject is empty, contains control characters or exceeds its UTF-8 byte limit.');
+  for (const pattern of [policy.subjectPattern, policy.organizationFloor?.subjectPattern].filter(Boolean)) if (!compileCommitPattern(pattern)(subject)) rcpFailure('RCP_MESSAGE_REJECTED', 'The complete subject does not satisfy the adopted repository grammar.');
+  if (context.expectedSubject && subject !== context.expectedSubject) rcpFailure('RCP_TRACKING_KEY_MISMATCH', 'The observed subject differs from its exact canonical tracking/message binding.');
+  for (const name of ['type', 'scope']) if (policy[name === 'type' ? 'types' : 'scopes'] && !policy[name === 'type' ? 'types' : 'scopes'].includes(context[name] ?? policy.defaults?.[name])) rcpFailure('RCP_MESSAGE_REJECTED', `The ${name} is not in the adopted allowlist.`);
+  if (policy.body?.maxBytes && textSyntax.byteLengthUtf8(message) > policy.body.maxBytes) rcpFailure('RCP_MESSAGE_REJECTED', 'The complete message exceeds its adopted byte limit.');
+  for (const name of policy.body?.requiredTrailers ?? []) {
+    const lines = message.split('\n').filter(line => line.startsWith(`${name}: `));
+    if (lines.length !== 1 || !lines[0].slice(name.length + 2).trim()) rcpFailure('RCP_MESSAGE_REJECTED', `Exactly one ${name} trailer is required.`);
+  }
+  if (policy.body?.pattern && !compileCommitPattern(policy.body.pattern)(message.slice(subject.length + 1))) rcpFailure('RCP_MESSAGE_REJECTED', 'The message body does not satisfy the adopted grammar.');
+  return true;
+}
+
+function policyPath(value) {
+  if (typeof value !== 'string' || !value || value.length > 1024 || value.startsWith('/') || /[\\\u0000-\u001f:*?]/u.test(value)
+      || value.split('/').some(part => ['', '.', '..'].includes(part) || part.toLowerCase() === '.git')) rcpFailure('RCP_POLICY_INVALID', 'Policy paths must be exact portable repository-relative files or directories.');
+  return value;
+}
+
+const hash = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value);
+
+function normalizeCommitProfile(value, adapter) {
+  strictObject(value, ['schemaVersion', 'adapter', 'platforms', 'coverage', 'inputs', 'checks', 'normalization', 'native'], 'commit profile');
+  readPolicyRecord('repository-commit-policy-profile', value);
+  if (value.adapter !== adapter) rcpFailure('RCP_VALIDATION_UNSUPPORTED', 'The selected immutable profile does not match the required adapter/schema.');
+  const profile = structuredClone(value);
+  if (!Array.isArray(profile.platforms) || !profile.platforms.length || profile.platforms.some(os => !['darwin', 'win32', 'linux'].includes(os))) rcpFailure('RCP_POLICY_INVALID', 'A profile must declare its supported host platforms.');
+  if (!Array.isArray(profile.checks ?? []) || (profile.checks ?? []).length > 32) rcpFailure('RCP_POLICY_INVALID', 'A profile supports at most 32 checks.');
+  profile.checks ??= [];
+  const identifiers = new Set();
+  for (const check of profile.checks) {
+    strictObject(check, ['id', 'rule', 'paths'], 'profile check');
+    if (typeof check.id !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/u.test(check.id) || identifiers.has(check.id) || !REGISTERED_COMMIT_CHECKS[check.rule]) rcpFailure('RCP_POLICY_INVALID', 'Each check needs a distinct identifier and an installed registered rule.');
+    identifiers.add(check.id);
+    if (check.paths != null && (!Array.isArray(check.paths) || check.paths.length > 128)) rcpFailure('RCP_POLICY_INVALID', 'Check paths must be a bounded array.');
+    for (const path of check.paths ?? []) policyPath(path);
+  }
+  if (!Array.isArray(profile.coverage) || profile.coverage.length > 128) rcpFailure('RCP_POLICY_INVALID', 'A profile requires explicit bounded validation coverage.');
+  for (const entry of profile.coverage) {
+    strictObject(entry, ['stage', 'path', 'sha256', 'checks', 'differences'], 'coverage');
+    if (![...COMMIT_HOOK_STAGES, 'repository-message', 'repository-content', 'remote-receive', 'ci'].includes(entry.stage)) rcpFailure('RCP_POLICY_INVALID', 'Coverage names an unsupported stage.');
+    if ((entry.path == null) !== (entry.sha256 == null) || entry.sha256 != null && !hash(entry.sha256)) rcpFailure('RCP_POLICY_INVALID', 'Hook equivalence must bind its path and exact SHA-256 together.');
+    if (entry.path != null && (typeof entry.path !== 'string' || /[\r\n\u0000]/u.test(entry.path))) rcpFailure('RCP_POLICY_INVALID', 'Hook coverage path is invalid.');
+    if (!Array.isArray(entry.checks) || entry.checks.some(id => !identifiers.has(id))) rcpFailure('RCP_POLICY_INVALID', 'Coverage must reference the profile’s installed checks.');
+    if (adapter === 'registered-checks' && !entry.checks.length && !['post-commit', 'pre-push', 'remote-receive', 'ci'].includes(entry.stage)) rcpFailure('RCP_POLICY_INVALID', 'Pre-commit equivalence requires an actual registered check.');
+    if (entry.differences != null && (typeof entry.differences !== 'string' || entry.differences.length > 4096)) rcpFailure('RCP_POLICY_INVALID', 'Equivalence differences must be bounded text.');
+  }
+  if (!Array.isArray(profile.inputs ?? []) || (profile.inputs ?? []).length > 128) rcpFailure('RCP_POLICY_INVALID', 'Profile inputs must be a bounded array.');
+  profile.inputs ??= [];
+  for (const input of profile.inputs) {
+    strictObject(input, ['path', 'sha256'], 'profile input'); policyPath(input.path);
+    if (!hash(input.sha256)) rcpFailure('RCP_POLICY_INVALID', 'Every declared dependency/configuration input needs an immutable SHA-256.');
+  }
+  if (profile.normalization != null) {
+    strictObject(profile.normalization, ['maximumChangedAttempts', 'steps'], 'normalization');
+    const budget = profile.normalization.maximumChangedAttempts ?? 2;
+    if (!Number.isSafeInteger(budget) || budget < 0 || budget > 10 || !Array.isArray(profile.normalization.steps) || profile.normalization.steps.length > 16) rcpFailure('RCP_POLICY_INVALID', 'Normalization requires a finite owner-approved attempt budget and bounded steps.');
+    profile.normalization.maximumChangedAttempts = budget;
+    for (const step of profile.normalization.steps) {
+      strictObject(step, ['rule', 'paths'], 'normalization step');
+      if (!REGISTERED_COMMIT_FORMATTERS.includes(step.rule) || !Array.isArray(step.paths) || !step.paths.length || step.paths.length > 128) rcpFailure('RCP_POLICY_INVALID', 'A normalization step requires a registered formatter and exact path scope.');
+      step.paths.forEach(policyPath);
+    }
+  }
+  if (adapter === 'native-git') {
+    strictObject(profile.native ?? {}, ['context', 'gitDirectory', 'timeoutMs', 'maxOutputBytes', 'maximumObservedFiles', 'maximumObservedBytes', 'messageTransform'], 'native profile');
+    if (profile.native.context !== 'original-worktree-private-git' || profile.native.gitDirectory !== 'candidate-compatible') rcpFailure('RCP_VALIDATION_UNSUPPORTED', 'Native validation requires an explicitly compatible private Git directory and the original worktree/branch semantics.');
+    for (const [field, fallback, maximum] of [['timeoutMs', 120000, 600000], ['maxOutputBytes', 65536, 1048576], ['maximumObservedFiles', 20000, 100000], ['maximumObservedBytes', 268435456, 1073741824]]) {
+      profile.native[field] ??= fallback;
+      if (!Number.isSafeInteger(profile.native[field]) || profile.native[field] < 1 || profile.native[field] > maximum) rcpFailure('RCP_POLICY_INVALID', `Native ${field} exceeds its installed bound.`);
+    }
+    if (profile.native.messageTransform != null) {
+      const transform = strictObject(profile.native.messageTransform, ['producer', 'placement', 'delimiter', 'prefix', 'encoding', 'maximumClockSkewSeconds'], 'message transformation');
+      if (!['prepare-commit-msg', 'commit-msg'].includes(transform.producer) || !['subject-suffix', 'body-suffix'].includes(transform.placement)
+          || transform.encoding !== 'unix-seconds' || typeof transform.delimiter !== 'string' || transform.delimiter.length > 32
+          || typeof transform.prefix !== 'string' || !transform.prefix || transform.prefix.length > 128 || /[\r\n\u0000]/u.test(transform.prefix)) rcpFailure('RCP_POLICY_INVALID', 'A managed transformation must declare its actual producer, placement, exact delimiter/prefix and timestamp encoding.');
+      if (!Number.isSafeInteger(transform.maximumClockSkewSeconds) || transform.maximumClockSkewSeconds < 0 || transform.maximumClockSkewSeconds > 86400) rcpFailure('RCP_POLICY_INVALID', 'A generated timestamp requires an explicit bounded clock tolerance.');
+    }
+  } else if (profile.native != null) rcpFailure('RCP_POLICY_INVALID', 'A registered-check profile cannot claim native execution.');
+  return Object.freeze({ ...profile, profileSha256: rcpDigest(profile) });
+}
+  const binding=Object.freeze({strictObject,rcpDigest,commitTemplateFields,normalizeCommitPolicy,renderCommitMessage,
+    validateCommitMessage,policyPath,normalizeCommitProfile});
+  byText.set(textValues,binding);return binding;
 }

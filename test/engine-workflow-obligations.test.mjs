@@ -26,7 +26,7 @@ test('22 original workflow graphs retain findings, route guarantees, pinned byte
   assert.deepEqual(workflowObligationResults({ graph: { ...core, compileObligationGraph: compile }, roles }), baseline.graphs);
   assert.deepEqual(Object.keys(obligationModules.graph).sort(), baseline.exports.graph);
   assert.deepEqual(Object.keys(obligationModules.roles).sort(), baseline.exports.roles);
-  assert.deepEqual(Object.keys(obligationModules.records).sort(), [...baseline.exports.records, 'NODE_TEXT_DIGESTS', 'NODE_RECORD_BYTES'].sort());
+  assert.deepEqual(Object.keys(obligationModules.records).sort(), [...baseline.exports.records, 'NODE_TEXT_DIGESTS', 'NODE_RECORD_BYTES', 'NODE_TEXT_VALUE_SYNTAX'].sort());
 });
 
 test('27 original record cases preserve pretty/compact serialization, hashes and legacy exceptions', () => {
@@ -73,7 +73,7 @@ test('native graph APIs and the compiler use one cached rule function; results a
   assert.equal(obligationModules.graph.pinnedObligationGraph, core.pinnedObligationGraph);
   assert.equal(obligationModules.roles.phaseResponsibilities, roles.phaseResponsibilities);
   assert.equal(core.createWorkflowObligationCompiler(records.NODE_TEXT_DIGESTS), compile);
-  assert.equal(Object.keys(installed.dependencies).length, 7);
+  assert.equal(Object.keys(installed.dependencies).length, 8);
   assert.equal(installed.dependencies.textDigests, records.NODE_TEXT_DIGESTS);
   assert.equal(Object.hasOwn(installed.dependencies, 'compileObligationGraph'), false);
   assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, compileObligationGraph: () => ({ ready: true }) }),

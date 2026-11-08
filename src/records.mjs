@@ -1,4 +1,4 @@
-import { canonicalJson, TEXT_DIGEST_PROFILE, RECORD_BYTES_PROFILE } from './foundation/record-schema.mjs';
+import { canonicalJson, TEXT_DIGEST_PROFILE, RECORD_BYTES_PROFILE, TEXT_VALUE_SYNTAX_PROFILE } from './foundation/record-schema.mjs';
 export { canonicalJson, compactCanonicalJson } from './foundation/record-schema.mjs';
 /**
  * Content addressing for append-only records.
@@ -36,4 +36,11 @@ export const NODE_RECORD_BYTES = /* @__PURE__ */ Object.freeze({
   profile: RECORD_BYTES_PROFILE,
   isBytes(value) { return Buffer.isBuffer(value) || value instanceof Uint8Array; },
   decodeUtf8(value) { return Buffer.from(value).toString('utf8'); }
+});
+
+/** Preserve raw Node text-value semantics, including genuine invalid-input errors. */
+export const NODE_TEXT_VALUE_SYNTAX = /* @__PURE__ */ Object.freeze({
+  profile: TEXT_VALUE_SYNTAX_PROFILE,
+  byteLengthUtf8(value) { return Buffer.byteLength(value); },
+  sha256Utf8(value) { return createHash('sha256').update(value).digest('hex'); }
 });

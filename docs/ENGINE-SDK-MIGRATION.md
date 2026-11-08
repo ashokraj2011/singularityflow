@@ -302,9 +302,16 @@ lifecycle work retain their original milestone scope.
 kernel compiler over exact Node address/subnet value primitives. The complete declaration, URL
 and blocked-range rules are no longer provided by a native admission callback. Historical
 state-reference precedence is a shared configuration-value rule; it does not select a backend.
-The compiler now has seven composition entries. Native DNS, HTTPS and final authority checks
-retain their owners and behavior; runtime/commit-policy and complete namespace lifecycle work
-remain required.
+Native DNS, HTTPS and final authority checks retain their owners and behavior; complete namespace
+lifecycle work remains required.
+
+[Repository commit-policy rules](ENGINE-SDK-COMMIT-POLICY.md) now belong to the shared kernel,
+including profiles, bounded patterns, message checks and content identities. Native runtime
+availability is a no-input compatibility assertion; it cannot return an accepted policy.
+Native adapters project the original command guidance without duplicating validation. The
+compiler's eight entries are metadata, value primitives and runtime compatibility rather than
+policy-admission callbacks. Namespace-backed configuration/Story execution, remaining queries,
+migration and final qualification retain their full scope.
 
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including

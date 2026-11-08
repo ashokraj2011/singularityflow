@@ -152,7 +152,7 @@ async function capture(root, authority) {
     'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs', 'kernel/phase-policy.mjs',
     'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'foundation/package.json', 'configuration-read-scope.mjs',
     'kernel/workflow-obligations.mjs', 'kernel/phase-responsibilities.mjs',
-    'engine-compatibility/node-workflow-obligations.mjs', 'foundation/record-schema.mjs', 'records.mjs',
+    'engine-compatibility/node-workflow-obligations.mjs', 'foundation/record-schema.mjs', 'foundation/failures.mjs', 'records.mjs',
     'kernel/auto-policy.mjs', 'kernel/adhoc-policy.mjs', 'kernel/mcp-policy.mjs', 'kernel/step-action-policy.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs', 'workflow-intent-capabilities.mjs', 'commands/workflow-intent.mjs']
     .map(async file => ({ file, sha256: sha(await readFile(path.join(PACKAGE_ROOT, 'src', file), 'utf8')) })));
   const sourceSha256 = sha({ format: WORKFLOW_INTENT_CATALOG_FORMAT, interpretation, source, definition: sha(rawText),

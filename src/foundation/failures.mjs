@@ -65,3 +65,6 @@ export class SingularityFlowError extends Error {
     };
   }
 }
+
+/** A semantic policy refusal. Hosts may project presentation without changing the failed rule. */
+export class PolicyViolation extends SingularityFlowError {}

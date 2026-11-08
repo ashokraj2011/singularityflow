@@ -14,19 +14,23 @@ import { createNamespacePreparationEngine } from '../../src/engine-storage/names
 import { createFilesystemSourceUnit } from '../../src/sgos/filesystem-source-unit.mjs';
 import { createNamespaceSourceEngine } from '../../src/engine-storage/namespace-source.mjs';
 
-export async function namespacePreparationFixture(t,{backend='filesystem',code=false}={}) {
+export async function namespacePreparationFixture(t,{backend='filesystem',code=false,configure=null}={}) {
   const f=await namespaceStoryFixture(t,{backend});
   let inputs=f.inputs;
-  if(code) {
+  if(code||configure) {
     const source=structuredClone(f.configurationSource);
-    source.definition.phases.intake.generation={producer:'governed-agent',task:'code'};
-    source.definition.phases.intake.writeScope='source-and-artifact';
-    source.definition.phases.intake.artifact.kind='implementation-summary';
-    source.definition.workTypes.simple.omits=source.definition.workTypes.simple.omits.filter(item=>item.responsibility!=='implement');
+    if(code) {
+      source.definition.phases.intake.generation={producer:'governed-agent',task:'code'};
+      source.definition.phases.intake.writeScope='source-and-artifact';
+      source.definition.phases.intake.artifact.kind='implementation-summary';
+      source.definition.workTypes.simple.omits=source.definition.workTypes.simple.omits.filter(item=>item.responsibility!=='implement');
+    }
+    if(configure)await configure(source);
+    const operationId=code?'configuration-code':'configuration-custom';
     const reference=await f.store(source);
-    await f.configurationEngine.run('configuration.approve',{...f.configurationInputs,operationId:'configuration-code',source:reference,
+    await f.configurationEngine.run('configuration.approve',{...f.configurationInputs,operationId,source:reference,
       confirm:reference.sha256,expectedRevision:f.approval.revision});
-    inputs={...inputs,configurationId:'configuration-code'};
+    inputs={...inputs,configurationId:operationId};
   }
   const story=await f.engine.run('story.create',inputs);
   const privateDirectory=await mkdtemp(path.join(os.tmpdir(),'sflow-private-preparation-')),binding={kind:'machine-local',deviceId:'test-device'};

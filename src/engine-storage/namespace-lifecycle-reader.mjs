@@ -43,12 +43,13 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
     }
     return { version: result.record.version, value: namespaceJson(result.record.value, { maxBytes: limits.maxValueBytes }) };
   }
-  function assertAuthority(value) {
+  function checkAuthority(value,requireActive) {
     stored(lifecycleAuthority, value);
-    if (value.authorityId !== authority.id || value.epoch !== authority.epoch || value.status !== 'active'
+    if (value.authorityId !== authority.id || value.epoch !== authority.epoch || requireActive&&value.status !== 'active'
       || value.recordsId !== recordId || value.contentId !== contentId) throw error('This lifecycle writer is fenced or bound to another authority.',
     'ENGINE_AUTHORITY_FENCED', { workId, authorityId: authority.id, epoch: authority.epoch });
   }
+  function assertAuthority(value) {checkAuthority(value,true);}
   async function bytes(ref, maximumBytes, signal) {
     const selected = contentReference(ref), result = await readContent(scope, selected, { maximumBytes, signal });
     if (result?.status === 'missing' && result.data === null) throw error('Required immutable lifecycle content is missing.',
@@ -80,9 +81,9 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
     }
     return stored(lifecycleState, value, head);
   }
-  async function capture({ signal } = {}) {
+  async function observe({ signal } = {},requireActive) {
     cancelled(signal);
-    const a = await record('state', LIFECYCLE_AUTHORITY_KEY, false, signal); assertAuthority(a.value);
+    const a = await record('state', LIFECYCLE_AUTHORITY_KEY, false, signal); checkAuthority(a.value,requireActive);
     const h = await record('state', headKey, false, signal); stored(lifecycleHead, h.value, workId);
     if (h.value.authorityId !== authority.id || h.value.epoch !== authority.epoch) throw error('This Story uses another lifecycle authority.', 'ENGINE_AUTHORITY_FENCED');
     const c = await record('config', h.value.configuration.key, true, signal); stored(lifecycleConfiguration, c.value);
@@ -95,5 +96,7 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
     const snapshot = { workId, revision: h.version, workflow: body.workflow, configuration: structuredClone(h.value.configuration) };
     return { snapshot, basis: { authorityVersion: a.version, headVersion: h.version, configurationVersion: c.version, head: h.value } };
   }
-  return Object.freeze({stored,record,assertAuthority,bytes,state,capture});
+  // Inspection can acknowledge retained facts while fenced; only capture is a writer basis.
+  const capture=options=>observe(options,true),inspect=options=>observe(options,false);
+  return Object.freeze({stored,record,assertAuthority,bytes,state,capture,inspect});
 }

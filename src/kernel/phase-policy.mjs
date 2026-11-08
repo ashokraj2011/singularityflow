@@ -1,5 +1,6 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
+import { phasePublicationBindingValue } from '../foundation/record-schema.mjs';
 import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
@@ -308,7 +309,8 @@ export function hasPublishedPhaseGeneration(phase) {
   const generation = Number(phase?.generation);
   if (!Number.isSafeInteger(generation) || generation < 1 || phase.generationIntent?.status === 'open') return false;
   return (phase.generationIntent?.status === 'consumed' && Number(phase.generationIntent.generation) === generation)
-    || (phase.generationPublications ?? []).some(entry => Number(entry.generation) === generation && entry.record?.path);
+    || (phase.generationPublications ?? []).some(entry => Number(entry.generation) === generation && entry.record?.path)
+    || (phase.publicationBindings ?? []).some(entry => phasePublicationBindingValue(entry).generation === generation);
 }
 
 export function requiresProspectivePhaseInspection(workflow, phase) {

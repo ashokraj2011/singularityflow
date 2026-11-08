@@ -71,7 +71,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-configuration-codec.mjs','src/engine-storage/namespace-configuration-reader.mjs',
     'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-story.mjs','src/engine-storage/namespace-story-contract.mjs',
     'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-draft-store.mjs',
-    'src/engine-storage/namespace-draft-contract.mjs','src/engine-storage/namespace-preparation.mjs']);
+    'src/engine-storage/namespace-draft-contract.mjs','src/engine-storage/namespace-preparation.mjs',
+    'src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-publication-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -241,7 +242,7 @@ test('the internal namespace lifecycle committer composes explicit ports without
     allowed: [contract, ...await sourceFiles('src/foundation'), ...await sourceFiles('src/sda/namespace'), ...await sourceFiles('src/sda/content')] });
   assert.deepEqual(report.problems, []);
   for (const file of await sourceFiles('src')) {
-    if (file === owner || file === 'src/engine-storage/namespace-source.mjs') continue;
+    if ([owner,'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-publication.mjs'].includes(file)) continue;
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     assert.equal(text.includes('namespace-lifecycle-commit.mjs'), false, file + ' must not select the new authority before a verified cutover');
   }
@@ -398,9 +399,39 @@ test('private preparation composes explicit storage and source ports without an 
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     for(const node of ast.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.')) {
       const target=path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text));
-      assert.notEqual(target,owner,file+' cannot implicitly replace installed preparation');
+      if(file!=='src/engine-storage/namespace-publication.mjs')assert.notEqual(target,owner,file+' cannot implicitly replace installed preparation');
       assert.notEqual(target,draft,file+' cannot save private phase drafts outside their explicit composition');
     }
+  }
+});
+
+test('namespace publication composes verified private drafts and the conditional writer through explicit ports only',async()=>{
+  const owner='src/engine-storage/namespace-publication.mjs',contract='src/engine-storage/namespace-publication-contract.mjs';
+  const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+    '../kernel/artifact-content.mjs','../kernel/publication-intent.mjs','../kernel/phase-policy.mjs','../kernel/lifecycle-transitions.mjs',
+    '../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-preparation.mjs',
+    './namespace-lifecycle-commit.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs']);
+  const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(owner+' cannot discover installed state or execute host code');
+    assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+    ts.forEachChild(node,visit);
+  };visit(ast);
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+    ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(pure.problems,[]);
+  for(const file of await sourceFiles('src')) {
+    if(file===owner)continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const inspect=node=>{
+      const specifier=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.'))assert.notEqual(
+        path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,
+        file+' cannot implicitly replace installed publication authority');
+      ts.forEachChild(node,inspect);
+    };inspect(ast);
   }
 });
 

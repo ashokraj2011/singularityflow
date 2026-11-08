@@ -107,7 +107,7 @@ Rebinding preserves the authored artifact and previous private body, checks curr
 source observations and records the exact reason. It cannot silently refresh an old editor or
 move canonical Story state. The shared and local stores have no implicit distributed transaction:
 if shared state moves after the last check, the local draft remains bound to the captured basis
-and reads as stale. Publication will need its own fresh conditional binding check.
+and reads as stale. Publication has its own fresh conditional binding check.
 
 A different laptop starts with its own private stores. Shared Story/configuration/source records
 remain available through their configured authority; private authored drafts and attachments are
@@ -126,9 +126,11 @@ Missing bytes, genuine permission errors, changed files, deadlines, cancellation
 versions, fencing, conflicts and uncertain outcomes retain explicit errors. New private formats
 are versioned separately from installed Git records. No automatic authority migration is enabled.
 
-This is a Phase 7 preparation slice, not a complete portable lifecycle backend. Namespace
-publication, submission, decisions, approval, full phase entry and cross-agent execution still
-need their actual policy and execution ports. Native required after-step actions, MCP readiness,
+This is a Phase 7 preparation slice, not a complete portable lifecycle backend. The later
+[namespace publication host](ENGINE-SDK-NAMESPACE-PUBLICATION.md) supplies the initial
+primary-document publication profile. Complete publication, submission, decisions, approval,
+full phase entry and cross-agent execution still need their policy and execution ports.
+Native required after-step actions, MCP readiness,
 impact/planned claims and full test-command policy still need extraction. Required TRP agreements
 and readiness, reference repositories, deterministic/kernel producers and qualified skill hosts
 remain explicit prerequisites; this host does not manufacture success for an unavailable owner.

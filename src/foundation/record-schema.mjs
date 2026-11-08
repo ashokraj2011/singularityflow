@@ -153,6 +153,22 @@ export const NAMESPACE_DRAFT_SCHEMAS = Object.freeze({
 export const NAMESPACE_PREPARATION_SCHEMAS = Object.freeze({
   context: frozenFamily('namespace-preparation-context'), generation: frozenFamily('namespace-source-generation')
 });
+export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
+  binding: frozenFamily('phase-publication-binding'), manifest: frozenFamily('namespace-phase-publication')
+});
+/** Portable publication reference metadata; acceptance and byte verification belong to its owners. */
+export function phasePublicationBindingValue(value) {
+  admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.binding,value);
+  const fields=['schemaVersion','format','generation','record'];
+  const record=value.record;
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==fields.length||!fields.every(key=>Object.hasOwn(value,key))
+    ||value.format!=='sflow-phase-publication-binding/v1'||!Number.isSafeInteger(value.generation)||value.generation<1
+    ||!record||typeof record!=='object'||Array.isArray(record)||Object.keys(record).length!==3||!['namespace','sha256','bytes'].every(key=>Object.hasOwn(record,key))
+    ||record.namespace!=='evidence'||typeof record.sha256!=='string'||!/^[a-f0-9]{64}$/u.test(record.sha256)
+    ||!Number.isSafeInteger(record.bytes)||record.bytes<1||record.bytes>4_194_304)throw new SingularityFlowError(
+      'The phase publication binding is invalid.',{code:'PUBLICATION_BINDING_INVALID'});
+  return value;
+}
 // Wire shape constraints, selected here without rewriting an immutable historical body.
 const LIFECYCLE_STATE_PROFILES = Object.freeze({
   1: Object.freeze({ requireOwnedCurrentPhase: false, terminalStatuses: Object.freeze([]) }),

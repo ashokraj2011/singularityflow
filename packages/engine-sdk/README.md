@@ -69,6 +69,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   canonical lifecycle reads, original receipts and first source observations across takeover.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
   drafts using separately device-bound local ports, without changing canonical phase state.
+- `hosts/namespace-publication`: publish primary authored documents using the conditional namespace
+  writer, preserve exact bytes and acknowledge original receipts across retry or device takeover.
+  Additional policy/execution owners and the complete portable lifecycle remain unfinished.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,

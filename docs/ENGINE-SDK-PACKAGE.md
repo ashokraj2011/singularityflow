@@ -76,3 +76,10 @@ The [artifact-template content rules](ENGINE-SDK-ARTIFACT-TEMPLATES.md) add the 
 entry. The native renderer and the SDK use the same token and namespace rules over text already
 supplied by the host. Namespace approval validates referenced template tokens before acceptance.
 Source reads, model instructions and machine-private draft persistence retain separate owners.
+
+The [namespace publication host](ENGINE-SDK-NAMESPACE-PUBLICATION.md) adds the explicit
+`hosts/namespace-publication` entry. It publishes actual private authored bytes through the
+registered coordinator and conditional canonical writer. Its initial primary-document profile
+preserves unavailable policy/execution requirements as explicit refusals. Installed archive
+qualification publishes and reopens the original receipt in separate empty-PATH processes.
+Complete portable lifecycle execution and authority migration remain unfinished.

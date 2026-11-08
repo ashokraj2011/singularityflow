@@ -422,6 +422,43 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,replayed:true});
   });
 
+  await t.test('installed publication retains actual authored bytes and reopens its original receipt in another empty-PATH process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE} from '${packageName}/hosts/namespace-publication';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'portable-device'};
+      const scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='portable-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const localRecords=await createFilesystemNamespaceStore({root:path.resolve('private-records'),binding:privateBinding});
+      const {DatabaseSync}=await import('node:sqlite');
+      const sharedDatabase=new DatabaseSync(path.resolve('configuration-content.db')),privateDatabase=new DatabaseSync(path.resolve('private-content.db'));
+      const content=createSqliteContentStore({database:sharedDatabase,binding});
+      const localContent=createSqliteContentStore({database:privateDatabase,binding:privateBinding});
+      try {
+        let calls=0;const access={current(){calls++;if(!fresh)throw Error('An accepted receipt cannot authorize another effect.');
+          return {projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',agentId:'analyst',permissions:['phase.publish'],
+            identity:{name:'Example reviewer',email:'reviewer@example.test'}};}};
+        const clock={now(){if(!fresh)throw Error('An accepted publication cannot be restamped.');return '2026-11-08T14:00:00.000Z';}};
+        const engine=createNamespacePublicationEngine({records,content,localRecords,localContent,scope,workId,authority,access,clock});
+        assert.equal(NAMESPACE_PUBLICATION_PROFILE,'sflow-primary-document-publication/v1');
+        const result=await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});
+        assert.equal(result.status,fresh?'published':'retained');assert.equal(result.generation,1);
+        assert.deepEqual(result.effects,{committed:fresh,pushed:false});
+        const review=await engine.run('phase.review',{phaseId:'intake'}),item=review.manifest.items.find(item=>item.primary);
+        assert.equal(review.manifest.generation,1);assert.equal(item.integrity,'matched');
+        const document=await engine.run('document.read',{reference:item.reference});
+        assert.equal(document.document.content.text,'# Authored intake\\n\\nAn observable requirement.\\n');
+        if(!fresh)assert.equal(calls,0);
+        process.stdout.write(JSON.stringify(result));
+      }finally{sharedDatabase.close();privateDatabase.close();}
+    `;
+    const first=JSON.parse(await run('publication.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('publication.mjs',source,['replay']));
+    assert.deepEqual(replay,{...first,status:'retained',effects:{committed:false,pushed:false},retentionReason:'unchanged-document'});
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -439,6 +476,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
       import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
+      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
@@ -570,8 +608,21 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         createNamespacePreparationEngine({records,content,scope:options.scope,workId:options.workId,authority:options.authority,access:options.access,clock:options.clock});
         return createNamespacePreparationEngine(options);
       }
+      function publicationHost(records:NamespaceStore,content:ContentStore,localRecords:NamespaceStore,localContent:ContentStore) {
+        const options={records,content,localRecords,localContent,scope:{projectId:'example'},workId:'example',authority:{id:'application-authority',epoch:1},
+          access:{current:()=>({projectId:'example',principalId:'human-reviewer',actorKind:'human' as const,agentId:'analyst',
+            permissions:['phase.publish'],identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
+          clock:{now:()=> '2026-11-08T00:00:00.000Z'}};
+        const profile:'sflow-primary-document-publication/v1'=NAMESPACE_PUBLICATION_PROFILE;
+        const published:Promise<EngineResult<'phase.publish'>>=createNamespacePublicationEngine(options).publishPhase({phaseId:'review'});
+        // @ts-expect-error Shared publication still needs its explicit private authored-byte ports.
+        createNamespacePublicationEngine({records,content,scope:options.scope,workId:options.workId,authority:options.authority,access:options.access,clock:options.clock});
+        // @ts-expect-error Operation inputs cannot claim their own permission or supply an authenticated actor.
+        createNamespacePublicationEngine(options).publishPhase({phaseId:'review',actor:{principalId:'administrator'}});
+        return [profile,published];
+      }
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT,contentFindings];
-      void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,preparationHost,createSqliteContentStore];
+      void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,preparationHost,publicationHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],

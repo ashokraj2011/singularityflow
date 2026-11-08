@@ -80,6 +80,12 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
+The [immutable routing-input delivery](ENGINE-SDK-NAMESPACE-ROUTING-INPUTS.md) adds versioned
+submission records for pinned own/reused decision inputs while preserving decision-free v1 bytes.
+Shared proof readers verify source packets and actual human approval thresholds. This establishes
+input provenance; branch/ask/loop execution and routed historical receipt semantics still require
+their Phase 7 owner. Phases 5, 7, 8 and 9 remain open.
+
 The [namespace Story creation delivery](ENGINE-SDK-STORY-CREATION.md) connects actual enrollment,
 configuration approval, source retention and lifecycle genesis through the registry. The read
 locator follows canonical lifecycle state; it does not introduce another authority or claim

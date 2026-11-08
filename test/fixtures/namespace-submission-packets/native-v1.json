@@ -1,0 +1,29 @@
+{
+  "baseline": "e34bcd6e2",
+  "cases": [
+    {
+      "backend": "filesystem",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "phaseId": "intake",
+      "wire": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"reviewer@example.test\",\n      \"login\": null,\n      \"name\": \"Example reviewer\"\n    },\n    \"principalId\": \"application-owner\"\n  },\n  \"agentId\": \"analyst\",\n  \"baseRevision\": \"fs:d078a44a-4cec-40cc-80f6-6dc19142f669/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 16127,\n      \"namespace\": \"config\",\n      \"sha256\": \"99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n    },\n    \"key\": \"configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n  },\n  \"format\": \"sflow-namespace-phase-review-packet/v1\",\n  \"generation\": 1,\n  \"operationId\": \"submit-f5d6b433940b9c9ee5337164172e91ac4c98faee64050fe2240cad3ed983640f\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-submission/v1\",\n  \"projectId\": \"new-project\",\n  \"publication\": {\n    \"format\": \"sflow-phase-publication-binding/v1\",\n    \"generation\": 1,\n    \"record\": {\n      \"bytes\": 3344,\n      \"namespace\": \"evidence\",\n      \"sha256\": \"20f64c51d658d2d49ebd530ed181fa59c4954778b1727476a24821a49b5f0b44\"\n    },\n    \"schemaVersion\": 1\n  },\n  \"requestSha256\": \"7cc27987359a6de7c1cfe9e957418b3e4aebf43a480403658e2a372f3a71e330\",\n  \"schemaVersion\": 1,\n  \"submittedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"workId\": \"story-1\"\n}\n",
+      "sha256": "7fb4a1230264a450e713bdbd3dc4f29a27e4a9b15e7cdda9c432287de02d6283"
+    },
+    {
+      "backend": "sqlite",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "phaseId": "intake",
+      "wire": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"reviewer@example.test\",\n      \"login\": null,\n      \"name\": \"Example reviewer\"\n    },\n    \"principalId\": \"application-owner\"\n  },\n  \"agentId\": \"analyst\",\n  \"baseRevision\": \"sql:8aeeb3ff-1c35-47e3-816c-d024711e867f/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 16127,\n      \"namespace\": \"config\",\n      \"sha256\": \"99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n    },\n    \"key\": \"configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n  },\n  \"format\": \"sflow-namespace-phase-review-packet/v1\",\n  \"generation\": 1,\n  \"operationId\": \"submit-79261664ac24b91d1b8eac25c268ef7eff79f79d7809f5134bc9a9c2c2149359\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-submission/v1\",\n  \"projectId\": \"new-project\",\n  \"publication\": {\n    \"format\": \"sflow-phase-publication-binding/v1\",\n    \"generation\": 1,\n    \"record\": {\n      \"bytes\": 3346,\n      \"namespace\": \"evidence\",\n      \"sha256\": \"b62507d34923380f165e9cf3524d853daa330d8ce668c03451cb89a2e8437bcc\"\n    },\n    \"schemaVersion\": 1\n  },\n  \"requestSha256\": \"7cc27987359a6de7c1cfe9e957418b3e4aebf43a480403658e2a372f3a71e330\",\n  \"schemaVersion\": 1,\n  \"submittedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"workId\": \"story-1\"\n}\n",
+      "sha256": "10aedf0347057e39a7f81ca1ac4ddb6417f5fdf4ce27cc3a33ca5bdeb81c2498"
+    },
+    {
+      "backend": "application",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "phaseId": "intake",
+      "wire": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"reviewer@example.test\",\n      \"login\": null,\n      \"name\": \"Example reviewer\"\n    },\n    \"principalId\": \"application-owner\"\n  },\n  \"agentId\": \"analyst\",\n  \"baseRevision\": \"sql:a707758a-f5a8-4d5f-9530-70248a8adf50/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 16127,\n      \"namespace\": \"config\",\n      \"sha256\": \"99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n    },\n    \"key\": \"configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n  },\n  \"format\": \"sflow-namespace-phase-review-packet/v1\",\n  \"generation\": 1,\n  \"operationId\": \"submit-46da3aba6951a750d5d233a6c3ac2d42cfa4c0c7908395fa94499b74fd34f708\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-submission/v1\",\n  \"projectId\": \"new-project\",\n  \"publication\": {\n    \"format\": \"sflow-phase-publication-binding/v1\",\n    \"generation\": 1,\n    \"record\": {\n      \"bytes\": 3346,\n      \"namespace\": \"evidence\",\n      \"sha256\": \"1d5c6d60302fbb7080ce2433c67282ba3c391d0c5c7d726159c31f78dde2acee\"\n    },\n    \"schemaVersion\": 1\n  },\n  \"requestSha256\": \"7cc27987359a6de7c1cfe9e957418b3e4aebf43a480403658e2a372f3a71e330\",\n  \"schemaVersion\": 1,\n  \"submittedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"workId\": \"story-1\"\n}\n",
+      "sha256": "02f72b1e4135001b57a5c5f5b411bdc7dbf2f7c9ed242f7c73faa24bac8400f1"
+    }
+  ]
+}

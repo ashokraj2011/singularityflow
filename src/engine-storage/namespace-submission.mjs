@@ -7,7 +7,8 @@ import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase-admission.mjs';
 import {phaseGovernancePlan,hasPublishedPhaseGeneration,phaseNeedsGeneration} from '../kernel/phase-policy.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
-import {beginPhaseSubmission,applyPhaseSubmissionDisposition,sequenceAdmission} from '../kernel/lifecycle-transitions.mjs';
+import {beginPhaseSubmission,applyPhaseSubmissionDisposition,sequenceAdmission,submittedDecisionInputPlan,applySubmittedDecisionInput} from '../kernel/lifecycle-transitions.mjs';
+import {submissionRoutingSelection} from '../kernel/submission-routing.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
@@ -18,8 +19,9 @@ import {createNamespacePublicationReader} from './namespace-publication-reader.m
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
-import {namespaceSubmissionBindingValue,namespaceSubmissionValue,NAMESPACE_SUBMISSION_PROFILE} from './namespace-submission-contract.mjs';
-export {NAMESPACE_SUBMISSION_PROFILE};
+import {namespaceSubmissionBindingValue,namespaceSubmissionValue,namespaceSubmissionRecord,namespaceSubmissionRoutingValue,
+  NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE} from './namespace-submission-contract.mjs';
+export {NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE};
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -63,7 +65,23 @@ export function createNamespaceSubmissionEngine({records,content,scope,workId,au
     if(value.baseRevision!==plan.basis.headVersion||!same(value.configuration,plan.basis.head.configuration)||!lineage
       ||lineage.packetSha256!==phase.namespaceSubmission.record.sha256||!same(lineage.packetReference,phase.namespaceSubmission.record)
       ||phase.submittedAt!==value.submittedAt)throw error('The submission state lost its exact review binding.','ENGINE_STORAGE_CORRUPT');
+    await packets.verifyRouting({workflow:state.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion},s.phaseId,value,{signal});
     return {workflow:state.workflow,phase,packet:value};
+  }
+  async function routing(snapshot,phase,signal) {
+    const selected=submissionRoutingSelection(snapshot.workflow,phase);if(!selected)return null;
+    const sources=await packets.inspectApprovedMany(snapshot,selected.reused.map(source=>source.phase),{signal});
+    const reused=selected.reused.map((source,index)=>{
+      const proof=sources[index],record=proof?.value.routing?.record;
+      if(!record||record.decision!==source.decision||proof.value.generation!==source.generation
+        ||Object.entries(source.values).some(([name,value])=>!Object.hasOwn(record.values,name)||!same(record.values[name],value))) {
+        throw error('Reused decision inputs require their exact retained source submission.','ENGINE_ROUTING_INPUT_PROVENANCE_REQUIRED',{
+          decision:source.decision,phase:source.phase});
+      }
+      return {...source,packet:proof.binding.record};
+    });
+    return namespaceSubmissionRoutingValue({schemaVersion:NAMESPACE_SUBMISSION_SCHEMAS.routing.currentVersion,
+      format:'sflow-namespace-submission-routing/v1',decision:selected.decision,record:selected.record,reused});
   }
   function facts(s,result,accepted) {
     const record=accepted.receipt.records.find(item=>item.namespace==='state'&&item.key===namespaceLifecycleStoryKey(workId));
@@ -100,6 +118,9 @@ export function createNamespaceSubmissionEngine({records,content,scope,workId,au
     async retained(context,_input,{signal}={}) {
       const s=selected(context);
       if(!s.acknowledging) {
+        s.decisionPlan=submittedDecisionInputPlan(context.workflow,context.phase,s.request.decisionValues);
+        s.request={...s.request,decisionValues:s.decisionPlan.kind==='record'?s.decisionPlan.values:{}};
+        s.requestSha256=hash(canonicalJson(s.request));
         s.agent=await authorize(signal);
         // Another authorized person gets their own candidate without rewriting the first author's checkpoint.
         s.operationId='submit-'+hash(canonicalJson({scope,workId,authority,publication:s.publication,basis:s.basis,request:s.request,author:s.agent}));
@@ -130,7 +151,7 @@ export function createNamespaceSubmissionEngine({records,content,scope,workId,au
       const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
       if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
       if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
-      if(Object.keys(input.decisionValues??{}).length)required.add('submitted-decision-inputs');
+      if(s.decisionPlan?.kind==='retained')required.add('retained-decision-input-provenance');
       if(workflow.resolution.presence)required.add('person-presence');
       if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
       const published=await publications.read(s.publication,s.phaseId,{signal});
@@ -143,9 +164,10 @@ export function createNamespaceSubmissionEngine({records,content,scope,workId,au
         if(!same(original.packet.actor,agent.actor)||original.packet.agentId!==agent.agentId)throw error('Resume submission under its original authenticated author.','ENGINE_ACTOR_CHANGED');
       }else {
         const submittedAt=projectEnrollmentTimestamp(await now());
-        const value={schemaVersion:NAMESPACE_SUBMISSION_SCHEMAS.packet.currentVersion,format:'sflow-namespace-phase-review-packet/v1',profile:NAMESPACE_SUBMISSION_PROFILE,
-          projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,
-          baseRevision:snapshot.revision,configuration:snapshot.configuration,publication:s.publication,actor:agent.actor,agentId:agent.agentId,submittedAt};
+        if(s.decisionPlan?.kind==='record')applySubmittedDecisionInput(phase,s.decisionPlan,{at:submittedAt,actorId:agent.actor.principalId});
+        const value=namespaceSubmissionRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
+          operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
+          publication:s.publication,actor:agent.actor,agentId:agent.agentId,submittedAt},{routing:await routing(snapshot,phase,signal)});
         namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
         const data=Buffer.from(canonicalJson(value)),expectedReference={namespace:'evidence',sha256:hash(data),bytes:data.byteLength};
         const saved=await put(scope,'evidence',data,{signal});

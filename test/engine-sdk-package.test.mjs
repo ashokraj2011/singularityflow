@@ -282,6 +282,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
                 omits:['scope','plan','implement','verify'].map(responsibility=>({responsibility,reason:'This workflow produces a reviewed document, without delivering application behavior.',authority:'reviewers'}))}}},
             agents:[{id:'analyst',label:'Analyst',phases:['intake'],defaultFor:['intake'],mode:'read-write',body,skills:[],instructions:[]}],
             skills:[],instructions:[],templates:[{path:'singularity/templates/intake.md',body}],files:[]};
+          packet.definition.workTypes.routing={...structuredClone(packet.definition.workTypes.simple),label:'Routed review',decisions:[{
+            id:'channel',label:'Channel',after:'intake',kind:'branch',inputs:[{name:'channel',values:['Web','Mobile']}],
+            routes:['web','mobile'].map((id,index)=>({id,label:id,...(index===0?{when:{channel:'Web'}}:{}),to:'end',
+              omits:structuredClone(packet.definition.workTypes.simple.omits)}))}]};
           const reference=await text(JSON.stringify(packet));
           inputs={operationId:'approve-configuration',source:reference,expectedRevision:null,confirm:reference.sha256,reason:'Reviewed the complete workflow package.'};
           await writeFile('configuration-inputs.json',JSON.stringify(inputs));
@@ -291,7 +295,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         const head=await records.read(scope,'config',NAMESPACE_CONFIGURATION_HEAD_KEY);
         assert.equal(result.replayed,!fresh);assert.equal(result.revision,head.record.version);assert.equal(result.effects.configurationApproved,true);
         const compiled=JSON.parse(Buffer.from((await content.read(scope,result.configuration)).data).toString('utf8'));
-        assert.deepEqual(compiled.workTypeIds,['simple']);assert.equal(compiled.definition.agentCatalog[0].id,'analyst');
+        assert.deepEqual(compiled.workTypeIds,['simple','routing']);assert.equal(compiled.definition.agentCatalog[0].id,'analyst');
         assert.equal(compiled.workflows.simple.phases[0].defaultAgent,'analyst');
         assert.equal((await content.read(scope,compiled.agents[0].body)).status,'present');
         if(!fresh)assert.equal(calls,0);
@@ -533,6 +537,60 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const replay=JSON.parse(await run('approval.mjs',source,['replay']));assert.deepEqual(replay,first);
   });
 
+  await t.test('installed v2 submission retains normalized routing inputs and acknowledges them without private drafts',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceStoryEngine} from '${packageName}/hosts/namespace-story';
+      import {createNamespacePreparationEngine} from '${packageName}/hosts/namespace-preparation';
+      import {createNamespacePublicationEngine} from '${packageName}/hosts/namespace-publication';
+      import {createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_DECISION_PROFILE} from '${packageName}/hosts/namespace-submission';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='routing-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const {DatabaseSync}=await import('node:sqlite'),database=new DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding});let privateDatabase=null;
+      try {
+        const access={current(){if(!fresh)throw Error('Acknowledgement cannot authorize another routing submission.');
+          return {projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',agentId:'analyst',
+            permissions:['story.create','phase.prepare','phase.draft.read','phase.draft.write','phase.publish','phase.submit'],
+            identity:{name:'Example reviewer',email:'reviewer@example.test'}};}};
+        const clock={now(){if(!fresh)throw Error('Acknowledgement cannot restamp submitted routing inputs.');return '2026-11-08T17:00:00.000Z';}};
+        const options={records,content,scope,workId,authority,access,clock};
+        if(fresh) {
+          const source=(await content.put(scope,'state',Buffer.from('# Routing request\\n\\nRetain the selected channel.\\n'))).reference;
+          await createNamespaceStoryEngine(options).run('story.create',{operationId:'create-routing-story',workId,title:'Routed review',
+            workTypeId:'routing',configurationId:'approve-configuration',source});
+          const privateBinding={kind:'machine-local',deviceId:'portable-device'};
+          const localRecords=await createFilesystemNamespaceStore({root:path.resolve('routing-private-records'),binding:privateBinding,create:true});
+          privateDatabase=new DatabaseSync(path.resolve('routing-private-content.db'));
+          const localContent=createSqliteContentStore({database:privateDatabase,binding:privateBinding,create:true});
+          const preparation=createNamespacePreparationEngine({...options,localRecords,localContent});
+          await preparation.run('phase.prepare',{phaseId:'intake'});const {manifest}=await preparation.run('phase.draft.read',{phaseId:'intake'});
+          const authored=(await localContent.put(scope,'local',Buffer.from('# Retained review\\n\\nThe selected channel is Web.\\n'))).reference;
+          await preparation.run('phase.draft.write',{operationId:'author-routing-review',workId,phaseId:'intake',expectedRevision:manifest.draft.revision,
+            content:authored,reason:'Retain the actual review before submission.'});
+          await createNamespacePublicationEngine({...options,localRecords,localContent}).run('phase.publish',
+            {phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});
+        }
+        const engine=createNamespaceSubmissionEngine(options);
+        assert.equal(NAMESPACE_SUBMISSION_DECISION_PROFILE,'sflow-primary-document-submission/v2');
+        const result=await engine.run('phase.submit',{phaseId:'intake',decisionValues:{channel:fresh?' web ':'Mobile'}});
+        assert.equal(result.status,fresh?'awaiting-approval':'retained');
+        const packet=JSON.parse((await engine.run('document.read',{reference:{kind:'story-document',id:'REVIEW-intake-GEN-1',workId}})).document.content.text);
+        assert.equal(packet.schemaVersion,2);assert.equal(packet.profile,NAMESPACE_SUBMISSION_DECISION_PROFILE);
+        assert.deepEqual(packet.routing.record.values,{channel:'Web'});assert.deepEqual(packet.routing.reused,[]);
+        assert.equal(packet.routing.record.recordedAt,packet.submittedAt);
+        const review=await engine.run('phase.review',{phaseId:'intake'});
+        assert.equal(review.manifest.reviewBinding.packetSha256,result.submission.reviewPacket);
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();privateDatabase?.close();}
+    `;
+    const first=JSON.parse(await run('routing-submission.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('routing-submission.mjs',source,['replay']));
+    assert.deepEqual(replay,{...first,status:'retained',effects:{committed:false,pushed:false}});
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -551,7 +609,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
       import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
-      import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE } from '${packageName}/hosts/namespace-submission';
+      import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE } from '${packageName}/hosts/namespace-submission';
       import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
@@ -715,12 +773,13 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           access:{current:()=>({projectId:'example',principalId:'human-reviewer',actorKind:'human' as const,agentId:'analyst',permissions:['phase.submit'],
             identity:{name:'Example reviewer',email:'reviewer@example.test'}})},clock:{now:()=> '2026-11-08T00:00:00.000Z'}};
         const profile:'sflow-primary-document-submission/v1'=NAMESPACE_SUBMISSION_PROFILE;
+        const decisionProfile:'sflow-primary-document-submission/v2'=NAMESPACE_SUBMISSION_DECISION_PROFILE;
         const submission:Promise<EngineResult<'phase.submit'>>=createNamespaceSubmissionEngine(options).submitPhase({phaseId:'review'});
         // @ts-expect-error Submission access is authenticated by the construction-time port.
         createNamespaceSubmissionEngine(options).submitPhase({phaseId:'review',actor:{principalId:'administrator'}});
         // @ts-expect-error Shared metadata and content connections are explicit requirements.
         createNamespaceSubmissionEngine({scope:options.scope,workId:options.workId,authority:options.authority,access:options.access,clock:options.clock});
-        return [profile,submission];
+        return [profile,decisionProfile,submission];
       }
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT,contentFindings];
       void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,preparationHost,publicationHost,submissionHost,createSqliteContentStore];

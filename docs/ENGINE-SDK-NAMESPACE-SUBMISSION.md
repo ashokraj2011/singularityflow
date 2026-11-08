@@ -38,8 +38,10 @@ publication and submission do not upload their content.
 Additional code, test execution, specification, source-review, clarification, MCP, skill-host,
 presence, automatic-approval and other policy requirements need their actual owners. Required
 owners remain explicit `ENGINE_PORT_UNAVAILABLE` refusals, not caller-supplied ready flags.
-Unknown decision inputs retain the kernel's `DECISION_INPUT_UNKNOWN` refusal; declared decision
-inputs require their recording owner. `runChecks: false` cannot waive required execution.
+Unknown decision inputs retain the kernel's `DECISION_INPUT_UNKNOWN` refusal. Declared decision
+inputs use the [versioned routing-input packet](ENGINE-SDK-NAMESPACE-ROUTING-INPUTS.md), with the
+pinned compiler's value rules and original author provenance. `runChecks: false` cannot waive
+required execution.
 
 The first accepted submission moves the phase to `awaiting_approval`. It retains no fabricated
 test execution, human review, approval or phase advancement. The canonical generation and
@@ -52,6 +54,11 @@ The versioned `sflow-namespace-phase-review-packet/v1` binds the actual publicat
 configuration, submitting actor/agent, original source-state revision and time. It does not
 reinterpret a storage revision as a Git commit. Its immutable bytes, submission binding, lineage
 entry and state update are retained through the conditional lifecycle writer.
+
+Decision-free submissions continue writing exactly that v1 shape. A pinned decision following the
+phase selects v2, which adds canonical own inputs and exact earlier submitted-packet references
+for reused inputs. Both versions remain readable; old packets are never restamped or given new
+routing meaning. Retaining decision inputs does not execute a route or answer a human question.
 
 Every explicit namespace host uses the same read-only publication/submission proof owners.
 `phase.review` returns the submitted packet hash, actual source revision and observed current

@@ -3,11 +3,14 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {namespaceSubmissionValue,namespaceSubmissionBindingValue} from './namespace-submission-contract.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
+import {createNamespaceApprovalReader} from './namespace-approval-reader.mjs';
+import {assertSubmittedRoutingSelection} from '../kernel/submission-routing.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
 export function createNamespaceSubmissionReader({observer,scope,workId}) {
-  const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId});
+  const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId}),
+    votes=createNamespaceApprovalReader({observer,scope,workId});
   async function decode(binding,phaseId,{signal}={}) {
     namespaceSubmissionBindingValue(binding);let value;
     try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
@@ -19,7 +22,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     if(!same(published.configuration,value.configuration))throw error('The review packet has another configuration pin.','ENGINE_STORAGE_CORRUPT');
     return published;
   }
-  async function inspect(snapshot,phaseId,{signal}={}) {
+  async function inspectOne(snapshot,phaseId,signal,cache) {
     if(!snapshot?.workflow.phases?.[phaseId])return null;
     const phase=snapshot.workflow.phases[phaseId],binding=phase.namespaceSubmission;
     if(!binding)return null;
@@ -37,12 +40,48 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     if(!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
       throw error('The submitted artifact metadata differs from its publication.','ENGINE_STORAGE_CORRUPT');
     }
+    await routingProof(snapshot,phaseId,value,signal,cache);
     return {binding,value,published,review:{workId,phase:phaseId,generation:phase.generation,packetSha256:binding.record.sha256,
       sourceRevision:value.baseRevision,observedRevision:snapshot.revision}};
+  }
+  async function routingProof(snapshot,phaseId,value,signal,cache) {
+    if(Object.hasOwn(value,'routing')) {
+      try{assertSubmittedRoutingSelection(snapshot.workflow,snapshot.workflow.phases[phaseId],value.routing);}
+      catch(cause){throw error('The retained routing values differ from their pinned decision inputs.','ENGINE_STORAGE_CORRUPT',cause);}
+      for(const source of value.routing.reused) {
+        const earlier=await approved(snapshot,source.phase,signal,cache),record=earlier?.value.routing?.record;
+        if(!earlier||!same(earlier.binding.record,source.packet)||!record||record.decision!==source.decision
+          ||earlier.value.generation!==source.generation||Object.entries(source.values).some(([name,item])=>!Object.hasOwn(record.values,name)||!same(record.values[name],item))) {
+          throw error('A reused decision input has no matching retained source packet.','ENGINE_STORAGE_CORRUPT');
+        }
+      }
+    }
+  }
+  function inspectCached(snapshot,phaseId,signal,cache) {
+    if(!cache.has(phaseId))cache.set(phaseId,inspectOne(snapshot,phaseId,signal,cache));
+    return cache.get(phaseId);
+  }
+  async function approved(snapshot,phaseId,signal,cache) {
+    const proof=await inspectCached(snapshot,phaseId,signal,cache);if(!proof)return null;
+    const active=await votes.active(snapshot,phaseId,proof,{signal});
+    if(snapshot.workflow.phases[phaseId].status!=='approved'||active.votes.at(-1)?.value.thresholdReached!==true) {
+      throw error('A reused decision input has no retained human approval threshold.','ENGINE_STORAGE_CORRUPT');
+    }
+    return proof;
+  }
+  async function inspect(snapshot,phaseId,{signal}={}) {return inspectCached(snapshot,phaseId,signal,new Map());}
+  async function inspectApprovedMany(snapshot,phaseIds,{signal}={}) {
+    const cache=new Map(),result=[];
+    for(const phaseId of phaseIds)result.push(await approved(snapshot,phaseId,signal,cache));
+    return result;
+  }
+  async function verifyRouting(snapshot,phaseId,value,{signal}={}) {
+    namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId});
+    await routingProof(snapshot,phaseId,value,signal,new Map());
   }
   async function review(snapshot,phaseId,options) {
     if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
     return (await inspect(snapshot,phaseId,options))?.review??null;
   }
-  return Object.freeze({decode,publication,inspect,review});
+  return Object.freeze({decode,publication,inspect,inspectApprovedMany,verifyRouting,review});
 }

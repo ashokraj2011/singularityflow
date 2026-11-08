@@ -444,11 +444,12 @@ test('shared submission never selects a private working store, Git host or insta
   const allowed=new Map([
     [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs',
-      '../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
+      '../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs','../kernel/submission-routing.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
       './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-configuration-reader.mjs','./namespace-publication-reader.mjs',
       './namespace-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-submission-contract.mjs','./namespace-submission-reader.mjs'])],
     [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/artifact-content.mjs','./namespace-publication-contract.mjs'])],
-    [submissionReader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','./namespace-submission-contract.mjs','./namespace-publication-reader.mjs'])]
+    [submissionReader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/submission-routing.mjs','./namespace-submission-contract.mjs',
+      './namespace-publication-reader.mjs','./namespace-approval-reader.mjs'])]
   ]);
   for(const [file,imports] of allowed) {
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);

@@ -179,8 +179,19 @@ export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'), manifest: frozenFamily('namespace-phase-publication')
 });
 export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
-  binding: frozenFamily('namespace-phase-submission-binding'), packet: frozenFamily('namespace-phase-review-packet')
+  binding: frozenFamily('namespace-phase-submission-binding'),
+  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  routing:frozenFamily('namespace-submission-routing'),input:frozenFamily('phase-decision-input-record')
 });
+export function namespaceSubmissionRecordProfile(input) {
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.packet,input);
+  return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-review-packet/v${storedVersion}`,
+    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1});
+}
+export function namespaceSubmissionWriterProfile({routing=false}={}) {
+  return namespaceSubmissionRecordProfile({schemaVersion:routing?NAMESPACE_SUBMISSION_SCHEMAS.packet.currentVersion:1});
+}
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
   vote:frozenFamily('namespace-phase-approval-vote'),binding:frozenFamily('namespace-phase-approval-binding'),
   artifactSet:frozenFamily('namespace-primary-approval-artifact-set')

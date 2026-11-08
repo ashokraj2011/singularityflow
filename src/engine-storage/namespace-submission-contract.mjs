@@ -1,11 +1,12 @@
 /** Namespace review packets name immutable publication proof, without a Git source-commit fiction. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {NAMESPACE_SUBMISSION_SCHEMAS,admitRecordSchemaVersion,phasePublicationBindingValue,canonicalJson} from '../foundation/record-schema.mjs';
-import {exactObject,namespaceIdentifier,namespaceRevision,namespaceKey} from '../sda/namespace/values.mjs';
+import {NAMESPACE_SUBMISSION_SCHEMAS,namespaceSubmissionRecordProfile,namespaceSubmissionWriterProfile,admitRecordSchemaVersion,phasePublicationBindingValue,canonicalJson} from '../foundation/record-schema.mjs';
+import {exactObject,namespaceIdentifier,namespaceRevision,namespaceKey,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 export const NAMESPACE_SUBMISSION_PROFILE='sflow-primary-document-submission/v1';
+export const NAMESPACE_SUBMISSION_DECISION_PROFILE='sflow-primary-document-submission/v2';
 const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 function checked(validate) {
   try{return validate();}catch(cause){throw new SingularityFlowError('The namespace submission record is invalid.',{cause,
@@ -19,10 +20,10 @@ export function namespaceSubmissionBindingValue(value) {return checked(()=>{
   return value;
 });}
 export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
-  admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.packet,value);
+  const profile=namespaceSubmissionRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256','baseRevision',
-    'configuration','publication','actor','agentId','submittedAt']);
-  if(value.format!=='sflow-namespace-phase-review-packet/v1'||value.profile!==NAMESPACE_SUBMISSION_PROFILE||value.projectId!==projectId
+    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[])]);
+  if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another submission binding.');
   for(const key of ['projectId','workId','phase','operationId'])namespaceIdentifier(value[key]);
   if(namespaceRevision(value.baseRevision)===null)throw Error('Submission requires a canonical Story revision.');
@@ -33,5 +34,43 @@ export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {r
   exactObject(value.actor,['principalId','actorKind','identity']);
   if(canonicalJson(storyActorValue(value.actor))!==canonicalJson(value.actor))throw Error('Another actor representation.');
   if(value.agentId!==null)namespaceIdentifier(value.agentId);
-  projectEnrollmentTimestamp(value.submittedAt);return value;
+  projectEnrollmentTimestamp(value.submittedAt);
+  if(profile.routing)namespaceSubmissionRoutingValue(value.routing);
+  return value;
 });}
+
+function inputValues(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.values(value).some(item=>typeof item!=='string'&&typeof item!=='number'
+    ||typeof item==='number'&&!Number.isFinite(item)))throw Error('Decision values must be recorded strings or finite numbers.');
+  namespaceJson(value);
+}
+export function namespaceSubmissionRoutingValue(value) {return checked(()=>{
+  admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.routing,value);
+  exactObject(value,['schemaVersion','format','decision','record','reused']);
+  if(value.format!=='sflow-namespace-submission-routing/v1'||!Array.isArray(value.reused))throw Error('Invalid routing evidence.');
+  namespaceIdentifier(value.decision);
+  if(value.record!==null) {
+    admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.input,value.record);
+    exactObject(value.record,['schemaVersion','decision','values','recordedAt','recordedBy']);namespaceIdentifier(value.record.decision);
+    if(value.record.decision!==value.decision||typeof value.record.recordedBy!=='string'||!value.record.recordedBy.length
+      ||value.record.recordedBy.length>512||/[\u0000-\u0020\u007f]/u.test(value.record.recordedBy))throw Error('Invalid recorded input identity.');
+    projectEnrollmentTimestamp(value.record.recordedAt);inputValues(value.record.values);
+  }
+  const decisions=new Set();
+  for(const source of value.reused) {
+    exactObject(source,['decision','phase','generation','values','packet']);namespaceIdentifier(source.decision);namespaceIdentifier(source.phase);
+    if(decisions.has(source.decision)||!Number.isSafeInteger(source.generation)||source.generation<1
+      ||contentReference(source.packet,4_194_304).namespace!=='evidence'||source.packet.bytes<1)throw Error('Invalid or duplicate reused input source.');
+    decisions.add(source.decision);inputValues(source.values);
+  }
+  namespaceJson(value);return value;
+});}
+
+/** Explicit writer profiles keep decision-free v1 bytes unchanged. They do not migrate old packets. */
+export function namespaceSubmissionRecord(value,{routing=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing'].some(key=>Object.hasOwn(value,key))) {
+    throw new SingularityFlowError('Submission wire metadata must come from its registered profile.',{code:'ENGINE_INPUT_INVALID'});
+  }
+  const profile=namespaceSubmissionWriterProfile({routing:routing!==null});
+  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{})};
+}

@@ -14,7 +14,7 @@ import {createNamespaceSourceEngine} from '../src/engine-storage/namespace-sourc
 import {createFilesystemSourceUnit} from '../src/sgos/filesystem-source-unit.mjs';
 import {createNamespaceLifecycleCommitter} from '../src/engine-storage/namespace-lifecycle-commit.mjs';
 import {createNamespaceSubmissionReader} from '../src/engine-storage/namespace-submission-reader.mjs';
-import {canonicalJson} from '../src/foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS} from '../src/foundation/record-schema.mjs';
 const input={phaseId:'intake'};
 const make=(f,extra={})=>createNamespaceSubmissionEngine({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,
   authority:f.authority,access:f.access,clock:f.clock,...extra});
@@ -216,7 +216,7 @@ test('real shared-storage timeouts pass through unchanged and malformed packets 
   for(const mutate of [value=>{value.baseRevision=null;},value=>{value.actor.permissions=['phase.submit'];},value=>{value.publication.generation++;},value=>{value.configuration.key='/another/checkout';}]) {
     const changed=structuredClone(packet);mutate(changed);assert.throws(()=>namespaceSubmissionValue(changed,context),{code:'ENGINE_STORAGE_CORRUPT'});
   }
-  assert.throws(()=>namespaceSubmissionValue({...packet,schemaVersion:2},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
+  assert.throws(()=>namespaceSubmissionValue({...packet,schemaVersion:NAMESPACE_SUBMISSION_SCHEMAS.packet.maximumReadableVersion+1},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
   assert.throws(()=>namespaceSubmissionBindingValue({...phase.namespaceSubmission,record:{...phase.namespaceSubmission.record,namespace:'local'}}),{code:'ENGINE_STORAGE_CORRUPT'});
   assert.throws(()=>namespaceSubmissionBindingValue({...phase.namespaceSubmission,record:{...phase.namespaceSubmission.record,bytes:0}}),{code:'ENGINE_STORAGE_CORRUPT'});
 });

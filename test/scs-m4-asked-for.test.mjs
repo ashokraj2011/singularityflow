@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import YAML from 'yaml';
 
 import { ASKED_FOR, askedForGeneration, localAskedFor, noteAskedFor, noteTypedTurn, subagentPayload, typedArguments, typedInstruction } from '../src/asked-for.mjs';
 import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
@@ -116,4 +117,74 @@ test('SCS REQ-040: the prompt hook keeps a person\'s /sf-code words in the Story
   f.workflow.resolution = { capability: { policy: { typedFocus: 'off' } } };
   await f.prompt({ sessionId: 'person', prompt: '/sf-code log every retry' });
   assert.equal((await f.recorded()).turns.length, 2);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// [SCS:REQ-041] Prepublish copies the words into the Story as "Asked for", committed with it.
+
+async function codeStep(t) {
+  const { repository, startQuickFix } = await import('./helpers/run-and-test-fixture.mjs');
+  const repo = await repository(t, { implementCommands: false });
+  // A code step the agent authors, as /sf-code does, with a person's approval.
+  const configPath = path.join(repo.root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake'] };
+  config.phases.implement.generation = { requirement: 'required', task: 'code' };
+  await writeFile(configPath, YAML.stringify(config));
+  repo.must('git', ['add', 'singularity/workflow.yml']);
+  repo.must('git', ['commit', '-m', 'An agent-authored code step with a human review in this fixture']);
+  await startQuickFix(repo);
+  repo.sflow('prepare', 'implement');
+  await writeFile(path.join(repo.root, 'src/value.mjs'), '// @clause:QF-1:AC-001 return the approved value\nexport const value = 2;\n');
+  await writeFile(path.join(repo.root, 'test/value.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", '// @ac:QF-1:AC-001', "test('returns two', () => assert.equal(value, 2));", ''].join('\n'));
+  repo.sflow('prepare', 'implement');
+  const state = async () => JSON.parse(await readFile(path.join(repo.root, 'singularity/work-items/QF-1/workflow.json'), 'utf8'));
+  /** What the prompt hook writes for one typed turn of the step's generation. */
+  const typed = async (text, turnId) => {
+    const phase = (await state()).phases.implement;
+    await noteAskedFor(path.join(repo.root, '.git'), { workId: 'QF-1', phase: 'implement', generation: askedForGeneration(phase), text, skill: 'sf-code', turnId,
+      at: new Date().toISOString() });
+  };
+  return { repo, state, typed };
+}
+
+test('SCS REQ-041: prepublish copies what the person asked for into the Story in one commit, once, and publication carries it', async (t) => {
+  const { repo, state, typed } = await codeStep(t);
+  await typed('make the value 2, not 3', 'turn-a');
+  await typed('keep the module name', 'turn-b');
+  const commits = () => Number(repo.must('git', ['rev-list', '--count', 'HEAD']).trim());
+  const before = commits();
+  const checked = repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
+  assert.equal(checked.status, 0, JSON.stringify(checked.value));
+  assert.deepEqual(checked.value.askedFor.instructions.map((entry) => [entry.instruction, entry.text, entry.recorded]),
+    [[1, 'make the value 2, not 3', true], [2, 'keep the module name', true]]);
+  assert.match(checked.value.askedFor.words, /\(1\) "make the value 2, not 3"; \(2\) "keep the module name"/u);
+  let recorded = await state();
+  assert.deepEqual(recorded.askedFor.map((entry) => [entry.phase, entry.instruction, entry.text, entry.turn]),
+    [['implement', 1, 'make the value 2, not 3', 'turn-a'], ['implement', 2, 'keep the module name', 'turn-b']]);
+  assert.equal(commits(), before + 1, 'one Story commit');
+  assert.match(repo.must('git', ['log', '-1', '--format=%s']), /\[QF-1\]\[asked-for\] implement generation/u);
+  const committed = JSON.parse(repo.must('git', ['show', 'HEAD:singularity/work-items/QF-1/workflow.json']));
+  assert.equal(committed.askedFor.length, 2, 'committed with the Story');
+  // Nothing new typed: the next prepublish copies nothing and commits nothing.
+  repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
+  assert.equal(commits(), before + 1);
+  // A turn typed after it is numbered on; publication copies it when no prepublish did.
+  await typed('log the value', 'turn-c');
+  const published = repo.sflowJson('phase', 'publish', 'implement', '--authored', 'governed-agent');
+  recorded = await state();
+  assert.deepEqual(recorded.askedFor.map((entry) => entry.instruction), [1, 2, 3], JSON.stringify(published.value).slice(0, 2000));
+});
+
+test('SCS REQ-041: policy.typedFocus folds one way, and off copies nothing', async () => {
+  const { foldCapabilityPolicy } = await import('../src/capabilities.mjs');
+  const { pendingAskedFor } = await import('../src/asked-for-records.mjs');
+  assert.equal(foldCapabilityPolicy({}, {}).typedFocus, undefined, 'unset stays unset');
+  assert.equal(foldCapabilityPolicy({}, { typedFocus: 'off' }).typedFocus, 'off');
+  assert.equal(foldCapabilityPolicy({ typedFocus: 'on' }, { typedFocus: 'off' }).typedFocus, 'off', 'any capability may turn it off');
+  assert.throws(() => foldCapabilityPolicy({ typedFocus: 'off' }, { typedFocus: 'on' }), { code: 'CAPABILITY_POLICY_LOOSENED' });
+  assert.throws(() => foldCapabilityPolicy({}, { typedFocus: 'yes' }), { code: 'CAPABILITY_POLICY_INVALID' });
+  const workflow = { workItem: { id: 'QF-1' }, resolution: { capability: { policy: { typedFocus: 'off' } } } };
+  assert.deepEqual(await pendingAskedFor('/nonexistent', workflow, { id: 'implement' }), { generation: null, entries: [], omitted: 0 });
 });

@@ -415,7 +415,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,587,450 (measured 9,587,396, commands/phase-lifecycle.mjs): a code step's composed context names a departure for what the approved
     // documents lack, not an upstream issue (phase-authoring-contract.mjs, phase-prompt-composer.mjs) [CQF:REQ-020].
     // 9,590,450 (measured 9,590,416, commands/phase-lifecycle.mjs): the paid run's two fixes merged too.
-    assert.ok(closure.bytes <= 9_590_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,592,050 (measured 9,592,001, commands/phase-lifecycle.mjs): what the person asked for, copied at prepublish and publication
+    // (phase-lifecycle.mjs +1097) and policy.typedFocus (capabilities.mjs +470) [SCS:REQ-041]. The records and the hook's local
+    // record stay lazy (asked-for-records.mjs, asked-for.mjs); no new eager file.
+    assert.ok(closure.bytes <= 9_592_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

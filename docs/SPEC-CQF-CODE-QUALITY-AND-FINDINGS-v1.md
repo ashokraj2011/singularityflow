@@ -203,8 +203,9 @@ A token is never written in either file. A literal that looks like a credential 
 - `[CQF:REQ-044]` A suppression the model adds on a changed line is itself a finding. Examples: `NOSONAR`, `eslint-disable`, `@SuppressWarnings`, `# nosec`, `// codeql[...]`.
 - `[CQF:REQ-045]` Non-test commands use the reuse rule of `[TCE:REQ-080]`, with tool version and ruleset digest in the key, so a later gate does not run them again on unchanged code.
 - `[CQF:REQ-046]` `codeDelivery.staticAnalysis.mode` is `warn` (default), `enforce` or `off`.
-  - Under `warn`, a missing tool is recorded as `unavailable` and blocks nothing.
-  - Under `enforce` with `required`, a missing tool holds the step, with a "scanner unavailable" acceptance.
+  - In every mode, a missing or offline tool is recorded as `unavailable`, shown to approvers, and blocks nothing
+    (decision 11).
+  - `enforce` holds the step only for findings that remain after the loop.
 - `[CQF:REQ-047]` `decision finding-risk` accepts one finding with a reason of at least 20 characters and an expiry of at most 90 days. It binds the fingerprint, rule and tool version. It is append-only and a person's decision. The authority is decision 10's.
 - `[CQF:REQ-048]` SonarQube:
   - **In the loop:** local rules. For JavaScript and TypeScript, `eslint-plugin-sonarjs` through ESLint JSON when installed; other languages through their linters.

@@ -43,6 +43,16 @@ The owner took every recommended default from the study and added the sources:
 22. Remediation Stories run all existing tests.
 23. SFlow prepares the update to the security team, and a person sends it, unless the owner sets a standing rule.
 
+Added by the owner the same day:
+
+24. For now the security team and the TLM owners upload an Excel workbook (or CSV) in SFlow's format. Later the same
+    rows come from the security team's URL. Both land in one register.
+25. The register lives on the SFlow state branch, so every developer and every Story reads the same list.
+26. When a Story is created, the open items for its repository are shown, and the person picks the ones it addresses.
+    A picked item becomes a clause of the Story. Items in touched files are still fixed on the way (decision 18).
+27. A seeded workflow, `findings-remediation`, addresses security findings and TLM items as a Story of their own. So an
+    item is addressed either inside a development Story or by that workflow.
+
 Unchanged: approvals and risk acceptances are people's; nothing new refuses unless a decision above says so.
 
 ## Model
@@ -85,15 +95,17 @@ Two places, both governed configuration that changes through configuration appro
 
 ```yaml
 schemaVersion: 1
+# Uploaded workbooks need no source entry: `findings import` names its source (REQ-062).
 security:
   sources:
+    - { id: security-team, type: upload, columns: { id: Ticket, severity: Risk } }   # optional header map for uploads
     - { id: sonar, type: api, provider: sonarqube, url: https://sonar.example.internal,
         project: payments-api, environment: sonar, include: [vulnerability, bug, code-smell, hotspot] }
     - { id: codeql, type: api, provider: github-code-scanning, tool: CodeQL }   # the GitHub CLI's own sign-in
     - { id: sec-jira, type: api, provider: jira, jql: 'project = SEC AND component = payments-api AND statusCategory != Done' }
     - { id: sec-export, type: file, path: security/findings.sarif, format: sarif }
   policy: { bringIntoCodeStep: touched, autoFix: { dependencies: [patch, minor], code: [critical, high] }, exceptions: honour }
-  stories: { workType: security-fix, group: per-repository-by-due-date, maximumFindings: 10, open: on-sync, auto: candidate }
+  stories: { workType: findings-remediation, group: per-repository-by-due-date, maximumFindings: 10, open: on-sync, auto: candidate }
   accept: { authority: security-reviewers, fallback: step-approver }
 tlm:
   sources:
@@ -105,7 +117,7 @@ tlm:
         environment: tlm, fields: { component: name, currentVersion: version, endOfLifeAt: eolDate, targetVersion: target } }
     - { id: tlm-file, type: file, path: tlm/payments-api.csv, format: csv }
   policy: { bringIntoCodeStep: touched, autoFix: { upgrades: [patch, minor] }, dueSoonDays: 60, exceptions: honour }
-  stories: { workType: tlm-upgrade, group: per-component, open: on-sync, auto: candidate }
+  stories: { workType: findings-remediation, group: per-component, open: on-sync, auto: candidate }
   accept: { authority: step-approver }
 ```
 
@@ -220,44 +232,81 @@ A token is never written in either file. A literal that looks like a credential 
 
 ## M6 Security team and TLM findings `[CQF:REQ-060]`
 
-- `[CQF:REQ-060]` `singularity/findings.yml` configures two feeds, `security` and `tlm`. Each has its own sources, policy, Stories and accepting authority.
-- `[CQF:REQ-061]` Source types:
-
-  | Type | What it reads |
-  |---|---|
-  | `api` | Providers: `sonarqube`, `github-code-scanning` (through `gh`), `github-dependabot`, `jira` (JQL), `generic-json` with a field map |
-  | `link` | An HTTPS URL returning JSON, CSV or SARIF |
-  | `confluence` | A `page` link. Reads the page's table with a column map; Cloud and Data Center REST |
-  | `file` | An export in the repository, or a local path: SARIF, SonarQube issues JSON, or CSV with a column map |
-- `[CQF:REQ-062]` Credentials come only from bound environments. Requests go only to configured hosts. Fetched text is data: bounded, quoted, and never read as instructions.
-- `[CQF:REQ-063]` `findings sync [--feed security|tlm] [--json]`:
-  - reads every source, normalises and de-duplicates;
-  - keeps a local register outside Git, under the private store;
-  - records each source's read time and status.
-
-  A source that fails is recorded, and nothing blocks. Only the findings a Story fixes are named in that Story.
-- `[CQF:REQ-064]` A source's exceptions are honoured, skipped and listed:
-  - SonarQube's won't-fix, false-positive and accepted issues, and hotspots reviewed as safe;
-  - Jira statuses mapped as accepted;
-  - a TLM row's exception or waiver column.
-- `[CQF:REQ-065]` **Fix on the way.** When `/sf-code` starts, entry lists the open findings and TLM items on the files and packages the Story touches: changed and planned paths, and the manifests of touched modules.
-  - The model fixes the eligible ones by default (decision 19), each as a departure carrying the finding ID.
-  - The others are listed.
-- `[CQF:REQ-066]` **Remediation Stories.**
-  - `findings plan` previews the groups and `findings start` opens them. With `open: on-sync`, a sync opens them for auto-fixable items, at most 3 open per feed.
-  - Security groups per repository by due date, at most 10 findings. TLM groups per component.
-  - The plan is written from the items, one clause per item with its proof.
-  - With `auto: candidate`, the Story runs as an Auto flight to a tested Candidate. A person approves it.
-- `[CQF:REQ-067]` Proof:
-  - **Security:** the same tool, rerun on the changed code, no longer reports the finding. A server-only finding is recorded as "awaiting rescan" and closes when a later sync no longer sees it.
+- `[CQF:REQ-060]` **Workbook format.** One `.xlsx` workbook with a `Security` sheet and a `TLM` sheet; either may be
+  absent. A single sheet, or a CSV file, is read with `--feed security|tlm`. The first row holds the headers. Headers
+  are matched by name, ignoring case, spaces and punctuation, with the aliases below. A team whose sheet uses other
+  headers maps them in `singularity/findings.yml` (`columns:`), so no code changes.
+  - **Security** (required columns in bold): **ID**, **Title**, **Severity** (Critical, High, Medium, Low, Info),
+    **Repository**, Type (Code, Dependency, Configuration, Container), File, Line, Package, Installed version,
+    Fixed version, CVE, CWE, Rule, Tool, Description, Due date, Status (Open, In progress, Accepted risk,
+    False positive, Fixed), Exception expiry, Owner.
+  - **TLM** (required columns in bold): **ID**, **Component**, **Repository**, **Target version**, Ecosystem
+    (npm, maven, gradle, pypi, nuget, go, runtime, container, os), Current version, End of life date, Due date,
+    Status (Open, In progress, Waiver, Done), Waiver expiry, Owner, Notes.
+  - Dates are ISO dates or Excel date cells. Repository is a repository name or URL and matches the Story's repository.
+  - `findings template [--out FILE]` writes an empty workbook with both sheets, the headers and one example row each.
+- `[CQF:REQ-061]` **Reading a workbook.** SFlow reads `.xlsx` itself, with no new dependency. The reader is bounded:
+  - a size limit on the file and on each unzipped part;
+  - no formulas evaluated, only their cached values;
+  - shared and inline strings, numbers, booleans and dates.
+  A row that fails validation is reported with its sheet, row number and reason. The rest import. Cell text is data:
+  bounded, quoted, and never read as instructions.
+- `[CQF:REQ-062]` **Import.** `findings import FILE [--feed security|tlm] [--source NAME] [--dry-run] [--json]`:
+  - reads, validates, normalises and de-duplicates rows into the register;
+  - a later import from the same source replaces that source's open rows. An item missing from a later import is
+    marked "not in the latest import", never deleted;
+  - records who imported, when, the file's SHA-256, the row counts and every rejected row.
+  The VS Code command "Upload security or TLM findings…" opens a file picker and runs the same import. In Copilot CLI,
+  `/sf-findings import PATH` runs it.
+- `[CQF:REQ-063]` **Register on the state branch.** The register is a governed file on the SFlow state branch, written
+  through the existing state-branch writer (`src/ledger.mjs`, "Put a governed file on the orphan state branch"):
+  - `findings/security.json`, `findings/tlm.json` and `findings/imports.json` (the import history);
+  - the uploaded workbook itself is never committed, only the normalised rows;
+  - each item records its state: open, in a Story (with the Story ID), fixed awaiting proof, closed, accepted risk,
+    waiver, not in the latest import;
+  - reads go to the local state ref, as other state-branch readers do; a Story never fetches it by itself.
+  On a public repository the register stays in the private local store and the import says why, because the state
+  branch is readable by anyone who can read the repository.
+- `[CQF:REQ-064]` **Later sources.** The security team's URL (`link`, HTTPS returning the same columns as JSON, CSV or
+  `.xlsx`) and the `api` providers (SonarQube, GitHub code scanning, Dependabot, Jira) write into the same register
+  through `findings sync`. Credentials come only from bound environments, and requests go only to configured hosts. A
+  source that fails is recorded, and nothing blocks. A source's own exceptions are honoured: SonarQube's won't-fix,
+  false-positive and accepted issues, hotspots reviewed as safe, Jira statuses mapped as accepted, and a row's Status,
+  exception or waiver columns.
+- `[CQF:REQ-065]` **At Story creation.** When a Story is created (CLI, VS Code new-Story form, `/sf-start` in Copilot),
+  SFlow lists the register's open items for the Story's repository, highest severity and nearest due date first:
+  - the person picks the ones the Story addresses (`--address ID,…` on the CLI, tick boxes in VS Code, a choice in
+    Copilot). Nothing is picked by default;
+  - each picked item becomes a clause of the Story, with its proof (REQ-068), and its state becomes "in a Story";
+  - an item already in another open Story is shown with that Story's ID and cannot be picked twice.
+- `[CQF:REQ-066]` **Fix on the way.** When `/sf-code` starts, entry also lists the open items on the files and
+  packages the Story touches: changed and planned paths, and the manifests of touched modules. The model fixes the
+  eligible ones by default (decision 19), each as a departure carrying the item's ID. The others are listed.
+- `[CQF:REQ-067]` **Seeded workflow `findings-remediation`.** A seeded work type in `templates/workflow.yml`, protected
+  like the other seeded workflows:
+  - `findings-intake`: the Story's clauses are the picked items, one clause each, read from the register;
+  - `remediation-plan`: the fix per item. A major upgrade is listed for a person to approve and is never made by itself;
+  - `implementation`: the code step, with the findings loop (M4, M5);
+  - `verification`: all existing tests run (decision 22), plus each item's proof;
+  - `conformance`.
+  `findings plan` previews groups (security per repository by due date, at most 10; TLM per component) and
+  `findings start` opens a Story of this work type for a group. With `auto: candidate` it runs as an Auto flight to a
+  tested Candidate, and a person approves it.
+- `[CQF:REQ-068]` Proof:
+  - **Security:** the same tool, rerun on the changed code, no longer reports the finding. A finding only the security
+    team can rescan is recorded as "fixed, awaiting rescan", and closes when a later import or sync no longer lists it
+    as open.
   - **TLM:** the manifest, lockfile or runtime file shows at least the target version.
   - **Both:** all existing tests run, and the build passes.
-- `[CQF:REQ-068]` A major upgrade is listed in the plan for a person to approve and is never made by itself.
-- `[CQF:REQ-069]` After merge, `findings report` prepares each source's update with its evidence, such as a Jira comment or a SonarQube issue comment. A person sends it with `findings report --send`, unless `report: { send: automatic }` is set.
+  When the Story's change merges, its items move to "fixed awaiting proof" or "closed" in the register.
+- `[CQF:REQ-069]` After merge, `findings report` prepares the update for the security team and the TLM owners: an
+  export in the same workbook format with each item's state, Story and evidence. A person sends it, unless
+  `report: { send: automatic }` is set for a configured source.
 - `[CQF:REQ-070]` Surfaces:
-  - the CLI;
-  - `/sf-findings` (list, plan, start);
-  - a VS Code Findings view with Security and TLM tabs, due dates, and which Story fixes each item.
+  - the CLI (`findings template | import | list | plan | start | report`);
+  - `/sf-findings` (import, list, plan, start);
+  - a VS Code Findings view with Security and TLM tabs, due dates, and which Story addresses each item, plus the upload
+    command.
 
 ## Acceptance
 
@@ -266,4 +315,4 @@ A token is never written in either file. A literal that looks like a credential 
 - **M3:** a Vitest project with lcov shows changed-line coverage per clause. A test with no assertion warns.
 - **M4:** an ESLint sonarjs finding on a changed line comes back to `/sf-code` in the same turn and is fixed within 3 attempts. A missing scanner under `warn` blocks nothing. A real SonarQube server's quality gate is read at submit.
 - **M5:** adding a package with a known critical advisory holds the step until fixed or accepted by a person.
-- **M6:** a TLM row from a Confluence table and a SonarQube vulnerability each open a remediation Story that reaches a tested Candidate with its proof.
+- **M6:** a workbook with one security row and one TLM row imports into the register on the state branch. A new development Story picks the security row as a clause. `findings start` opens a `findings-remediation` Story for the TLM row that reaches a tested Candidate with its proof.

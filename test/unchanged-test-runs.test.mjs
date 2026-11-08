@@ -234,8 +234,15 @@ test('a recorded tests run on the same code counts for publish', slowLane({ time
   assert.equal(bound.purpose, 'preflight');
   assert.ok(bound.pin?.sha256, 'the gate pins it like a run of its own');
   // A person who asks for a run gets one, even on the same code.
-  f.sflow('tests', 'run', '--work-id', W, '--phase', 'implementation', '--json');
+  const asked = JSON.parse(f.sflow('tests', 'run', '--work-id', W, '--phase', 'implementation', '--json').stdout);
   assert.equal(await f.runs(), start + 2);
+  // The summary still reads the run publication bound, and names the newer one [CQF:REQ-015].
+  const summary = JSON.parse(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'implementation', '--json').stdout);
+  assert.equal(summary.run.id, evidence.preflightAttempts[0].attemptId);
+  assert.equal(summary.run.bound, true);
+  assert.equal(summary.run.newer.id, asked.run.id);
+  assert.match(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'implementation').stdout, /A newer run, RUN-[^,]+, is not bound to it: singularity-flow tests summary --work-id RERUN-1 --phase implementation --latest/u);
+  assert.equal(JSON.parse(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'implementation', '--latest', '--json').stdout).run.id, asked.run.id);
   f.sflow('submit', 'implementation');
   assert.equal(await f.runs(), start + 2);
   f.sflow('approve', 'implementation', '--yes');

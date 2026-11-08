@@ -18,7 +18,7 @@ const OPTIONS = Object.freeze({
   base: ['work-id', 'phase', 'command', 'json'],
   node: ['work-id', 'phase', 'command', 'node', 'json'],
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
-  summary: ['capability', 'work-id', 'phase', 'run', 'json']
+  summary: ['capability', 'work-id', 'phase', 'run', 'latest', 'json']
 });
 // Runs a gate made itself (evidence class `governed`), in words.
 const GATE_LABELS = Object.freeze({
@@ -396,21 +396,44 @@ function attemptClass(attempt) {
 // A reused run keeps the times of the run it reuses; its place in the history is when a gate reused it.
 const attemptRecordedAt = (attempt) => String(attempt.reusedFrom?.at ?? attempt.process?.completedAt ?? '');
 const newestAttempt = (attempts) => attempts.reduce((newest, attempt) => (attemptRecordedAt(attempt) > attemptRecordedAt(newest) ? attempt : newest), attempts[0]);
-const attemptGroupKey = (attempt) => attempt.localRunId ?? `${attempt.purpose}:${attempt.generation ?? ''}:${attempt.epoch ?? ''}`;
+// A reused run of another step keeps its own step in its group, so it never joins this step's runs of the same purpose.
+const attemptGroupKey = (attempt) => attempt.localRunId ?? `${attempt.phase ?? ''}:${attempt.purpose}:${attempt.generation ?? ''}:${attempt.epoch ?? ''}`;
+
+/** The attempt IDs the step's gate bound, by command: its own bound runs, then runs it reused from another step. */
+function boundAttemptIds(phase) {
+  const evidence = phase.deliveryEvidence;
+  const executions = evidence?.testExecutions?.length ? evidence.testExecutions : evidence?.preflightAttempts ?? [];
+  const bound = new Map(executions.filter((entry) => entry.attemptId).map((entry) => [entry.commandId, entry.attemptId]));
+  for (const check of phase.checks ?? []) if (check.reusedFrom?.attemptId && !bound.has(check.id)) bound.set(check.id, check.reusedFrom.attemptId);
+  return bound;
+}
 
 /**
- * The gate's run as it bound it. On code that already passed a gate binds a run it did not just make,
- * so its own group's newest attempt (on other code) or a reused run in another group would misstate it.
- * A newer gate run the step did not bind, such as a failed submission, stays what is shown.
+ * The run bound to the step, with the runs it reused merged in [CQF:REQ-015]. On code that already passed a
+ * gate binds a run it did not just make, so no one group holds it; a newer run the step did not bind, such
+ * as a failed submission or a local run, is shown with --latest. Null when the step bound nothing yet.
  */
-function boundRun(group, attempts, delivery) {
-  const executions = delivery?.testExecutions?.length ? delivery.testExecutions : delivery?.preflightAttempts ?? [];
-  const bound = attempts.filter((attempt) => executions.some((entry) => entry.attemptId === attempt.attemptId));
-  const ownGroup = (attempt) => attemptGroupKey(attempt) === group.key;
-  if (group.attempts[0].localRunId || !bound.some((attempt) => ownGroup(attempt) || group.members.includes(attempt))) return group;
-  const members = new Map(group.members.map((attempt) => [attempt.commandId, attempt]));
-  for (const attempt of bound) if (ownGroup(attempt) || !members.has(attempt.commandId)) members.set(attempt.commandId, attempt);
-  return { ...group, members: [...members.values()], id: newestAttempt([...members.values()]).attemptId };
+function boundRun(attempts, phase) {
+  const ids = boundAttemptIds(phase);
+  const members = [...ids.values()].map((id) => attempts.find((attempt) => attempt.attemptId === id)).filter(Boolean);
+  if (!members.length) return null;
+  const last = newestAttempt(members);
+  return { key: 'bound', attempts: members, members, id: last.attemptId, at: attemptRecordedAt(last) || last.process?.startedAt || '' };
+}
+
+/**
+ * Which run a Story step's summary reads: the one named, the newest with `latest`, else the bound run, else
+ * the newest. `newer` is a run newer than the bound one that the step did not bind, so it is named beside it.
+ */
+export function selectStoryRun(attempts, phase, { wanted = null, latest = false } = {}) {
+  const groups = attemptGroups(attempts);
+  const bound = wanted || latest ? null : boundRun(attempts, phase);
+  const group = wanted
+    ? groups.find((entry) => entry.id === wanted || entry.members.some((attempt) => attempt.attemptId === wanted)) ?? null
+    : bound ?? groups[0] ?? null;
+  const newer = bound && groups[0] && !groups[0].members.every((attempt) => bound.members.includes(attempt))
+    && String(groups[0].at) > String(bound.at) ? groups[0] : null;
+  return { groups, group, bound, newer };
 }
 
 function attemptGroups(attempts) {
@@ -451,16 +474,13 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   }
   const declaration = await loadEnvironmentDeclaration(root, { optional: true }).catch(() => null);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
-  // A step whose tests stood from an earlier step shows that step's run, labelled as reused below.
+  // The runs that stood from an earlier step are read beside the step's own, labelled as reused below [CQF:REQ-015].
   const standing = (workflow.phases[phaseId].checks ?? []).filter((check) => check.reusedFrom);
   const own = await stepAttempts(root, itemRelative, workflow.workItem.id, phaseId);
-  const attempts = own.length || !standing.length ? own : (await Promise.all([...new Set(standing.map((check) => check.reusedFrom.phase))]
+  const reused = (await Promise.all([...new Set(standing.map((check) => check.reusedFrom.phase).filter((id) => id && id !== phaseId))]
     .map((id) => stepAttempts(root, itemRelative, workflow.workItem.id, id)))).flat().filter((attempt) => standing.some((check) => check.reusedFrom.attemptId === attempt.attemptId));
-  const groups = attemptGroups(attempts);
   const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
-  const group = wanted
-    ? groups.find((entry) => entry.id === wanted || entry.members.some((attempt) => attempt.attemptId === wanted))
-    : groups[0] ? boundRun(groups[0], attempts, workflow.phases[phaseId].deliveryEvidence) : null;
+  const { groups, group, bound, newer } = selectStoryRun([...own, ...reused], workflow.phases[phaseId], { wanted, latest: optionBoolean(options, 'latest') });
   if (wanted && !group) fail(`No run ${wanted} is recorded for ${workflow.workItem.id} step ${phaseId}.`, 'TESTS_RUN_NOT_FOUND');
   const scope = { kind: 'story', capability: workflow.resolution?.capability?.id ?? null, workId: workflow.workItem.id, phase: phaseId };
   const history = [];
@@ -501,7 +521,9 @@ async function storySummary(root, options, { localRunId = null } = {}) {
       startedAt: group.members.map((attempt) => attempt.process?.startedAt).filter(Boolean).sort()[0] ?? null,
       commit: first.candidate?.commit ?? null,
       uncommittedChanges: first.uncommittedChanges ?? ['preflight', 'candidate'].includes(first.purpose),
-      ranBy: first.ranBy ?? null
+      ranBy: first.ranBy ?? null,
+      ...(bound ? { bound: true } : {}),
+      ...(newer ? { newer: { id: newer.id, at: newer.at, command: `singularity-flow tests summary --work-id ${workflow.workItem.id} --phase ${phaseId} --latest` } } : {})
     },
     entries,
     history
@@ -715,6 +737,7 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   // `run` is a boolean flag of precheck and story test commands, so `--run RUN-ID` arrives as the
   // flag and a separate word, and `--run=RUN-ID` as text. Both are taken here, before validation.
+  if (subcommand === 'summary' && options.run !== undefined && options.latest !== undefined) fail('tests summary reads one run: name it with --run, or the newest with --latest, not both.');
   if (subcommand === 'summary' && options.run !== undefined) {
     const value = options.run === true ? positionals[2] : options.run;
     if (typeof value !== 'string' || !value || (options.run === true ? positionals.length !== 3 : positionals.length > 2)) {

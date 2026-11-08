@@ -197,6 +197,8 @@ export function testSummaryText(summary, { next = null } = {}) {
   }
   const run = summary.run;
   lines.push(`Test summary — ${scope} · ${run.label} · ${run.id}${run.commit ? ` · commit ${String(run.commit).slice(0, 7)}` : ''}${run.uncommittedChanges ? ' (uncommitted changes)' : ''}`);
+  // The step's bound run is the default; a newer one it did not bind is named [CQF:REQ-015].
+  if (run.newer) lines.push(`The run bound to this step. A newer run, ${run.newer.id}, is not bound to it: ${run.newer.command}`);
   const t = summary.totals;
   lines.push(`Totals: ${t.discovered} discovered · ${t.passed} passed · ${t.failed} failed · ${t.skipped} skipped · ${t.flaky} flaky · ${(t.durationMs / 1000).toFixed(1)} s`);
   for (const command of summary.commands) {

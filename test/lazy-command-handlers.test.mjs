@@ -417,7 +417,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,800 (measured 858,796): convergence-record family v6's step and seal (schema-migrations.mjs +501). Every command reads the registry to dispatch.
   // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
   // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
-  assert.ok(root.bytes <= 858_820, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,851 measured 2026-11-08: tests summary --latest is declared a flag (util.mjs +34) [CQF:REQ-015].
+  assert.ok(root.bytes <= 858_855, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -525,7 +526,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,120,050 (measured 4,120,009): the same plan-amendments.mjs and plan-accounts.mjs as start.
   // 4,142,200 (measured 4,142,112): the same runner table and decisions.
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
-  assert.ok(current.bytes <= 4_158_500, `session current loads ${current.bytes} source bytes`);
+  // 4,158,510 (measured 4,158,509): the same --latest flag as root dispatch.
+  assert.ok(current.bytes <= 4_158_510, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

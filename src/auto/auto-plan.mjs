@@ -26,10 +26,8 @@ import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { exists, nowIso, run, SingularityFlowError } from '../util.mjs';
-import {
-  AUTO_AUTHORING_TOOLS, effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector,
-  selectAutoProfile
-} from './auto-policy.mjs';
+import { AUTO_AUTHORING_TOOLS } from '../kernel/auto-policy.mjs';
+import { effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector, selectAutoProfile } from "../kernel/auto-policy.mjs";
 import {
   AUTO_PLAN_CONFIRMATION_PROTOCOL, buildAutoPlanPacket
 } from './auto-plan-packet.mjs';

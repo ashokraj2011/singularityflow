@@ -63,9 +63,7 @@ import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from 
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
 
 export { preserveYamlFormatting };
-import {
-  HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations
-} from './step-actions.mjs';
+import { HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations } from "./kernel/step-action-policy.mjs";
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
 import { isSpecificationDefinitionPhase } from './specifications.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';

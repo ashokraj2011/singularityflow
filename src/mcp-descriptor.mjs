@@ -12,7 +12,7 @@
  * configuration: it is written to the developer's VS Code workspace file only by an explicit
  * `mcp host add`, after the exact command or URL is shown.
  */
-import { normalizeMcpServers } from './mcp.mjs';
+import { normalizeMcpServers } from "./kernel/mcp-policy.mjs";
 import { SingularityFlowError } from './util.mjs';
 
 export const MCP_SERVER_DESCRIPTOR_FORMAT = 'sflow-mcp-server@1';

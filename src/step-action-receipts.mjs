@@ -23,7 +23,8 @@ import { commitIsAncestor, exactFileAtObject, head } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { readDeliveredStepActions, readStepActionDelivery } from './step-action-delivery.mjs';
-import { stepActionDeliveryKey, storyRequiresStepActions } from './step-actions.mjs';
+import { stepActionDeliveryKey } from './step-actions.mjs';
+import { storyRequiresStepActions } from "./kernel/step-action-policy.mjs";
 import { SingularityFlowError, writeAtomicExclusive } from './util.mjs';
 
 export const STEP_ACTION_RECEIPT_FAMILY = 'step-action-receipt';

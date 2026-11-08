@@ -8,7 +8,7 @@ import {
   exists, portableIdentifier, secureRepositoryPath, SingularityFlowError
 } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
-import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
+import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from "./kernel/auto-policy.mjs";
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 

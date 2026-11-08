@@ -22,9 +22,8 @@ import {
 import { recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { deliverStepActions, enqueueStepActions, postDelivery } from './step-action-delivery.mjs';
-import {
-  actionsForTrigger, normalizeIntegrations, stepActionDeliveryKey, stepActionTriggers
-} from './step-actions.mjs';
+import { stepActionDeliveryKey } from './step-actions.mjs';
+import { actionsForTrigger, normalizeIntegrations, stepActionTriggers } from "./kernel/step-action-policy.mjs";
 import { SingularityFlowError } from './util.mjs';
 
 const WORKFLOW_CONFIGURATION = 'singularity/workflow.yml';

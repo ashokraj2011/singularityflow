@@ -22,7 +22,7 @@ import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { ARA_PHASE_SEMANTICS_PROFILE } from './phase-semantics.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
-import { normalizeIntegrations } from './step-actions.mjs';
+import { normalizeIntegrations } from "./kernel/step-action-policy.mjs";
 import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
 import {
   inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,

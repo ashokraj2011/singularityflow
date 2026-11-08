@@ -16,7 +16,7 @@ import {
   describeMcpTransport, mcpTransportFromEntry, promptText, resolveMcpHostEntry, resourceText, toolText,
   withMcpSession
 } from './mcp-client.mjs';
-import { mcpSourceAllowed, normalizeMcpServers } from './mcp.mjs';
+import { mcpSourceAllowed, normalizeMcpServers } from "./kernel/mcp-policy.mjs";
 import { sha256Hex } from './remote-fetch.mjs';
 import { scanText } from './secrets.mjs';
 import { SingularityFlowError } from './util.mjs';

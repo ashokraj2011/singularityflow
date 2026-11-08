@@ -9,7 +9,7 @@ import { validateOutcomeSelectionBundle } from '../delivery-modes/delivery-kerne
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { nowIso, run } from '../util.mjs';
 import { adhocError, assertSessionMutable } from './contracts.mjs';
-import { normalizeAdhocPolicy } from './policy.mjs';
+import { normalizeAdhocPolicy } from "../kernel/adhoc-policy.mjs";
 import {
   clearActiveSession, listSessions, readActiveSessionId, readSessionRecord,
   resolveSessionId, writeActiveSession, writeSessionRecord

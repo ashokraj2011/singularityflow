@@ -1,5 +1,5 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { storyRequiresStepActions } from '../../step-actions.mjs';
+import { storyRequiresStepActions } from "../../kernel/step-action-policy.mjs";
 import { requiredStepActionHold, stepActionHoldSentence } from '../../step-action-receipts.mjs';
 
 /** What holds the Story after a transition, for the next actions it prints; null when nothing does. */

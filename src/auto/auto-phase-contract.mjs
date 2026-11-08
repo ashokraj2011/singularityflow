@@ -13,7 +13,7 @@ import {
   buildAutoAgentTaskContract, buildAutoContextManifest, buildAutoExecutionSelection,
   validateAutoPhaseContractSnapshot
 } from './auto-contract-records.mjs';
-import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
+import { AUTO_AUTHORING_TOOLS } from '../kernel/auto-policy.mjs';
 import { isLocalDocument } from '../document-storage.mjs';
 import { isLocalDocumentReadScope, localDocumentReadScope } from './auto-document-scope.mjs';
 

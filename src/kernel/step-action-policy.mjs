@@ -1,0 +1,484 @@
+/** Shared step-action-policy rules. No host discovery, execution, transport or persistence. */
+import { SingularityFlowError } from '../foundation/failures.mjs';
+
+export const STEP_ACTION_TRIGGERS = Object.freeze(['submitted', 'approved', 'rejected']);
+
+export const STEP_ACTION_SENDS = Object.freeze(['event', 'summary', 'artifact']);
+
+export const MAX_STEP_ACTIONS = 16;
+
+export const MAX_INTEGRATION_TARGETS = 32;
+
+export const DEFAULT_TARGET_TIMEOUT_SECONDS = 10;
+
+export const MAX_TARGET_TIMEOUT_SECONDS = 30;
+
+const ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+const SECRET_NAME = /^SFLOW_SECRET_[A-Z0-9_]{1,51}$/;
+
+const LABEL_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+// A value under one of these keys would be a secret written into reviewed configuration.
+const INLINE_SECRET_KEY = /^(?:token|password|passwd|secret|apikey|api[-_]?token|key|signingkey|authorization|auth|bearer|credentials?)$/i;
+
+// A query parameter with one of these names usually carries a credential or a signature.
+const SECRET_QUERY_KEY = /token|secret|signature|^sig$|key|code|password|auth/i;
+
+/**
+ * Every kind a target may name. `available` is true once this build can deliver to it; a kind that
+ * is not yet available is refused by configuration instead of being accepted and doing nothing.
+ */
+export const INTEGRATION_TARGET_KINDS = Object.freeze({
+  webhook: Object.freeze({ available: true, label: 'Webhook', sends: Object.freeze(['event', 'summary']) }),
+  'http-log': Object.freeze({ available: true, label: 'Log service', sends: Object.freeze(['event', 'summary']) }),
+  teams: Object.freeze({ available: true, label: 'Microsoft Teams', sends: Object.freeze(['event', 'summary']) }),
+  jira: Object.freeze({ available: true, label: 'Jira', sends: Object.freeze(['event', 'summary', 'artifact']) }),
+  git: Object.freeze({ available: true, label: 'Git', sends: Object.freeze(['artifact']) }),
+  confluence: Object.freeze({ available: true, label: 'Confluence', sends: Object.freeze(['summary', 'artifact']) }),
+  onedrive: Object.freeze({ available: true, label: 'OneDrive or SharePoint', sends: Object.freeze(['artifact']) })
+});
+
+export const HTTP_LOG_FORMATS = Object.freeze(['json', 'splunk-hec', 'datadog', 'elastic', 'loki']);
+
+const TOKEN_REQUIRED_FORMATS = new Set(['splunk-hec', 'datadog', 'elastic']);
+
+/** The fields each available kind accepts, besides `kind`, `label`, `network`, `timeoutSeconds` and `deliverFrom`. */
+const TARGET_FIELDS = Object.freeze({
+  webhook: Object.freeze(['url', 'signingSecret']),
+  'http-log': Object.freeze(['url', 'format', 'tokenSecret', 'labels']),
+  teams: Object.freeze(['urlSecret']),
+  jira: Object.freeze(['issue', 'transition']),
+  git: Object.freeze(['repository', 'branch', 'path']),
+  confluence: Object.freeze(['url', 'deployment', 'parentPage', 'user', 'tokenSecret', 'title']),
+  onedrive: Object.freeze(['drive', 'site', 'folder', 'tokenSecret'])
+});
+
+const ONEDRIVE_FOLDER_PLACEHOLDERS = Object.freeze(['story', 'step', 'generation', 'trigger']);
+
+const CONFLUENCE_TITLE_PLACEHOLDERS = Object.freeze(['story', 'step', 'storyTitle']);
+
+const GIT_PATH_PLACEHOLDERS = Object.freeze(['story', 'step', 'generation', 'trigger', 'file']);
+
+// HTTPS without credentials, query or fragment; or SSH, as ssh://user@host/path or user@host:path.
+const GIT_HTTPS_REPOSITORY = /^https:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+$/;
+
+const GIT_SSH_REPOSITORY = /^(?:ssh:\/\/[A-Za-z0-9._-]+@[A-Za-z0-9.-]+(?::[0-9]{1,5})?\/[A-Za-z0-9._~\/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~][A-Za-z0-9._~\/-]*)$/;
+
+/** A branch a Git delivery may write: an ordinary name, never one Singularity Flow owns. */
+export function validDeliveryBranchName(branch) {
+  return typeof branch === 'string' && branch.length >= 1 && branch.length <= 200
+    && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) && !branch.startsWith('sflow/')
+    && !/(?:^|\/)\.|\.\.|\/\/|\.lock(?:\/|$)|\/$|@\{/.test(branch) && branch !== 'HEAD';
+}
+
+const JIRA_ISSUE_KEY = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;
+
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
+
+const COMMON_TARGET_FIELDS = Object.freeze(['kind', 'label', 'network', 'timeoutSeconds', 'deliverFrom']);
+
+/**
+ * Who delivers a target's actions: the machine that moves the Story (the default), or a pipeline
+ * that runs `singularity-flow integrations deliver --commit` with the organisation's credentials.
+ */
+export const STEP_ACTION_DELIVERERS = Object.freeze(['transition', 'pipeline']);
+
+function refuse(code, message, details = {}) {
+  throw new SingularityFlowError(message, { code, details });
+}
+
+function plainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A secret is named, never written: the value comes from the environment on the delivering machine. */
+export function assertSecretName(value, label) {
+  if (typeof value !== 'string' || !SECRET_NAME.test(value)) {
+    refuse('INTEGRATION_SECRET_NAME_INVALID',
+      `${label} must name an environment secret that starts with SFLOW_SECRET_, such as SFLOW_SECRET_EVENTS_KEY, and never hold its value. `
+        + 'Integration secrets have their own names so a workflow can never send another tool\'s credentials, such as JIRA_PAT or GITHUB_TOKEN.',
+      { location: label });
+  }
+  return value;
+}
+
+/**
+ * Where a target may deliver: HTTPS, or plain HTTP to this machine only; no credentials, fragment
+ * or credential-bearing query parameters in the address, because configuration is reviewed and
+ * committed.
+ */
+export function assertTargetUrl(value, label) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 2048) {
+    refuse('INTEGRATION_TARGET_URL_INVALID', `${label} must be an https:// address of at most 2048 characters.`, { location: label });
+  }
+  let url;
+  try { url = new URL(value); } catch {
+    refuse('INTEGRATION_TARGET_URL_INVALID', `${label} is not a valid address.`, { location: label });
+  }
+  const loopback = LOOPBACK_HOSTS.has(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    refuse('INTEGRATION_TARGET_URL_INVALID', `${label} must use https:// (plain http:// is allowed only for this machine, such as http://127.0.0.1).`, { location: label });
+  }
+  if (url.username || url.password) {
+    refuse('INTEGRATION_SECRET_INLINE', `${label} contains credentials. Remove them from the address and name a secret instead.`, { location: label });
+  }
+  if (url.hash) refuse('INTEGRATION_TARGET_URL_INVALID', `${label} must not contain a #fragment.`, { location: label });
+  for (const key of url.searchParams.keys()) {
+    if (SECRET_QUERY_KEY.test(key)) {
+      refuse('INTEGRATION_SECRET_INLINE',
+        `${label} carries a '${key}' query parameter, which usually holds a credential. Keep the address free of credentials and name a secret instead.`,
+        { location: label, parameter: key });
+    }
+  }
+  return url.toString();
+}
+
+function assertNoInlineSecrets(raw, label) {
+  for (const key of Object.keys(raw)) {
+    if (INLINE_SECRET_KEY.test(key)) {
+      refuse('INTEGRATION_SECRET_INLINE',
+        `${label} has '${key}', which would put a secret in reviewed configuration. Name an environment secret instead, for example tokenSecret: MY_SERVICE_TOKEN.`,
+        { location: label, field: key });
+    }
+  }
+}
+
+/** One status (or transition) for every trigger, or one per trigger: { submitted, approved, rejected }. */
+function normalizeJiraTransition(value, label) {
+  const one = (text, where) => {
+    if (typeof text !== 'string' || !text.trim() || text.length > 80 || CONTROL_CHARACTERS.test(text)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${where} must name a Jira status or transition of at most 80 characters.`, { location: label });
+    }
+    return text.trim();
+  };
+  if (typeof value === 'string') return one(value, `${label} transition`);
+  if (!plainObject(value) || !Object.keys(value).length) {
+    refuse('INTEGRATION_TARGET_INVALID', `${label} transition must be a status name, or one per trigger such as { approved: Done }.`, { location: label });
+  }
+  const byTrigger = {};
+  for (const trigger of Object.keys(value)) {
+    if (!STEP_ACTION_TRIGGERS.includes(trigger)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} transition names '${trigger}'; it accepts ${STEP_ACTION_TRIGGERS.join(', ')}.`, { location: label });
+    }
+  }
+  for (const trigger of STEP_ACTION_TRIGGERS) {
+    if (value[trigger] != null) byTrigger[trigger] = one(value[trigger], `${label} transition.${trigger}`);
+  }
+  return byTrigger;
+}
+
+/** The Jira status a target moves its issue to for one trigger, if any. */
+export function jiraTransitionFor(target, trigger) {
+  if (typeof target?.transition === 'string') return target.transition;
+  return target?.transition?.[trigger] ?? null;
+}
+
+function normalizeTarget(id, raw, label) {
+  if (!plainObject(raw)) refuse('INTEGRATION_TARGET_INVALID', `${label} must be an object with a kind.`, { location: label });
+  assertNoInlineSecrets(raw, label);
+  const kind = raw.kind;
+  const declared = Object.hasOwn(INTEGRATION_TARGET_KINDS, kind) ? INTEGRATION_TARGET_KINDS[kind] : null;
+  if (!declared) {
+    refuse('INTEGRATION_TARGET_KIND_UNKNOWN',
+      `${label} kind must be one of: ${Object.keys(INTEGRATION_TARGET_KINDS).join(', ')}.`, { location: label, kind });
+  }
+  if (!declared.available) {
+    refuse('INTEGRATION_TARGET_KIND_UNAVAILABLE',
+      `${label} uses kind '${kind}', which this build cannot deliver to yet. Available now: ${Object.entries(INTEGRATION_TARGET_KINDS).filter(([, entry]) => entry.available).map(([name]) => name).join(', ')}.`,
+      { location: label, kind });
+  }
+  const allowed = new Set([...COMMON_TARGET_FIELDS, ...TARGET_FIELDS[kind]]);
+  for (const key of Object.keys(raw)) {
+    if (key === 'id' && raw.id === id) continue;
+    if (!allowed.has(key)) {
+      refuse('INTEGRATION_TARGET_FIELD_UNKNOWN',
+        `${label} has unknown field '${key}'. A ${kind} target accepts: ${[...allowed].join(', ')}.`, { location: label, field: key });
+    }
+  }
+  const target = { id, kind };
+  if (raw.label != null) {
+    if (typeof raw.label !== 'string' || !raw.label.trim() || raw.label.length > 80) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} label must be text of at most 80 characters.`, { location: label });
+    }
+    target.label = raw.label.trim();
+  }
+  if (kind === 'onedrive') {
+    // Microsoft Graph is one fixed public host; the network check comes with the other fields.
+  } else if (kind === 'git' && raw.network != null) {
+    refuse('INTEGRATION_TARGET_INVALID', `${label} is a Git target: it reaches its repository through Git, so network does not apply.`, { location: label });
+  } else if (kind === 'git') {
+    // Git transport has its own rules; see the repository check below.
+  } else if (kind === 'jira') {
+    // Jira is reached through this machine's Jira connection (JIRA_BASE_URL), never an address the
+    // configuration chooses, so the address rules do not apply to it.
+    if (raw.network != null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is a Jira target: it uses the Jira connection on the delivering machine, so network does not apply.`, { location: label });
+    }
+  } else {
+    const network = raw.network ?? 'public';
+    if (!['public', 'private'].includes(network)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} network must be public or private.`, { location: label });
+    }
+    if (kind === 'teams' && network !== 'public') {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is a Teams webhook, which is always a public address.`, { location: label });
+    }
+    target.network = network;
+  }
+  const timeout = raw.timeoutSeconds ?? DEFAULT_TARGET_TIMEOUT_SECONDS;
+  if (!Number.isInteger(timeout) || timeout < 1 || timeout > MAX_TARGET_TIMEOUT_SECONDS) {
+    refuse('INTEGRATION_TARGET_INVALID', `${label} timeoutSeconds must be a whole number from 1 to ${MAX_TARGET_TIMEOUT_SECONDS}.`, { location: label });
+  }
+  target.timeoutSeconds = timeout;
+  if (raw.deliverFrom != null && !STEP_ACTION_DELIVERERS.includes(raw.deliverFrom)) {
+    refuse('INTEGRATION_TARGET_INVALID',
+      `${label} deliverFrom must be transition (the machine that moves the Story delivers) or pipeline (a pipeline delivers with singularity-flow integrations deliver).`,
+      { location: label });
+  }
+  // Only a pipeline is written: a target without it pins exactly as before.
+  if (raw.deliverFrom === 'pipeline') target.deliverFrom = 'pipeline';
+  if (kind === 'webhook') {
+    target.url = assertTargetUrl(raw.url, `${label} url`);
+    if (raw.signingSecret != null) target.signingSecret = assertSecretName(raw.signingSecret, `${label} signingSecret`);
+  } else if (kind === 'http-log') {
+    target.url = assertTargetUrl(raw.url, `${label} url`);
+    const format = raw.format ?? 'json';
+    if (!HTTP_LOG_FORMATS.includes(format)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} format must be one of: ${HTTP_LOG_FORMATS.join(', ')}.`, { location: label });
+    }
+    target.format = format;
+    if (raw.tokenSecret != null) target.tokenSecret = assertSecretName(raw.tokenSecret, `${label} tokenSecret`);
+    else if (TOKEN_REQUIRED_FORMATS.has(format)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} writes to ${format}, which needs tokenSecret: the name of the secret holding its API token.`, { location: label });
+    }
+    if (raw.labels != null) {
+      if (!plainObject(raw.labels) || Object.keys(raw.labels).length > 16) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} labels must be an object of at most 16 text values.`, { location: label });
+      }
+      target.labels = {};
+      for (const [key, value] of Object.entries(raw.labels)) {
+        if (!LABEL_KEY.test(key) || typeof value !== 'string' || value.length > 200) {
+          refuse('INTEGRATION_TARGET_INVALID', `${label} label '${key}' must be a short name with a text value of at most 200 characters.`, { location: label });
+        }
+        target.labels[key] = value;
+      }
+    }
+  } else if (kind === 'teams') {
+    if (raw.urlSecret == null) {
+      refuse('INTEGRATION_TARGET_INVALID',
+        `${label} needs urlSecret: the Teams webhook address carries its own credential, so it is named as a secret, for example SFLOW_SECRET_TEAMS_URL.`,
+        { location: label });
+    }
+    target.urlSecret = assertSecretName(raw.urlSecret, `${label} urlSecret`);
+  } else if (kind === 'jira') {
+    if (raw.issue != null) {
+      if (typeof raw.issue !== 'string' || !JIRA_ISSUE_KEY.test(raw.issue)) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} issue must be a Jira issue key such as OPS-12. Leave it out to write to the issue each Story was started from.`, { location: label });
+      }
+      target.issue = raw.issue;
+    }
+    if (raw.transition != null) target.transition = normalizeJiraTransition(raw.transition, label);
+  } else if (kind === 'onedrive') {
+    if (typeof raw.drive !== 'string' || !/^[A-Za-z0-9!_.-]{1,200}$/.test(raw.drive)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} drive must be the ID of a OneDrive or SharePoint document library drive, such as b!Xy3k...`, { location: label });
+    }
+    target.drive = raw.drive;
+    if (raw.site != null) {
+      if (typeof raw.site !== 'string' || !/^[A-Za-z0-9.,_:-]{1,300}$/.test(raw.site)) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} site must be a SharePoint site ID such as contoso.sharepoint.com,<id>,<id>.`, { location: label });
+      }
+      target.site = raw.site;
+    }
+    if (raw.folder != null) {
+      const folder = raw.folder;
+      const names = typeof folder === 'string' ? [...folder.matchAll(/\{([^}]*)\}/g)].map((match) => match[1]) : [];
+      if (typeof folder !== 'string' || !folder.trim() || folder.length > 300 || folder.startsWith('/')
+          || folder.split('/').some((part) => !/^[A-Za-z0-9 ._(){}-]+$/.test(part) || /^\s|\s$/.test(part) || part === '.' || part === '..')
+          || names.some((name) => !ONEDRIVE_FOLDER_PLACEHOLDERS.includes(name)) || !names.includes('generation')) {
+        refuse('INTEGRATION_TARGET_INVALID',
+          `${label} folder must be a relative path that includes {generation}, such as Specs/{story}/{step}/generation-{generation}, using only {story}, {step}, {generation} and {trigger}.`,
+          { location: label });
+      }
+      target.folder = folder;
+    }
+    if (raw.network != null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is a OneDrive target: it always reaches Microsoft Graph, so network does not apply.`, { location: label });
+    }
+    if (raw.tokenSecret == null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} needs tokenSecret: the name of the secret holding a Microsoft Graph access token.`, { location: label });
+    }
+    target.tokenSecret = assertSecretName(raw.tokenSecret, `${label} tokenSecret`);
+  } else if (kind === 'confluence') {
+    target.url = assertTargetUrl(raw.url, `${label} url`);
+    const deployment = raw.deployment ?? 'cloud';
+    if (!['cloud', 'data-center'].includes(deployment)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} deployment must be cloud or data-center.`, { location: label });
+    }
+    target.deployment = deployment;
+    if (typeof raw.parentPage !== 'string' || !/^[1-9][0-9]{0,19}$/.test(raw.parentPage)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} parentPage must be the numeric ID of the page new pages go under, as a string such as '123456'.`, { location: label });
+    }
+    target.parentPage = raw.parentPage;
+    if (deployment === 'cloud') {
+      if (typeof raw.user !== 'string' || !/^[^@\s]{1,100}@[^@\s]{1,100}$/.test(raw.user)) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} user must be the Atlassian account email the API token belongs to.`, { location: label });
+      }
+      target.user = raw.user;
+    } else if (raw.user != null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} is Confluence Data Center, which signs in with the token alone; leave user out.`, { location: label });
+    }
+    if (raw.tokenSecret == null) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} needs tokenSecret: the name of the secret holding the Confluence API token or personal access token.`, { location: label });
+    }
+    target.tokenSecret = assertSecretName(raw.tokenSecret, `${label} tokenSecret`);
+    if (raw.title != null) {
+      const names = typeof raw.title === 'string' ? [...raw.title.matchAll(/\{([^}]*)\}/g)].map((match) => match[1]) : [];
+      if (typeof raw.title !== 'string' || !raw.title.trim() || raw.title.length > 200 || CONTROL_CHARACTERS.test(raw.title)
+          || names.some((name) => !CONFLUENCE_TITLE_PLACEHOLDERS.includes(name))) {
+        refuse('INTEGRATION_TARGET_INVALID', `${label} title must be text of at most 200 characters, using only {story}, {step} and {storyTitle}.`, { location: label });
+      }
+      target.title = raw.title;
+    }
+  } else if (kind === 'git') {
+    const repository = raw.repository;
+    if (typeof repository !== 'string' || repository.length > 512
+        || !(GIT_HTTPS_REPOSITORY.test(repository) || GIT_SSH_REPOSITORY.test(repository))) {
+      refuse('INTEGRATION_TARGET_INVALID',
+        `${label} repository must be an https:// address (no user, password or query) or an SSH address such as git@git.example.com:team/docs.git.`,
+        { location: label });
+    }
+    target.repository = repository;
+    if (!validDeliveryBranchName(raw.branch)) {
+      refuse('INTEGRATION_TARGET_INVALID', `${label} branch must be an ordinary branch name such as docs/approved; sflow/ branches belong to Singularity Flow.`, { location: label });
+    }
+    target.branch = raw.branch;
+    if (raw.path != null) {
+      const template = raw.path;
+      const placeholders = typeof template === 'string' ? [...template.matchAll(/\{([^}]*)\}/g)].map((match) => match[1]) : [];
+      if (typeof template !== 'string' || !template.trim() || template.length > 300 || template.startsWith('/')
+          || template.split('/').some((part) => !/^[A-Za-z0-9._{}-]+$/.test(part) || part === '.' || part === '..' || part.toLowerCase() === '.git')
+          || placeholders.some((name) => !GIT_PATH_PLACEHOLDERS.includes(name))) {
+        refuse('INTEGRATION_TARGET_INVALID',
+          `${label} path must be a relative path such as docs/{story}/{step}/{file}, using only ${GIT_PATH_PLACEHOLDERS.map((name) => `{${name}}`).join(', ')}.`,
+          { location: label });
+      }
+      target.path = template;
+    }
+  }
+  return target;
+}
+
+/** `integrations` from workflow.yml, checked strictly. Absent means no targets. */
+export function normalizeIntegrations(raw) {
+  if (raw == null) return { targets: {} };
+  if (!plainObject(raw)) refuse('INTEGRATION_TARGET_INVALID', 'integrations must be an object with targets.', { location: 'integrations' });
+  for (const key of Object.keys(raw)) {
+    if (key !== 'targets') refuse('INTEGRATION_TARGET_FIELD_UNKNOWN', `integrations has unknown field '${key}'. It accepts: targets.`, { location: 'integrations', field: key });
+  }
+  const targets = raw.targets ?? {};
+  if (!plainObject(targets)) refuse('INTEGRATION_TARGET_INVALID', 'integrations.targets must be an object of named targets.', { location: 'integrations.targets' });
+  const ids = Object.keys(targets);
+  if (ids.length > MAX_INTEGRATION_TARGETS) {
+    refuse('INTEGRATION_TARGET_INVALID', `integrations.targets may name at most ${MAX_INTEGRATION_TARGETS} targets.`, { location: 'integrations.targets' });
+  }
+  const normalized = {};
+  for (const id of ids) {
+    if (!ID.test(id) || id.length > 63) {
+      refuse('INTEGRATION_TARGET_INVALID', `Integration target '${id}' must be a lower-case name such as team-events.`, { location: `integrations.targets.${id}` });
+    }
+    normalized[id] = normalizeTarget(id, targets[id], `Integration target '${id}'`);
+  }
+  return { targets: normalized };
+}
+
+/**
+ * A step's `afterStep` list, checked against the declared targets. `null` or absent means the
+ * step sends nothing. Returned actions are in the written order.
+ */
+export function normalizeStepActions(raw, integrations, label) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) refuse('STEP_ACTION_INVALID', `${label} afterStep must be a list of actions.`, { location: label });
+  if (raw.length > MAX_STEP_ACTIONS) refuse('STEP_ACTION_INVALID', `${label} afterStep may list at most ${MAX_STEP_ACTIONS} actions.`, { location: label });
+  const targets = integrations?.targets ?? {};
+  const seen = new Set();
+  return raw.map((action, index) => {
+    const where = `${label} afterStep[${index}]`;
+    if (!plainObject(action)) refuse('STEP_ACTION_INVALID', `${where} must be an object with id, on and target.`, { location: where });
+    for (const key of Object.keys(action)) {
+      if (!['id', 'on', 'target', 'send', 'required'].includes(key)) {
+        refuse('STEP_ACTION_FIELD_UNKNOWN', `${where} has unknown field '${key}'. An action accepts: id, on, target, send, required.`, { location: where, field: key });
+      }
+    }
+    if (typeof action.id !== 'string' || !ID.test(action.id) || action.id.length > 63) {
+      refuse('STEP_ACTION_INVALID', `${where} id must be a lower-case name such as announce.`, { location: where });
+    }
+    if (seen.has(action.id)) refuse('STEP_ACTION_INVALID', `${label} afterStep names action '${action.id}' twice.`, { location: where });
+    seen.add(action.id);
+    const on = action.on;
+    if (!Array.isArray(on) || !on.length || new Set(on).size !== on.length || on.some((trigger) => !STEP_ACTION_TRIGGERS.includes(trigger))) {
+      refuse('STEP_ACTION_INVALID', `${where} on must list one or more of: ${STEP_ACTION_TRIGGERS.join(', ')}.`, { location: where });
+    }
+    if (typeof action.target !== 'string' || !Object.hasOwn(targets, action.target)) {
+      const known = Object.keys(targets);
+      refuse('STEP_ACTION_TARGET_UNKNOWN',
+        `${where} names target '${action.target}', which integrations.targets does not declare.${known.length ? ` Declared: ${known.join(', ')}.` : ' Declare it under integrations.targets first.'}`,
+        { location: where, target: action.target });
+    }
+    const send = action.send ?? 'event';
+    if (!STEP_ACTION_SENDS.includes(send)) refuse('STEP_ACTION_INVALID', `${where} send must be one of: ${STEP_ACTION_SENDS.join(', ')}.`, { location: where });
+    const kind = targets[action.target].kind;
+    if (!INTEGRATION_TARGET_KINDS[kind].sends.includes(send)) {
+      refuse('STEP_ACTION_SEND_UNSUPPORTED',
+        `${where} sends '${send}' to a ${kind} target, which accepts: ${INTEGRATION_TARGET_KINDS[kind].sends.join(', ')}.`, { location: where, kind, send });
+    }
+    if (action.required !== undefined && typeof action.required !== 'boolean') refuse('STEP_ACTION_INVALID', `${where} required must be true or false.`, { location: where });
+    // A required action holds the Story after its step until the step's approved delivery has a
+    // receipt, so it must fire on approved. Only `required: true` is kept: an action without it
+    // pins exactly as before.
+    if (action.required === true && !on.includes('approved')) {
+      refuse('STEP_ACTION_INVALID', `${where} is required, which holds the next step until its approved delivery has a receipt, so its on must include approved.`, { location: where });
+    }
+    return {
+      id: action.id, on: STEP_ACTION_TRIGGERS.filter((trigger) => on.includes(trigger)), target: action.target, send,
+      ...(action.required === true ? { required: true } : {})
+    };
+  });
+}
+
+/**
+ * Pin each action with its target's settings. The pinned list lives in the Story's resolved step,
+ * so later edits to a target never change what a running Story sends. Secrets stay names.
+ */
+export function pinStepActions(actions, integrations) {
+  const targets = integrations?.targets ?? {};
+  return actions.map((action) => ({ ...action, targetSpec: structuredClone(targets[action.target]) }));
+}
+
+/**
+ * Which triggers a committed lifecycle event fires for its step. Triggers follow the step's state
+ * after the transition, not the event name: a submit that approved itself fires `approved`, and an
+ * approval that has not yet reached the step's threshold fires nothing.
+ */
+export function stepActionTriggers(eventType, phase) {
+  if (!phase) return [];
+  if (eventType === 'approval-requested') {
+    if (phase.status === 'awaiting_approval') return ['submitted'];
+    if (phase.status === 'approved') return ['approved'];
+    return [];
+  }
+  if (eventType === 'phase-approved') return phase.status === 'approved' ? ['approved'] : [];
+  if (eventType === 'phase-rejected') return ['rejected'];
+  return [];
+}
+
+/** Whether a Story pinned any required action; a Story that did not pays nothing at its gates. */
+export function storyRequiresStepActions(workflow) {
+  return (workflow?.resolution?.phases ?? []).some((phase) => (phase?.afterStep ?? []).some((action) => action?.required === true));
+}
+
+/** The pinned actions of a step that fire for a trigger, in the written order. */
+export function actionsForTrigger(resolvedPhase, trigger) {
+  return (resolvedPhase?.afterStep ?? []).filter((action) => action.on.includes(trigger));
+}

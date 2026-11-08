@@ -72,7 +72,9 @@ test('shared policy rules cannot be replaced through compiler construction',()=>
   for(const name of ['normalizeSessionPolicy','isTemplateReference','parseTemplateReference','normalizeTemplateCatalog',
     'resolveTemplate','normalizeReworkLoops','normalizeRepairBudget','normalizeWorkTypeIntelligence','assertModelTask',
     'normalizeHarnessImports','normalizeContextPolicy','normalizeTestRuntime','normalizeTokenEconomy',
-    'normalizeCodeDeliveryPolicy','normalizeSpecPolicy','assertDocumentStoragePolicy']) {
+    'normalizeCodeDeliveryPolicy','normalizeSpecPolicy','assertDocumentStoragePolicy',
+    'normalizeAdhocPolicy','normalizeAutoPolicy','normalizeAutoWorkTypePolicy','normalizeIntegrations',
+    'normalizeMcpServers','normalizePhaseMcpPolicy','normalizeStepActions','pinStepActions','validateMcpAgentTools']) {
     assert.equal(Object.hasOwn(composition.dependencies,name),false,name);
     assert.throws(()=>createWorkflowConfigurationCompiler({...composition.dependencies,[name]:()=>({ready:true})}),
       {code:'ENGINE_CONFIGURATION_COMPILER_INVALID'},name);

@@ -25,9 +25,8 @@ import { committedFileBytes } from './git.mjs';
 import { acquireFileLease } from './file-lease.mjs';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
 import { recordSha256 } from './records.mjs';
-import {
-  actionsForTrigger, buildStepActionEvent, stepActionDeliveryKey, stepActionText, stepActionTriggers, summarizeArtifact
-} from './step-actions.mjs';
+import { buildStepActionEvent, stepActionDeliveryKey, stepActionText, summarizeArtifact } from './step-actions.mjs';
+import { actionsForTrigger, stepActionTriggers } from "./kernel/step-action-policy.mjs";
 import { STEP_ACTION_WRITERS } from './step-action-writers.mjs';
 import { pinnedHttpRequest } from './pinned-http.mjs';
 import { SingularityFlowError } from './util.mjs';

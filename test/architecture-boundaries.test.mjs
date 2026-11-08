@@ -237,7 +237,7 @@ test('Git compatibility composes existing owners without introducing another per
 
 test('production consumers use kernel phase rules and only the compatibility aggregate opens native transitions',async()=>{
   const packageFiles=[...await sourceFiles('src'),...await sourceFiles('apps')];
-  const oldRules=new Set(['src/phase-roles.mjs','src/phase-generation.mjs',
+  const oldRules=new Set(['src/auto/auto-policy.mjs','src/adhoc/policy.mjs','src/phase-roles.mjs','src/phase-generation.mjs',
     'src/phase-inspection-generation.mjs','src/phase-generation-need.mjs','src/commands/status-read.mjs','src/lifecycle-transitions.mjs','src/phase-actor-policy.mjs',
     'src/approval-authority.mjs','src/approval-fallback.mjs','src/commands/decision-story-records.mjs',
     'src/commands/decision-plan-amendment.mjs','src/commands/decision-obligation-risk.mjs',
@@ -594,6 +594,30 @@ test('configuration policy rules have one pure owner while native runtime and re
     const source=await readFile(path.join(packageRoot,'src',file+'.mjs'),'utf8');
     assert.equal(source.includes('function '+rule+'('),false,file);
     assert.equal(source.includes('function '+native+'('),true,file);
+  }
+});
+
+test('execution and integration rules stay in kernel modules while native adapters retain effects',async()=>{
+  const modules=['auto-policy','adhoc-policy','mcp-policy','step-action-policy'];
+  const identity=await readFile(path.join(packageRoot,'src/build-identity.mjs'),'utf8');
+  const manifest=await readFile(path.join(packageRoot,'src/vsix-source-manifest.mjs'),'utf8');
+  for(const name of modules){
+    const source=await readFile(path.join(packageRoot,'src/kernel',name+'.mjs'),'utf8');
+    assert.doesNotMatch(source,/from ['"]node:|createHash|process\.|readFile|fetch\(|rpcSmoke|renderMcpPromptPolicy|stepActionDeliveryKey|buildStepActionEvent/);
+    assert.ok(identity.includes("'kernel/"+name+".mjs'"),name+' identity');
+    assert.ok(manifest.includes("'src/kernel/"+name+".mjs'"),name+' staged payload');
+    for(const file of ['workflow-intent-catalog.mjs','workflow-intent-capabilities.mjs']){
+      assert.ok((await readFile(path.join(packageRoot,'src',file),'utf8')).includes("'kernel/"+name+".mjs'"),name+' interpretation identity');
+    }
+  }
+  for(const file of ['src/auto/auto-policy.mjs','src/adhoc/policy.mjs']){
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    assert.ok(ast.statements.every(ts.isExportDeclaration),file+' aliases');
+  }
+  for(const [file,moved,retained]of [['mcp','normalizeMcpServers','renderMcpPromptPolicy'],['step-actions','normalizeIntegrations','stepActionDeliveryKey']]){
+    const source=await readFile(path.join(packageRoot,'src',file+'.mjs'),'utf8');
+    assert.equal(source.includes('function '+moved+'('),false,file);
+    assert.equal(source.includes('function '+retained+'('),true,file);
   }
 });
 

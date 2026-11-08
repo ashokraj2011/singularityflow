@@ -24,7 +24,7 @@ import {
   normalizeResourceId, stampRecord
 } from './contracts.mjs';
 import { createIntentCandidate, observeAdhocEffects } from './effect-set.mjs';
-import { normalizeAdhocPolicy } from './policy.mjs';
+import { normalizeAdhocPolicy } from "../kernel/adhoc-policy.mjs";
 import {
   closeAdhocSessionLocally, readAdhocSession, updateAdhocSession
 } from './session.mjs';

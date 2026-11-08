@@ -12,7 +12,8 @@ import {
 } from './jira.mjs';
 import { deliverToConfluence } from './step-action-confluence.mjs';
 import { deliverToOneDrive } from './step-action-onedrive.mjs';
-import { DEFAULT_GIT_DELIVERY_PATH, jiraTransitionFor, renderGitDeliveryPath, stepActionText } from './step-actions.mjs';
+import { DEFAULT_GIT_DELIVERY_PATH, renderGitDeliveryPath, stepActionText } from './step-actions.mjs';
+import { jiraTransitionFor } from "./kernel/step-action-policy.mjs";
 
 const JIRA_PROPERTY_PREFIX = 'sflow.delivery.';
 const JIRA_ISSUE_KEY = /^[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,9}$/;

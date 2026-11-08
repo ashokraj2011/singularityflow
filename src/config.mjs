@@ -40,7 +40,6 @@ import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
 
-import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeMarketplaces } from './marketplace.mjs';
 import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specifications.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
@@ -59,11 +58,10 @@ import { normalizeAstPolicy } from './ast-policy.mjs';
 import { assertCodeDeliveryConfiguration, compiledSkillStep, pinCodeDeliveryTask, stepOutputKind } from './code-delivery-policy.mjs';
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
-import { normalizeIntegrations, normalizeStepActions, pinStepActions } from './step-actions.mjs';
+
 import { normalizeWorkTypeIntelligence } from "./kernel/configuration-policy.mjs";
 import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
-import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
-import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
+
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { disabledArchitectureIntent, dropRemovedSettings } from './removed-features.mjs';
@@ -120,38 +118,29 @@ const {
   dropRemovedSettings,
   isAgentTemplateReference,
   isSpecificationDefinitionPhase,
-  normalizeAdhocPolicy,
   normalizeApplicationReview,
   normalizeArtifactSets,
   normalizeAstPolicy,
-  normalizeAutoPolicy,
-  normalizeAutoWorkTypePolicy,
   normalizeCommitPolicyRuntime,
   normalizeExternalCommand,
   normalizeFaultRepairPolicy,
-  normalizeIntegrations,
   normalizeLedgerConfig,
   normalizeLogging,
   normalizeMarketplaces,
-  normalizeMcpServers,
-  normalizePhaseMcpPolicy,
   normalizeSourceBoundary,
   normalizeSourceRoots,
-  normalizeStepActions,
   normalizeStorage,
   normalizeTestRecoveryPolicy,
   normalizeWorkItemRoot,
   parseAgentTemplateReference,
   pathBasename: path.posix.basename,
   pinCodeDeliveryTask,
-  pinStepActions,
   posix,
   skillPhasePrimaryOutputRole,
   specificationQualityPolicy,
   stepOutputKind,
   validateConfiguredSkillPhase,
   validateInjectionDefinition,
-  validateMcpAgentTools,
   validateTokenReportingPolicy,
   worldModelSourceScope,
   worldModelStateAuthority

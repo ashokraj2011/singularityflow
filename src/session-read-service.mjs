@@ -17,7 +17,7 @@ import { STATE_REVISION } from './state-revision-read.mjs';
 import { withStableRead } from './stable-read.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { storyRequiresStepActions } from './step-actions.mjs';
+import { storyRequiresStepActions } from "./kernel/step-action-policy.mjs";
 import { localPendingPublicationPath, readPendingPublication } from './publication-pending.mjs';
 import { publicationJournalPath } from './publication-journal.mjs';
 import { BUILD_INFO } from './build-info.mjs';

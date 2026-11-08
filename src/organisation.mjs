@@ -88,7 +88,7 @@ import {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, listLeadRepositoryRegistryRecords,
   rememberLeadRepository
 } from './lead-repositories.mjs';
-import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
+import { normalizeCapabilityAutoPolicy } from "./kernel/auto-policy.mjs";
 import { executeGitQuery } from './git-query.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { gitIsAncestor } from './git-ancestry.mjs';

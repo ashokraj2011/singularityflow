@@ -29,10 +29,8 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import {
   deliverStepActions, deliveryRequest, listStepActionDeliveries, postDelivery
 } from '../step-action-delivery.mjs';
-import {
-  INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, buildStepActionEvent, jiraTransitionFor, normalizeIntegrations,
-  stepActionDeliveryKey
-} from '../step-actions.mjs';
+import { buildStepActionEvent, stepActionDeliveryKey } from '../step-actions.mjs';
+import { INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, jiraTransitionFor, normalizeIntegrations } from "../kernel/step-action-policy.mjs";
 import { gitDeliveryHint, gitDeliveryMessage, jiraAttachmentName, jiraCommentText } from '../step-action-writers.mjs';
 import { DEFAULT_GIT_DELIVERY_PATH, renderConfluenceTitle, renderGitDeliveryPath } from '../step-actions.mjs';
 import { confluencePageBody } from '../step-action-confluence.mjs';

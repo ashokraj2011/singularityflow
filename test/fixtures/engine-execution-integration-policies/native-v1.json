@@ -1,0 +1,2605 @@
+{
+  "baseline": "2c7823c47",
+  "exports": {
+    "mcp": [
+      "MCP_SCAFFOLD_VERSIONS",
+      "MCP_WORKSPACE_PATH",
+      "PLAYWRIGHT_MCP_HOST_ARGUMENTS",
+      "assertMcpPhaseReadiness",
+      "attestMcpHost",
+      "clearPlaywrightAuthProfile",
+      "currentPlaywrightAuthBinding",
+      "figmaHostEntry",
+      "importPlaywrightAuthProfile",
+      "inspectMcpHostEntries",
+      "listMcpEvidence",
+      "mcpDoctor",
+      "mcpHostInventory",
+      "mcpImportOnly",
+      "mcpServersForContext",
+      "mcpSourceAllowed",
+      "mcpStatus",
+      "normalizeMcpServers",
+      "normalizeMcpSources",
+      "normalizePhaseMcpPolicy",
+      "playwrightAuthProfileStatus",
+      "playwrightHostEntry",
+      "previewClearPlaywrightAuthProfile",
+      "previewPlaywrightAuthImport",
+      "probeMcpHost",
+      "recordMcpEvidence",
+      "removePlaywrightAuthProfile",
+      "renderMcpPromptPolicy",
+      "resolvePlaywrightAuthRuntime",
+      "scaffoldFigmaMcp",
+      "scaffoldMcpServer",
+      "scaffoldPlaywrightMcp",
+      "secureWindowsAuthAcl",
+      "serveMcpHost",
+      "smokeMcpHost",
+      "validateMcpAgentTools",
+      "validatePlaywrightStorageState",
+      "verifyMcpEvidence",
+      "verifyMcpHostOffline",
+      "verifyPhaseMcpRequirements",
+      "warmMcpHost"
+    ],
+    "actions": [
+      "DEFAULT_CONFLUENCE_TITLE",
+      "DEFAULT_GIT_DELIVERY_PATH",
+      "DEFAULT_ONEDRIVE_FOLDER",
+      "DEFAULT_TARGET_TIMEOUT_SECONDS",
+      "HTTP_LOG_FORMATS",
+      "INTEGRATION_SECRET_PREFIX",
+      "INTEGRATION_TARGET_KINDS",
+      "MAX_INTEGRATION_TARGETS",
+      "MAX_STEP_ACTIONS",
+      "MAX_TARGET_TIMEOUT_SECONDS",
+      "STEP_ACTION_DELIVERERS",
+      "STEP_ACTION_EVENT_SCHEMA",
+      "STEP_ACTION_SENDS",
+      "STEP_ACTION_TRIGGERS",
+      "actionsForTrigger",
+      "assertSecretName",
+      "assertTargetUrl",
+      "buildStepActionEvent",
+      "jiraTransitionFor",
+      "normalizeIntegrations",
+      "normalizeStepActions",
+      "pinStepActions",
+      "renderConfluenceTitle",
+      "renderGitDeliveryPath",
+      "renderOneDriveFolder",
+      "stepActionDeliveryKey",
+      "stepActionText",
+      "stepActionTriggers",
+      "storyRequiresStepActions",
+      "summarizeArtifact",
+      "validDeliveryBranchName"
+    ],
+    "auto": [
+      "AUTO_AUTHORING_TOOLS",
+      "AUTO_ELIGIBILITY",
+      "AUTO_PACES",
+      "AUTO_PROFILE_SELECTIONS",
+      "AUTO_REPAIR_POLICIES",
+      "AUTO_STOP_KINDS",
+      "effectiveAutoPolicy",
+      "foldCapabilityAutoPolicy",
+      "normalizeAutoCeilings",
+      "normalizeAutoPolicy",
+      "normalizeAutoWorkTypePolicy",
+      "normalizeCapabilityAutoPolicy",
+      "parseAutoPace",
+      "parseAutoStopSelector",
+      "selectAutoProfile"
+    ],
+    "adhoc": [
+      "DEFAULT_ADHOC_POLICY",
+      "normalizeAdhocPolicy"
+    ]
+  },
+  "results": [
+    {
+      "id": 0,
+      "family": "auto",
+      "name": "normalizeAutoPolicy",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "enabled": false,
+        "profile": {
+          "default": "story",
+          "allowed": [
+            "story"
+          ]
+        },
+        "defaultPace": "phase",
+        "defaultUntil": "first-human-boundary",
+        "workIdAllocator": "ulid",
+        "planTtlMinutes": 30,
+        "concurrency": {
+          "maximumPerCapability": 1,
+          "maximumPerWorkspace": 2
+        },
+        "execution": {
+          "allowedHosts": [
+            "copilot-cli"
+          ],
+          "requireManagedWorktree": true,
+          "automaticResume": false,
+          "allowPolicyWaivers": false,
+          "allowClarificationAnswers": false,
+          "allowSequenceOverrides": false,
+          "allowScopeExpansion": false
+        },
+        "ceilings": {
+          "maximumPhases": 3,
+          "maximumAuthoringAttemptsPerPhase": 2,
+          "maximumModelInvocations": 6,
+          "maximumActiveMinutes": 20,
+          "maximumElapsedMinutes": 120,
+          "maximumTouchedPaths": 8,
+          "maximumTouchedChanges": 6,
+          "tokenBudget": {
+            "maximum": 30000,
+            "assurance": "exact-required"
+          }
+        },
+        "repair": {
+          "policy": "ask",
+          "maximumAttempts": 1
+        },
+        "reporting": {
+          "checkpoint": "governed-when-publishing",
+          "final": "required"
+        }
+      }
+    },
+    {
+      "id": 1,
+      "family": "auto",
+      "name": "normalizeAutoPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "enabled": true
+        }
+      ],
+      "value": {
+        "enabled": true,
+        "profile": {
+          "default": "story",
+          "allowed": [
+            "story"
+          ]
+        },
+        "defaultPace": "phase",
+        "defaultUntil": "first-human-boundary",
+        "workIdAllocator": "ulid",
+        "planTtlMinutes": 30,
+        "concurrency": {
+          "maximumPerCapability": 1,
+          "maximumPerWorkspace": 2
+        },
+        "execution": {
+          "allowedHosts": [
+            "copilot-cli"
+          ],
+          "requireManagedWorktree": true,
+          "automaticResume": false,
+          "allowPolicyWaivers": false,
+          "allowClarificationAnswers": false,
+          "allowSequenceOverrides": false,
+          "allowScopeExpansion": false
+        },
+        "ceilings": {
+          "maximumPhases": 3,
+          "maximumAuthoringAttemptsPerPhase": 2,
+          "maximumModelInvocations": 6,
+          "maximumActiveMinutes": 20,
+          "maximumElapsedMinutes": 120,
+          "maximumTouchedPaths": 8,
+          "maximumTouchedChanges": 6,
+          "tokenBudget": {
+            "maximum": 30000,
+            "assurance": "exact-required"
+          }
+        },
+        "repair": {
+          "policy": "ask",
+          "maximumAttempts": 1
+        },
+        "reporting": {
+          "checkpoint": "governed-when-publishing",
+          "final": "required"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "family": "auto",
+      "name": "normalizeAutoPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "enabled": "yes"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "auto.enabled must be boolean.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 3,
+      "family": "auto",
+      "name": "normalizeAutoPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "unknown": true
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "auto contains unknown field 'unknown'.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 4,
+      "family": "auto",
+      "name": "parseAutoPace",
+      "status": "returned",
+      "input": [
+        "phase"
+      ],
+      "value": {
+        "mode": "phase",
+        "intervalMs": null,
+        "source": "phase"
+      }
+    },
+    {
+      "id": 5,
+      "family": "auto",
+      "name": "parseAutoPace",
+      "status": "returned",
+      "input": [
+        "continuous"
+      ],
+      "value": {
+        "mode": "continuous",
+        "intervalMs": null,
+        "source": "continuous"
+      }
+    },
+    {
+      "id": 6,
+      "family": "auto",
+      "name": "parseAutoPace",
+      "status": "returned",
+      "input": [
+        "interval:30m"
+      ],
+      "value": {
+        "mode": "interval",
+        "intervalMs": 1800000,
+        "source": "interval:30m"
+      }
+    },
+    {
+      "id": 7,
+      "family": "auto",
+      "name": "parseAutoPace",
+      "status": "refused",
+      "input": [
+        "interval:0m"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Auto pace interval must be between 1 minute and 7 days.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 8,
+      "family": "auto",
+      "name": "parseAutoPace",
+      "status": "refused",
+      "input": [
+        "unknown"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Auto pace must be step, continuous, phase, or interval:<duration> such as interval:30m.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 9,
+      "family": "auto",
+      "name": "normalizeAutoPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "execution": {
+            "allowPolicyWaivers": true
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "auto.execution.allowPolicyWaivers cannot be true in AUT v1.",
+        "code": "AUTO_OPERATION_FORBIDDEN",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 10,
+      "family": "auto",
+      "name": "normalizeAutoPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "execution": {
+            "allowClarificationAnswers": true
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "auto.execution.allowClarificationAnswers cannot be true in AUT v1.",
+        "code": "AUTO_OPERATION_FORBIDDEN",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 11,
+      "family": "auto",
+      "name": "parseAutoStopSelector",
+      "status": "returned",
+      "input": [
+        "verify",
+        [
+          "draft",
+          "verify"
+        ]
+      ],
+      "value": {
+        "kind": "phase-complete",
+        "phase": "verify",
+        "source": "verify"
+      }
+    },
+    {
+      "id": 12,
+      "family": "auto",
+      "name": "parseAutoStopSelector",
+      "status": "returned",
+      "input": [
+        "published:verify",
+        [
+          "draft",
+          "verify"
+        ]
+      ],
+      "value": {
+        "kind": "published",
+        "phase": "verify",
+        "source": "published:verify"
+      }
+    },
+    {
+      "id": 13,
+      "family": "auto",
+      "name": "parseAutoStopSelector",
+      "status": "refused",
+      "input": [
+        "published:missing",
+        [
+          "draft",
+          "verify"
+        ]
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Auto stop selector references phase 'missing', which is not in the selected Story rail.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": {
+          "selector": "published:missing",
+          "phase": "missing",
+          "phaseIds": [
+            "draft",
+            "verify"
+          ]
+        }
+      }
+    },
+    {
+      "id": 14,
+      "family": "auto",
+      "name": "parseAutoStopSelector",
+      "status": "returned",
+      "input": [
+        "story-complete"
+      ],
+      "value": {
+        "kind": "story-complete",
+        "phase": null,
+        "source": "story-complete"
+      }
+    },
+    {
+      "id": 15,
+      "family": "auto",
+      "name": "normalizeAutoCeilings",
+      "status": "refused",
+      "input": [
+        {
+          "maximumAuthoringAttemptsPerPhase": 0
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "auto.ceilings.maximumAuthoringAttemptsPerPhase must be a positive safe integer.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 16,
+      "family": "auto",
+      "name": "normalizeAutoCeilings",
+      "status": "returned",
+      "input": [
+        {
+          "tokenBudget": {
+            "maximum": 2048,
+            "assurance": "best-available"
+          }
+        }
+      ],
+      "value": {
+        "maximumPhases": 3,
+        "maximumAuthoringAttemptsPerPhase": 2,
+        "maximumModelInvocations": 6,
+        "maximumActiveMinutes": 20,
+        "maximumElapsedMinutes": 120,
+        "maximumTouchedPaths": 8,
+        "maximumTouchedChanges": 6,
+        "tokenBudget": {
+          "maximum": 2048,
+          "assurance": "best-available"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "family": "auto",
+      "name": "normalizeAutoWorkTypePolicy",
+      "status": "returned",
+      "input": [
+        {
+          "eligibility": "bounded",
+          "defaultUntil": "phase-complete:verify"
+        },
+        "sample",
+        [
+          "draft",
+          "verify"
+        ]
+      ],
+      "value": {
+        "eligibility": "bounded",
+        "allowedPaces": [
+          "step",
+          "continuous",
+          "phase",
+          "interval"
+        ],
+        "defaultUntil": "phase-complete:verify",
+        "ceilings": null
+      }
+    },
+    {
+      "id": 18,
+      "family": "auto",
+      "name": "normalizeAutoWorkTypePolicy",
+      "status": "refused",
+      "input": [
+        {
+          "eligibility": "unlimited"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "workType.auto.eligibility must be disabled, plan-only, bounded.",
+        "code": "AUTO_PLAN_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 19,
+      "family": "auto",
+      "name": "normalizeCapabilityAutoPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "maximumTouchedPaths": 2,
+          "ceilings": {
+            "maximumPhases": 1
+          }
+        }
+      ],
+      "value": {
+        "eligibility": "bounded",
+        "forbiddenWhenProtectedScopePredicted": true,
+        "maximumTouchedPaths": 2,
+        "maximumConcurrentFlights": null,
+        "ceilings": {
+          "maximumPhases": 1
+        }
+      }
+    },
+    {
+      "id": 20,
+      "family": "auto",
+      "name": "foldCapabilityAutoPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "eligibility": "plan-only",
+          "maximumTouchedPaths": 4
+        },
+        {
+          "eligibility": "bounded",
+          "maximumTouchedPaths": 20
+        }
+      ],
+      "value": {
+        "eligibility": "plan-only",
+        "forbiddenWhenProtectedScopePredicted": true,
+        "maximumTouchedPaths": 4,
+        "maximumConcurrentFlights": null,
+        "ceilings": null
+      }
+    },
+    {
+      "id": 21,
+      "family": "auto",
+      "name": "effectiveAutoPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "enabled": true,
+          "ceilings": {
+            "maximumTouchedPaths": 6
+          }
+        },
+        {
+          "eligibility": "bounded",
+          "ceilings": {
+            "maximumTouchedPaths": 20
+          }
+        },
+        {
+          "maximumTouchedPaths": 3
+        }
+      ],
+      "value": {
+        "enabled": true,
+        "profile": {
+          "default": "story",
+          "allowed": [
+            "story"
+          ]
+        },
+        "defaultPace": "phase",
+        "defaultUntil": "first-human-boundary",
+        "workIdAllocator": "ulid",
+        "planTtlMinutes": 30,
+        "concurrency": {
+          "maximumPerCapability": 1,
+          "maximumPerWorkspace": 2
+        },
+        "execution": {
+          "allowedHosts": [
+            "copilot-cli"
+          ],
+          "requireManagedWorktree": true,
+          "automaticResume": false,
+          "allowPolicyWaivers": false,
+          "allowClarificationAnswers": false,
+          "allowSequenceOverrides": false,
+          "allowScopeExpansion": false
+        },
+        "ceilings": {
+          "maximumPhases": 3,
+          "maximumAuthoringAttemptsPerPhase": 2,
+          "maximumModelInvocations": 6,
+          "maximumActiveMinutes": 20,
+          "maximumElapsedMinutes": 120,
+          "maximumTouchedPaths": 3,
+          "maximumTouchedChanges": 6,
+          "tokenBudget": {
+            "maximum": 30000,
+            "assurance": "exact-required"
+          }
+        },
+        "repair": {
+          "policy": "ask",
+          "maximumAttempts": 1
+        },
+        "reporting": {
+          "checkpoint": "governed-when-publishing",
+          "final": "required"
+        },
+        "eligibility": "bounded",
+        "capability": {
+          "eligibility": "bounded",
+          "forbiddenWhenProtectedScopePredicted": true,
+          "maximumTouchedPaths": 3,
+          "maximumConcurrentFlights": null,
+          "ceilings": null
+        }
+      }
+    },
+    {
+      "id": 22,
+      "family": "auto",
+      "name": "selectAutoProfile",
+      "status": "returned",
+      "input": [
+        {},
+        "story"
+      ],
+      "value": {
+        "requested": "story",
+        "resolved": "story",
+        "selectionReason": "explicit"
+      }
+    },
+    {
+      "id": 23,
+      "family": "auto",
+      "name": "selectAutoProfile",
+      "status": "refused",
+      "input": [
+        {},
+        "sgos"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Auto profile 'sgos' is not allowed by repository policy.",
+        "code": "AUTO_PROFILE_FORBIDDEN",
+        "exitCode": 1,
+        "details": {
+          "allowed": [
+            "story"
+          ]
+        }
+      }
+    },
+    {
+      "id": 24,
+      "family": "adhoc",
+      "name": "normalizeAdhocPolicy",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "enabled": true,
+        "entry": {
+          "allowExplicitStart": true,
+          "allowUnstartedLanding": true,
+          "defaultMode": "in-place"
+        },
+        "baseline": {
+          "requireExactRevision": true,
+          "dirtyStart": "ask",
+          "upstreamUse": "confirm-if-commits-ahead"
+        },
+        "localWork": {
+          "allowed": true
+        },
+        "executionUnits": {
+          "allowed": true,
+          "default": null
+        },
+        "scope": {
+          "maximumTouchedResources": 20,
+          "maximumRepositoriesForDirectLanding": 1
+        },
+        "externalEffects": {
+          "mode": "governed-device-only",
+          "outsideGovernanceBehavior": "promote-or-reconcile"
+        },
+        "protectedPaths": {
+          "behavior": "promote"
+        },
+        "directLanding": {
+          "enabled": true,
+          "maximumRisk": "low",
+          "requireIntentConfirmation": true,
+          "requireDispositionCoverage": true,
+          "requireVerification": true,
+          "requireHumanDecision": "policy"
+        },
+        "promotion": {
+          "triggers": {
+            "repositoriesGreaterThan": 1,
+            "protectedPathTouched": true,
+            "architectureDecisionRequired": true,
+            "externalEffectRequired": true,
+            "estimatedRemainingTasksGreaterThan": 3,
+            "uncertainEffect": true
+          }
+        },
+        "executionCeilings": {
+          "activeMinutes": 480,
+          "modelInvocations": 30,
+          "deviceCalls": 100
+        },
+        "discard": {
+          "backup": "required",
+          "backupRetentionDays": 14
+        },
+        "telemetry": {
+          "contentFree": true,
+          "individualScoring": false
+        }
+      }
+    },
+    {
+      "id": 25,
+      "family": "adhoc",
+      "name": "normalizeAdhocPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "enabled": false
+        }
+      ],
+      "value": {
+        "enabled": false,
+        "entry": {
+          "allowExplicitStart": true,
+          "allowUnstartedLanding": true,
+          "defaultMode": "in-place"
+        },
+        "baseline": {
+          "requireExactRevision": true,
+          "dirtyStart": "ask",
+          "upstreamUse": "confirm-if-commits-ahead"
+        },
+        "localWork": {
+          "allowed": true
+        },
+        "executionUnits": {
+          "allowed": true,
+          "default": null
+        },
+        "scope": {
+          "maximumTouchedResources": 20,
+          "maximumRepositoriesForDirectLanding": 1
+        },
+        "externalEffects": {
+          "mode": "governed-device-only",
+          "outsideGovernanceBehavior": "promote-or-reconcile"
+        },
+        "protectedPaths": {
+          "behavior": "promote"
+        },
+        "directLanding": {
+          "enabled": true,
+          "maximumRisk": "low",
+          "requireIntentConfirmation": true,
+          "requireDispositionCoverage": true,
+          "requireVerification": true,
+          "requireHumanDecision": "policy"
+        },
+        "promotion": {
+          "triggers": {
+            "repositoriesGreaterThan": 1,
+            "protectedPathTouched": true,
+            "architectureDecisionRequired": true,
+            "externalEffectRequired": true,
+            "estimatedRemainingTasksGreaterThan": 3,
+            "uncertainEffect": true
+          }
+        },
+        "executionCeilings": {
+          "activeMinutes": 480,
+          "modelInvocations": 30,
+          "deviceCalls": 100
+        },
+        "discard": {
+          "backup": "required",
+          "backupRetentionDays": 14
+        },
+        "telemetry": {
+          "contentFree": true,
+          "individualScoring": false
+        }
+      }
+    },
+    {
+      "id": 26,
+      "family": "adhoc",
+      "name": "normalizeAdhocPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "scope": {
+            "maximumTouchedResources": 2
+          }
+        }
+      ],
+      "value": {
+        "enabled": true,
+        "entry": {
+          "allowExplicitStart": true,
+          "allowUnstartedLanding": true,
+          "defaultMode": "in-place"
+        },
+        "baseline": {
+          "requireExactRevision": true,
+          "dirtyStart": "ask",
+          "upstreamUse": "confirm-if-commits-ahead"
+        },
+        "localWork": {
+          "allowed": true
+        },
+        "executionUnits": {
+          "allowed": true,
+          "default": null
+        },
+        "scope": {
+          "maximumTouchedResources": 2,
+          "maximumRepositoriesForDirectLanding": 1
+        },
+        "externalEffects": {
+          "mode": "governed-device-only",
+          "outsideGovernanceBehavior": "promote-or-reconcile"
+        },
+        "protectedPaths": {
+          "behavior": "promote"
+        },
+        "directLanding": {
+          "enabled": true,
+          "maximumRisk": "low",
+          "requireIntentConfirmation": true,
+          "requireDispositionCoverage": true,
+          "requireVerification": true,
+          "requireHumanDecision": "policy"
+        },
+        "promotion": {
+          "triggers": {
+            "repositoriesGreaterThan": 1,
+            "protectedPathTouched": true,
+            "architectureDecisionRequired": true,
+            "externalEffectRequired": true,
+            "estimatedRemainingTasksGreaterThan": 3,
+            "uncertainEffect": true
+          }
+        },
+        "executionCeilings": {
+          "activeMinutes": 480,
+          "modelInvocations": 30,
+          "deviceCalls": 100
+        },
+        "discard": {
+          "backup": "required",
+          "backupRetentionDays": 14
+        },
+        "telemetry": {
+          "contentFree": true,
+          "individualScoring": false
+        }
+      }
+    },
+    {
+      "id": 27,
+      "family": "adhoc",
+      "name": "normalizeAdhocPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "scope": {
+            "maximumTouchedResources": 0
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "adhoc.scope.maximumTouchedResources must be an integer from 1 through 10000.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 28,
+      "family": "adhoc",
+      "name": "normalizeAdhocPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "baseline": {
+            "requireExactRevision": false
+          }
+        }
+      ],
+      "value": {
+        "enabled": true,
+        "entry": {
+          "allowExplicitStart": true,
+          "allowUnstartedLanding": true,
+          "defaultMode": "in-place"
+        },
+        "baseline": {
+          "requireExactRevision": false,
+          "dirtyStart": "ask",
+          "upstreamUse": "confirm-if-commits-ahead"
+        },
+        "localWork": {
+          "allowed": true
+        },
+        "executionUnits": {
+          "allowed": true,
+          "default": null
+        },
+        "scope": {
+          "maximumTouchedResources": 20,
+          "maximumRepositoriesForDirectLanding": 1
+        },
+        "externalEffects": {
+          "mode": "governed-device-only",
+          "outsideGovernanceBehavior": "promote-or-reconcile"
+        },
+        "protectedPaths": {
+          "behavior": "promote"
+        },
+        "directLanding": {
+          "enabled": true,
+          "maximumRisk": "low",
+          "requireIntentConfirmation": true,
+          "requireDispositionCoverage": true,
+          "requireVerification": true,
+          "requireHumanDecision": "policy"
+        },
+        "promotion": {
+          "triggers": {
+            "repositoriesGreaterThan": 1,
+            "protectedPathTouched": true,
+            "architectureDecisionRequired": true,
+            "externalEffectRequired": true,
+            "estimatedRemainingTasksGreaterThan": 3,
+            "uncertainEffect": true
+          }
+        },
+        "executionCeilings": {
+          "activeMinutes": 480,
+          "modelInvocations": 30,
+          "deviceCalls": 100
+        },
+        "discard": {
+          "backup": "required",
+          "backupRetentionDays": 14
+        },
+        "telemetry": {
+          "contentFree": true,
+          "individualScoring": false
+        }
+      }
+    },
+    {
+      "id": 29,
+      "family": "adhoc",
+      "name": "normalizeAdhocPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "unknown": true
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "adhoc contains unknown field 'unknown'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 30,
+      "family": "mcp",
+      "name": "normalizeMcpServers",
+      "status": "returned",
+      "input": [],
+      "value": {}
+    },
+    {
+      "id": 31,
+      "family": "mcp",
+      "name": "normalizeMcpServers",
+      "status": "returned",
+      "input": [
+        {
+          "browser": {
+            "hostReference": "browser",
+            "agents": [
+              "tester"
+            ],
+            "phases": [
+              "verify"
+            ],
+            "tools": [
+              "open",
+              "capture"
+            ],
+            "required": true
+          }
+        },
+        {
+          "agents": [
+            "tester"
+          ],
+          "phases": [
+            "draft",
+            "verify"
+          ]
+        }
+      ],
+      "value": {
+        "browser": {
+          "id": "browser",
+          "label": "browser",
+          "hostReference": "browser",
+          "agents": [
+            "tester"
+          ],
+          "phases": [
+            "verify"
+          ],
+          "tools": [
+            "open",
+            "capture"
+          ],
+          "required": true,
+          "approval": "confirm",
+          "evidence": {
+            "captureToolCalls": true,
+            "captureResults": false
+          }
+        }
+      }
+    },
+    {
+      "id": 32,
+      "family": "mcp",
+      "name": "normalizeMcpServers",
+      "status": "refused",
+      "input": [
+        {
+          "browser": {
+            "hostReference": "browser",
+            "agents": [
+              "tester"
+            ],
+            "phases": [
+              "verify"
+            ],
+            "tools": [
+              "open",
+              "capture"
+            ],
+            "required": true
+          }
+        },
+        {
+          "agents": [
+            "author"
+          ],
+          "phases": [
+            "verify"
+          ]
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'browser' references unknown agent 'tester'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 33,
+      "family": "mcp",
+      "name": "normalizeMcpServers",
+      "status": "refused",
+      "input": [
+        {
+          "browser": {
+            "hostReference": "browser",
+            "agents": [
+              "tester"
+            ],
+            "phases": [
+              "verify"
+            ],
+            "tools": [
+              "other/tool"
+            ],
+            "required": true
+          }
+        },
+        {
+          "agents": [
+            "tester"
+          ],
+          "phases": [
+            "draft",
+            "verify"
+          ]
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'browser' tool 'other/tool' must be an unqualified MCP tool name.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 34,
+      "family": "mcp",
+      "name": "normalizeMcpSources",
+      "status": "returned",
+      "input": [
+        {
+          "tools": [
+            "open"
+          ],
+          "resources": [
+            "docs://accepted/"
+          ]
+        }
+      ],
+      "value": {
+        "prompts": [],
+        "resources": [
+          "docs://accepted/"
+        ],
+        "tools": [
+          "open"
+        ]
+      }
+    },
+    {
+      "id": 35,
+      "family": "mcp",
+      "name": "normalizeMcpSources",
+      "status": "refused",
+      "input": [
+        {
+          "tools": []
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'undefined' sources must allow at least one prompt, resource or tool.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 36,
+      "family": "mcp",
+      "name": "normalizeMcpSources",
+      "status": "refused",
+      "input": [
+        {
+          "unknown": [
+            "open"
+          ]
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'undefined' sources contains unknown field 'unknown'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 37,
+      "family": "mcp",
+      "name": "mcpSourceAllowed",
+      "status": "returned",
+      "input": [
+        {
+          "tools": [
+            "open"
+          ],
+          "resources": [
+            "docs://accepted/"
+          ],
+          "prompts": [
+            "draft"
+          ]
+        },
+        "tool",
+        "open"
+      ],
+      "value": true
+    },
+    {
+      "id": 38,
+      "family": "mcp",
+      "name": "mcpSourceAllowed",
+      "status": "returned",
+      "input": [
+        {
+          "tools": [
+            "open"
+          ],
+          "resources": [
+            "docs://accepted/"
+          ],
+          "prompts": [
+            "draft"
+          ]
+        },
+        "tool",
+        "other"
+      ],
+      "value": false
+    },
+    {
+      "id": 39,
+      "family": "mcp",
+      "name": "normalizePhaseMcpPolicy",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "requiredServers": [],
+        "requireSmoke": false,
+        "evidence": []
+      }
+    },
+    {
+      "id": 40,
+      "family": "mcp",
+      "name": "normalizePhaseMcpPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "requiredServers": [
+            "browser"
+          ]
+        },
+        {
+          "servers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "phaseId": "verify"
+        }
+      ],
+      "value": {
+        "requiredServers": [
+          "browser"
+        ],
+        "requireSmoke": false,
+        "evidence": []
+      }
+    },
+    {
+      "id": 41,
+      "family": "mcp",
+      "name": "normalizePhaseMcpPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "requiredServers": [
+            "missing"
+          ]
+        },
+        {
+          "servers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "phaseId": "verify"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'verify' requires unknown MCP server 'missing'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 42,
+      "family": "mcp",
+      "name": "normalizePhaseMcpPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "requiredServers": [
+            "browser"
+          ],
+          "requireSmoke": true,
+          "evidence": [
+            {
+              "server": "browser",
+              "tool": "capture",
+              "minimum": 1
+            }
+          ]
+        },
+        {
+          "servers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "phaseId": "verify"
+        }
+      ],
+      "value": {
+        "requiredServers": [
+          "browser"
+        ],
+        "requireSmoke": true,
+        "evidence": [
+          {
+            "server": "browser",
+            "tool": "capture",
+            "minimum": 1,
+            "outputRequired": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 43,
+      "family": "mcp",
+      "name": "normalizePhaseMcpPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "requiredServers": [
+            "browser"
+          ]
+        },
+        {
+          "servers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "phaseId": "draft"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'draft' requires MCP server 'browser', but that server is not allowed in the phase.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 44,
+      "family": "mcp",
+      "name": "normalizePhaseMcpPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "requiredServers": [
+            "browser"
+          ],
+          "evidence": [
+            {
+              "server": "browser",
+              "tool": "other"
+            }
+          ]
+        },
+        {
+          "servers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "phaseId": "verify"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'verify' mcp.evidence[0] references tool 'other' outside server 'browser' allowlist.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 45,
+      "family": "mcp",
+      "name": "mcpImportOnly",
+      "status": "returned",
+      "input": [
+        {
+          "sources": {
+            "tools": [
+              "open"
+            ]
+          },
+          "tools": [],
+          "agents": []
+        }
+      ],
+      "value": true
+    },
+    {
+      "id": 46,
+      "family": "mcp",
+      "name": "mcpServersForContext",
+      "status": "returned",
+      "input": [
+        {
+          "mcpServers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          }
+        },
+        {
+          "agent": "tester",
+          "phase": "verify"
+        }
+      ],
+      "value": [
+        {
+          "id": "browser",
+          "label": "browser",
+          "hostReference": "browser",
+          "agents": [
+            "tester"
+          ],
+          "phases": [
+            "verify"
+          ],
+          "tools": [
+            "open",
+            "capture"
+          ],
+          "required": true,
+          "approval": "confirm",
+          "evidence": {
+            "captureToolCalls": true,
+            "captureResults": false
+          },
+          "agentTools": [
+            "browser/open",
+            "browser/capture"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "family": "mcp",
+      "name": "mcpServersForContext",
+      "status": "returned",
+      "input": [
+        {
+          "mcpServers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          }
+        },
+        {
+          "agent": "author",
+          "phase": "draft"
+        }
+      ],
+      "value": []
+    },
+    {
+      "id": 48,
+      "family": "mcp",
+      "name": "validateMcpAgentTools",
+      "status": "returned",
+      "input": [
+        {
+          "mcpServers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "agentCatalog": [
+            {
+              "id": "tester",
+              "tools": [
+                "browser/*"
+              ]
+            }
+          ]
+        }
+      ],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 49,
+      "family": "mcp",
+      "name": "validateMcpAgentTools",
+      "status": "refused",
+      "input": [
+        {
+          "mcpServers": {
+            "browser": {
+              "id": "browser",
+              "label": "browser",
+              "hostReference": "browser",
+              "agents": [
+                "tester"
+              ],
+              "phases": [
+                "verify"
+              ],
+              "tools": [
+                "open",
+                "capture"
+              ],
+              "required": true,
+              "approval": "confirm",
+              "evidence": {
+                "captureToolCalls": true,
+                "captureResults": false
+              }
+            }
+          },
+          "agentCatalog": [
+            {
+              "id": "tester",
+              "tools": [
+                "browser/open"
+              ]
+            }
+          ]
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "MCP server 'browser' is assigned to agent 'tester', but its Agent Markdown tools do not allow browser/capture.",
+        "code": "MCP_AGENT_TOOLS_MISMATCH",
+        "exitCode": 1,
+        "details": {
+          "mismatches": [
+            {
+              "server": "browser",
+              "hostReference": "browser",
+              "agent": "tester",
+              "agentSource": null,
+              "missingTools": [
+                "browser/capture"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 50,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "targets": {}
+      }
+    },
+    {
+      "id": 51,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "returned",
+      "input": [
+        {
+          "targets": {
+            "events": {
+              "kind": "webhook",
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "value": {
+        "targets": {
+          "events": {
+            "id": "events",
+            "kind": "webhook",
+            "network": "public",
+            "timeoutSeconds": 10,
+            "url": "https://events.example.test/sflow",
+            "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+          }
+        }
+      }
+    },
+    {
+      "id": 52,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "refused",
+      "input": [
+        {
+          "targets": {
+            "events": {
+              "kind": "unavailable"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Integration target 'events' kind must be one of: webhook, http-log, teams, jira, git, confluence, onedrive.",
+        "code": "INTEGRATION_TARGET_KIND_UNKNOWN",
+        "exitCode": 1,
+        "details": {
+          "location": "Integration target 'events'",
+          "kind": "unavailable"
+        }
+      }
+    },
+    {
+      "id": 53,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "refused",
+      "input": [
+        {
+          "targets": {
+            "events": {
+              "kind": "webhook",
+              "url": "http://events.example.test"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Integration target 'events' url must use https:// (plain http:// is allowed only for this machine, such as http://127.0.0.1).",
+        "code": "INTEGRATION_TARGET_URL_INVALID",
+        "exitCode": 1,
+        "details": {
+          "location": "Integration target 'events' url"
+        }
+      }
+    },
+    {
+      "id": 54,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "refused",
+      "input": [
+        {
+          "targets": {
+            "events": {
+              "kind": "webhook",
+              "url": "https://user:pass@events.example.test"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Integration target 'events' url contains credentials. Remove them from the address and name a secret instead.",
+        "code": "INTEGRATION_SECRET_INLINE",
+        "exitCode": 1,
+        "details": {
+          "location": "Integration target 'events' url"
+        }
+      }
+    },
+    {
+      "id": 55,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "refused",
+      "input": [
+        {
+          "targets": {
+            "events": {
+              "kind": "webhook",
+              "url": "https://events.example.test",
+              "token": "sample"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Integration target 'events' has 'token', which would put a secret in reviewed configuration. Name an environment secret instead, for example tokenSecret: MY_SERVICE_TOKEN.",
+        "code": "INTEGRATION_SECRET_INLINE",
+        "exitCode": 1,
+        "details": {
+          "location": "Integration target 'events'",
+          "field": "token"
+        }
+      }
+    },
+    {
+      "id": 56,
+      "family": "actions",
+      "name": "normalizeIntegrations",
+      "status": "refused",
+      "input": [
+        {
+          "targets": {
+            "events": {
+              "kind": "webhook",
+              "url": "https://events.example.test",
+              "signingSecret": "OTHER_TOKEN"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Integration target 'events' signingSecret must name an environment secret that starts with SFLOW_SECRET_, such as SFLOW_SECRET_EVENTS_KEY, and never hold its value. Integration secrets have their own names so a workflow can never send another tool's credentials, such as JIRA_PAT or GITHUB_TOKEN.",
+        "code": "INTEGRATION_SECRET_NAME_INVALID",
+        "exitCode": 1,
+        "details": {
+          "location": "Integration target 'events' signingSecret"
+        }
+      }
+    },
+    {
+      "id": 57,
+      "family": "actions",
+      "name": "normalizeStepActions",
+      "status": "returned",
+      "input": [
+        [],
+        {
+          "targets": {
+            "events": {
+              "id": "events",
+              "kind": "webhook",
+              "network": "public",
+              "timeoutSeconds": 10,
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "value": []
+    },
+    {
+      "id": 58,
+      "family": "actions",
+      "name": "normalizeStepActions",
+      "status": "returned",
+      "input": [
+        [
+          {
+            "id": "notify",
+            "target": "events",
+            "on": [
+              "approved"
+            ],
+            "send": "event",
+            "required": true
+          }
+        ],
+        {
+          "targets": {
+            "events": {
+              "id": "events",
+              "kind": "webhook",
+              "network": "public",
+              "timeoutSeconds": 10,
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "value": [
+        {
+          "id": "notify",
+          "on": [
+            "approved"
+          ],
+          "target": "events",
+          "send": "event",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "family": "actions",
+      "name": "normalizeStepActions",
+      "status": "refused",
+      "input": [
+        [
+          {
+            "id": "notify",
+            "target": "missing",
+            "on": [
+              "approved"
+            ],
+            "send": "event",
+            "required": true
+          }
+        ],
+        {
+          "targets": {
+            "events": {
+              "id": "events",
+              "kind": "webhook",
+              "network": "public",
+              "timeoutSeconds": 10,
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "undefined afterStep[0] names target 'missing', which integrations.targets does not declare. Declared: events.",
+        "code": "STEP_ACTION_TARGET_UNKNOWN",
+        "exitCode": 1,
+        "details": {
+          "location": "undefined afterStep[0]",
+          "target": "missing"
+        }
+      }
+    },
+    {
+      "id": 60,
+      "family": "actions",
+      "name": "normalizeStepActions",
+      "status": "refused",
+      "input": [
+        [
+          {
+            "id": "notify",
+            "target": "events",
+            "on": [
+              "unreviewed"
+            ],
+            "send": "event",
+            "required": true
+          }
+        ],
+        {
+          "targets": {
+            "events": {
+              "id": "events",
+              "kind": "webhook",
+              "network": "public",
+              "timeoutSeconds": 10,
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "undefined afterStep[0] on must list one or more of: submitted, approved, rejected.",
+        "code": "STEP_ACTION_INVALID",
+        "exitCode": 1,
+        "details": {
+          "location": "undefined afterStep[0]"
+        }
+      }
+    },
+    {
+      "id": 61,
+      "family": "actions",
+      "name": "normalizeStepActions",
+      "status": "refused",
+      "input": [
+        [
+          {
+            "id": "notify",
+            "target": "events",
+            "on": [
+              "approved"
+            ],
+            "send": "event",
+            "required": true
+          },
+          {
+            "id": "notify",
+            "target": "events",
+            "on": [
+              "approved"
+            ],
+            "send": "event",
+            "required": true
+          }
+        ],
+        {
+          "targets": {
+            "events": {
+              "id": "events",
+              "kind": "webhook",
+              "network": "public",
+              "timeoutSeconds": 10,
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "undefined afterStep names action 'notify' twice.",
+        "code": "STEP_ACTION_INVALID",
+        "exitCode": 1,
+        "details": {
+          "location": "undefined afterStep[1]"
+        }
+      }
+    },
+    {
+      "id": 62,
+      "family": "actions",
+      "name": "pinStepActions",
+      "status": "returned",
+      "input": [
+        [
+          {
+            "id": "notify",
+            "target": "events",
+            "on": [
+              "approved"
+            ],
+            "send": "event",
+            "required": true
+          }
+        ],
+        {
+          "targets": {
+            "events": {
+              "id": "events",
+              "kind": "webhook",
+              "network": "public",
+              "timeoutSeconds": 10,
+              "url": "https://events.example.test/sflow",
+              "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+            }
+          }
+        }
+      ],
+      "value": [
+        {
+          "id": "notify",
+          "target": "events",
+          "on": [
+            "approved"
+          ],
+          "send": "event",
+          "required": true,
+          "targetSpec": {
+            "id": "events",
+            "kind": "webhook",
+            "network": "public",
+            "timeoutSeconds": 10,
+            "url": "https://events.example.test/sflow",
+            "signingSecret": "SFLOW_SECRET_EVENTS_KEY"
+          }
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "family": "actions",
+      "name": "stepActionTriggers",
+      "status": "returned",
+      "input": [
+        "approval-requested",
+        {
+          "status": "awaiting_approval"
+        }
+      ],
+      "value": [
+        "submitted"
+      ]
+    },
+    {
+      "id": 64,
+      "family": "actions",
+      "name": "stepActionTriggers",
+      "status": "returned",
+      "input": [
+        "approval-requested",
+        {
+          "status": "approved"
+        }
+      ],
+      "value": [
+        "approved"
+      ]
+    },
+    {
+      "id": 65,
+      "family": "actions",
+      "name": "stepActionTriggers",
+      "status": "returned",
+      "input": [
+        "phase-approved",
+        {
+          "status": "in_progress"
+        }
+      ],
+      "value": []
+    },
+    {
+      "id": 66,
+      "family": "actions",
+      "name": "stepActionTriggers",
+      "status": "returned",
+      "input": [
+        "phase-rejected",
+        {
+          "status": "approved"
+        }
+      ],
+      "value": [
+        "rejected"
+      ]
+    },
+    {
+      "id": 67,
+      "family": "actions",
+      "name": "storyRequiresStepActions",
+      "status": "returned",
+      "input": [
+        {
+          "resolution": {
+            "phases": [
+              {
+                "afterStep": [
+                  {
+                    "id": "notify",
+                    "target": "events",
+                    "on": [
+                      "approved"
+                    ],
+                    "send": "event",
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "value": true
+    },
+    {
+      "id": 68,
+      "family": "actions",
+      "name": "storyRequiresStepActions",
+      "status": "returned",
+      "input": [
+        {
+          "resolution": {
+            "phases": []
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 69,
+      "family": "actions",
+      "name": "actionsForTrigger",
+      "status": "returned",
+      "input": [
+        {
+          "afterStep": [
+            {
+              "id": "notify",
+              "target": "events",
+              "on": [
+                "approved"
+              ],
+              "send": "event",
+              "required": true
+            }
+          ]
+        },
+        "approved"
+      ],
+      "value": [
+        {
+          "id": "notify",
+          "target": "events",
+          "on": [
+            "approved"
+          ],
+          "send": "event",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "family": "actions",
+      "name": "actionsForTrigger",
+      "status": "returned",
+      "input": [
+        {
+          "afterStep": [
+            {
+              "id": "notify",
+              "target": "events",
+              "on": [
+                "approved"
+              ],
+              "send": "event",
+              "required": true
+            }
+          ]
+        },
+        "submitted"
+      ],
+      "value": []
+    }
+  ],
+  "functions": {
+    "src/mcp.mjs:stringList": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "d80e2f16ba195b0d73b09113eb8ea543bc72bc7edc308e89764a1a1f26bf9e37"
+    },
+    "src/mcp.mjs:normalizeMcpServers": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "ab9ea739e0071d1ffbedd23edb3ff3d0743bca43f952331577f6542b6e8e45ae"
+    },
+    "src/mcp.mjs:normalizeMcpSources": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "fa71a4d1d8a515a5e9be5264268c26e6836c14db7c8cd096741590a3cafdc073"
+    },
+    "src/mcp.mjs:mcpSourceAllowed": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "3a6a35d5a705be5304b11e5e1244ff40eaa5c0c184d3631c8a43deb599c799bd"
+    },
+    "src/mcp.mjs:normalizePhaseMcpPolicy": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "cb85895dcd98057d515306bcd76a001d10769fe47e842866fb1789e96ae6878c"
+    },
+    "src/mcp.mjs:mcpImportOnly": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "198ac7e24575f9335f4e3f51c28c83f975d1dcabc805875cdfce259a2f2b3486"
+    },
+    "src/mcp.mjs:mcpServersForContext": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "a070f02a27ae463369afebc5be35bc9130cca9676369eb9cf28690a54209d4c3"
+    },
+    "src/mcp.mjs:validateMcpAgentTools": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "sha256": "0f5eb315bff1eda3031e450a5c60087ff4b0daade105a93f0fcc0834d82a6a0a"
+    },
+    "src/step-actions.mjs:validDeliveryBranchName": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "4f4df439a866c2e8f0bfe578b4756b6365b387ccb49e6a1245115e36794bebfa"
+    },
+    "src/step-actions.mjs:refuse": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "97b2c4bb3866b8d528b6a6300f129120ba43df40d6699a8d8542e24dee1513dc"
+    },
+    "src/step-actions.mjs:plainObject": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "994c4a7b0966d3d70145b5ddcc629543c74a8983df50f4d8169d9dabd5e25703"
+    },
+    "src/step-actions.mjs:assertSecretName": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "df4e24e2c85c7286f83b3f2944cd73eb7a5c2e9b055197ab7f76cbe3c708582b"
+    },
+    "src/step-actions.mjs:assertTargetUrl": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "f7c3ab0e9aa87ed7df9f79812fae160835acc72801f3424c9640b1f98c72b5a2"
+    },
+    "src/step-actions.mjs:assertNoInlineSecrets": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "14a2d41ddaececb60a4fc63e914189b550a2ce13e1e4e809ff9bc0b2d9f26ac7"
+    },
+    "src/step-actions.mjs:normalizeJiraTransition": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "8b517e599a5a45630c618b1fe8e78855c59339edb53e2d81b35d4cc3c9f4df58"
+    },
+    "src/step-actions.mjs:jiraTransitionFor": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "b95684566d5cc28fa32e992694b94f2729e11c1c88414dc32b95dd48a2c36337"
+    },
+    "src/step-actions.mjs:normalizeTarget": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "507f0820bdc6d17d3ffabc41460e1670179768e68f225c130abfd599f4a0d6de"
+    },
+    "src/step-actions.mjs:normalizeIntegrations": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "12babd9ba802e858fdad8e3e81409005634952da404d5cdea179900edb0d5c22"
+    },
+    "src/step-actions.mjs:normalizeStepActions": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "19427031015336bfb15003d9a011a8338587f2bad20411da29c3bf87f9474ae5"
+    },
+    "src/step-actions.mjs:pinStepActions": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "d07a849e93afa9fed185c4c81da77885c901b7d9aad2640a968c605af4b4d1e8"
+    },
+    "src/step-actions.mjs:stepActionTriggers": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "84a16c0ae1c53fe569036e951194c0f29e98c3a80557b61e872e3b59e2cd5700"
+    },
+    "src/step-actions.mjs:storyRequiresStepActions": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "a3134e9f829e22aefd182ab100f0acbbf9b20454dd7f5ce34aba6b8c955c8150"
+    },
+    "src/step-actions.mjs:actionsForTrigger": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "sha256": "adcf861e43d1d143f18f79881338e44184b4c3764faf5cb67a79f1794eb6a7eb"
+    },
+    "src/auto/auto-policy.mjs:object": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "11f62958d3f3ebd1dedfc84449eeb5e47ed25003acea6eace9481621ca6a87ad"
+    },
+    "src/auto/auto-policy.mjs:keys": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "64c0da4150721834006d632e144f71fce84c24dfb9399052fce4b65bb0530f70"
+    },
+    "src/auto/auto-policy.mjs:positive": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "a03a1bca8261d0b00cd5711a49bd35c28618af7c2588dcc376a8350a823e5970"
+    },
+    "src/auto/auto-policy.mjs:unique": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "30ba814d74da8bc2537767e9eba5c3f88a10a2f6b97e8f00ffaf67202413ad94"
+    },
+    "src/auto/auto-policy.mjs:parseAutoPace": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "49893edab42cb37bc9e30d2fa6eca797a6784099d895c6169cf07ad7c341f813"
+    },
+    "src/auto/auto-policy.mjs:normalizeAutoProfile": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "71f929f4d8293aff02172e52c912dabbb0714dfdc7ac515438c9f71430624dc8"
+    },
+    "src/auto/auto-policy.mjs:selectAutoProfile": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "4adbee6c2d43c9bd9a52c0e21428d4e8077f1418714f30df31026807252341c7"
+    },
+    "src/auto/auto-policy.mjs:parseAutoStopSelector": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "3a1ad4db680ca74e9914b54541d013d159c12e458899d8be4face56321cf3c4e"
+    },
+    "src/auto/auto-policy.mjs:normalizeAutoCeilings": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "c14ca7f3576e9d4f9247dc947ffe092ddfe02996dcdebaef0edb328b96feea1e"
+    },
+    "src/auto/auto-policy.mjs:tightenCeilings": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "b36f6c39edd4f8f5274a54fd5897c263637dfca6dd15196acd39d4b0dbfff805"
+    },
+    "src/auto/auto-policy.mjs:ceilingOverrides": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "2725f9aac8a28645873e4f8407fb0ca480edd495d77fc365ce0a4b5724567897"
+    },
+    "src/auto/auto-policy.mjs:tightenPartialCeilings": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "1ba2fa8eefaed8376e8829620fff0f068c9611a56302214264aa56b3f8cc4528"
+    },
+    "src/auto/auto-policy.mjs:normalizeAutoPolicy": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "e191b39d02a144ddd3f0d6e8b6a61d49d3f30c59005986f0a268d7adf275bfe6"
+    },
+    "src/auto/auto-policy.mjs:normalizeAutoWorkTypePolicy": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "a8c6246701962db3084ca18fdf678a4eb11c0abad0759471f2dcc85dcb2029a6"
+    },
+    "src/auto/auto-policy.mjs:normalizeCapabilityAutoPolicy": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "58ba1d3911f94eacb69add06fc54bf137b9a5e229d8eb66689e7fdcbb6c300d6"
+    },
+    "src/auto/auto-policy.mjs:tighterEligibility": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "34bc7ad1c194a15161da9be3b3a4dd50fdb22ed297d928e26ef437fb6df70e9b"
+    },
+    "src/auto/auto-policy.mjs:foldCapabilityAutoPolicy": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "3b8e01698ec0e626525cdc82e1007d67b5b68b2d6b1276c05f99a324e3e1eebe"
+    },
+    "src/auto/auto-policy.mjs:effectiveAutoPolicy": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "ac4929e53f880fceef17a864ebbf15ae6abf44f45a1967aadc36129af2fa0727"
+    },
+    "src/adhoc/policy.mjs:object": {
+      "owner": "src/kernel/adhoc-policy.mjs",
+      "sha256": "ea6b4131f0209cff20eb341e93d77440e71336566f3c6f099f0e762978fee7d8"
+    },
+    "src/adhoc/policy.mjs:known": {
+      "owner": "src/kernel/adhoc-policy.mjs",
+      "sha256": "8912d5afee3b0372d473fa89dd5329a21023c0ffa91b7c5c0ad1b9dc25e09234"
+    },
+    "src/adhoc/policy.mjs:bool": {
+      "owner": "src/kernel/adhoc-policy.mjs",
+      "sha256": "301f77ba0b5e8e9de590024d5e12dcbf1f2970b7dec5be04cef4be7ee9b232b9"
+    },
+    "src/adhoc/policy.mjs:integer": {
+      "owner": "src/kernel/adhoc-policy.mjs",
+      "sha256": "ff2a68d6bd8ded1186ab45db6709604caa84abc3c000777486ccfa98784468e0"
+    },
+    "src/adhoc/policy.mjs:normalizeAdhocPolicy": {
+      "owner": "src/kernel/adhoc-policy.mjs",
+      "sha256": "86af46c0f13a3b933bbd13870a6c7f8eb4948146684e9aac6359009d5a516a1d"
+    }
+  },
+  "owners": {
+    "src/mcp.mjs": {
+      "owner": "src/kernel/mcp-policy.mjs",
+      "exports": [
+        "normalizeMcpServers",
+        "normalizeMcpSources",
+        "mcpSourceAllowed",
+        "normalizePhaseMcpPolicy",
+        "mcpImportOnly",
+        "mcpServersForContext",
+        "validateMcpAgentTools"
+      ]
+    },
+    "src/step-actions.mjs": {
+      "owner": "src/kernel/step-action-policy.mjs",
+      "exports": [
+        "STEP_ACTION_TRIGGERS",
+        "STEP_ACTION_SENDS",
+        "MAX_STEP_ACTIONS",
+        "MAX_INTEGRATION_TARGETS",
+        "DEFAULT_TARGET_TIMEOUT_SECONDS",
+        "MAX_TARGET_TIMEOUT_SECONDS",
+        "INTEGRATION_TARGET_KINDS",
+        "HTTP_LOG_FORMATS",
+        "validDeliveryBranchName",
+        "STEP_ACTION_DELIVERERS",
+        "assertSecretName",
+        "assertTargetUrl",
+        "jiraTransitionFor",
+        "normalizeIntegrations",
+        "normalizeStepActions",
+        "pinStepActions",
+        "stepActionTriggers",
+        "storyRequiresStepActions",
+        "actionsForTrigger"
+      ]
+    },
+    "src/auto/auto-policy.mjs": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "exports": [
+        "AUTO_ELIGIBILITY",
+        "AUTO_PACES",
+        "AUTO_PROFILE_SELECTIONS",
+        "AUTO_REPAIR_POLICIES",
+        "parseAutoPace",
+        "selectAutoProfile",
+        "parseAutoStopSelector",
+        "normalizeAutoCeilings",
+        "normalizeAutoPolicy",
+        "normalizeAutoWorkTypePolicy",
+        "normalizeCapabilityAutoPolicy",
+        "foldCapabilityAutoPolicy",
+        "effectiveAutoPolicy",
+        "AUTO_STOP_KINDS",
+        "AUTO_AUTHORING_TOOLS"
+      ]
+    },
+    "src/adhoc/policy.mjs": {
+      "owner": "src/kernel/adhoc-policy.mjs",
+      "exports": [
+        "normalizeAdhocPolicy",
+        "DEFAULT_ADHOC_POLICY"
+      ]
+    }
+  },
+  "compilerDefaults": [
+    "normalizeAdhocPolicy",
+    "normalizeAutoPolicy",
+    "normalizeAutoWorkTypePolicy",
+    "normalizeIntegrations",
+    "normalizeMcpServers",
+    "normalizePhaseMcpPolicy",
+    "normalizeStepActions",
+    "pinStepActions",
+    "validateMcpAgentTools"
+  ],
+  "constants": {
+    "AUTO_STOP_KINDS": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "077f4466c4eb227df9a7a8ecfc44727f1f520da6fe963cb93430851ff7a5e07d"
+    },
+    "AUTO_AUTHORING_TOOLS": {
+      "owner": "src/kernel/auto-policy.mjs",
+      "sha256": "67b1bafe24ab7ae2b3bf54e0e25d11127b712891bd238972e7b84dd0ec7b5526"
+    }
+  }
+}

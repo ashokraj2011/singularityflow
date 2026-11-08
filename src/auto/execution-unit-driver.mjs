@@ -6,7 +6,7 @@ import { resolveModelProvider } from '../model-runner.mjs';
 import { modelProviderIds } from '../model-provider-registry.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { commandExists, run } from '../util.mjs';
-import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
+import { AUTO_AUTHORING_TOOLS } from '../kernel/auto-policy.mjs';
 
 function sha256(value) {
   return createHash('sha256').update(String(value ?? '')).digest('hex');

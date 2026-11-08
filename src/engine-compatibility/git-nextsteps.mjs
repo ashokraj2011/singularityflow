@@ -11,7 +11,7 @@ import { exists, readJson } from '../util.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { isConvergencePhase, isVisualVerificationPhase, phaseNeedsGeneration, requiresProspectivePhaseInspection,
   effectivePhasePublicationProducer, sourceReviewRequired } from '../kernel/phase-policy.mjs';
-import { storyRequiresStepActions } from '../step-actions.mjs';
+import { storyRequiresStepActions } from "../kernel/step-action-policy.mjs";
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { groundingRecordRelative } from '../story-paths.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';

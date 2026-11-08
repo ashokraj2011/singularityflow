@@ -22,7 +22,7 @@ import { evaluateStoryProtectedPaths } from '../configuration-materialization.mj
 import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
-import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
+import { AUTO_AUTHORING_TOOLS } from '../kernel/auto-policy.mjs';
 import { materializeAutoDocumentReadScope } from './auto-document-scope.mjs';
 import { publishAutoBoundaryCheckpoint } from './auto-checkpoint.mjs';
 import {

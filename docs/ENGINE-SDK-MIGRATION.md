@@ -253,6 +253,11 @@ The [shared configuration policy rules](ENGINE-SDK-CONFIGURATION-POLICIES.md) re
 native compiler callbacks with direct kernel rules, preserving the twelve compatibility APIs.
 Remaining compiler dependencies and production namespace enrollment remain required work.
 
+The [execution and integration policy boundary](ENGINE-SDK-EXECUTION-INTEGRATION-POLICIES.md)
+moves automatic-run, Ad Hoc, MCP and after-step action rules to pure owners. Native host checks,
+receipt hashing and delivery effects stay in their original owners; configuration declarations
+do not become proof of approval or execution.
+
 [ADR 0018](adr/0018-sda-lifecycle-authority-options.md) keeps the Story branch as lifecycle authority,
 the state branch as proof/projection and `sflow/config` as configuration authority. The Git
 compatibility adapter preserves that layout. An alternate backend for an existing project requires

@@ -7,7 +7,7 @@ import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './phase-transition-routes.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
-import { storyRequiresStepActions } from './step-actions.mjs';
+import { storyRequiresStepActions } from "./kernel/step-action-policy.mjs";
 import { phaseGovernanceHold } from './phase-transition-routes.mjs';
 import { completionPhaseOf } from './kernel/lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';

@@ -64,16 +64,14 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
   const normalizedBinding = namespaceBinding(binding), normalizedLimits = namespaceLimits(limits);
   let database, originalFile, manifest;
   const rollback = () => { try { database.exec('ROLLBACK'); } catch { /* Preserve the original result and native cause. */ } };
-  try {
-    if (create) {
-      await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
-      try { const reservation = await open(filename, 'wx', 0o600); await reservation.close(); }
-      catch (cause) { if (cause.code !== 'EEXIST') throw cause; }
+  const initialize = async timeout => {
+    const observedFile = await lstat(filename);
+    if (!observedFile.isFile() || observedFile.isSymbolicLink()
+      || observedFile.ino !== originalFile.ino || observedFile.dev !== originalFile.dev) {
+      throw namespaceError('The namespace database file changed while it was being opened.', 'SDA_NAMESPACE_UNAVAILABLE');
     }
-    originalFile = await lstat(filename);
-    if (!originalFile.isFile() || originalFile.isSymbolicLink()) throw namespaceError('The database binding must be an ordinary file.');
     database = await openNativeSqliteDatabase(filename);
-    database.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+    database.exec(`PRAGMA busy_timeout = ${timeout}`);
     database.exec('PRAGMA synchronous = FULL');
     const tables = () => database.prepare("SELECT name, type, sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name").all();
     const checkTables = observed => {
@@ -115,6 +113,29 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
     const acceptedFile = await lstat(filename);
     if (acceptedFile.ino !== originalFile.ino || acceptedFile.dev !== originalFile.dev || acceptedFile.isSymbolicLink()) {
       throw namespaceError('The namespace database file changed while it was being opened.', 'SDA_NAMESPACE_UNAVAILABLE');
+    }
+  };
+  try {
+    if (create) {
+      await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
+      try { const reservation = await open(filename, 'wx', 0o600); await reservation.close(); }
+      catch (cause) { if (cause.code !== 'EEXIST') throw cause; }
+    }
+    originalFile = await lstat(filename);
+    if (!originalFile.isFile() || originalFile.isSymbolicLink()) throw namespaceError('The database binding must be an ordinary file.');
+    const deadline = process.hrtime.bigint() + BigInt(busyTimeoutMs) * 1_000_000n;
+    const remaining = () => Math.max(0, Number((deadline - process.hrtime.bigint()) / 1_000_000n));
+    for (;;) {
+      try { await initialize(Math.max(1, remaining())); break; }
+      catch (cause) {
+        try { database?.close(); } catch { /* Preserve the original initialization error. */ }
+        database = undefined;
+        // SQLite can return BUSY during mode negotiation without invoking its busy handler.
+        // Only opening is retried; no application transaction has been issued by this journal yet.
+        const wait = remaining();
+        if (!Number.isSafeInteger(cause?.errcode) || (cause.errcode & 255) !== 5 || !wait) throw cause;
+        await new Promise(resolve => setTimeout(resolve, Math.min(10, wait)));
+      }
     }
   } catch (cause) { try { database?.close(); } catch {} throw unavailable('database-open', cause); }
 

@@ -99,6 +99,34 @@ test('independent first workers initialize one database and retain all nonconfli
   } finally { resumed.close(); }
 });
 
+test('a transient BUSY during mode negotiation reopens one store identity before any application write', async t => {
+  const f = await fixture(t), transaction = putTransaction('open-retry', 'stories/one', 1);
+  const result = await child({ filename: f.filename, scope, transaction, fault: 'open-busy-once' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.openAttempts, 2); assert.equal(result.openBusyCalls, 2); assert.equal(result.openStoreIds.length, 1);
+  const resumed = await f.reopen(), accepted = await resumed.inspectOperation(scope, transaction.operationId);
+  assert.deepEqual(accepted.receipt, result.result.receipt);
+  assert.equal(f.inspect(db => db.prepare('SELECT count(*) AS n FROM sflow_ns_entries').get().n), 1);
+});
+
+test('opening retry exhaustion preserves SQLITE_BUSY and cannot record the application transaction', async t => {
+  const f = await fixture(t), transaction = putTransaction('open-exhausted', 'stories/one', 1);
+  const result = await child({ filename: f.filename, scope, transaction, fault: 'open-busy-always', busyTimeoutMs: 30 });
+  assert.equal(result.ok, false); assert.equal(result.code, 'SDA_NAMESPACE_UNAVAILABLE');
+  assert.equal(result.causeCode, 'ERR_SQLITE_ERROR'); assert.equal(result.sqliteCode, 5); assert.equal(result.details.stage, 'database-open');
+  assert.equal(result.openStoreIds.length, 1);
+  assert.equal((await f.adapter.inspectOperation(scope, transaction.operationId)).status, 'missing');
+  assert.equal((await f.adapter.transact(scope, transaction)).replayed, false);
+});
+
+test('opening retries cannot mask permission failures or turn them into contention', async t => {
+  const f = await fixture(t), transaction = putTransaction('open-denied', 'stories/one', 1);
+  const result = await child({ filename: f.filename, scope, transaction, fault: 'open-denied' });
+  assert.equal(result.ok, false); assert.equal(result.code, 'SDA_NAMESPACE_UNAVAILABLE');
+  assert.equal(result.causeCode, 'EACCES'); assert.equal(result.openAttempts, 1);
+  assert.equal((await f.adapter.inspectOperation(scope, transaction.operationId)).status, 'missing');
+});
+
 test('a bounded real database lock preserves SQLITE_BUSY and permits the same operation after release', async t => {
   const f = await fixture(t, { busyTimeoutMs: 25 });
   const holder = spawn(process.execPath, [childFile, JSON.stringify({ filename: f.filename, hold: true })], { stdio: ['pipe', 'pipe', 'pipe'] });

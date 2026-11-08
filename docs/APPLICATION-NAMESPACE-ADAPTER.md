@@ -50,6 +50,12 @@ a lost acknowledgement reports `OUTCOME_UNKNOWN`; inspection and same-intent ret
 original operation without duplicate records or events. Durability confirmation checks the
 accepted prefix and completes a full WAL checkpoint, refusing a busy/incomplete confirmation.
 
+Concurrent opening can return `SQLITE_BUSY` while negotiating WAL mode before SQLite invokes its
+busy handler. Opening alone retries that specific native contention within the configured
+`busyTimeoutMs` budget, closing the failed handle and rechecking the same file identity. It keeps
+an already initialized manifest and never retries an application transaction or another error.
+If the budget is exhausted, the original SQLite cause and `database-open` stage remain visible.
+
 A crashed process needs no stale SFlow lock removal: SQLite recovers its own transaction. A kill
 before COMMIT leaves no accepted entry/head/receipt; a kill after COMMIT retains the original one.
 These are native process-crash checks, not claims about hardware failure or network filesystems.

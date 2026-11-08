@@ -3686,6 +3686,8 @@ export async function publishGeneration(root, config, workflow, {
   const dependencyOptions = { producer: effectiveAuthorship.producer,
     generation: nextPhaseGeneration(phase), agent: session.agent };
   let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
+  // A non-code step runs or reuses the repository's tests here, so its document can cite its own run [CQF:REQ-012].
+  const repositoryRuns = deliveryPreflight ? null : await (await import('./verification/repository-tests.mjs')).preflightRepositoryTests(root, config, workflow, phase, localTestRunKernel);
   // Execute the exact structured test command before consuming the generation intent. Submission
   // reuses this run while nothing it depends on moved [TCE:REQ-080], and command inference, test discovery, and
   // result-adapter incompatibility must be found while the current generation is still editable.
@@ -3744,7 +3746,7 @@ export async function publishGeneration(root, config, workflow, {
     generation: nextPhaseGeneration(phase)
   });
   // Repository-owned tests may change dependency bytes too. Recheck before input/Story writes.
-  if (deliveryPreflight) dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
+  if (deliveryPreflight || repositoryRuns) dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
   dependencies.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   const { clarification } = dependencies;
   await preparePhaseInputs(root, config, workflow, phase.id);
@@ -3846,6 +3848,9 @@ export async function publishGeneration(root, config, workflow, {
   phase.authorship ??= [];
   const publishedAt = nowIso();
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+  // The runs this generation's publication made or reused; submission binds what it reuses of them [CQF:REQ-012].
+  if (repositoryRuns) phase.stepTestRuns = { generation: phase.generation, preflightAttempts: repositoryRuns };
+  else delete phase.stepTestRuns;
   if (deliveryPreflight) {
     // These are live submission bindings, not publication history. A successor starts without
     // observed evidence; immutable prior claim maps/publications remain in Git and lineage.
@@ -5628,11 +5633,12 @@ async function submitPhaseTransition(root, config, workflow, {
       stdout: '', stderr: observation.diagnostics.join('\n') });
   }
   if (!codeDeliveryRequired) {
-    // What the repository's tests ran is an attempt like a code step's, so nothing reruns it on the same code [TCE:REQ-080].
-    for (const command of repositoryTests?.commands ?? []) {
-      const check = phase.checks.find((entry) => entry.id === command.id);
-      if (check && !check.unchangedRun && check.status !== 'skipped-warning') await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
-        command, check, purpose: 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation });
+    // What the repository's tests ran is an attempt like a code step's, so nothing reruns it on the same code [TCE:REQ-080],
+    // and every run, fresh or reused, is bound into the Story record [CQF:REQ-010].
+    if (repositoryTests?.commands.length) {
+      phase.stepTestRuns = { ...(Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : {}), generation: phase.generation,
+        testExecutions: await (await import('./verification/repository-tests.mjs')).bindRepositoryTestRuns(root, workDirRelative(config, workflow.workItem.id), {
+          commands: repositoryTests.commands, checks: phase.checks, purpose: 'submission', workflow, phase, generation: phase.generation }) };
     }
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
     // command may emit no report at all, so it cannot authorize discarding a preserved report.

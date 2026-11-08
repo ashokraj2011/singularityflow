@@ -66,7 +66,9 @@ function ownEvidenceLine(entry) {
   if (entry.status === 'no-governed-tests-in-this-packet') return `${who}: no test execution is retained in this packet; this does not establish a separate test run.`;
   if (!entry.runs.length) return `${who}: ${entry.status}; no passing execution is established by this projection.`;
   return `${who}: ${entry.runs.map((run) => {
-    const counts = run.counts ? `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped` : 'no structured counts';
+    // A run is read by its counts: one that exited 0 with no test in its report ran none [CQF:REQ-010].
+    const counts = !run.counts ? 'no structured counts' : Number(run.counts.discovered) === 0 ? 'no tests ran'
+      : `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped`;
     // Not run again because the code did not change: the same run stands, and nothing is missing from this step.
     const reused = run.reused ? `; the run ${run.attemptId} that ${run.reused.recordedBy} recorded on this same source tree (${run.reused.treeSha256}), which stands for this step, so cite it as a fresh run` : '';
     return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${reused}${run.label ? `; ${run.label}` : ''}`;

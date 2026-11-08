@@ -12,6 +12,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { reusedExecutionDetails } from '../src/phase-execution-evidence.mjs';
@@ -22,6 +23,7 @@ import { storyAtVerification, writeVerificationEvidence } from './helpers/story-
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const W = 'END-1';
+const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const json = (result) => completeAgentResult(JSON.parse(result.stdout.slice(result.stdout.indexOf('{'))));
 
 test('a reused run carries its attempt, counts and tree from Verification to the approved end, with no decision raised', slowLane({ timeout: 480_000 }), async (t) => {
@@ -76,6 +78,53 @@ test('a reused run carries its attempt, counts and tree from Verification to the
   assert.deepEqual(decisions.items.filter((entry) => entry.kind !== 'approval').map((entry) => entry.title), [], 'nothing to decide');
   cli('approve', 'release', '--yes');
   assert.equal((await workflow()).status, 'closed', 'the Story ends on the one run');
+});
+
+test('a fresh run at Verification\'s publication is its own, submission reuses it, and Release reads its counts [CQF:REQ-010, REQ-012]', slowLane({ timeout: 480_000 }), async (t) => {
+  const story = await storyAtVerification(t, 'FRESH-1');
+  const { cli, item, root } = story;
+  await writeVerificationEvidence(story);
+  // NODE_OPTIONS is not the environment implementation ran in, so Verification runs the tests itself.
+  const elsewhere = (...args) => {
+    const result = spawnSync(process.execPath, [CLI, '--no-model', ...args], { cwd: root, encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester', NODE_OPTIONS: '--max-old-space-size=4096' } });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result;
+  };
+  const published = elsewhere('phase', 'publish', 'verification', '--authored', 'human', '--channel', 'manual-in-place');
+  assert.match(published.stderr, /Running node-tests again: the environment changed since TA-/u, 'it runs at publication');
+  const workflow = async () => JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  const [run] = (await workflow()).phases.verification.stepTestRuns.preflightAttempts;
+  assert.equal(run.status, 'passed');
+  assert.deepEqual(run.counts, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(run.reusedFrom, undefined, 'its own run');
+  const review = JSON.parse(cli('phase', 'show', 'verification', '--json').stdout);
+  assert.equal(review.stepTestRuns[0].words, `${run.attemptId} by verification: node-tests passed, 1 passed, 0 failed, 0 skipped`, 'the document can cite it');
+  const submitted = elsewhere('submit', 'verification');
+  assert.match(submitted.stderr, new RegExp(`Not run again: node-tests passed on this exact code \\(${run.attemptId}, recorded by verification\\)`, 'u'), 'submission reuses it');
+  const packetFile = (await workflow()).lineage.submissions.filter((entry) => entry.phase === 'verification').at(-1).path;
+  const packet = JSON.parse(await readFile(path.join(root, packetFile), 'utf8'));
+  assert.deepEqual(packet.submissionEvidence.testExecutions.map((entry) => [entry.commandId, entry.status, entry.path.endsWith(`/attempts/verification/${run.attemptId}.json`)]),
+    [['node-tests', 'passed', true]], 'the Story record binds it');
+  const summary = JSON.parse(cli('tests', 'summary', '--work-id', 'FRESH-1', '--phase', 'verification', '--json').stdout);
+  assert.equal(summary.run.id, run.attemptId);
+  assert.equal(summary.run.bound, true);
+  const matrix = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix;
+  assert.deepEqual(matrix.evaluation.stepTestRuns.map((entry) => [entry.phaseId, entry.runs[0].attemptId, entry.runs[0].counts.passed]), [['verification', run.attemptId, 1]],
+    'the evidence graph reads it');
+
+  cli('approve', 'verification', '--yes');
+  cli('prepare', 'release');
+  const entered = json(cli('phase', 'enter', '--compose', '--for-agent', '--json'));
+  const verification = entered.retainedExecutionEvidence.entries.find((entry) => entry.phase === 'verification');
+  const check = verification.checks.find((entry) => entry.commandId === 'node-tests');
+  assert.equal(check.testResult.status, 'passed');
+  assert.deepEqual(check.testResult.counts, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(check.testResult.reused, undefined, 'Release reads it as Verification\'s own run');
+  assert.equal(check.structuredTestsReusable, true);
+  assert.equal(verification.executions[0].attemptId, run.attemptId);
+  const line = entered.evidenceConsistency.summary.find((entry) => entry.startsWith('verification generation'));
+  assert.match(line, /node-tests: passed, 1 passed, 0 failed, 0 skipped; source binding matched/u);
 });
 
 test('a clause that will really end open is said at Verification, with who decides', slowLane({ timeout: 480_000 }), async (t) => {

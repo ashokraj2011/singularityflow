@@ -465,7 +465,9 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
         phase.deliveryEvidence.autoCandidateVerification ?? null
       )
     } } : {}),
-    testExecutions: (phase.deliveryEvidence?.testExecutions ?? []).map((entry) => ({
+    // A non-code step's own runs too; a run it reused from another step is read from that step's record [CQF:REQ-010].
+    testExecutions: (phase.deliveryEvidence?.testExecutions ?? (Number(phase.stepTestRuns?.generation) === Number(phase.generation)
+      ? phase.stepTestRuns.testExecutions?.filter((entry) => !entry.reusedFrom) : null) ?? []).map((entry) => ({
       commandId: entry.commandId,
       path: entry.receiptPath,
       sha256: entry.receiptSha256,

@@ -351,7 +351,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,548,000 (measured 9,547,962): a witness names its page and a not-yet one names no command (guard, decision-list, step-sheet).
     // 9,548,300 (measured 9,548,249): a .nvmrc naming a Node not installed here offers the change (test-plan, decision-list, state, recovery-plan).
     // 9,548,400 (measured 9,548,359): the printed review names a flaky command (print-phase-review.mjs); finding one stays lazy (verification/flaky-runs.mjs) [CQF:REQ-013].
-    assert.ok(closure.bytes <= 9_548_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,549,500 (measured 9,549,468): a non-code step's runs are bound into its packet and read by their counts (state.mjs +756, story-lineage.mjs +280,
+    // evidence-consistency.mjs +167); running and binding them stays lazy (verification/repository-tests.mjs) [CQF:REQ-010, REQ-012].
+    assert.ok(closure.bytes <= 9_549_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

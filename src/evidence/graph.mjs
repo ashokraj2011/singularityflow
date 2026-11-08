@@ -400,9 +400,15 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
   const records = projected.records;
   untrusted = projected.untrusted;
   const deliveries = [];
+  // A non-code step's runs, fresh or reused, read beside the code steps' as facts; no criterion is judged by them [CQF:REQ-010].
+  const stepTestRuns = [];
   for (const id of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {
     const phase = workflow.phases[id];
     if (phase?.deliveryEvidence) deliveries.push(await loadDelivery(root, phase, findings, workflow));
+    else if (phase?.stepTestRuns && Number(phase.stepTestRuns.generation) === Number(phase.generation)) {
+      const { testExecutions, preflightAttempts } = phase.stepTestRuns;
+      stepTestRuns.push({ phaseId: id, generation: phase.generation, submitted: Boolean(testExecutions), runs: testExecutions ?? preflightAttempts ?? [] });
+    }
   }
   const inspections = await loadInspections(root, directory, workflow, findings);
   const witnessRecords = await loadWitnessRecords(root, workflow);
@@ -418,6 +424,7 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
   }
   const scope = await loadScopeInventory(root, definition, workflow, directory, records, findings);
   const graph = evidenceGraph({ workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, scope });
+  if (stepTestRuns.length) graph.stepTestRuns = stepTestRuns;
   try {
     graph.qualityRisks = await activeQualityRisks(root, definition, workflow, 'terminal');
     graph.findings.push(...(await approvedArtifactQualityFindings(root, definition, workflow, { transition: 'terminal' }))

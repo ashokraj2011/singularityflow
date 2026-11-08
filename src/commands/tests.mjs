@@ -401,7 +401,7 @@ const attemptGroupKey = (attempt) => attempt.localRunId ?? `${attempt.phase ?? '
 
 /** The attempt IDs the step's gate bound, by command: its own bound runs, then runs it reused from another step. */
 function boundAttemptIds(phase) {
-  const evidence = phase.deliveryEvidence;
+  const evidence = phase.deliveryEvidence ?? (Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : null);
   const executions = evidence?.testExecutions?.length ? evidence.testExecutions : evidence?.preflightAttempts ?? [];
   const bound = new Map(executions.filter((entry) => entry.attemptId).map((entry) => [entry.commandId, entry.attemptId]));
   for (const check of phase.checks ?? []) if (check.reusedFrom?.attemptId && !bound.has(check.id)) bound.set(check.id, check.reusedFrom.attemptId);
@@ -481,10 +481,12 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   const declaration = await loadEnvironmentDeclaration(root, { optional: true }).catch(() => null);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   // The runs that stood from an earlier step are read beside the step's own, labelled as reused below [CQF:REQ-015].
-  const standing = (workflow.phases[phaseId].checks ?? []).filter((check) => check.reusedFrom);
+  const phase = workflow.phases[phaseId];
+  const standing = [...(phase.checks ?? []), ...(phase.stepTestRuns?.preflightAttempts ?? []), ...(phase.stepTestRuns?.testExecutions ?? [])]
+    .map((entry) => entry.reusedFrom).filter(Boolean);
   const own = await stepAttempts(root, itemRelative, workflow.workItem.id, phaseId);
-  const reused = (await Promise.all([...new Set(standing.map((check) => check.reusedFrom.phase).filter((id) => id && id !== phaseId))]
-    .map((id) => stepAttempts(root, itemRelative, workflow.workItem.id, id)))).flat().filter((attempt) => standing.some((check) => check.reusedFrom.attemptId === attempt.attemptId));
+  const reused = (await Promise.all([...new Set(standing.map((source) => source.phase).filter((id) => id && id !== phaseId))]
+    .map((id) => stepAttempts(root, itemRelative, workflow.workItem.id, id)))).flat().filter((attempt) => standing.some((source) => source.attemptId === attempt.attemptId));
   const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
   const { groups, group, bound, newer } = selectStoryRun([...own, ...reused], workflow.phases[phaseId], { wanted, latest: optionBoolean(options, 'latest') });
   if (wanted && !group) fail(`No run ${wanted} is recorded for ${workflow.workItem.id} step ${phaseId}.`, 'TESTS_RUN_NOT_FOUND');

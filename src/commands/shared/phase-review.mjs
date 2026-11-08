@@ -23,17 +23,24 @@ async function reusedTestEvidence(root, config, workflow, phase) {
   return { reusedTestEvidence: [...reuse.active, ...reuse.lapsed] };
 }
 
-/** What a reviewer must not read as a run of this step or as the whole suite. Absent when neither applies. */
+/** A non-code step's own runs, and what a reviewer must not read as a run of this step or as the whole suite. Absent when none applies. */
 function testRunsReview(workflow, phase) {
   const reused = (phase.checks ?? []).filter((check) => check.reusedFrom).map((check) => ({
     commandId: check.id, attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase, commit: check.reusedFrom.commit, counts: check.reusedFrom.counts ?? null,
     words: `reused: ${check.reusedFrom.attemptId} recorded by ${check.reusedFrom.phase} at ${String(check.reusedFrom.commit).slice(0, 12)}; the code has not changed since, so ${check.id} was not run again` }));
+  // A non-code step's own runs, read by their counts, beside those it reused [CQF:REQ-010].
+  const evidence = Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : null;
+  const own = (evidence?.testExecutions ?? evidence?.preflightAttempts ?? []).filter((run) => !run.reusedFrom).map((run) => ({
+    commandId: run.commandId, attemptId: run.attemptId, status: run.status, counts: run.counts ?? null,
+    words: `${run.attemptId} by ${phase.id}: ${run.commandId} ${run.status}, ${!run.counts ? 'no structured counts' : Number(run.counts.discovered) === 0 ? 'no tests ran'
+      : `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped`}` }));
   const scope = storyTestScope(workflow);
   const change = workflow.testScopeChanges?.at(-1);
   const words = scope === 'new-and-changed'
     ? `This Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}. Its existing tests were not run.`
     : change ? `This Story's test scope is ${scope} (${change.id}, ${change.actor}${change.reason ? `: ${change.reason}` : ''}).` : null;
-  return { ...(reused.length ? { reusedTestRuns: reused } : {}), ...(words ? { testScope: { scope, words, changes: workflow.testScopeChanges ?? [] } } : {}) };
+  return { ...(own.length ? { stepTestRuns: own } : {}), ...(reused.length ? { reusedTestRuns: reused } : {}),
+    ...(words ? { testScope: { scope, words, changes: workflow.testScopeChanges ?? [] } } : {}) };
 }
 
 /**

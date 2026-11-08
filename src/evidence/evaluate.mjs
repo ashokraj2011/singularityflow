@@ -706,6 +706,8 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
     workId,
     ...(localIntegrationRuns.length ? { localIntegrationRuns } : {}),
+    // Each non-code step's runs, as facts beside the rows [CQF:REQ-010].
+    ...(graph.stepTestRuns?.length ? { stepTestRuns: graph.stepTestRuns } : {}),
     title: workflow.workItem.title ?? null,
     boundary,
     mode,

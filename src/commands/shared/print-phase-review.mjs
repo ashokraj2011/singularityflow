@@ -45,7 +45,7 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     }
   }
   if (review.testScope) console.warn(review.testScope.words);
-  for (const run of review.reusedTestRuns ?? []) console.log(`Test run ${run.words}.`);
+  for (const run of [...(review.stepTestRuns ?? []), ...(review.reusedTestRuns ?? [])]) console.log(`Test run ${run.words}.`);
   for (const entry of review.flakyTestRuns ?? []) console.warn(`Flaky: ${entry.words}. It refuses nothing.`);
   for (const entry of review.reusedTestEvidence ?? []) {
     if (entry.state === 'active') console.log(`Reused test evidence: ${entry.label}`);

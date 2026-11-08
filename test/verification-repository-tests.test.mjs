@@ -135,6 +135,11 @@ test('a failing run goes to the reviewer, who returns the Story to repair it', s
   const run = phase.checks.find((check) => check.source === 'repository-tests');
   assert.equal(run.status, 'failed');
   assert.equal(phase.status, 'awaiting_approval');
+  // Publication ran it and refused nothing; submission ran it again, and both runs are bound by their counts [CQF:REQ-010, REQ-012].
+  assert.equal(phase.stepTestRuns.preflightAttempts[0].status, 'failed');
+  assert.equal(phase.stepTestRuns.testExecutions[0].status, 'failed');
+  assert.notEqual(phase.stepTestRuns.testExecutions[0].attemptId, phase.stepTestRuns.preflightAttempts[0].attemptId);
+  assert.equal(phase.stepTestRuns.testExecutions[0].counts.failed, 1);
   const approve = flow(root, ['approve', '--yes', '--json'], { allowFailure: true });
   assert.notEqual(approve.status, 0);
   assert.equal(JSON.parse(approve.stdout).error.code, 'PHASE_VALIDATION_FAILED');

@@ -1,31 +1,31 @@
 # Spec–code sync (SCS) — v1
 
-Status: proposed 2026-11-08, waiting for the owner decisions below. To build after the 2026-11-09 demo.
+Status: owner decisions recorded 2026-11-08 (every recommended default taken). M1 to build first and land on main; M2, M3 and M4 to build on a separate branch.
 
 The code and the approved documents must say the same thing. When they don't, a person decides each
 difference once: either the code changes to match the document, or the document changes to match the
 code through its own approvers. Nothing overwrites an approved document. Much of this exists on main
 48668471f. This spec closes the gaps that remain, without adding a step to any workflow.
 
-## Owner decisions needed
+## Owner decisions (2026-11-08)
 
-Each item has a recommended default.
+The owner took every recommended default below.
 
 1. **Deviated and unplanned conformance verdicts hold the conformance step's approval,** as partial
-   and missing already do. *Recommended: yes.*
+   and missing already do. *Decided: yes.*
 2. **"Accept for now" on a gap** is the existing accepted risk: a reason and an expiry of at most 90
    days, decided by the approvers of the step that owns the clause, as an upstream issue's risk is
-   today. *Recommended: yes, with no permanent accept. A difference that should stay goes through
+   today. *Decided: yes, with no permanent accept. A difference that should stay goes through
    "Update the spec".*
 3. **What a person types after `/sf-code` or `/sf-phase` is recorded in the Story,** secrets redacted
-   and size-bounded. A capability can turn this off. *Recommended: on.*
+   and size-bounded. A capability can turn this off. *Decided: on.*
 4. **Each recorded `/sf-code` instruction is accounted for at prepublish,** as in-plan (with its
    clauses) or as a departure. An unaccounted instruction holds the code step's approval and never
-   publish. *Recommended: yes.*
+   publish. *Decided: yes.*
 5. **Convergence items join the one decisions list.** The Adjudicate page and `/adjudicate` stay
-   for a release as filtered views, then are retired. *Recommended: yes.*
+   for a release as filtered views, then are retired. *Decided: yes.*
 6. **Quick-fix, careful-change, poc-lite, poc-workflow, document-test-repair and the demo loops stay
-   unchanged.** *Recommended: yes.*
+   unchanged.** *Decided: yes.*
 
 ## What exists today (main 48668471f)
 
@@ -196,8 +196,9 @@ A person picks one of these for each difference, and each choice writes only rec
 | M2 Update the spec in one choice | medium | M1 |
 | M3 One decisions list | medium | — |
 
-Build M1 first: it closes G1 alone. Each milestone is checked in a real isolated VS Code and on Copilot
-CLI before it lands. Paid model runs need the owner's yes.
+Build M1 first: it closes G1 alone and lands on main. M4, M2 and M3 are built on a separate branch.
+Each milestone is checked in a real isolated VS Code and on Copilot CLI before it lands. Paid model runs
+need the owner's yes.
 
 ## Acceptance
 

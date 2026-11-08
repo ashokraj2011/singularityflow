@@ -8,6 +8,8 @@ import test from 'node:test';
 import { readFindingsConfig } from '../src/findings/register/config.mjs';
 import { itemKind, itemPlace, onTheWayAction, touchedModules } from '../src/findings/register/on-the-way.mjs';
 
+const AT = '2026-11-08T10:00:00.000Z';
+
 const code = (fields = {}) => ({ id: 'SEC-1', feed: 'security', type: 'code', severity: 'critical', title: 'Query built from input', file: 'src/a.mjs', rule: 'js/sql-injection', ...fields });
 const upgrade = (fields = {}) => ({ id: 'TLM-1', feed: 'tlm', component: 'quillmark-parse', currentVersion: '2.4.1', targetVersion: '2.4.3', ...fields });
 
@@ -62,4 +64,39 @@ test('findings.yml policy.bringIntoCodeStep is touched by default, list or off p
   const config = await readFindingsConfig(root);
   assert.deepEqual(config.policy, { security: { bringIntoCodeStep: 'list' }, tlm: { bringIntoCodeStep: 'touched' } });
   assert.match(config.warnings.join(' '), /tlm\.policy\.bringIntoCodeStep is touched, list, off; touched applies/u);
+});
+
+test('when the Story closes, a fix on the way closes on its own proof: the loop\'s rerun, or the default branch pinning the fixed version', async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const { addItemsToRegister, emptyRegister, setItemStates } = await import('../src/findings/register/model.mjs');
+  const { reconcileClosedStories } = await import('../src/findings/register/remediation.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-on-the-way-close-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => assert.equal(spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args], { cwd: root }).status, 0, args.join(' '));
+  git('init', '-q', '-b', 'main');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ dependencies: { 'quillmark-parse': '2.4.3', 'vexil-router': '3.2.5' } }));
+  git('add', '.'); git('commit', '-qm', 'Merged');
+  git('switch', '-q', '-c', 'ORD-9');
+  await mkdir(path.join(root, 'singularity', 'work-items', 'ORD-9'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'work-items', 'ORD-9', 'workflow.json'), JSON.stringify({ status: 'closed', completion: { evaluatedAt: AT } }));
+  git('add', '.'); git('commit', '-qm', 'Closed'); git('switch', '-q', 'main');
+  let { register } = addItemsToRegister(emptyRegister(), 'security', [
+    { id: 'SEC-1', feed: 'security', type: 'code', title: 'Proven by the loop', severity: 'critical', repository: 'orders-api', status: 'open', file: 'src/a.mjs', rule: 'r', tool: 'semgrep' },
+    { id: 'SEC-2', feed: 'security', type: 'code', title: 'Only the team can rescan', severity: 'high', repository: 'orders-api', status: 'open', file: 'src/b.mjs', rule: 'r', tool: 'Checkmarx' },
+    { id: 'SEC-3', feed: 'security', type: 'dependency', title: 'Router advisory', severity: 'high', repository: 'orders-api', status: 'open', package: 'vexil-router', installedVersion: '3.2.0', fixedVersion: '3.2.5' }
+  ], { source: 'security-team', importId: 'IMP-1', at: AT });
+  ({ register } = addItemsToRegister(register, 'tlm', [{ id: 'TLM-7', feed: 'tlm', component: 'quillmark-parse', repository: 'orders-api', currentVersion: '2.4.1', targetVersion: '2.4.3', status: 'open' }],
+    { source: 'tlm-owners', importId: 'IMP-2', at: AT }));
+  const story = (departure) => ({ workId: 'ORD-9', linkedAt: AT, departure, phase: 'implementation' });
+  const proofs = { 'SEC-1': { kind: 'finding-run', proven: true, tool: 'semgrep' }, 'SEC-2': { kind: 'finding-run', proven: false, reason: 'the findings loop did not run Checkmarx on this step' } };
+  for (const [feed, id, departure] of [['security', 'SEC-1', 'DEP-001'], ['security', 'SEC-2', 'DEP-002'], ['security', 'SEC-3', 'DEP-003'], ['tlm', 'TLM-7', 'DEP-004']]) {
+    ({ register } = setItemStates(register, feed, [id], 'in-story', { at: AT, reason: 'fixed on the way', story: story(departure) }));
+    ({ register } = setItemStates(register, feed, [id], 'fixed-awaiting-proof', { at: AT, reason: 'approved', ...(proofs[id] ? { evidence: proofs[id] } : {}) }));
+  }
+  const { register: after, moved } = reconcileClosedStories(root, register, { at: AT });
+  const state = (feed, id) => after[feed].items.find((item) => item.id === id).state;
+  assert.deepEqual([state('security', 'SEC-1'), state('security', 'SEC-2'), state('security', 'SEC-3'), state('tlm', 'TLM-7')],
+    ['closed', 'fixed-awaiting-rescan', 'closed', 'closed']);
+  assert.equal(after.security.items.find((item) => item.id === 'SEC-3').evidence.at(-1).kind, 'manifest-pin');
+  assert.equal(moved.length, 4);
 });

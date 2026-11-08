@@ -10,7 +10,9 @@
  * When a Story that addresses items closes, the items move on (REQ-068). A TLM item closes when the
  * default branch's manifest, lockfile or runtime file shows at least its target version, and is fixed
  * awaiting proof until it does. A security finding is fixed awaiting rescan: only the security team's
- * next list, no longer calling it open, closes it (import does that).
+ * next list, no longer calling it open, closes it (import does that). One a code step fixed on the way
+ * (REQ-066) closes on its own proof: the findings loop's rerun no longer reporting it, or for a
+ * dependency, the default branch pinning its fixed version.
  */
 import { committedFileText, refCommit } from '../../git.mjs';
 import { compareItems, setItemStates } from './model.mjs';
@@ -182,6 +184,13 @@ export function tlmProof(root, ref, item, { env = process.env } = {}) {
   return { proven, pins: pins.slice(0, 10) };
 }
 
+/** A security dependency finding's proof: every file pinning its package shows at least its fixed version. */
+export function dependencyProof(root, ref, item, { env = process.env } = {}) {
+  const pins = pinnedVersions(root, ref, item.package, { env });
+  const proven = pins.length > 0 && pins.every((pin) => versionAtLeast(pin.version.replace(/^[\^~>=v\s]+/u, ''), item.fixedVersion));
+  return { proven, pins: pins.slice(0, 10) };
+}
+
 /** A Story's status from its own branch, read locally: closed with a completion is a landed change. */
 function storyClosed(root, story, workItemRoot, { env }) {
   for (const ref of [`refs/remotes/origin/${story.branch ?? story.workId}`, `refs/heads/${story.branch ?? story.workId}`]) {
@@ -209,22 +218,28 @@ export function reconcileClosedStories(root, register, { defaultBranch = 'main',
   const closed = new Map();
   for (const feed of ['security', 'tlm']) {
     for (const item of next[feed].items) {
-      const waiting = item.state === 'in-story' || (feed === 'tlm' && item.state === 'fixed-awaiting-proof');
+      const onTheWay = Boolean(item.story?.departure);
+      const waiting = item.state === 'in-story' || ((feed === 'tlm' || onTheWay) && item.state === 'fixed-awaiting-proof');
       if (!waiting || !item.story?.workId) continue;
       const key = item.story.workId;
       if (!closed.has(key)) closed.set(key, storyClosed(root, item.story, workItemRoot, { env }));
       if (!closed.get(key)) continue;
-      if (feed === 'security') {
-        next = setItemStates(next, feed, [item.id], 'fixed-awaiting-rescan', { at, reason: `Story ${key} closed; the security team's rescan closes it` }).register;
-        moved.push({ id: item.id, to: 'fixed-awaiting-rescan', story: key });
+      const pinned = onTheWay && item.package && item.fixedVersion;
+      if (feed === 'security' && !pinned) {
+        // A fix on the way the findings loop's own rerun proved closes; any other waits for the security team's rescan.
+        const proven = onTheWay && item.evidence?.at(-1)?.kind === 'finding-run' && item.evidence.at(-1).proven === true;
+        next = setItemStates(next, feed, [item.id], proven ? 'closed' : 'fixed-awaiting-rescan', { at, reason: proven
+          ? `Story ${key} closed; ${item.evidence.at(-1).tool} rerun on the changed code no longer reports it` : `Story ${key} closed; the security team's rescan closes it` }).register;
+        moved.push({ id: item.id, to: proven ? 'closed' : 'fixed-awaiting-rescan', story: key });
         continue;
       }
-      const proof = tlmProof(root, proofRef, item, { env });
+      const proof = pinned ? dependencyProof(root, proofRef, item, { env }) : tlmProof(root, proofRef, item, { env });
+      const target = pinned ? item.fixedVersion : item.targetVersion;
       const state = proof.proven ? 'closed' : 'fixed-awaiting-proof';
       if (state === item.state) continue;
       next = setItemStates(next, feed, [item.id], state, {
-        at, reason: proof.proven ? `${defaultBranch} pins ${item.component} at ${item.targetVersion} or later` : `Story ${key} closed; ${defaultBranch} does not show ${item.targetVersion} yet`,
-        evidence: { at, story: key, kind: 'tlm-pin', ref: defaultBranch, pins: proof.pins, proven: proof.proven }
+        at, reason: proof.proven ? `${defaultBranch} pins ${item.component ?? item.package} at ${target} or later` : `Story ${key} closed; ${defaultBranch} does not show ${target} yet`,
+        evidence: { at, story: key, kind: pinned ? 'manifest-pin' : 'tlm-pin', ref: defaultBranch, pins: proof.pins, proven: proof.proven }
       }).register;
       moved.push({ id: item.id, to: state, story: key });
     }

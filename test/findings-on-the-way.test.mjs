@@ -160,3 +160,60 @@ test('findings.yml turns it down per feed, and an item the Story picked as a cla
   assert.equal(repo.sflowJson('findings', 'link', 'OTHER-9', '--address', 'TLM-7').status, 0);
   assert.equal(repo.sflowJson('phase', 'enter', 'implement', '--work-id', 'QF-1').value.fixOnTheWay, undefined, 'another Story holds TLM-7');
 });
+
+test('the model fixes the two eligible items through the CLI, a person accepts them in the table, and approval leaves them fixed, awaiting proof', async (t) => {
+  const repo = await orders(t);
+  const entry = repo.sflowJson('phase', 'enter', 'implement', '--work-id', 'QF-1').value.fixOnTheWay;
+  // The model's actions, as /sf-code runs them: the fix in the planned file is already written; the patch upgrade, then each row's command.
+  const manifest = JSON.parse(await readFile(path.join(repo.root, 'package.json'), 'utf8'));
+  manifest.dependencies['quillmark-parse'] = '2.4.3';
+  await writeFile(path.join(repo.root, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const row of entry.fix) {
+    const args = row.record.replace(/^singularity-flow /u, '').match(/'[^']*'|\S+/gu).map((word) => word.replace(/^'|'$/gu, ''));
+    const recorded = repo.sflowJson(...args);
+    assert.equal(recorded.status, 0, JSON.stringify(recorded.value));
+    assert.deepEqual(recorded.value.data.register.marked, [row.id]);
+  }
+  const states = () => Object.fromEntries(repo.sflowJson('findings', 'list', '--state', 'all').value.items.map((item) => [item.id, [item.state, item.story]]));
+  assert.deepEqual(states(), { 'SEC-101': ['in-story', 'QF-1'], 'SEC-102': ['open', null], 'TLM-7': ['in-story', 'QF-1'], 'TLM-8': ['open', null] });
+  const again = repo.sflowJson('phase', 'enter', 'implement', '--work-id', 'QF-1').value.fixOnTheWay;
+  assert.deepEqual(again.fix.map((row) => [row.id, row.departure, row.record]), [['SEC-101', 'DEP-001', undefined], ['TLM-7', 'DEP-002', undefined]], 'the next turn sees them fixed');
+  assert.match(again.words, /SEC-101 is fixed as DEP-001; TLM-7 is fixed as DEP-002\./u);
+
+  assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures.recorded, [], 'package.json is carried by its fix');
+  assert.equal(repo.sflowJson('phase', 'publish', 'implement', '--authored', 'deterministic', '--channel', 'kernel-generator').status, 0);
+  repo.sflow('submit', 'implement');
+  const rows = await decideAll(repo, 'accept', 'Both fixes are small, safe and belong with this change.');
+  assert.deepEqual(rows.map((row) => row.details.findings), [['SEC-101'], ['TLM-7']]);
+  assert.deepEqual(states()['TLM-7'], ['in-story', 'QF-1'], 'an accepted fix moves with the approval, not before');
+  const approved = approve(repo);
+  assert.equal(approved.status, 0, approved.stdout + approved.stderr);
+  assert.deepEqual(states(), { 'SEC-101': ['fixed-awaiting-proof', 'QF-1'], 'SEC-102': ['open', null], 'TLM-7': ['fixed-awaiting-proof', 'QF-1'], 'TLM-8': ['open', null] });
+  const items = Object.fromEntries(repo.sflowJson('findings', 'list', '--state', 'all').value.items.map((item) => [item.id, item]));
+  assert.equal(items['TLM-7'].stateLabel, 'Fixed, awaiting proof');
+  // The proof, as REQ-068 has it: the manifest's version for the upgrade; the findings loop did not run CodeQL here, so the code finding waits for the rescan.
+  const register = JSON.parse(repo.must('git', ['show', 'origin/state:findings/tlm.json']));
+  const tlm = register.items.find((item) => item.id === 'TLM-7');
+  assert.deepEqual([tlm.evidence.at(-1).kind, tlm.evidence.at(-1).proven, tlm.evidence.at(-1).pins], ['tlm-pin', true, [{ file: 'package.json', version: '2.4.3' }]]);
+  assert.equal(tlm.story.departure, 'DEP-002');
+  const security = JSON.parse(repo.must('git', ['show', 'origin/state:findings/security.json'])).items.find((item) => item.id === 'SEC-101');
+  assert.deepEqual([security.evidence.at(-1).kind, security.evidence.at(-1).proven], ['finding-run', false]);
+  assert.match(security.evidence.at(-1).reason, /the findings loop did not run CodeQL on this step/u);
+});
+
+test('a person rejecting a fix on the way returns its item to open, and the next entry never offers it again', async (t) => {
+  const repo = await orders(t);
+  const manifest = JSON.parse(await readFile(path.join(repo.root, 'package.json'), 'utf8'));
+  manifest.dependencies['quillmark-parse'] = '2.4.3';
+  await writeFile(path.join(repo.root, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  assert.equal(record(repo, '--kind', 'finding', '--path', 'package.json', '--finding', 'TLM-7', '--reason', 'Fixes TLM-7 from the findings register on what this Story touches.').status, 0);
+  const listed = () => Object.fromEntries(repo.sflowJson('findings', 'list', '--state', 'all').value.items.map((item) => [item.id, item.state]));
+  assert.equal(listed()['TLM-7'], 'in-story');
+  const rejected = repo.sflowJson('decision', 'departure', 'QF-1', '--departure', 'DEP-001', '--as', 'rejected', '--reason', 'The TLM owners upgrade this package with its own Story.');
+  assert.equal(rejected.status, 0, JSON.stringify(rejected.value));
+  assert.deepEqual(rejected.value.data.register.moved, ['TLM-7']);
+  assert.equal(listed()['TLM-7'], 'open');
+  const entry = repo.sflowJson('phase', 'enter', 'implement', '--work-id', 'QF-1').value.fixOnTheWay;
+  assert.deepEqual(entry.fix.map((row) => row.id), ['SEC-101']);
+  assert.deepEqual(entry.listed.map((row) => [row.id, row.why]), [['TLM-7', 'a person rejected its fix (DEP-001); it stays open']]);
+});

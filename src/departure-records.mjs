@@ -399,7 +399,10 @@ export async function commitDepartureDecision(root, config, workflow, { departur
       return recorded;
     }, { exactWorkItemPaths: [], eventFromResult: (recorded) => ({ actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
       payload: { decision: 'departure', departures: recorded.departures, reviewPacketSha256: null } }) });
-    return { decision: accepting ? 'accepted' : 'rejected', record: value, departures: chosen.map((entry) => entry.id) };
+    // A rejected fix on the way's register items are open again [CQF:REQ-066, decision 15]; the rejection stands whatever the register does.
+    const register = !accepting && chosen.some((entry) => entry.findings?.length)
+      ? await (await fromSource('findings/register/on-the-way.mjs')).reopenRejectedFixes(root, config, workflow, chosen, { at }) : null;
+    return { decision: accepting ? 'accepted' : 'rejected', record: value, departures: chosen.map((entry) => entry.id), ...(register ? { register } : {}) };
   }
   if (writes === 'plan-amendment') {
     const { commitPlanAmendment } = await import('./commands/decision-plan-amendment.mjs');

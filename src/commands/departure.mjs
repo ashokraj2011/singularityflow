@@ -66,13 +66,18 @@ async function record(options) {
     test: optionString(options, 'test'), from: optionString(options, 'from'), to: optionString(options, 'to'), findings: optionStrings(options, 'finding'),
     supersedes: optionString(options, 'supersedes')
   }, { actor: actionActor(root), agent });
+  // The register items it fixes on the way are in this Story now [CQF:REQ-066]; the departure stands whatever the register does.
+  const register = recorded.findings.length ? await (await import('../findings/register/on-the-way.mjs')).markFixedOnTheWay(root, config, workflow, recorded) : null;
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${recorded.id}: ${departureWords(recorded)}.${recorded.proposal ? ` The draft is kept with the record at ${recorded.proposal.path}.` : ''} Keep working: publish goes ahead with it, and a person decides it on the decisions table before ${workflow.phases[recorded.phase]?.label ?? recorded.phase} is approved.`);
+    if (register?.marked.length) console.log(`In this Story in the findings register: ${register.marked.join(', ')}.`);
+    for (const entry of register?.skipped ?? []) console.log(`Not marked in the findings register: ${entry.id}, because ${entry.reason}.`);
+    if (register?.error) console.log(`The findings register could not be written (${register.error}). Retry: ${register.nextAction}`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'departure.record', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('departure.record.succeeded', { departure: recorded.id, kind: recorded.kind }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { departure: recorded }
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { departure: recorded, ...(register ? { register } : {}) }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

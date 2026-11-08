@@ -22,7 +22,7 @@ import path from 'node:path';
 
 import { normalizeLedgerConfig } from '../../ledger-config.mjs';
 import { FEEDS, repositoryMatches } from './format.mjs';
-import { compareItems } from './model.mjs';
+import { compareItems, setItemStates } from './model.mjs';
 import { quoted } from './pick.mjs';
 import { PIN_FILES, pinnedIn, upgradeKind, versionAtLeast } from './remediation.mjs';
 
@@ -234,3 +234,120 @@ export async function itemsOnTheWay(root, config, workflow, phase, { env = proce
   }
 }
 
+// The register moves with the fixes on the way: in a Story once recorded, open again once a person rejects
+// one, fixed awaiting proof once the code step is approved with it accepted. Each write is the register's
+// own (store.mjs) and never throws: the Story's records stand whatever the register does, and the result
+// says what to run when a mark did not land.
+
+const failure = (error) => String(error?.message ?? error).split('\n')[0].slice(0, 300);
+
+/** Write `change` to the register when it moves anything, saying where it went; never throws. */
+async function moveItems(root, config, change, message, { env = process.env, runCommand = undefined, retry = null } = {}) {
+  try {
+    const { readRegister, registerDestination, writeRegister } = await import('./store.mjs');
+    const ledger = normalizeLedgerConfig(config.ledger ?? {});
+    const first = change((await readRegister(root, { env, ledger })).register);
+    if (!first.moved.length) return { moved: [], skipped: first.skipped };
+    let last = first;
+    const destination = await registerDestination(root, ledger, { env, ...(runCommand ? { runCommand } : {}) });
+    const written = await writeRegister(root, ledger, destination, (register) => { last = change(register); return last.register; }, message(first.moved), { env });
+    return { moved: last.moved, skipped: last.skipped, store: written.store, storeMessage: written.message };
+  } catch (error) {
+    return { moved: [], skipped: [], error: failure(error), ...(retry ? { nextAction: retry } : {}) };
+  }
+}
+
+/** Apply `move(item)` (a state change or null) to each named item of `register`; returns what moved. */
+function moveNamed(register, ids, move) {
+  let next = register;
+  const moved = [];
+  const skipped = [];
+  const byId = new Map(FEEDS.flatMap((feed) => register[feed].items.map((item) => [item.id, item])));
+  for (const id of ids) {
+    const item = byId.get(id);
+    const step = item ? move(item) : { skip: 'it is not in the register' };
+    if (!step) continue;
+    if (step.skip) { skipped.push({ id, reason: step.skip }); continue; }
+    next = setItemStates(next, item.feed, [id], step.state, step.options).register;
+    moved.push(id);
+  }
+  return { register: next, moved, skipped };
+}
+
+/**
+ * After `departure record`: the items a fix on the way carries are in this Story, with the departure
+ * that fixes them. Only an open item of this repository moves; the rest are said, never refused.
+ */
+export async function markFixedOnTheWay(root, config, workflow, departure, { env = process.env, at = new Date().toISOString(), runCommand = undefined } = {}) {
+  const ids = departure?.findings ?? [];
+  if (!ids.length) return null;
+  const workId = workflow.workItem.id;
+  const { currentRepository } = await import('./store.mjs');
+  const repository = await currentRepository(root, normalizeLedgerConfig(config.ledger ?? {}), { env }).catch(() => null);
+  const branch = workflow.workItem.branch && workflow.workItem.branch !== workId ? { branch: workflow.workItem.branch } : {};
+  const story = { workId, ...branch, linkedAt: at, departure: departure.id, phase: departure.phase };
+  const result = await moveItems(root, config, (register) => moveNamed(register, ids, (item) => {
+    if (!repository || !repositoryMatches(item.repository, repository)) return { skip: `it names another repository (${item.repository})` };
+    if (item.state === 'in-story') return { skip: item.story?.workId === workId ? 'this Story holds it already' : `Story ${item.story?.workId ?? 'another Story'} holds it` };
+    if (item.state !== 'open') return { skip: `it is ${item.state.replaceAll('-', ' ')}` };
+    return { state: 'in-story', options: { at, reason: `fixed on the way by ${departure.id} in Story ${workId}`, story } };
+  }), (moved) => `Story ${workId} fixes ${moved.join(', ')} on the way (${departure.id})`,
+  { env, runCommand, retry: `singularity-flow findings link ${workId} --address ${ids.join(',')}` });
+  const { moved, ...rest } = result;
+  return { marked: moved, ...rest };
+}
+
+/** After a person rejects fixes on the way: their items are open again, out of this Story [decision 15]. */
+export async function reopenRejectedFixes(root, config, workflow, departures, { env = process.env, at = new Date().toISOString(), runCommand = undefined } = {}) {
+  const fixes = departures.filter((entry) => entry.findings?.length);
+  if (!fixes.length) return null;
+  const workId = workflow.workItem.id;
+  const named = fixes.map((entry) => entry.id).join(', ');
+  return moveItems(root, config, (register) => moveNamed(register, [...new Set(fixes.flatMap((entry) => entry.findings))], (item) => (
+    item.state === 'in-story' && item.story?.workId === workId
+      ? { state: 'open', options: { at, reason: `a person rejected ${named}, the fix on the way in Story ${workId}`, story: null } } : null)),
+  (moved) => `Story ${workId}: ${named} rejected, ${moved.join(', ')} open again`, { env, runCommand });
+}
+
+/** What proves a fixed item, read when its code step is approved [REQ-068]: the findings loop's own rerun, or the manifest's version. */
+async function fixProof(root, workflow, phase, item, departure, { env, at }) {
+  const workId = workflow.workItem.id;
+  const base = { at, story: workId, departure: departure.id, phase: phase.id };
+  const ref = workflow.workItem.branch ?? workId;
+  const { dependencyProof, tlmProof } = await import('./remediation.mjs');
+  if (item.feed === 'tlm') return { ...base, kind: 'tlm-pin', ref, ...tlmProof(root, 'HEAD', item, { env }) };
+  if (item.package && item.fixedVersion) return { ...base, kind: 'manifest-pin', ref, ...dependencyProof(root, 'HEAD', item, { env }) };
+  const findings = phase.deliveryEvidence?.submittedFindings ?? phase.deliveryEvidence?.qualityFindings ?? null;
+  const tool = String(item.tool ?? '').toLowerCase();
+  const ran = (findings?.commands ?? []).filter((command) => tool && String(command.tool ?? '').toLowerCase() === tool && !['unavailable', 'not-needed'].includes(command.status));
+  if (!ran.length) return { ...base, kind: 'finding-run', proven: false, tool: item.tool ?? null, reason: `the findings loop did not run ${item.tool ?? 'the tool that reported it'} on this step` };
+  const still = (findings.findings ?? []).some((finding) => finding.file === item.file && (!item.rule || finding.rule === item.rule));
+  return { ...base, kind: 'finding-run', proven: !still, tool: item.tool, commands: ran.map((command) => command.id) };
+}
+
+/**
+ * After a code step is approved: each item its accepted fixes on the way carry is fixed, awaiting proof,
+ * with the proof read now. The merge-time move to closed (or awaiting the security team's rescan) is the
+ * register's, at the next import or report (remediation.mjs).
+ */
+export async function recordFindingsAfterApproval(root, config, workflow, phaseId, { env = process.env, at = new Date().toISOString(), runCommand = undefined } = {}) {
+  const phase = workflow.phases?.[phaseId];
+  const fixes = (workflow.departures ?? []).filter((entry) => entry.phase === phaseId && entry.findings?.length);
+  if (phase?.status !== 'approved' || !fixes.length) return null;
+  const { departureStatus } = await import('../../departures.mjs');
+  const accepted = fixes.filter((entry) => departureStatus(workflow, entry).status === 'accepted');
+  if (!accepted.length) return null;
+  const workId = workflow.workItem.id;
+  const byItem = new Map(accepted.flatMap((entry) => entry.findings.map((id) => [id, entry])));
+  const proofs = new Map();
+  const { readRegister } = await import('./store.mjs');
+  const current = await readRegister(root, { env, ledger: normalizeLedgerConfig(config.ledger ?? {}) }).catch(() => null);
+  for (const item of current ? FEEDS.flatMap((feed) => current.register[feed].items) : []) {
+    if (byItem.has(item.id)) proofs.set(item.id, await fixProof(root, workflow, phase, item, byItem.get(item.id), { env, at }).catch(() => null));
+  }
+  return moveItems(root, config, (register) => moveNamed(register, [...byItem.keys()], (item) => (
+    item.state === 'in-story' && item.story?.workId === workId
+      ? { state: 'fixed-awaiting-proof', options: { at, reason: `${phase.label ?? phaseId} approved with ${byItem.get(item.id).id} accepted in Story ${workId}`,
+        ...(proofs.get(item.id) ? { evidence: proofs.get(item.id) } : {}) } } : null)),
+  (moved) => `Story ${workId}: ${moved.join(', ')} fixed on the way, awaiting proof`, { env, runCommand });
+}

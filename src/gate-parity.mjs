@@ -73,6 +73,9 @@ export const GATE_PARITY = Object.freeze({
   'gate.conformance.clause-row-duplicate': entry('author', 'same-check', { checks: QUALIFIED_ROWS }),
   'gate.conformance.clause-row-invalid': entry('author', 'same-check', { checks: QUALIFIED_ROWS }),
   'gate.conformance.clause-row-unknown': entry('author', 'same-check', { checks: QUALIFIED_ROWS }),
+  // A deviated or unplanned row that does not say what differs [SCS:REQ-011]: the report author writes it, refused from the
+  // draft check on, for a Story that decides differences. The gate's own report checks do not read it.
+  'gate.conformance.deviation-unstated': entry('author', 'same-check', { checks: [check('conformance-readiness.mjs', 'inspectPhaseConformance', 'draft-check, publication, submission and approval')] }),
   'gate.conformance.missing-row': entry('author', 'same-check', { checks: CONFORMANCE_CONTRACT }),
   'gate.conformance.self-approval-undisclosed': entry('author', 'same-check', { checks: [check('conformance-readiness.mjs', 'inspectSelfApprovalDisclosures', 'draft-check, publication, submission')] }),
   'gate.conformance.stale': entry('engine', 'integrity'),

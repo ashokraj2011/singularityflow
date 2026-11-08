@@ -1494,6 +1494,25 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'configuration', 'decisions', 'governance']
   },
+  findings: {
+    summary: 'The security team\'s findings and the TLM list, from a workbook in SFlow\'s format.',
+    description: [
+      'The security team and the technology lifecycle (TLM) owners keep their lists in one .xlsx workbook with a',
+      'Security sheet and a TLM sheet, or in a CSV file per list. findings template writes that workbook, with the',
+      'headers and one made-up example row on each sheet. The first row holds the headers, matched by name without',
+      'regard to case, spaces or punctuation; a team whose sheet uses other headers maps them in',
+      'singularity/findings.yml (columns:), so no code changes. Cell text is data: it is bounded, quoted where it is',
+      'shown and never read as an instruction. template never overwrites a file.'
+    ],
+    options: [
+      ['--out FILE', 'template only: where to write the workbook (.xlsx). The default is sflow-findings-template.xlsx here.'],
+      ['--json', 'Machine-readable output (sflow-findings-template).']
+    ],
+    examples: [
+      ['singularity-flow findings template --out ~/Desktop/findings.xlsx', 'Write an empty workbook for the security team and the TLM owners to fill in.']
+    ],
+    seeAlso: ['start', 'tests', 'decision']
+  },
   backup: {
     summary: 'Save the drafts and documents kept only on this laptop, and restore them on another laptop or this one.',
     description: [

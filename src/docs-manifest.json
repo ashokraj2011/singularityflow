@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b6277835fd2c9d1f6b538953a270a025950ccfcb",
-  "topicCount": 90,
-  "contentSha256": "01f51c8290931a7d0b59494b02337e41e13c46b1709b199bd1db3ca2214a3ff7",
+  "sourceCommit": "9f43f137e9b19dc517e0501f5828b1be1b175d00",
+  "topicCount": 91,
+  "contentSha256": "aee8ed8928ac213721ebe727aa5dfb122edf8e59ef622e5e11a12bf9b020db39",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -548,6 +548,14 @@
       "sha256": "6ba9d243802f03a7e6367f9084958d435a0586a6b1a309d76f3326777db1f3ee",
       "routingSha256": "5d0b121e8ac30beccedccbd95b7e3ac088d5d2f7af517dea3c020be68fb33180",
       "file": "secrets.md"
+    },
+    {
+      "id": "security-and-tlm-findings",
+      "title": "Security and TLM findings",
+      "version": 1,
+      "sha256": "6110e9c82921e073f863b2457542482a803d743711af1a327caf76c56b30fce2",
+      "routingSha256": "67f91767ad06a728a019023c885f6f3772b6f713309d765addab569466f991b5",
+      "file": "security-and-tlm-findings.md"
     },
     {
       "id": "sequence-gates",

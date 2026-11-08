@@ -803,6 +803,7 @@ Usage:
   singularity-flow backup create --out <DIRECTORY> [--json]
   singularity-flow backup inspect <DIRECTORY> [--json]
   singularity-flow backup restore <DIRECTORY> [--json]
+  singularity-flow findings template [--out FILE] [--json]
   singularity-flow git-policy discover|show [--json]
   singularity-flow git-policy plan|validate --operation sha256:<OWNER-ISSUED-ID> [--json]
   singularity-flow guard status [--json]

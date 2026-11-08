@@ -73,7 +73,8 @@ test('every served topic is a surface-aware tutorial', async () => {
   // 88: sf-guard (the guard command, presence-signed person steps, SPEC-PSS-v1).
   // 89: app-review (application review and acceptance, 6843eef50).
   // 90: repository-commit-policy (the git-policy command, 4c79a2b8d).
-  assert.equal(topics.length, 90);
+  // 91: security-and-tlm-findings (the findings command, CQF M6).
+  assert.equal(topics.length, 91);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

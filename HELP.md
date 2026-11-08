@@ -3602,6 +3602,7 @@ singularity-flow guard enable [--remote-check NAME] [--exception APPROVER-ID]...
 singularity-flow guard disable --reason TEXT [--propose] [--json]
 singularity-flow guard exception add <APPROVER-ID> [--reason TEXT] [--host-review] | guard exception revoke <EXC-ID> --reason TEXT [--propose] [--json]
 singularity-flow guard stamp-agents [--propose] [--json]
+singularity-flow findings template [--out FILE] [--json]
 singularity-flow local start <NAME> --intent <TEXT> --input <ABSOLUTE-PATH>... --classification public|internal|confidential|restricted [--allow-empty-output] [--json]
 singularity-flow local list [--json]
 singularity-flow local status --story <LOC-ID> [--json]

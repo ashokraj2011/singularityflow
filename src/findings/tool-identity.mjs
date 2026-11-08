@@ -6,13 +6,16 @@
  * - ESLint: the installed `eslint` package's version; the installed versions of every ESLint plugin
  *   and config the package declares; the bytes of its configuration files.
  * - Any other program: an npm-installed one's package version, else the resolved file's path, size and
- *   modification time; the bytes of the files its arguments name and of the tool's usual
- *   configuration files.
+ *   modification time; the bytes of the files its arguments name (every file of a folder one names,
+ *   such as semgrep's `--config .semgrep/`) and of the tool's usual configuration files.
+ * - semgrep's ruleset is pinned when `--config` names files in the repository [CQF:REQ-051]. One taken
+ *   from the Semgrep registry (`p/ci`, `auto`, a URL) can change between runs without anything here
+ *   changing, so its identity says `pinned: false` and no run of it is reused.
  *
  * Null when the program cannot be found here: such a run is never reused.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { canonicalJson } from '../records.mjs';
@@ -23,15 +26,45 @@ const OTHER_CONFIGS = ['.semgrep.yml', '.semgrep.yaml', '.semgrepignore', 'sonar
   'ruff.toml', '.ruff.toml', '.flake8', 'codeql-config.yml', '.github/codeql/codeql-config.yml'];
 const RUNNERS = new Set(['npx', 'pnpm', 'yarn', 'bunx', 'pnpx']);
 const MAX_CONFIG_BYTES = 1024 * 1024;
+// A ruleset folder is read whole, up to this many files.
+const MAX_FOLDER_FILES = 500;
+const SEMGREP_CONFIG = /^(?:--config|-c)$/u;
+const SEMGREP_REGISTRY = /^(?:auto$|[prs]\/|https?:\/\/|supply-chain$)/u;
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
 function fileDigest(absolute) {
   try {
     const info = statSync(absolute);
+    if (info.isDirectory()) return folderDigest(absolute);
     if (!info.isFile() || info.size > MAX_CONFIG_BYTES) return info.isFile() ? `size:${info.size}:${info.mtimeMs}` : null;
     return sha256(readFileSync(absolute));
   } catch { return null; }
+}
+
+/** Every file below a folder an argument names, by relative path and bytes; null for an empty folder. */
+function folderDigest(absolute) {
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      if (files.length > MAX_FOLDER_FILES || entry.name === '.git' || entry.name === 'node_modules') continue;
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(target);
+      else if (entry.isFile()) files.push([path.relative(absolute, target).replaceAll('\\', '/'), fileDigest(target)]);
+    }
+  };
+  walk(absolute);
+  return files.length ? `folder:${sha256(canonicalJson(files))}` : null;
+}
+
+/** The rulesets a semgrep command takes from its registry rather than from files here. */
+function semgrepRegistryRulesets(argv) {
+  const named = [];
+  for (const [index, argument] of argv.entries()) {
+    const value = argument.startsWith('--config=') ? argument.slice('--config='.length) : SEMGREP_CONFIG.test(argv[index - 1] ?? '') ? argument : null;
+    if (value && SEMGREP_REGISTRY.test(value)) named.push(value);
+  }
+  return named;
 }
 
 /** The version of an installed npm package, looked up from `from` towards `top` as Node resolves it. */
@@ -121,5 +154,7 @@ export function findingToolIdentity(root, executionRoot, command, { env = proces
     const digest = fileDigest(absolute);
     if (digest) configs[`arg:${path.relative(root, absolute).replaceAll('\\', '/')}`] = digest;
   }
-  return { tool, toolVersion, rulesetSha256: `sha256:${sha256(canonicalJson({ tool, plugins, configs }))}` };
+  const registry = tool === 'semgrep' || tool === 'opengrep' ? semgrepRegistryRulesets(argv) : [];
+  return { tool, toolVersion, rulesetSha256: `sha256:${sha256(canonicalJson({ tool, plugins, configs }))}`,
+    ...(registry.length ? { pinned: false, unpinnedRulesets: registry } : {}) };
 }

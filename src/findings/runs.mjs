@@ -63,10 +63,12 @@ export async function stepFindingRuns(root, workId, phaseId) {
  * The run that still stands for `command`, or `{ moved }`: the latest read of the same command on the
  * same application source and test inputs, with the same tool version and ruleset digest, from any
  * step of the Story, on a commit in this branch's history. A run that could not read its report never
- * stands; a run with no tool identity never does either.
+ * stands; a run with no tool identity, or whose ruleset is not pinned here, never does either.
  */
 export async function unchangedFindingRun(root, workflow, command, { commit, treeSha256, testInputSha256 = null, identity }) {
   if (!identity?.toolVersion || !identity.rulesetSha256) return { moved: 'its tool version could not be read here' };
+  // Rules fetched at run time may differ in every run, so no earlier run speaks for this one [CQF:REQ-051].
+  if (identity.pinned === false) return { moved: null, unpinned: true };
   const key = findingCommandSha256(command);
   let latest = null;
   for (const phaseId of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {

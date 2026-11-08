@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "invocations": [{ "executionSuccessful": true, "toolExecutionNotifications": [] }],
+      "results": [
+        {
+          "fingerprints": { "matchBasedId/v1": "4f1d7b0c5e0a3c2d9a8e7f6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f_0" },
+          "locations": [
+            { "physicalLocation": { "artifactLocation": { "uri": "src/db.mjs", "uriBaseId": "%SRCROOT%" },
+              "region": { "startLine": 3, "startColumn": 10, "endLine": 3, "endColumn": 58,
+                "snippet": { "text": "  return db.query('SELECT * FROM users WHERE id = ' + id);" } } } }
+          ],
+          "message": { "text": "Detected a SQL query built by string concatenation with a value that may come from the request. Use a parameterized query instead." },
+          "properties": {},
+          "ruleId": "sflow-rules.sql-concatenation"
+        },
+        {
+          "fingerprints": { "matchBasedId/v1": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e_0" },
+          "locations": [
+            { "physicalLocation": { "artifactLocation": { "uri": "lib/legacy.mjs", "uriBaseId": "%SRCROOT%" },
+              "region": { "startLine": 2, "startColumn": 3, "endLine": 2, "endColumn": 14,
+                "snippet": { "text": "  eval(code);" } } } }
+          ],
+          "message": { "text": "Detected the use of eval(). eval() can be dangerous if used to evaluate dynamic content." },
+          "properties": {},
+          "ruleId": "sflow-rules.no-eval"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "semanticVersion": "1.95.0",
+          "rules": [
+            {
+              "id": "sflow-rules.sql-concatenation",
+              "name": "sflow-rules.sql-concatenation",
+              "shortDescription": { "text": "Semgrep Finding: sflow-rules.sql-concatenation" },
+              "fullDescription": { "text": "Detected a SQL query built by string concatenation." },
+              "defaultConfiguration": { "level": "error" },
+              "help": { "text": "Use a parameterized query.", "markdown": "Use a parameterized query." },
+              "properties": { "precision": "very-high", "tags": ["CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')", "OWASP-A03:2021 - Injection", "security"] }
+            },
+            {
+              "id": "sflow-rules.no-eval",
+              "name": "sflow-rules.no-eval",
+              "shortDescription": { "text": "Semgrep Finding: sflow-rules.no-eval" },
+              "fullDescription": { "text": "Detected the use of eval()." },
+              "defaultConfiguration": { "level": "warning" },
+              "properties": { "precision": "high", "tags": ["CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')", "security"] }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

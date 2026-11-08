@@ -161,6 +161,10 @@ export async function runFindingCommands(root, config, workflow, phase, commands
       console.warn(`Not run again: ${command.id} read this exact code with the same tool and rules (${standing.run.id}).`);
     } else {
       if (standing.moved) console.warn(`Running ${command.id} again: ${standing.moved}.`);
+      if (standing.unpinned) {
+        console.warn(`Warning: ${command.id} takes its rules from the Semgrep registry (${identity.unpinnedRulesets.join(', ')}), which can change between runs, so no run of it is reused. `
+          + 'Pin the ruleset as files in the repository (--config .semgrep/) for its runs to stand on unchanged code.');
+      }
       toRun.push({ command, identity });
     }
   }

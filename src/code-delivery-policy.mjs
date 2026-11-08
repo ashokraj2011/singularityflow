@@ -59,6 +59,26 @@ function integerValue(value, minimum, maximum, label) {
   return value;
 }
 
+export const STATIC_ANALYSIS_MODES = Object.freeze(['warn', 'enforce', 'off']);
+
+function staticAnalysisPolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => key !== 'mode')) {
+    throw new SingularityFlowError('codeDelivery.staticAnalysis must be { mode: warn | enforce | off }.');
+  }
+  return { mode: enumValue(value.mode ?? 'warn', STATIC_ANALYSIS_MODES, 'codeDelivery.staticAnalysis.mode') };
+}
+
+/**
+ * How a Story treats its finding commands [CQF:REQ-046, decision 6]: `warn` unless its pinned
+ * workflow says otherwise. A capability's policy may make it stricter (`enforce` is chosen per
+ * capability), never looser.
+ */
+export function staticAnalysisMode(workflow) {
+  const configured = workflow?.resolution?.codeDelivery?.staticAnalysis?.mode ?? 'warn';
+  const capability = workflow?.resolution?.capability?.policy?.staticAnalysis ?? null;
+  return capability === 'enforce' ? 'enforce' : configured;
+}
+
 /** Normalize once at configuration load and pin the exact result into every Story. */
 export function normalizeCodeDeliveryPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -89,6 +109,8 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
     ...(value.assertionAdequacy === undefined ? {} : {
       assertionAdequacy: enumValue(value.assertionAdequacy, ['off', 'advisory', 'enforce'], 'codeDelivery.assertionAdequacy')
     }),
+    // Absent means warn, so a Story pinned before the setting existed keeps its policy bytes [CQF:REQ-046].
+    ...(value.staticAnalysis === undefined ? {} : { staticAnalysis: staticAnalysisPolicy(value.staticAnalysis) }),
     generationBoundary: {
       requireBegin: booleanValue(generationBoundary.requireBegin, 'codeDelivery.generationBoundary.requireBegin'),
       dirtyStart: enumValue(generationBoundary.dirtyStart, ['block', 'allow-explicit-adoption'], 'codeDelivery.generationBoundary.dirtyStart')

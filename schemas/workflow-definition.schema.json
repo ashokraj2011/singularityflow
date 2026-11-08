@@ -87,7 +87,13 @@
           },
           "additionalProperties": false
         },
-        "model": { "type": "object", "properties": { "minimumAssurance": { "enum": ["unavailable", "observed", "provider-reported", "policy-selected"] } }, "additionalProperties": false }
+        "model": { "type": "object", "properties": { "minimumAssurance": { "enum": ["unavailable", "observed", "provider-reported", "policy-selected"] } }, "additionalProperties": false },
+        "staticAnalysis": {
+          "description": "Lint, static-analysis and security findings in the code step [CQF:REQ-046]. warn (the default) shows new-code findings and returns them to the code step for at most 3 attempts, then publishes; enforce holds the step for a person when they remain; off runs none of it in the loop. A missing scanner blocks nothing under warn. An engine older than this key ignores it.",
+          "type": "object",
+          "properties": { "mode": { "enum": ["warn", "enforce", "off"], "default": "warn" } },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
@@ -1388,12 +1394,29 @@
               "type": "object",
               "required": ["adapter", "path"],
               "properties": {
-                "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "karma-text", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
+                "adapter": { "description": "A test report adapter, or for kind lint, static-analysis or security a finding reader (eslint-json, sarif, sonarqube) whose report path is under .sflow/results/ [CQF:REQ-041].",
+                  "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "karma-text", "dotnet-trx", "cargo-json", "sflow-test-result-v1", "mocha-json", "eslint-json", "sarif", "sonarqube"] },
                 "path": { "type": "string", "minLength": 1 },
                 "minimumDiscovered": { "type": "integer", "minimum": 1 },
                 "minimumPassed": { "type": "integer", "minimum": 1 },
                 "sourceExtensions": { "type": "array", "uniqueItems": true,
                   "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9][A-Za-z0-9.+-]{0,15}$" } }
+              },
+              "additionalProperties": false
+            },
+            "gate": {
+              "description": "For a finding command: the severities of a finding on new code that count against the step [CQF:REQ-041]. Default blocker, critical and high.",
+              "type": "object", "required": ["failOn"],
+              "properties": { "failOn": { "type": "array", "uniqueItems": true, "items": { "enum": ["blocker", "critical", "high", "medium", "low", "info"] } } },
+              "additionalProperties": false
+            },
+            "sonarqube": {
+              "description": "For a SonarQube scanner command (result adapter sonarqube, its report-task.txt): it runs once at submit, on the Story branch under project when branchAnalysis says the server supports it, else only under a named scratchProject, never into the main project [CQF:REQ-048].",
+              "type": "object", "required": ["project"],
+              "properties": {
+                "project": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,400}$" },
+                "branchAnalysis": { "type": "boolean" },
+                "scratchProject": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,400}$" }
               },
               "additionalProperties": false
             }

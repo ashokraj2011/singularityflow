@@ -12,7 +12,7 @@ import {
 import {
   appendLedgerIntent, ledgerStatus, reconcileLedger, verifyLedger
 } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { createHash } from 'node:crypto';
 import { revision, attachRevision } from './state-revision-read.mjs';
 export { STATE_REVISION } from './state-revision-read.mjs';

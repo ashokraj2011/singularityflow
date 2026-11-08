@@ -20,7 +20,7 @@ import { discoverAgents, AGENT_LOCK_PATH } from './agents.mjs';
 import { SKILL_ATTACHMENTS_PATH, readSkillAttachments, skillAttachmentsText } from './skill-library.mjs';
 import { IMPORTS_LOCK_PATH, parseImportsLedger, renderImportsLedger } from './imports-ledger.mjs';
 import { EPIC_PHASES } from './initiative-phase-roles.mjs';
-import { compiledSkillStep } from './code-delivery-policy.mjs';
+import { compiledSkillStep } from "./kernel/configuration-declarations.mjs";
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 
 export { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, readWorkflowArchive, workflowArchived } from './workflow-archive.mjs';

@@ -1,17 +1,7 @@
+import { normalizeSourceBoundary } from './kernel/configuration-declarations.mjs';
+export { SOURCE_BOUNDARIES, normalizeSourceBoundary } from './kernel/configuration-declarations.mjs';
 import path from 'node:path';
 import { SingularityFlowError, posix } from './util.mjs';
-
-export const SOURCE_BOUNDARIES = Object.freeze(['unrestricted', 'test-automation']);
-
-export function normalizeSourceBoundary(value = 'unrestricted', phaseId = 'unknown') {
-  const boundary = value ?? 'unrestricted';
-  if (!SOURCE_BOUNDARIES.includes(boundary)) {
-    throw new SingularityFlowError(
-      `Phase '${phaseId}' sourceBoundary must be ${SOURCE_BOUNDARIES.join(' or ')}.`
-    );
-  }
-  return boundary;
-}
 
 const TEST_DIRECTORY_SEGMENTS = new Set([
   '__tests__', 'e2e', 'fixture', 'fixtures', 'integration-tests', 'page-object',

@@ -8,7 +8,7 @@ import path from 'node:path';
 import {
   canonicalJson, ledgerAtSnapshot, ledgerPayloadDigest, ledgerSnapshotCommit, sha256
 } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 

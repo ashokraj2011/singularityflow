@@ -21,7 +21,7 @@
  */
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { isAgentTemplateReference } from './agent-document-parser.mjs';
+import { isAgentTemplateReference } from "./kernel/configuration-declarations.mjs";
 import { requiredArtifactSections } from './artifact-required-sections.mjs';
 import { renderArtifactTemplateText } from './config.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './kernel/artifact-content.mjs';

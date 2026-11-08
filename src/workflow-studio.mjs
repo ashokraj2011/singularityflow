@@ -48,9 +48,8 @@ import { importableMcpServers } from './mcp-import.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, templateReferences } from "./kernel/configuration-policy.mjs";
 import { normalizeArtifactSet } from './artifact-sets.mjs';
 import { normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
-import {
-  authoringRoute, compiledSkillStep, deterministicOnlyGeneration, legacyAuthoringSkill, stepOutputKind, workflowCodeGeneration
-} from './code-delivery-policy.mjs';
+import { authoringRoute, deterministicOnlyGeneration, legacyAuthoringSkill, workflowCodeGeneration } from './code-delivery-policy.mjs';
+import { compiledSkillStep, stepOutputKind } from "./kernel/configuration-declarations.mjs";
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot, withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';

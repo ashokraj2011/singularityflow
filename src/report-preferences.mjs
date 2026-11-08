@@ -1,6 +1,6 @@
 /** Display pricing is live observation policy, never permission to execute or approve. */
 import { readConfigurationSource } from './configuration-source.mjs';
-import { validateTokenReportingPolicy } from './token-reporting-policy.mjs';
+import { validateTokenReportingPolicy } from "./kernel/configuration-declarations.mjs";
 import { measureCommandSpan } from './dx-timing-context.mjs';
 import { SingularityFlowError } from './util.mjs';
 

@@ -27,7 +27,7 @@ import {
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor, prefetchExactObjectFiles } from './git.mjs';
 import { canonicalJson } from './records.mjs';
-import { normalizeSourceBoundary } from './source-boundary.mjs';
+import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { configurationPathKind, isConfigurationPath } from './configuration-paths.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';

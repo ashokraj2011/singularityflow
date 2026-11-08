@@ -1,6 +1,6 @@
 import { branch, head } from './git.mjs';
 import { ledgerStatus } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { readPendingPublication } from './publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { LocalContextStore, StoryStateStore, InitiativeStateStore } from './state-stores.mjs';

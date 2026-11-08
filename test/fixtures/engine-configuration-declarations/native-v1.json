@@ -1,0 +1,1609 @@
+{
+  "baseline": "9374138c5",
+  "results": [
+    {
+      "id": 0,
+      "family": "analysis",
+      "name": "analysisLimits",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "maxArtifactBytes": 2097152,
+        "maxChangedPaths": 2000,
+        "maxClauses": 2000,
+        "maxEvidenceRecords": 500,
+        "maxFacts": 500,
+        "maxOutputBytes": 4194304
+      }
+    },
+    {
+      "id": 1,
+      "family": "analysis",
+      "name": "analysisLimits",
+      "status": "returned",
+      "input": [
+        null
+      ],
+      "value": {
+        "maxArtifactBytes": 2097152,
+        "maxChangedPaths": 2000,
+        "maxClauses": 2000,
+        "maxEvidenceRecords": 500,
+        "maxFacts": 500,
+        "maxOutputBytes": 4194304
+      }
+    },
+    {
+      "id": 2,
+      "family": "analysis",
+      "name": "analysisLimits",
+      "status": "returned",
+      "input": [
+        {
+          "maxClauses": 42
+        }
+      ],
+      "value": {
+        "maxArtifactBytes": 2097152,
+        "maxChangedPaths": 2000,
+        "maxClauses": 42,
+        "maxEvidenceRecords": 500,
+        "maxFacts": 500,
+        "maxOutputBytes": 4194304
+      }
+    },
+    {
+      "id": 3,
+      "family": "analysis",
+      "name": "analysisLimits",
+      "status": "refused",
+      "input": [
+        {
+          "maxClauses": 0
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "analysisLimits.maxClauses must be a positive integer.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 4,
+      "family": "analysis",
+      "name": "analysisLimits",
+      "status": "refused",
+      "input": [
+        {
+          "unknown": 1
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "analysisLimits contains unknown field 'unknown'. Allowed: maxArtifactBytes, maxChangedPaths, maxClauses, maxEvidenceRecords, maxFacts, maxOutputBytes.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 5,
+      "family": "analysis",
+      "name": "analysisLimits",
+      "status": "refused",
+      "input": [
+        []
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "analysisLimits must be an object.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 6,
+      "family": "branch",
+      "name": "assertStoryBranchNaming",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 7,
+      "family": "branch",
+      "name": "assertStoryBranchNaming",
+      "status": "returned",
+      "input": [
+        {
+          "pattern": "feature/{id}-{title}"
+        }
+      ],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 8,
+      "family": "branch",
+      "name": "assertStoryBranchNaming",
+      "status": "refused",
+      "input": [
+        {
+          "pattern": "feature/{title}"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "git.branchNaming.pattern must contain {id}, so that every Story gets its own branch.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 9,
+      "family": "branch",
+      "name": "assertStoryBranchNaming",
+      "status": "refused",
+      "input": [
+        {
+          "pattern": "{id}-{owner}"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "git.branchNaming.pattern uses {owner}. The placeholders are {id} and {title}.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 10,
+      "family": "branch",
+      "name": "assertStoryBranchNaming",
+      "status": "refused",
+      "input": [
+        {
+          "pattern": "{id}",
+          "extra": true
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "git.branchNaming.extra is not a setting. The only setting is pattern.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 11,
+      "family": "branch",
+      "name": "assertStoryBranchNaming",
+      "status": "refused",
+      "input": [
+        "{id}"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "git.branchNaming must be a mapping with a pattern, for example { pattern: 'feature/{id}-{title}' }.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 12,
+      "family": "boundary",
+      "name": "normalizeSourceBoundary",
+      "status": "returned",
+      "input": [],
+      "value": "unrestricted"
+    },
+    {
+      "id": 13,
+      "family": "boundary",
+      "name": "normalizeSourceBoundary",
+      "status": "returned",
+      "input": [
+        "test-automation",
+        "browser-check"
+      ],
+      "value": "test-automation"
+    },
+    {
+      "id": 14,
+      "family": "boundary",
+      "name": "normalizeSourceBoundary",
+      "status": "refused",
+      "input": [
+        "unknown",
+        "browser-check"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'browser-check' sourceBoundary must be unrestricted or test-automation.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 15,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "level": "info",
+        "console": "warn",
+        "maxBytes": 5242880,
+        "keep": 3
+      }
+    },
+    {
+      "id": 16,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "returned",
+      "input": [
+        null
+      ],
+      "value": {
+        "level": "info",
+        "console": "warn",
+        "maxBytes": 5242880,
+        "keep": 3
+      }
+    },
+    {
+      "id": 17,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "returned",
+      "input": [
+        {
+          "level": "verbose",
+          "console": "quiet",
+          "maxBytes": 8192,
+          "keep": 2
+        }
+      ],
+      "value": {
+        "level": "debug",
+        "console": "error",
+        "maxBytes": 8192,
+        "keep": 2
+      }
+    },
+    {
+      "id": 18,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "returned",
+      "input": [
+        {
+          "level": "unrecognized"
+        }
+      ],
+      "value": {
+        "level": "info",
+        "console": "warn",
+        "maxBytes": 5242880,
+        "keep": 3
+      }
+    },
+    {
+      "id": 19,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "refused",
+      "input": [
+        {
+          "maxBytes": 12
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "logging.maxBytes must be an integer of at least 4096.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 20,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "refused",
+      "input": [
+        {
+          "keep": 21
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "logging.keep must be an integer between 1 and 20.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 21,
+      "family": "logging",
+      "name": "normalizeLogging",
+      "status": "refused",
+      "input": [
+        {
+          "unknown": true
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "logging contains unknown field 'unknown'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 22,
+      "family": "logging",
+      "name": "normalizeLogLevel",
+      "status": "returned",
+      "input": [
+        "warning"
+      ],
+      "value": "warn"
+    },
+    {
+      "id": 23,
+      "family": "logging",
+      "name": "normalizeLogLevel",
+      "status": "returned",
+      "input": [
+        "silent"
+      ],
+      "value": "off"
+    },
+    {
+      "id": 24,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "enabled": false,
+        "branch": "state",
+        "remote": "origin",
+        "behind": "warn",
+        "enforcement": "shadow",
+        "signing": "off",
+        "trustTier": "T0",
+        "maxRetries": 4,
+        "pinTransport": "refs",
+        "publication": "warn",
+        "retentionDays": 2555
+      }
+    },
+    {
+      "id": 25,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "returned",
+      "input": [
+        {
+          "enabled": true,
+          "branch": "proof-state",
+          "remote": "upstream",
+          "enforcement": "required"
+        }
+      ],
+      "value": {
+        "enabled": true,
+        "branch": "proof-state",
+        "remote": "upstream",
+        "behind": "warn",
+        "enforcement": "required",
+        "signing": "off",
+        "trustTier": "T0",
+        "maxRetries": 4,
+        "pinTransport": "refs",
+        "publication": "warn",
+        "retentionDays": 2555
+      }
+    },
+    {
+      "id": 26,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "refused",
+      "input": [
+        {
+          "trustTier": "T3",
+          "signing": "off"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "T3 requires ledger.signing: commit or a future event-signature driver.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 27,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "returned",
+      "input": [
+        {
+          "trustTier": "T3",
+          "signing": "commit",
+          "configurationHistory": {
+            "autoClear": false,
+            "keepRecent": 3
+          }
+        }
+      ],
+      "value": {
+        "enabled": false,
+        "branch": "state",
+        "remote": "origin",
+        "behind": "warn",
+        "enforcement": "shadow",
+        "signing": "commit",
+        "trustTier": "T3",
+        "maxRetries": 4,
+        "pinTransport": "refs",
+        "publication": "warn",
+        "retentionDays": 2555,
+        "configurationHistory": {
+          "autoClear": false,
+          "keepRecent": 3
+        }
+      }
+    },
+    {
+      "id": 28,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "refused",
+      "input": [
+        {
+          "enabled": "yes"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "ledger.enabled must be boolean.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 29,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "refused",
+      "input": [
+        {
+          "pinTransport": "unknown"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "ledger.pinTransport must be refs, branches, or none.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 30,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "refused",
+      "input": [
+        {
+          "configurationHistory": {
+            "keepRecent": 0
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "ledger.configurationHistory takes only autoClear (boolean) and keepRecent (1-100).",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 31,
+      "family": "ledger",
+      "name": "normalizeLedgerConfig",
+      "status": "refused",
+      "input": [
+        null
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "ledger must be an object.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 32,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "defaultProvider": null,
+        "maxBytes": 104857600,
+        "allowedMimeTypes": [],
+        "providers": {}
+      }
+    },
+    {
+      "id": 33,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "returned",
+      "input": [
+        {
+          "maxBytes": 1024,
+          "allowedMimeTypes": [
+            "image/png"
+          ],
+          "providers": {
+            "archive": {
+              "type": "s3",
+              "bucket": "evidence",
+              "prefix": "/stories/"
+            }
+          }
+        }
+      ],
+      "value": {
+        "defaultProvider": "archive",
+        "maxBytes": 1024,
+        "allowedMimeTypes": [
+          "image/png"
+        ],
+        "providers": {
+          "archive": {
+            "type": "s3",
+            "bucket": "evidence",
+            "prefix": "stories",
+            "maxBytes": null,
+            "allowedMimeTypes": []
+          }
+        }
+      }
+    },
+    {
+      "id": 34,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "returned",
+      "input": [
+        {
+          "providers": {
+            "archive": {
+              "type": "artifactory",
+              "baseUrl": "https://artifacts.example.test/",
+              "repository": "evidence"
+            }
+          }
+        }
+      ],
+      "value": {
+        "defaultProvider": "archive",
+        "maxBytes": 104857600,
+        "allowedMimeTypes": [],
+        "providers": {
+          "archive": {
+            "type": "artifactory",
+            "baseUrl": "https://artifacts.example.test",
+            "repository": "evidence",
+            "maxBytes": null,
+            "allowedMimeTypes": []
+          }
+        }
+      }
+    },
+    {
+      "id": 35,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "refused",
+      "input": [
+        {
+          "providers": {
+            "archive": {
+              "type": "artifactory",
+              "baseUrl": "http://artifacts.example.test/",
+              "repository": "evidence"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Artifactory provider 'archive' must use HTTPS.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 36,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "refused",
+      "input": [
+        {
+          "providers": {
+            "archive": {
+              "type": "unknown"
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Storage provider 'archive' has unsupported type 'unknown'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 37,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "refused",
+      "input": [
+        {
+          "defaultProvider": "missing"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "storage.defaultProvider references unknown provider 'missing'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 38,
+      "family": "storage",
+      "name": "normalizeStorage",
+      "status": "refused",
+      "input": [
+        {
+          "allowedMimeTypes": [
+            "text/plain",
+            "text/plain"
+          ]
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "storage.allowedMimeTypes contains duplicates.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 39,
+      "family": "removed",
+      "name": "disabledArchitectureIntent",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "enabled": false,
+        "allowedPhases": [],
+        "blockRequiredUnfulfilledAt": []
+      }
+    },
+    {
+      "id": 40,
+      "family": "removed",
+      "name": "dropRemovedSettings",
+      "status": "returned",
+      "input": [
+        {
+          "worldModel": {
+            "knowledge": {
+              "enabled": true
+            },
+            "sourceRoots": [
+              "src"
+            ],
+            "stateBranch": "proof"
+          },
+          "phases": {
+            "draft": {}
+          },
+          "workTypes": {
+            "sample": {
+              "phaseOverrides": {
+                "draft": {}
+              }
+            }
+          }
+        }
+      ],
+      "value": [
+        "architectureIntent",
+        "worldModel.views",
+        "World Model views on 2 phase(s)"
+      ]
+    },
+    {
+      "id": 41,
+      "family": "removed",
+      "name": "dropRemovedSettings",
+      "status": "returned",
+      "input": [
+        {
+          "worldModel": {
+            "remote": "upstream",
+            "sharedRoots": [
+              "shared"
+            ],
+            "excludedRoots": [
+              "build"
+            ]
+          }
+        }
+      ],
+      "value": []
+    },
+    {
+      "id": 42,
+      "family": "removed",
+      "name": "dropRemovedSettings",
+      "status": "returned",
+      "input": [
+        null
+      ],
+      "value": []
+    },
+    {
+      "id": 43,
+      "family": "agent",
+      "name": "isAgentTemplateReference",
+      "status": "returned",
+      "input": [
+        "agent:analyst/spec"
+      ],
+      "value": true
+    },
+    {
+      "id": 44,
+      "family": "agent",
+      "name": "isAgentTemplateReference",
+      "status": "returned",
+      "input": [
+        "templates/spec.md"
+      ],
+      "value": false
+    },
+    {
+      "id": 45,
+      "family": "agent",
+      "name": "parseAgentTemplateReference",
+      "status": "returned",
+      "input": [
+        "agent:analyst/spec"
+      ],
+      "value": {
+        "agentId": "analyst",
+        "templateId": "spec"
+      }
+    },
+    {
+      "id": 46,
+      "family": "agent",
+      "name": "parseAgentTemplateReference",
+      "status": "refused",
+      "input": [
+        "unknown"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Remote template reference 'unknown' must use agent:<agent-id>/<template-id>.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 47,
+      "family": "convergence",
+      "name": "assertNoAutonomousConvergence",
+      "status": "returned",
+      "input": [
+        {}
+      ],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 48,
+      "family": "convergence",
+      "name": "assertNoAutonomousConvergence",
+      "status": "returned",
+      "input": [
+        {
+          "generation": {
+            "producer": "agent"
+          }
+        }
+      ],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 49,
+      "family": "convergence",
+      "name": "assertNoAutonomousConvergence",
+      "status": "refused",
+      "input": [
+        {
+          "repeatUntil": "no-findings"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "convergence.repeatUntil would repeat implementation and convergence until a condition became true, which the kernel refuses [SPK:CON-037]. Each iteration needs a human disposition; run the next one deliberately.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 50,
+      "family": "tokens",
+      "name": "validateTokenReportingPolicy",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 51,
+      "family": "tokens",
+      "name": "validateTokenReportingPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "mode": "exact-or-unavailable",
+          "pricing": {
+            "sample": {
+              "input": 1,
+              "output": 2,
+              "cachedInput": 0
+            }
+          },
+          "premiumMultipliers": {
+            "sample": 3
+          }
+        }
+      ],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 52,
+      "family": "tokens",
+      "name": "validateTokenReportingPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "mode": "estimated"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "tokens.mode must be 'exact-or-unavailable'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 53,
+      "family": "tokens",
+      "name": "validateTokenReportingPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "pricing": {
+            "sample": {
+              "input": -1
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "tokens.pricing.sample.input must be a non-negative number.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 54,
+      "family": "tokens",
+      "name": "validateTokenReportingPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "premiumMultipliers": {
+            "sample": -1
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "tokens.premiumMultipliers.sample must be a non-negative number.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 55,
+      "family": "tokens",
+      "name": "validateTokenReportingPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "pricing": {
+            "sample": {}
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Token pricing for 'sample' must define input, output, or cachedInput.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 56,
+      "family": "delivery",
+      "name": "stepOutputKind",
+      "status": "returned",
+      "input": [],
+      "value": "document"
+    },
+    {
+      "id": 57,
+      "family": "delivery",
+      "name": "stepOutputKind",
+      "status": "returned",
+      "input": [
+        {
+          "generation": {
+            "requirement": "none"
+          }
+        }
+      ],
+      "value": "none"
+    },
+    {
+      "id": 58,
+      "family": "delivery",
+      "name": "stepOutputKind",
+      "status": "returned",
+      "input": [
+        {
+          "generation": {
+            "task": "analyze"
+          }
+        }
+      ],
+      "value": "analysis"
+    },
+    {
+      "id": 59,
+      "family": "delivery",
+      "name": "stepOutputKind",
+      "status": "returned",
+      "input": [
+        {
+          "id": "repair-code",
+          "writeScope": "source-and-artifact",
+          "generation": {
+            "task": "code",
+            "requirement": "required"
+          }
+        }
+      ],
+      "value": "code"
+    },
+    {
+      "id": 60,
+      "family": "delivery",
+      "name": "compiledSkillStep",
+      "status": "returned",
+      "input": [
+        {
+          "kind": "skill"
+        }
+      ],
+      "value": true
+    },
+    {
+      "id": 61,
+      "family": "delivery",
+      "name": "compiledSkillStep",
+      "status": "returned",
+      "input": [
+        {
+          "id": "repair-code",
+          "writeScope": "source-and-artifact",
+          "generation": {
+            "task": "code",
+            "requirement": "required"
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 62,
+      "family": "delivery",
+      "name": "pinCodeDeliveryTask",
+      "status": "returned",
+      "input": [
+        {
+          "id": "repair-code",
+          "writeScope": "source-and-artifact",
+          "generation": {
+            "requirement": "required"
+          }
+        }
+      ],
+      "value": {
+        "requirement": "required"
+      }
+    },
+    {
+      "id": 63,
+      "family": "delivery",
+      "name": "pinCodeDeliveryTask",
+      "status": "returned",
+      "input": [
+        {
+          "id": "note",
+          "generation": {
+            "task": "document"
+          }
+        }
+      ],
+      "value": {
+        "task": "document"
+      }
+    },
+    {
+      "id": 64,
+      "family": "delivery",
+      "name": "assertCodeDeliveryConfiguration",
+      "status": "returned",
+      "input": [
+        {
+          "id": "repair-code",
+          "writeScope": "source-and-artifact",
+          "generation": {
+            "task": "code",
+            "requirement": "required"
+          }
+        }
+      ],
+      "value": {
+        "$undefined": true
+      }
+    },
+    {
+      "id": 65,
+      "family": "delivery",
+      "name": "assertCodeDeliveryConfiguration",
+      "status": "refused",
+      "input": [
+        {
+          "id": "repair-code",
+          "writeScope": "artifact-only",
+          "generation": {
+            "task": "code",
+            "requirement": "required"
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'repair-code' is a code-delivery phase but writeScope is not 'source-and-artifact'. A document-only implementation is forbidden.",
+        "code": "CODE_DELIVERY_SCOPE_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 66,
+      "family": "delivery",
+      "name": "assertCodeDeliveryConfiguration",
+      "status": "returned",
+      "input": [
+        {
+          "id": "note",
+          "writeScope": "artifact-only",
+          "generation": {
+            "task": "document"
+          }
+        }
+      ],
+      "value": {
+        "$undefined": true
+      }
+    }
+  ],
+  "exports": {
+    "analysis": [
+      "DEFAULT_ANALYSIS_LIMITS",
+      "analysisLimits",
+      "assertWithinLimit",
+      "boundedEnvelope",
+      "capWithDisclosure"
+    ],
+    "branch": [
+      "STORY_BRANCH_DEFAULT_PATTERN",
+      "applyStoryBranchNaming",
+      "assertStoryBranchNaming",
+      "checkoutStoryBranch",
+      "renderStoryBranchName",
+      "storyBranchForWorkId",
+      "workIdForBranch"
+    ],
+    "boundary": [
+      "SOURCE_BOUNDARIES",
+      "assertSourceBoundary",
+      "isTestAutomationPath",
+      "normalizeSourceBoundary"
+    ],
+    "logging": [
+      "LOG_DIR_SEGMENTS",
+      "LOG_LEVELS",
+      "REDACTED",
+      "createLogger",
+      "filterLogEntries",
+      "logDirectory",
+      "logFilePath",
+      "normalizeLogLevel",
+      "normalizeLogging",
+      "nullLogger",
+      "parseLogLines",
+      "redact",
+      "redactCommandArgv",
+      "repositoryLogger",
+      "resolveLogging"
+    ],
+    "ledger": [
+      "normalizeConfigurationHistory",
+      "normalizeLedgerConfig"
+    ],
+    "storage": [
+      "BRANCH_COMPLETION_POLICIES",
+      "BUILT_IN_APPLICABILITY_POLICIES",
+      "EVIDENCE_ASSURANCE",
+      "ID_AUTHORITIES",
+      "INITIATIVE_APPROVAL_MODES",
+      "INITIATIVE_GATES",
+      "INITIATIVE_OUTPUT_KINDS",
+      "INITIATIVE_REQUIREMENTS",
+      "JIRA_DEPLOYMENTS",
+      "JIRA_WRITE_MODES",
+      "JIRA_WRITE_OPERATIONS",
+      "PORTFOLIO_PATH",
+      "STORAGE_PROVIDER_TYPES",
+      "loadPortfolio",
+      "normalizeIdentityPolicy",
+      "normalizeJiraPolicy",
+      "normalizeStorage",
+      "resolveInitiativeProfile",
+      "snapshotInitiativeResolution",
+      "usesEpicPlanningLifecycle",
+      "validatePortfolio"
+    ],
+    "removed": [
+      "REMOVED_WORLD_MODEL_SUBCOMMANDS",
+      "disabledArchitectureIntent",
+      "dropRemovedSettings",
+      "removedSettings",
+      "removedWorldModelError"
+    ],
+    "agent": [
+      "AGENT_ALLOWED_TOKENS",
+      "STUDIO_ID",
+      "isAgentTemplateReference",
+      "isMcpDependencyUrl",
+      "parseAgentDependencies",
+      "parseAgentTemplateReference",
+      "parseAttachedSkills",
+      "validAgentId",
+      "withoutSfGuardStampBlock"
+    ],
+    "convergence": [
+      "CONVERGENCE_SCHEMA_VERSION",
+      "DISPOSITIONS",
+      "FACT_KINDS",
+      "FINDING_CLASSIFICATIONS",
+      "adjudicatedConvergenceProjection",
+      "advancementBlocked",
+      "assertConvergenceCandidateSource",
+      "assertConvergenceIntegrity",
+      "assertConvergencePublishable",
+      "assertNoAutonomousConvergence",
+      "convergenceBindings",
+      "convergenceFacts",
+      "convergenceProjection",
+      "decodeConvergenceRecord",
+      "findingAdjudication",
+      "itemId",
+      "renderConvergenceArtifact",
+      "replacedAnswers",
+      "serializeConvergence",
+      "validateAdjudication"
+    ],
+    "tokens": [
+      "validateTokenReportingPolicy"
+    ],
+    "delivery": [
+      "ARA_ACTIONS",
+      "ARA_NAMESPACE",
+      "ARA_READS",
+      "ARA_SURFACES",
+      "ARA_VERSION",
+      "DEFAULT_CODE_DELIVERY_POLICY",
+      "TEST_SCOPES",
+      "applicationReviewOffer",
+      "applicationReviewPhase",
+      "araFail",
+      "assertCodeDeliveryConfiguration",
+      "authoringRoute",
+      "codeOutcomeReviewOffer",
+      "compiledSkillStep",
+      "configuredAuthoringSkill",
+      "deterministicOnlyGeneration",
+      "exactFields",
+      "generationSkillForPhase",
+      "legacyAuthoringSkill",
+      "normalizeApplicationReview",
+      "normalizeCodeDeliveryPolicy",
+      "phaseKernelOwned",
+      "phaseRequiresCodeDelivery",
+      "pinCodeDeliveryTask",
+      "reviewRelativePath",
+      "stepOutputKind",
+      "storyTestScope",
+      "workflowAuthoringRoutes",
+      "workflowCodeGeneration"
+    ]
+  },
+  "functions": {
+    "analysis-limits.mjs:analysisLimits": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "923de68dc2e733df1f9bbefbc66635358fdce7cb259001904f65ecd89d3a9707"
+    },
+    "story-branch-name.mjs:assertStoryBranchNaming": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "989c6936a937150d1542494ff99370de464f4b93b332b1eccd00eff77c9638bb"
+    },
+    "source-boundary.mjs:normalizeSourceBoundary": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "21f277ce26d9c088ca1d90b954e67cbeca1e9c8b93b9beceb29011b756ccfb53"
+    },
+    "logging.mjs:normalizeLogLevel": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "48b201001b5e23f18507c01ae68cf15617ad38597b782a99d19df781921e692a"
+    },
+    "logging.mjs:normalizeLogging": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "0a0312f8483b1514a13e08b4e1c02cb8db97d378bb1b159228d84b7e963a97ea"
+    },
+    "ledger-config.mjs:string": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "ad1a09c2e857fa06d855d15b96a73c0510d2869958b4f51c69f016360248af23"
+    },
+    "ledger-config.mjs:normalizeLedgerConfig": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "3b98db59b862992d96711656a9e66739cead1b8ad525b74a1b76d19d8e11ced3"
+    },
+    "ledger-config.mjs:normalizeConfigurationHistory": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "69e8abc8178a1ed2a468bffccd47a9c6944601ab4e55a61b87e90de40846c962"
+    },
+    "initiative-config.mjs:object": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "9ca285a64358216c41de8ab01b817ac0bd6801108e7fa73e53482d6ee934e22b"
+    },
+    "initiative-config.mjs:safeId": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "0727d2636002574a31878ed4ab45f951e94fb9262d6cf409317652c3dec54d7f"
+    },
+    "initiative-config.mjs:unique": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "112f7178d2870b9490dec3ef30826bbe61a41f4d7696822881d0637caac943b3"
+    },
+    "initiative-config.mjs:normalizeStorage": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "dd3e0bb82f970401f9c1eea74dffc43243d4ff00b5d882fa5da1990570f936b2"
+    },
+    "removed-features.mjs:record": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "3f0c3f062855fd4cb4bbbbb78b3cc0dd81d9c05f4efdc9cc4a22f8e4920fce63"
+    },
+    "removed-features.mjs:dropRemovedSettings": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "38dd9691d5344e6081a9709fd4dc7fa8ef01ed8bab460a64609c25a53d061560"
+    },
+    "removed-features.mjs:removedSettings": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "4578f7234ad4b2ab602faf4cbf7968e1d4246d2807af5445aab68222d9bc81c0"
+    },
+    "removed-features.mjs:disabledArchitectureIntent": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "573811129d27af28f96b7580a8c4c2d931e64c7e1634c467bd0fcae54d3a9887"
+    },
+    "agent-document-parser.mjs:parseAgentTemplateReference": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "93c38f85a3ec569dfcc63bdcb1ef404ae60cd308a1ce72e26a2848084fa3101c"
+    },
+    "agent-document-parser.mjs:isAgentTemplateReference": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "ec31bca27dcf231085dba886999fb4d47726381c3481031884e757b3e198ea1e"
+    },
+    "convergence.mjs:assertNoAutonomousConvergence": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "df20b0d30f11b17023d6c9a8694e95a50363fef91b11b30354804b91e2340e9c"
+    },
+    "token-reporting-policy.mjs:validateTokenReportingPolicy": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "d17257537218bb93fca0443c474508f8db8ead16d9dd2a0955868f4347370a7f"
+    },
+    "code-delivery-policy.mjs:generationRequirement": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "389a31468c54a04a23a8dd9bf12613320ababcf9026520eb25b83971c150b34c"
+    },
+    "code-delivery-policy.mjs:stepOutputKind": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "f8912023b7751fc181de64177d3b03428faa7146be3436431d428c97aa6926d8"
+    },
+    "code-delivery-policy.mjs:compiledSkillStep": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "2e824be371300e2047ba739c6faab347a6a34f59211d1e9c703fd396cf8e1d49"
+    },
+    "code-delivery-policy.mjs:pinCodeDeliveryTask": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "e63905fd4cb228a0f25f6d64756b1825a7221f1e21fb987c5748821f2609b4c8"
+    },
+    "code-delivery-policy.mjs:assertCodeDeliveryConfiguration": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "5a3bfa7b650d9af445f18152007dce3faa01606626527ead169ce80a4cb7aec5"
+    }
+  },
+  "constants": {
+    "analysis-limits.mjs:DEFAULT_ANALYSIS_LIMITS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "0b6d11a346d0f97c392f1d69fc746ce46d1494a8fed5c1c5cfa6b938e15fb578"
+    },
+    "analysis-limits.mjs:KEYS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "b6b60fe6d739a3e12b57e063d00b1be0a6646303eca036a17b66f2e469079e9c",
+      "literalKeys": [
+        "maxArtifactBytes",
+        "maxChangedPaths",
+        "maxClauses",
+        "maxEvidenceRecords",
+        "maxFacts",
+        "maxOutputBytes"
+      ]
+    },
+    "story-branch-name.mjs:PLACEHOLDER": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "663c993a8362882b4e31195507fc7958de9a58e496dbf44af8fd9554f3d5cc9e"
+    },
+    "story-branch-name.mjs:PLACEHOLDERS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "e4e6f265878ed69f721363dfa48e8b03aa0cda28100e664a8d7fc00e4036694e"
+    },
+    "source-boundary.mjs:SOURCE_BOUNDARIES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "99ed089c1d5ee598205752633e11656d3159faa8db60c8a07a7a7c4853fbe5ac"
+    },
+    "logging.mjs:LOG_LEVELS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "56914b57a443adecb6085b651c69e9f2563aab5f3ebcbe3eead6ace06238ac9a"
+    },
+    "logging.mjs:LEVEL_ALIASES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "f3bc52322254806b6b76b22e4c3bca1c4935f374e8948493c2b03724e0a63d21"
+    },
+    "logging.mjs:DEFAULT_MAX_BYTES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "2650281dc326fdfd8feda8e2849ed49e7fde0f656b254af128f8450fa335c8f2"
+    },
+    "logging.mjs:DEFAULT_KEEP": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+    },
+    "ledger-config.mjs:BEHIND_MODES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "cd7be870ccbcbb4aa5d46fdd4a40ac9039212d2aa4c98cb66f54375902e9dcb7"
+    },
+    "ledger-config.mjs:ENFORCEMENT_MODES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "d5da0436d73f47be3b760c1b713024e8092e2ad1cd535818a90e36d21ff0faa9"
+    },
+    "ledger-config.mjs:SIGNING_MODES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "e24c9c11bb8e55b4d55c015b5f89e633567e1c7af4cd9291f255efa9d305d7f6"
+    },
+    "ledger-config.mjs:TRUST_TIERS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "f5def65d3cb177e83bd6d2a1ef37576138a8712c1b039e487471f4709797641b"
+    },
+    "ledger-config.mjs:PIN_TRANSPORTS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "8ddd9f647fd823a518a52a9aa6e7732e53a85bd0d4dd32836f3d705cc7c815c8"
+    },
+    "ledger-config.mjs:PUBLICATION_MODES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "de2054fb03627f944b047a9279efa647455b82b10a547b626aeecbf1934279b4"
+    },
+    "initiative-config.mjs:STORAGE_PROVIDER_TYPES": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "1c707ad4fba0eb80c8ad5e020e6308a20b68ecd9b91df2dc069fe58800ec086c"
+    },
+    "removed-features.mjs:DROPPED": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "55b98b5f96686f116755c421a6b1e61df60375c426fc98eb3cdcb22b653d5feb"
+    },
+    "removed-features.mjs:REMOVED_TOP_LEVEL": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "a052f7921c0f564e73d3081e3bd969a9975b55f90221fb04c6b66a2a24ab82a9"
+    },
+    "removed-features.mjs:KEPT_WORLD_MODEL": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "ccf384204c3ee52177f573cf2bf0671f051bbacbfb559e678297b6549fde601a"
+    },
+    "convergence.mjs:AUTONOMOUS_KEYS": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "a786fdc69f8b7551e651c76ad0808a06100c4732659f7f12f2723ea8b1260ec3"
+    }
+  },
+  "owners": {
+    "src/analysis-limits.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "DEFAULT_ANALYSIS_LIMITS",
+        "analysisLimits"
+      ]
+    },
+    "src/story-branch-name.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "assertStoryBranchNaming"
+      ]
+    },
+    "src/source-boundary.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "SOURCE_BOUNDARIES",
+        "normalizeSourceBoundary"
+      ]
+    },
+    "src/logging.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "LOG_LEVELS",
+        "normalizeLogLevel",
+        "normalizeLogging"
+      ]
+    },
+    "src/ledger-config.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "normalizeLedgerConfig",
+        "normalizeConfigurationHistory"
+      ]
+    },
+    "src/initiative-config.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "STORAGE_PROVIDER_TYPES",
+        "normalizeStorage"
+      ]
+    },
+    "src/removed-features.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "dropRemovedSettings",
+        "removedSettings",
+        "disabledArchitectureIntent"
+      ]
+    },
+    "src/agent-document-parser.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "parseAgentTemplateReference",
+        "isAgentTemplateReference"
+      ]
+    },
+    "src/convergence.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "assertNoAutonomousConvergence"
+      ]
+    },
+    "src/token-reporting-policy.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "validateTokenReportingPolicy"
+      ]
+    },
+    "src/code-delivery-policy.mjs": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "exports": [
+        "stepOutputKind",
+        "compiledSkillStep",
+        "pinCodeDeliveryTask",
+        "assertCodeDeliveryConfiguration"
+      ]
+    }
+  },
+  "compilerDependencies": [
+    "analysisLimits",
+    "assertCodeDeliveryConfiguration",
+    "assertNoAutonomousConvergence",
+    "assertStoryBranchNaming",
+    "compiledSkillStep",
+    "disabledArchitectureIntent",
+    "dropRemovedSettings",
+    "isAgentTemplateReference",
+    "normalizeLedgerConfig",
+    "normalizeLogging",
+    "normalizeSourceBoundary",
+    "normalizeStorage",
+    "parseAgentTemplateReference",
+    "pinCodeDeliveryTask",
+    "stepOutputKind",
+    "validateTokenReportingPolicy"
+  ]
+}

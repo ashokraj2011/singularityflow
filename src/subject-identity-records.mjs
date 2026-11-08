@@ -10,7 +10,7 @@
 import { configurationReadDefinition } from './configuration-read-scope.mjs';
 import { readConfigurationSource } from './configuration-source.mjs';
 import { LEDGER_PAGE_MAX, LEDGER_VERIFY_COMMAND, ledgerEntriesBeyondChain, ledgerPage } from './ledger-pages.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { SingularityFlowError } from './util.mjs';
 
 export const IDENTITY_SOURCE = Object.freeze({

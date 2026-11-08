@@ -19,7 +19,7 @@ import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeJson, writeText
 } from './util.mjs';
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import {
   applyCapabilityPolicyToInitiativeResolution, assertCapabilitySource, resolveLifecycleCapability
 } from './capability-context.mjs';

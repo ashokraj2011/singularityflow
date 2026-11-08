@@ -18,7 +18,8 @@
 import { SPECIFICATION_REQUIRED_SECTIONS } from './artifact-required-sections.mjs';
 import { createHash } from 'node:crypto';
 
-import { analysisLimits, assertWithinLimit, capWithDisclosure } from './analysis-limits.mjs';
+import { assertWithinLimit, capWithDisclosure } from './analysis-limits.mjs';
+import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { extractMarkers, evaluateMarkerPolicy, markerPolicy, reconcileMarkers } from './clarification-markers.mjs';
 import { extractClauses, ignoredRanges, isIgnored } from './specifications.mjs';
 import { canonicalJson } from './records.mjs';

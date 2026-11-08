@@ -17,7 +17,7 @@ import {
   recordBranchPublication, refExists, resolveGitCommitIdentity, resolveGitCommitSigning,
   validateGitCommitIdentity, validateGitCommitSigning
 } from './git.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { LEDGER_INTENT_DIRECTORY, LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync, gitRemoteProbeTimeout } from './git-execution.mjs';

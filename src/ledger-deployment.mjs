@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, run, writeJson } from './util.mjs';

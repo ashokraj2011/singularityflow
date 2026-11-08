@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { repoRoot, gitDir } from '../git-execution.mjs';
 import { optionBoolean, optionString, optionNumber } from '../util.mjs';
-import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, resolveLogging } from '../logging.mjs';
+import { filterLogEntries, logFilePath, parseLogLines, resolveLogging } from '../logging.mjs';
+import { normalizeLogLevel } from "../kernel/configuration-declarations.mjs";
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 
 // No command accounting: `logs` reads the file, and logging its own invocation would append noise

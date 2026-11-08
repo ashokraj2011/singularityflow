@@ -1,3 +1,5 @@
+import { storyBranchNamePLACEHOLDER as PLACEHOLDER, assertStoryBranchNaming } from './kernel/configuration-declarations.mjs';
+export { assertStoryBranchNaming } from './kernel/configuration-declarations.mjs';
 /**
  * A Story's branch name.
  *
@@ -14,34 +16,10 @@
  */
 import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { SingularityFlowError } from './util.mjs';
 
 export const STORY_BRANCH_DEFAULT_PATTERN = '{id}';
-const PLACEHOLDER = /\{([A-Za-z]+)\}/gu;
-const PLACEHOLDERS = new Set(['id', 'title']);
 const TITLE_CHARACTERS = 40;
 const CONFIGURATION_FILE = path.join('singularity', 'workflow.yml');
-
-/** `git.branchNaming` in workflow.yml: `{ pattern }`, the pattern naming every new Story's branch. */
-export function assertStoryBranchNaming(value, label = 'git.branchNaming') {
-  if (value == null) return;
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError(`${label} must be a mapping with a pattern, for example { pattern: 'feature/{id}-{title}' }.`);
-  }
-  for (const key of Object.keys(value)) {
-    if (key !== 'pattern') throw new SingularityFlowError(`${label}.${key} is not a setting. The only setting is pattern.`);
-  }
-  const { pattern } = value;
-  if (typeof pattern !== 'string' || !pattern.trim()) {
-    throw new SingularityFlowError(`${label}.pattern must be a non-empty string, for example 'feature/{id}-{title}'.`);
-  }
-  const used = [...pattern.matchAll(PLACEHOLDER)].map((match) => match[1]);
-  const unknown = used.find((name) => !PLACEHOLDERS.has(name));
-  if (unknown) throw new SingularityFlowError(`${label}.pattern uses {${unknown}}. The placeholders are {id} and {title}.`);
-  if (!used.includes('id')) {
-    throw new SingularityFlowError(`${label}.pattern must contain {id}, so that every Story gets its own branch.`);
-  }
-}
 
 /** Lower-case words of the title joined by hyphens, cut at a word boundary. */
 function titleSlug(title) {

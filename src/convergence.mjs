@@ -1,3 +1,4 @@
+export { assertNoAutonomousConvergence } from './kernel/configuration-declarations.mjs';
 import {advancementBlocked} from './kernel/phase-policy.mjs';
 export {advancementBlocked};
 /**
@@ -23,7 +24,8 @@ export {advancementBlocked};
  * `[SPK:REQ-076]` and human adjudications `[SPK:REQ-079]`, both of which live beside the facts and
  * never inside them.
  */
-import { analysisLimits, capWithDisclosure } from './analysis-limits.mjs';
+import { capWithDisclosure } from './analysis-limits.mjs';
+import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, testOnlyClaimEvidence } from './specifications.mjs';
@@ -966,27 +968,4 @@ export function assertConvergencePublishable(projection, authoredArtifactBody) {
 /** Canonical bytes, so an unchanged iteration rewrites identically `[SPK:REQ-075]`. */
 export function serializeConvergence(record) {
   return canonicalJson(record);
-}
-
-/**
- * Refuse a configuration that would loop implementation and convergence on its own `[SPK:CON-037]`.
- *
- * The temptation is obvious — "keep implementing and converging until no findings remain" — and it
- * is the one shape this loop must not take. Convergence exists so a human decides what an absence of
- * evidence means; a machine that repeats the cycle until the facts go quiet has removed exactly that
- * step while appearing to honour it. Refused at configuration load, because by the time it is
- * running there is no honest place to stop it.
- */
-const AUTONOMOUS_KEYS = Object.freeze(['repeatUntil', 'autoRepeat', 'autoAdvance', 'loopUntil', 'maxIterationsAuto']);
-
-export function assertNoAutonomousConvergence(value, label = 'convergence') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-  for (const key of AUTONOMOUS_KEYS) {
-    if (value[key] !== undefined) {
-      throw new SingularityFlowError(
-        `${label}.${key} would repeat implementation and convergence until a condition became true, which the kernel refuses [SPK:CON-037]. `
-        + 'Each iteration needs a human disposition; run the next one deliberately.'
-      );
-    }
-  }
 }

@@ -16,7 +16,7 @@ import YAML from 'yaml';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { gitCommonDir } from '../git.mjs';
 import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
-import { normalizeLedgerConfig } from '../ledger-config.mjs';
+import { normalizeLedgerConfig } from "../kernel/configuration-declarations.mjs";
 import { canonicalJson } from '../records.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';

@@ -1,3 +1,4 @@
+export { parseAgentTemplateReference, isAgentTemplateReference } from './kernel/configuration-declarations.mjs';
 /** Pure governed-agent document parsing; no discovery, synchronization or model work. */
 import path from 'node:path';
 import { parseYamlText } from './yaml-parse-cache.mjs';
@@ -187,11 +188,3 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     librarySkills
   };
 }
-
-export function parseAgentTemplateReference(value) {
-  const match = /^agent:([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(value ?? '');
-  if (!match) throw new SingularityFlowError(`Remote template reference '${value}' must use agent:<agent-id>/<template-id>.`);
-  return { agentId: match[1], templateId: match[2] };
-}
-
-export function isAgentTemplateReference(value) { return typeof value === 'string' && value.startsWith('agent:'); }

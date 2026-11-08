@@ -14,7 +14,7 @@ import {
 } from './repository-onboarding-cleanup.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, removeTemporaryTree, SingularityFlowError } from './util.mjs';

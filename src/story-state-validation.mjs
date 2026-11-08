@@ -7,7 +7,7 @@ import { exists } from "./util.mjs";
 import { isConvergencePhase } from "./kernel/phase-policy.mjs";
 import { ledgerStatus, refreshLedgerRemoteView } from "./ledger.mjs";
 import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
-import { normalizeLedgerConfig } from "./ledger-config.mjs";
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { normalizeSequenceGates, normalizeSessionPolicy, resolveWorkType } from "./config.mjs";
 import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 import { default as path } from "node:path";

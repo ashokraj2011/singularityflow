@@ -4,8 +4,8 @@ import { SingularityFlowError } from './util.mjs';
 import { normalizeSessionPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { DEFAULT_APPROVAL_AUTHORITY } from './kernel/approval-policy.mjs';
-import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
-import { normalizeSourceBoundary } from './source-boundary.mjs';
+import { pinCodeDeliveryTask } from "./kernel/configuration-declarations.mjs";
+import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 export function normalizeCurrentWorkflow(workflow) {
   workflow = readRecord('story-workflow', workflow).record;
   const missing = [

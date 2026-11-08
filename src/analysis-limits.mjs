@@ -1,3 +1,5 @@
+import { DEFAULT_ANALYSIS_LIMITS } from './kernel/configuration-declarations.mjs';
+export { DEFAULT_ANALYSIS_LIMITS, analysisLimits } from './kernel/configuration-declarations.mjs';
 /**
  * Bounds for deterministic analysis and convergence. `[SPK:REQ-130]` `[SPK:REQ-131]` `[SPK:REQ-133]`
  *
@@ -16,36 +18,6 @@
  *   was dropped and how to see it.
  */
 import { SingularityFlowError } from './util.mjs';
-
-export const DEFAULT_ANALYSIS_LIMITS = Object.freeze({
-  /** Refused above this: analysing a document this large is answering the wrong question. */
-  maxArtifactBytes: 2 * 1024 * 1024,
-  /** Reconciliation findings convergence will join before it starts capping. */
-  maxChangedPaths: 2000,
-  /** Clauses convergence will consider. `extractClauses` bounds the index itself. */
-  maxClauses: 2000,
-  /** Evidence records bound into one iteration. */
-  maxEvidenceRecords: 500,
-  /** Facts or findings a single report will carry. */
-  maxFacts: 500,
-  /** The serialized record, so one iteration cannot become a file nothing can open. */
-  maxOutputBytes: 4 * 1024 * 1024
-});
-
-const KEYS = Object.freeze(Object.keys(DEFAULT_ANALYSIS_LIMITS));
-
-/** Normalize and validate a configured `analysisLimits` block. */
-export function analysisLimits(value = {}) {
-  if (value == null) return DEFAULT_ANALYSIS_LIMITS;
-  if (typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('analysisLimits must be an object.');
-  for (const key of Object.keys(value)) {
-    if (!KEYS.includes(key)) throw new SingularityFlowError(`analysisLimits contains unknown field '${key}'. Allowed: ${KEYS.join(', ')}.`);
-    if (!Number.isSafeInteger(value[key]) || value[key] < 1) {
-      throw new SingularityFlowError(`analysisLimits.${key} must be a positive integer.`);
-    }
-  }
-  return Object.freeze({ ...DEFAULT_ANALYSIS_LIMITS, ...value });
-}
 
 /**
  * Refuse an input that is past its bound.

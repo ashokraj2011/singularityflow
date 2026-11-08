@@ -258,6 +258,13 @@ moves automatic-run, Ad Hoc, MCP and after-step action rules to pure owners. Nat
 receipt hashing and delivery effects stay in their original owners; configuration declarations
 do not become proof of approval or execution.
 
+[Shared configuration declarations](ENGINE-SDK-CONFIGURATION-DECLARATIONS.md) move sixteen more
+compiler rules into a pure owner, leaving 26 explicit native collaborators. All 25 extracted rule
+bodies, native API identities and retired-setting diagnostics retain their existing meaning.
+Logging sinks, source-control authority lookup, provider effects and record migration remain in
+their native owners. This removes another prerequisite for portable configuration validation;
+it does not approve configuration or complete a namespace Story runtime.
+
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first

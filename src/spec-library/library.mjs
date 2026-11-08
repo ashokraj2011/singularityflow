@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 
 import { committedFileBytes, committedTreePaths, refCommit } from '../git.mjs';
-import { normalizeLedgerConfig } from '../ledger-config.mjs';
+import { normalizeLedgerConfig } from "../kernel/configuration-declarations.mjs";
 import { canonicalJson } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';

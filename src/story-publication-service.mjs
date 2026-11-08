@@ -16,7 +16,7 @@ import { finalizeDraftWorkflowSnapshot } from "./workflow-snapshots.mjs";
 import { initialWorkflowRecord } from "./story-policy-anchor.mjs";
 import { legacyPendingPublicationPath, saveWorkflow, validateId } from "./story-state-write.mjs";
 import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from "./lifecycle-event.mjs";
-import { normalizeLedgerConfig } from "./ledger-config.mjs";
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { default as path } from "node:path";
 import { phaseRequiresCodeDelivery } from "./code-delivery-policy.mjs";
 import { lifecycleAuthority } from "./sda/story-branch-authority.mjs";

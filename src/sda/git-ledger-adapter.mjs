@@ -9,7 +9,7 @@
  */
 import { appendLedgerIntent, createLedgerIntent, verifyLedger } from '../ledger.mjs';
 import { LEDGER_PAGE_MAX, ledgerPage } from '../ledger-pages.mjs';
-import { normalizeLedgerConfig } from '../ledger-config.mjs';
+import { normalizeLedgerConfig } from "../kernel/configuration-declarations.mjs";
 import { adapterDescriptor, ADAPTER_CAPABILITIES, assertNotCancelled } from './shared-state-contract.mjs';
 
 function contractEntry(entry) {

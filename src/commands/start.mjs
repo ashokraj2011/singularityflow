@@ -49,7 +49,7 @@ import { storyBaseRequired, assertStoryStartChoices } from '../story-start-input
 import { loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError } from '../story-start-base-configuration.mjs';
 import { activateWorkspaceStoryContext, activeWorkspaceFile, workspaceRegistryFile } from '../workspace-context.mjs';
 import { withLedgerRemoteView } from '../ledger.mjs';
-import { normalizeLedgerConfig } from '../ledger-config.mjs';
+import { normalizeLedgerConfig } from "../kernel/configuration-declarations.mjs";
 import { CAPABILITIES_PATH, resolveEffectiveCapabilityPolicy } from '../capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from '../capability-context.mjs';
 import { action as narrationAction, commandResult, effects, plannedAction as plannedNarrationAction, succeeded } from '../narration/command-result.mjs';

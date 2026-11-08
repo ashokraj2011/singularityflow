@@ -150,6 +150,20 @@ test('artifact parsing and authoring rules are pure while native wrappers own by
   }
 });
 
+test('configuration declarations have one pure owner and native effects remain outside the compiler', async () => {
+  const core = await readFile(path.join(packageRoot, 'src/kernel/configuration-declarations.mjs'), 'utf8');
+  assert.doesNotMatch(core, /node:|process\.|console\.|readFile|safeCommandGuidance/);
+  for (const file of ['src/ledger-config.mjs','src/token-reporting-policy.mjs']) {
+    const ast = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    assert.ok(ast.statements.every(ts.isExportDeclaration), file);
+  }
+  for (const file of ['src/logging.mjs','src/story-branch-name.mjs','src/initiative-config.mjs','src/convergence.mjs']) {
+    const ast = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    const moved = new Set(['normalizeLogging','assertStoryBranchNaming','normalizeStorage','assertNoAutonomousConvergence']);
+    assert.equal(ast.statements.some(node => ts.isFunctionDeclaration(node) && moved.has(node.name?.text)), false, file);
+  }
+});
+
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',

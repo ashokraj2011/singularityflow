@@ -1,3 +1,5 @@
+import { stepOutputKind, compiledSkillStep } from './kernel/configuration-declarations.mjs';
+export { stepOutputKind, compiledSkillStep, pinCodeDeliveryTask, assertCodeDeliveryConfiguration } from './kernel/configuration-declarations.mjs';
 export { DEFAULT_CODE_DELIVERY_POLICY, normalizeCodeDeliveryPolicy } from './kernel/configuration-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -5,7 +7,7 @@ import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } fr
 import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
 import { isConvergencePhase } from './kernel/phase-policy.mjs';
 import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
-import {generationTask,phaseRequiresCodeDelivery,phaseKernelOwned,deterministicOnlyGeneration} from './kernel/phase-policy.mjs';
+import { phaseRequiresCodeDelivery, phaseKernelOwned, deterministicOnlyGeneration } from './kernel/phase-policy.mjs';
 export {phaseRequiresCodeDelivery,phaseKernelOwned,deterministicOnlyGeneration} from './kernel/phase-policy.mjs';
 
 /** Which tests a Story's gates run, widest first [TCE:REQ-090]. */
@@ -30,31 +32,6 @@ export function workflowCodeGeneration(resolvedWorkflow) {
     ? phases.filter((phase) => phaseRequiresCodeDelivery(phase)).map((phase) => phase.id)
     : [];
   return { generatesCode: codePhases.length > 0, codePhases };
-}
-
-function generationRequirement(phase) {
-  const generation = phase?.generationPolicy ?? phase?.generation;
-  return typeof generation === 'string' ? generation : generation?.requirement ?? null;
-}
-
-/**
- * What a step produces, by the engine's own contract: `none`, `code`, `analysis` or `document`.
- *
- * Configuration validation, routing, Workflow Studio and its picker all use this one
- * classification. Write scope is deliberately not consulted: a verification or testing step may
- * write tests against source without delivering code, and an explicit `analyze` task is an
- * analysis whatever its scope.
- */
-export function stepOutputKind(phase) {
-  if (!phase) return 'document';
-  if (generationRequirement(phase) === 'none') return 'none';
-  if (phaseRequiresCodeDelivery(phase)) return 'code';
-  return generationTask(phase) === 'analyze' ? 'analysis' : 'document';
-}
-
-/** A version-3 compiled skill step: its reviewed binding decides how it is drafted. */
-export function compiledSkillStep(phase) {
-  return phase?.kind === 'skill';
 }
 
 /**
@@ -150,26 +127,6 @@ export function generationSkillForPhase(phase, workflow = null) {
   if (route.effectiveAuthoringSkill === '/sf-converge') return '/sflow-converge';
   if (route.authoringSkillSource === 'configured') return `/${authoringSkillSourceId(route.authoringSkill)}`;
   return phaseRequiresCodeDelivery(phase) ? '/sflow-code' : '/sflow-phase';
-}
-
-/** Pin the inferred legacy contract into newly resolved or hydrated workflow state. */
-export function pinCodeDeliveryTask(phase, policyField = 'generation') {
-  if (!phaseRequiresCodeDelivery(phase)) return phase?.[policyField] ?? null;
-  const current = phase?.[policyField] ?? {};
-  if (current.task != null) return current;
-  return { ...current, task: 'code' };
-}
-
-/** Refuse unsafe code phases while configuration is loaded, not at their first publication. */
-export function assertCodeDeliveryConfiguration(phase, label = `Phase '${phase?.id ?? 'unknown'}'`) {
-  if (!phaseRequiresCodeDelivery(phase)) return;
-  if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
-    throw new SingularityFlowError(
-      `${label} is a code-delivery phase but writeScope is not 'source-and-artifact'. `
-      + 'A document-only implementation is forbidden.',
-      { code: 'CODE_DELIVERY_SCOPE_INVALID' }
-    );
-  }
 }
 
 /** Explicit application-review adoption shares the existing code-policy configuration entry. */

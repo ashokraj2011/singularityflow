@@ -10,7 +10,7 @@ import {
 } from './util.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { createLedgerIntent } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import {
   clearPendingPublication, readPendingPublication, syncPendingLifecyclePublication

@@ -43,8 +43,10 @@ const EXACT_PACKAGED_REPOSITORY_AGENTS = new WeakSet();
 let packagedAgentIdentitiesPromise = null;
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
-export { parseAgentDependencies, parseAttachedSkills, isMcpDependencyUrl, isAgentTemplateReference, parseAgentTemplateReference } from './agent-document-parser.mjs';
-import { parseAgentDependencies, validAgentId as idPattern, isMcpDependencyUrl, isAgentTemplateReference, parseAgentTemplateReference, withoutSfGuardStampBlock } from './agent-document-parser.mjs';
+export { parseAgentDependencies, parseAttachedSkills, isMcpDependencyUrl } from './agent-document-parser.mjs';
+export { isAgentTemplateReference, parseAgentTemplateReference } from "./kernel/configuration-declarations.mjs";
+import { parseAgentDependencies, validAgentId as idPattern, isMcpDependencyUrl, withoutSfGuardStampBlock } from './agent-document-parser.mjs';
+import { isAgentTemplateReference, parseAgentTemplateReference } from "./kernel/configuration-declarations.mjs";
 
 async function agentFiles(directory) {
   if (!(await exists(directory))) return [];

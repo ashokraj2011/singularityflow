@@ -53,7 +53,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/adhoc-policy.mjs',
   'kernel/mcp-policy.mjs',
   'kernel/step-action-policy.mjs',
-  'kernel/configuration-policy.mjs', 'kernel/workflow-configuration.mjs', 'kernel/phase-admission.mjs', 'kernel/lifecycle-transitions.mjs', 'sequence.mjs', 'phase-actor-policy.mjs',
+  'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs', 'kernel/workflow-configuration.mjs', 'kernel/phase-admission.mjs', 'kernel/lifecycle-transitions.mjs', 'sequence.mjs', 'phase-actor-policy.mjs',
   'kernel/phase-entry.mjs', 'phase-entry.mjs', 'phase-entry-context.mjs',
   'kernel/phase-prepublish.mjs', 'kernel/phase-preparation.mjs', 'kernel/phase-findings.mjs', 'phase-prepublish.mjs', 'phase-draft-check.mjs', 'phase-finding-policy.mjs', 'code-delivery-policy.mjs',
   'source-review-policy.mjs', 'phase-inspection-generation.mjs', 'phase-generation-need.mjs',

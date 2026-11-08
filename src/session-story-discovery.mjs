@@ -6,7 +6,7 @@ import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { committedFilesAtRevisions, fileAtRef, gitCommonDir, hasRemote } from './git.mjs';
 import { ledgerStoryPointers } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import {
   discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch, ledgerDisabledDiscoveryError, ledgerSummaryCandidate,

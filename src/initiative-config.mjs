@@ -1,3 +1,5 @@
+import { initiativeConfigObject as object, initiativeConfigUnique as unique, initiativeConfigSafeId as safeId, normalizeStorage } from './kernel/configuration-declarations.mjs';
+export { STORAGE_PROVIDER_TYPES, normalizeStorage } from './kernel/configuration-declarations.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -61,7 +63,6 @@ export const JIRA_WRITE_OPERATIONS = new Set([
   'attach-artifact',
   'set-lineage-property'
 ]);
-export const STORAGE_PROVIDER_TYPES = new Set(['jira-attachment', 'artifactory', 'sharepoint', 's3', 'https-reference', 'local']);
 export const BRANCH_COMPLETION_POLICIES = new Set(['pr', 'direct', 'either']);
 export const ID_AUTHORITIES = new Set(['jira', 'local']);
 const DEFAULT_JIRA_FIELDS = ['summary', 'description', 'parent', 'labels', 'components'];
@@ -72,18 +73,6 @@ const DEFAULT_LOCAL_IDENTITY = Object.freeze({
   pad: 3,
   scopeStoriesByEpic: true
 });
-
-function object(value, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${label} must be an object.`);
-  return value;
-}
-
-function safeId(value, label) {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
-    throw new SingularityFlowError(`${label} must be a safe identifier containing letters, numbers, dots, underscores, or hyphens.`);
-  }
-  return value;
-}
 
 function safeRelative(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new SingularityFlowError(`${label} is required.`);
@@ -99,10 +88,6 @@ function array(value, label) {
   return value;
 }
 
-function unique(values, label) {
-  if (new Set(values).size !== values.length) throw new SingularityFlowError(`${label} contains duplicates.`);
-}
-
 function hostname(value, label) {
   let parsed;
   try { parsed = new URL(value.includes('://') ? value : `https://${value}`); } catch {
@@ -111,48 +96,6 @@ function hostname(value, label) {
   if (parsed.protocol !== 'https:') throw new SingularityFlowError(`${label} must use HTTPS.`);
   if (parsed.username || parsed.password) throw new SingularityFlowError(`${label} must not contain credentials.`);
   return parsed.hostname.toLowerCase();
-}
-
-export function normalizeStorage(value = {}) {
-  object(value, 'storage');
-  const providers = object(value.providers ?? {}, 'storage.providers');
-  const normalized = {};
-  for (const [id, raw] of Object.entries(providers)) {
-    safeId(id, 'Storage provider ID');
-    object(raw, `Storage provider '${id}'`);
-    const type = raw.type;
-    if (!STORAGE_PROVIDER_TYPES.has(type)) throw new SingularityFlowError(`Storage provider '${id}' has unsupported type '${type}'.`);
-    if (raw.maxBytes != null && (!Number.isInteger(raw.maxBytes) || raw.maxBytes < 1)) throw new SingularityFlowError(`Storage provider '${id}' maxBytes must be a positive integer.`);
-    const allowedMimeTypes = [...(raw.allowedMimeTypes ?? [])].map(String);
-    unique(allowedMimeTypes, `Storage provider '${id}' allowedMimeTypes`);
-    const provider = { ...structuredClone(raw), type, maxBytes: raw.maxBytes ?? null, allowedMimeTypes };
-    if (type === 'artifactory') {
-      if (!raw.baseUrl || !raw.repository) throw new SingularityFlowError(`Artifactory provider '${id}' requires baseUrl and repository.`);
-      provider.baseUrl = new URL(raw.baseUrl).toString().replace(/\/$/, '');
-      if (!provider.baseUrl.startsWith('https://')) throw new SingularityFlowError(`Artifactory provider '${id}' must use HTTPS.`);
-      provider.repository = safeId(raw.repository, `Artifactory provider '${id}' repository`);
-    }
-    if (type === 'sharepoint') {
-      for (const field of ['tenantId', 'clientId', 'siteId', 'driveId']) if (!raw[field]) throw new SingularityFlowError(`SharePoint provider '${id}' requires ${field}.`);
-      provider.scopes = [...(raw.scopes ?? ['offline_access', 'User.Read', 'Files.ReadWrite.All'])].map(String);
-      unique(provider.scopes, `SharePoint provider '${id}' scopes`);
-      if (!provider.scopes.length || provider.scopes.some((scope) => !scope.trim() || /\s/.test(scope))) {
-        throw new SingularityFlowError(`SharePoint provider '${id}' scopes must be non-empty values without whitespace.`);
-      }
-    }
-    if (type === 's3') {
-      if (!raw.bucket) throw new SingularityFlowError(`S3 provider '${id}' requires bucket.`);
-      provider.prefix = String(raw.prefix ?? 'singularity-flow').replace(/^\/+|\/+$/g, '');
-    }
-    normalized[id] = provider;
-  }
-  const defaultProvider = value.defaultProvider ?? Object.keys(normalized)[0] ?? null;
-  if (defaultProvider && !normalized[defaultProvider]) throw new SingularityFlowError(`storage.defaultProvider references unknown provider '${defaultProvider}'.`);
-  const maxBytes = value.maxBytes ?? 100 * 1024 * 1024;
-  if (!Number.isInteger(maxBytes) || maxBytes < 1) throw new SingularityFlowError('storage.maxBytes must be a positive integer.');
-  const allowedMimeTypes = [...(value.allowedMimeTypes ?? [])].map(String);
-  unique(allowedMimeTypes, 'storage.allowedMimeTypes');
-  return { defaultProvider, maxBytes, allowedMimeTypes, providers: normalized };
 }
 
 export function normalizeJiraPolicy(value = {}) {

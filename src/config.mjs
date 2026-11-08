@@ -1,9 +1,9 @@
 import { normalizeApplicationReview } from './code-delivery-policy.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { assertStoryBranchNaming } from './story-branch-name.mjs';
+
 import { readConfigurationSource } from './configuration-source.mjs';
-import { validateTokenReportingPolicy } from './token-reporting-policy.mjs';
+
 import { normalizeSessionPolicy } from "./kernel/configuration-policy.mjs";
 export { normalizeSessionPolicy } from "./kernel/configuration-policy.mjs";
 import {
@@ -24,19 +24,18 @@ import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot, configurationReadDefinition } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { assertAttachedLibrarySkills } from './skill-library.mjs';
-import { isAgentTemplateReference, parseAgentTemplateReference } from './agent-document-parser.mjs';
-import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
-import { normalizeLogging } from './logging.mjs';
+import { isAgentTemplateReference } from "./kernel/configuration-declarations.mjs";
+import { loadPortfolio } from './initiative-config.mjs';
+
 import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
-import { assertNoAutonomousConvergence } from './convergence.mjs';
 
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
-import { analysisLimits } from './analysis-limits.mjs';
+import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
 
@@ -48,14 +47,13 @@ import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
-import { normalizeSourceBoundary } from './source-boundary.mjs';
 
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
 
 import { normalizeAstPolicy } from './ast-policy.mjs';
-import { assertCodeDeliveryConfiguration, compiledSkillStep, pinCodeDeliveryTask, stepOutputKind } from './code-delivery-policy.mjs';
+
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
 
@@ -64,7 +62,7 @@ import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
-import { disabledArchitectureIntent, dropRemovedSettings } from './removed-features.mjs';
+import { disabledArchitectureIntent } from "./kernel/configuration-declarations.mjs";
 import { worldModelStateAuthority } from './state-authority.mjs';
 import { INITIALIZATION_MAPPINGS } from './initialization-assets.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
@@ -106,17 +104,9 @@ const {
   AUTHORING_SKILL_ID,
   PHASE_SEMANTICS_PROFILE,
   absolutePath: path.isAbsolute,
-  analysisLimits,
-  assertCodeDeliveryConfiguration,
-  assertNoAutonomousConvergence,
-  assertStoryBranchNaming,
   authoringSkillCatalog,
   compileObligationGraph,
-  compiledSkillStep,
   constitutionPolicy,
-  disabledArchitectureIntent,
-  dropRemovedSettings,
-  isAgentTemplateReference,
   isSpecificationDefinitionPhase,
   normalizeApplicationReview,
   normalizeArtifactSets,
@@ -124,24 +114,16 @@ const {
   normalizeCommitPolicyRuntime,
   normalizeExternalCommand,
   normalizeFaultRepairPolicy,
-  normalizeLedgerConfig,
-  normalizeLogging,
   normalizeMarketplaces,
-  normalizeSourceBoundary,
   normalizeSourceRoots,
-  normalizeStorage,
   normalizeTestRecoveryPolicy,
   normalizeWorkItemRoot,
-  parseAgentTemplateReference,
   pathBasename: path.posix.basename,
-  pinCodeDeliveryTask,
   posix,
   skillPhasePrimaryOutputRole,
   specificationQualityPolicy,
-  stepOutputKind,
   validateConfiguredSkillPhase,
   validateInjectionDefinition,
-  validateTokenReportingPolicy,
   worldModelSourceScope,
   worldModelStateAuthority
 });

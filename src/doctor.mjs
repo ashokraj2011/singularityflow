@@ -23,7 +23,7 @@ import { modelFreedomSnapshot, modelFreedomText } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
-import { removedSettings } from './removed-features.mjs';
+import { removedSettings } from "./kernel/configuration-declarations.mjs";
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
 import { probeModelPromptTransport } from './model-provider-capability.mjs';

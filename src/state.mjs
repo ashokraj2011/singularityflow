@@ -65,7 +65,8 @@ import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmen
 import { contextBoundaryHandoff } from './context-policy.mjs';
 import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority, sameApprover } from './kernel/approval-policy.mjs';
-import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
+import { assertSourceBoundary } from './source-boundary.mjs';
+import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-transition-routes.mjs';
@@ -85,7 +86,7 @@ import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test
 import { ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { ledgerLog, reconcileLedger } from './ledger.mjs';
-import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 import { currentSchemaVersion, phaseApprovalSummaryVersion, readRecord } from './schema-migrations.mjs';
 import { compareRepositoryIdentity } from './repository-change-set.mjs';
 import { applyCapabilityPolicyToWorkResolution, assertCapabilitySource, resolveLifecycleCapability } from './capability-context.mjs';

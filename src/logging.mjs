@@ -1,21 +1,16 @@
+import { LOG_LEVELS, loggingDEFAULTMAXBYTES as DEFAULT_MAX_BYTES, loggingDEFAULTKEEP as DEFAULT_KEEP, normalizeLogLevel, normalizeLogging } from './kernel/configuration-declarations.mjs';
+export { LOG_LEVELS, normalizeLogLevel, normalizeLogging } from './kernel/configuration-declarations.mjs';
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { BOOLEAN_OPTIONS, SingularityFlowError } from './util.mjs';
+import { BOOLEAN_OPTIONS } from './util.mjs';
 import { gitDir } from './git.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
-
-// Ordered severities. `off` disables everything; `all` is an alias for `trace` because that is what
-// people type when they want the lot.
-export const LOG_LEVELS = Object.freeze({ off: -1, error: 0, warn: 1, info: 2, debug: 3, trace: 4 });
-const LEVEL_ALIASES = Object.freeze({ all: 'trace', verbose: 'debug', quiet: 'error', silent: 'off', warning: 'warn' });
 const LEVEL_NAMES = Object.freeze(Object.keys(LOG_LEVELS).filter((name) => name !== 'off'));
 
 export const LOG_DIR_SEGMENTS = Object.freeze(['singularity-flow', 'logs']);
 const LOG_FILE = 'activity.log';
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_KEEP = 3;
 const MAX_VALUE_CHARS = 2000;
 const REDACTION_OVERLAP_CHARS = 512;
 const MAX_DEPTH = 6;
@@ -50,12 +45,6 @@ function boundedRedactionInput(source, maximum, overlap, replacement) {
 // stdout carries CLI JSON that the desktop parses, and writing log lines there has already shipped
 // as a bug once. Diagnostics go to the log file and to stderr — never to fd 1.
 const STDERR_FD = 2;
-
-export function normalizeLogLevel(value, fallback = 'info') {
-  const raw = String(value ?? '').trim().toLowerCase();
-  const resolved = LEVEL_ALIASES[raw] ?? raw;
-  return resolved in LOG_LEVELS ? resolved : fallback;
-}
 
 // Keys whose values must never reach a log file. Jira PATs, GitHub tokens, SharePoint OAuth and
 // Artifactory credentials all travel next to these paths.
@@ -668,19 +657,6 @@ export function createLogger({
 
 // A logger that discards everything. Lets call sites take an optional logger without branching.
 export const nullLogger = createLogger({ level: 'off', consoleLevel: 'off' });
-
-export function normalizeLogging(value = {}) {
-  if (value == null) return { level: 'info', console: 'warn', maxBytes: DEFAULT_MAX_BYTES, keep: DEFAULT_KEEP };
-  if (typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('logging must be an object.');
-  for (const key of Object.keys(value)) {
-    if (!['level', 'console', 'maxBytes', 'keep'].includes(key)) throw new SingularityFlowError(`logging contains unknown field '${key}'.`);
-  }
-  const maxBytes = value.maxBytes ?? DEFAULT_MAX_BYTES;
-  const keep = value.keep ?? DEFAULT_KEEP;
-  if (!Number.isInteger(maxBytes) || maxBytes < 4096) throw new SingularityFlowError('logging.maxBytes must be an integer of at least 4096.');
-  if (!Number.isInteger(keep) || keep < 1 || keep > 20) throw new SingularityFlowError('logging.keep must be an integer between 1 and 20.');
-  return { level: normalizeLogLevel(value.level, 'info'), console: normalizeLogLevel(value.console, 'warn'), maxBytes, keep };
-}
 
 /**
  * Resolve the effective logging configuration. Environment wins over committed configuration so a

@@ -665,7 +665,7 @@ test('configuration policy rules have one pure owner while native runtime and re
   }
   for(const [file,rule,native]of [['context-policy','normalizeContextPolicy','contextBoundaryHandoff'],
     ['test-runtime','normalizeTestRuntime','testRuntimeEnvironment'],['token-economy','normalizeTokenEconomy','tokenEconomyDigest'],
-    ['specifications','normalizeSpecPolicy','extractClauses'],['code-delivery-policy','normalizeCodeDeliveryPolicy','normalizeApplicationReview'],
+    ['specifications','normalizeSpecPolicy','extractClauses'],['code-delivery-policy','normalizeCodeDeliveryPolicy','codeOutcomeReviewOffer'],
     ['repair-budget','normalizeReworkLoops','consumeRepairAttempt']]) {
     const source=await readFile(path.join(packageRoot,'src',file+'.mjs'),'utf8');
     assert.equal(source.includes('function '+rule+'('),false,file);

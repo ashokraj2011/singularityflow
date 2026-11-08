@@ -15,7 +15,8 @@ test('60 captured policy results preserve native values and exact refusal detail
 test('all 39 extracted rule bodies keep their original native syntax',async()=>{
   const text=await readFile(new URL('../src/kernel/configuration-policy.mjs',import.meta.url),'utf8');
   const ast=ts.createSourceFile('configuration-policy.mjs',text,ts.ScriptTarget.Latest,true),printer=ts.createPrinter({removeComments:true});
-  const functions=new Map(ast.statements.filter(ts.isFunctionDeclaration).map(node=>[node.name.text,node]));
+  const captured=new Set(Object.keys(baseline.functions).map(name=>name.split(':')[1]));
+  const functions=new Map(ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&captured.has(node.name.text)).map(node=>[node.name.text,node]));
   for(const [original,expected]of Object.entries(baseline.functions)) {
     const name=original.split(':')[1],node=functions.get(name);assert.ok(node,original);
     const body=printer.printNode(ts.EmitHint.Unspecified,node.body,ast);

@@ -1,6 +1,5 @@
-import { NODE_TEXT_DIGESTS } from './records.mjs';
+import { NODE_TEXT_DIGESTS, NODE_RECORD_BYTES } from './records.mjs';
 import { NODE_CONFIGURATION_PATH_SYNTAX } from './engine-compatibility/node-configuration-path.mjs';
-import { normalizeApplicationReview } from './code-delivery-policy.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 
@@ -96,7 +95,7 @@ const {
 } = createWorkflowConfigurationCompiler({
   AUTHORING_SKILL_ID,
   authoringSkillCatalog,
-  normalizeApplicationReview,
+  recordBytes: NODE_RECORD_BYTES,
   normalizeCommitPolicyRuntime,
   normalizeMarketplaces,
   worldModelStateAuthority,

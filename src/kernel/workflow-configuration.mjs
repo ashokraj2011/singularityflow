@@ -1,4 +1,5 @@
 import { createSkillPhaseContractCompiler } from './skill-phase-contract.mjs';
+import { createApplicationReviewPolicyValidator } from './configuration-policy.mjs';
 import { createWorkflowObligationCompiler } from './workflow-obligations.mjs';
 import { specificationQualityPolicy, isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specification-policy.mjs';
 import { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './phase-policy.mjs';
@@ -92,7 +93,7 @@ export function mergePhaseOverride(phase, override = {}) {
 const CONFIGURATION_COLLABORATORS = Object.freeze([
     "AUTHORING_SKILL_ID",
     "authoringSkillCatalog",
-    "normalizeApplicationReview",
+    "recordBytes",
     "normalizeCommitPolicyRuntime",
     "normalizeMarketplaces",
     "worldModelStateAuthority",
@@ -120,7 +121,7 @@ export function createWorkflowConfigurationCompiler(dependencies) {
   const {
     AUTHORING_SKILL_ID,
     authoringSkillCatalog,
-    normalizeApplicationReview,
+    recordBytes,
     normalizeCommitPolicyRuntime,
     normalizeMarketplaces,
     worldModelStateAuthority,
@@ -129,7 +130,6 @@ export function createWorkflowConfigurationCompiler(dependencies) {
   } = dependencies;
   if ([
     authoringSkillCatalog,
-    normalizeApplicationReview,
     normalizeCommitPolicyRuntime,
     normalizeMarketplaces,
     worldModelStateAuthority
@@ -137,6 +137,7 @@ export function createWorkflowConfigurationCompiler(dependencies) {
     throw new SingularityFlowError('Configuration compilation requires every packaged policy collaborator.', { code: 'ENGINE_CONFIGURATION_COMPILER_INVALID' });
   }
   const { validateConfiguredSkillPhase } = createSkillPhaseContractCompiler(pathSyntax, textDigests);
+  const normalizeApplicationReview = createApplicationReviewPolicyValidator(recordBytes);
   const compileObligationGraph = createWorkflowObligationCompiler(textDigests);
   const { path, posix } = configurationPathSyntax(pathSyntax);
   const { constitutionPolicy } = constitutionConfigurationPolicies(pathSyntax);

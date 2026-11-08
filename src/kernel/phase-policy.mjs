@@ -891,3 +891,62 @@ export function advancementBlocked(projection) {
 export const PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/v1';
 
 export const ARA_PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/ara-v1';
+
+
+// Code-delivery and application-review phase facts; host offers and wording stay in adapters.
+
+/** Which tests a Story's gates run, widest first [TCE:REQ-090]. */
+export const TEST_SCOPES = Object.freeze(['all-configured', 'changed-and-affected', 'new-and-changed']);
+
+/** The test scope a Story runs under now: its latest change, else what intake chose [TCE:REQ-090]. */
+export function storyTestScope(workflow) {
+  return workflow?.testScopeChanges?.at(-1)?.to ?? workflow?.resolution?.testExecutionMode ?? 'changed-and-affected';
+}
+
+/**
+ * Project the code-generation contract of one resolved workflow.
+ *
+ * Callers must pass the result of `resolveWorkType`, not raw work-type phase ids: generation task
+ * overrides and the legacy implementation-summary inference are resolved at the phase boundary.
+ * Keeping this projection beside `phaseRequiresCodeDelivery` prevents CLI and editor surfaces from
+ * inventing a second, phase-name-based definition of "generates code".
+ */
+export function workflowCodeGeneration(resolvedWorkflow) {
+  const phases = Array.isArray(resolvedWorkflow) ? resolvedWorkflow : resolvedWorkflow?.phases;
+  const codePhases = Array.isArray(phases)
+    ? phases.filter((phase) => phaseRequiresCodeDelivery(phase)).map((phase) => phase.id)
+    : [];
+  return { generatesCode: codePhases.length > 0, codePhases };
+}
+
+/**
+ * Deterministic convergence, read from Story state (`generationPolicy`), a resolved definition or raw
+ * configuration, so Workflow Studio shows the same fixed route a Story uses.
+ */
+export function deterministicConvergence(phase) {
+  if (!isConvergencePhase(phase)) return false;
+  if (phase.generationPolicy) return phaseUsesDeterministicGeneration(phase);
+  return deterministicOnlyGeneration(phase);
+}
+
+/**
+ * The authoring skill a step names. In a Story it comes from the pinned resolution, which is hashed
+ * and anchored to the Story's creation commit, never from the mutable step state; outside a Story
+ * (a resolved workflow being validated, simulated or shown) it comes from the resolved step.
+ */
+export function configuredAuthoringSkill(phase, workflow = null) {
+  if (workflow?.resolution) {
+    const pinned = (workflow.resolution.phases ?? []).find((entry) => entry?.id === phase?.id);
+    return typeof pinned?.authoringSkill === 'string' ? pinned.authoringSkill : null;
+  }
+  return typeof phase?.authoringSkill === 'string' ? phase.authoringSkill : null;
+}
+
+/** Later reporting phases inspect the latest delivered code, rather than starting a non-code review. */
+export function applicationReviewPhase(workflow) {
+  if (phaseRequiresCodeDelivery(workflow.phases?.[workflow.currentPhase])) return workflow.currentPhase;
+  const order = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
+  const current = order.indexOf(workflow.currentPhase);
+  return order.slice(0, current < 0 ? order.length : current).findLast(id => phaseRequiresCodeDelivery(workflow.phases?.[id])
+    && workflow.phases[id].generation > 0) ?? workflow.currentPhase;
+}

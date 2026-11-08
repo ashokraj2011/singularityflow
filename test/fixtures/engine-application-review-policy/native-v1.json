@@ -1,0 +1,1419 @@
+{
+  "baseline": "480cb42d1e765eeb3e69714b2dfef26127f9674d",
+  "policies": [
+    {
+      "id": "absent",
+      "value": null,
+      "sha256": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+    },
+    {
+      "id": "null",
+      "value": null,
+      "sha256": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+    },
+    {
+      "id": "default",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "explicit-version",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "mode-off",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "off",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "4e8b783403da8d69c7350393d2c5dd674b461f9afed0115dba1191c973a7fe39"
+    },
+    {
+      "id": "mode-optional",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "mode-required",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "required",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "f0b116756b95a60d127e3660f6cef717ac989c6d42e6b865d46fe4c814ab286d"
+    },
+    {
+      "id": "surface-auto",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "surface-web",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "web",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "a7a4b38baefc69d794106ec1efa49c9f8ec084003578425ef4eaeb636d973acc"
+    },
+    {
+      "id": "surface-backend",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "backend",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "dba2c6b52af16412310ed06a2607eb1df1f559f2a6ecddd9f505d2f2bd35a0dc"
+    },
+    {
+      "id": "surface-cli",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "cli",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "b4a04ebbff9ac492a5100daa71ef98e4beb1bc20cdf524ddc5cc0257366fb302"
+    },
+    {
+      "id": "surface-library",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "library",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "d1fc0f4cf31865998f849a8d4296fe628bebf00822768ed5570412d33b735c2a"
+    },
+    {
+      "id": "surface-artifact",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "artifact",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "90a0654080728064f77557df3cfc1cdd50767fdfba02c4fec232566a9438c854"
+    },
+    {
+      "id": "complete",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "required",
+        "surface": "web",
+        "preview": {
+          "entry": "review-app",
+          "outputDirectory": "build/review"
+        },
+        "authorities": [
+          "engineering-reviewers",
+          "quality-reviewers"
+        ],
+        "repairAttempts": 3,
+        "totalRepairAttempts": 12,
+        "quality": [
+          "Error behavior is visible"
+        ],
+        "capture": {
+          "maximumPages": 24,
+          "casesPerPage": 10,
+          "maximumBytes": 20000,
+          "timeoutMs": 10000,
+          "viewport": {
+            "width": 1920,
+            "height": 1080
+          }
+        }
+      },
+      "sha256": "8b7e4016efe49bac527432de580be16b2bebb79d6216373988ed4c72c69dc329"
+    },
+    {
+      "id": "lower-limits",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 1,
+        "totalRepairAttempts": 1,
+        "quality": [],
+        "capture": {
+          "maximumPages": 1,
+          "casesPerPage": 1,
+          "maximumBytes": 1024,
+          "timeoutMs": 1000,
+          "viewport": {
+            "width": 640,
+            "height": 480
+          }
+        }
+      },
+      "sha256": "f6070138db14f3e148f1f90f4c65cc98e8be7aba0d6d6a5883a74f8f518ac174"
+    },
+    {
+      "id": "upper-limits",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 10,
+        "totalRepairAttempts": 100,
+        "quality": [],
+        "capture": {
+          "maximumPages": 500,
+          "casesPerPage": 50,
+          "maximumBytes": 268435456,
+          "timeoutMs": 600000,
+          "viewport": {
+            "width": 3840,
+            "height": 2160
+          }
+        }
+      },
+      "sha256": "e873727eca72d29599541071fdd7a395df0f3ae7733919936230972883a79400"
+    },
+    {
+      "id": "null-fields",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "null-prototype",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "required",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "f0b116756b95a60d127e3660f6cef717ac989c6d42e6b865d46fe4c814ab286d"
+    },
+    {
+      "id": "array",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview must be an object.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "string",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview must be an object.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "boolean",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview must be an object.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "number",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview must be an object.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "date",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "class",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "future-version",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record 'application-review-policy' is stored at schema version 2 (v2), above this build's readable range v1–v1; it was written by a newer sflow — upgrade to read it.",
+        "code": "SCHEMA_VERSION_FUTURE",
+        "details": {
+          "family": "application-review-policy",
+          "storedVersion": 2,
+          "readable": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        },
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "zero-version",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "text-version",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "negative-version",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "fraction-version",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "null-version",
+      "value": {
+        "schemaVersion": 1,
+        "mode": "optional",
+        "surface": "auto",
+        "preview": null,
+        "repairAttempts": 2,
+        "totalRepairAttempts": 10,
+        "quality": [],
+        "capture": {
+          "maximumPages": 100,
+          "casesPerPage": 20,
+          "maximumBytes": 67108864,
+          "timeoutMs": 120000,
+          "viewport": {
+            "width": 1280,
+            "height": 800
+          }
+        }
+      },
+      "sha256": "75c40239785a34d4ee5e33a37ae537a4b53674f563d1e017ba233683d0e74509"
+    },
+    {
+      "id": "uncloneable-mode",
+      "error": {
+        "name": "DataCloneError",
+        "message": "() => 'required' could not be cloned.",
+        "code": 25,
+        "details": null,
+        "exitCode": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-authority",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview has unsupported fields: approvedBy.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-mode",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Invalid applicationReview mode or surface.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "unknown-surface",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Invalid applicationReview mode or surface.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "zero-budget",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "repairAttempts must be an integer from 1 to 10.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "infinite-budget",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "totalRepairAttempts must be an integer from 1 to 100.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "fraction-budget",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "repairAttempts must be an integer from 1 to 10.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "preview-parent",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Review path must be a portable repository-relative path.",
+        "code": "ARA_PATH_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "preview-absolute",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Review path must be a portable repository-relative path.",
+        "code": "ARA_PATH_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "preview-backslash",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Review path must be a portable repository-relative path.",
+        "code": "ARA_PATH_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "preview-invalid-entry",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "preview.entry names a declared application entry.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "preview-extra-field",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.preview has unsupported fields: command.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "empty-authorities",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.authorities names existing approval groups.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "bad-authorities",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.authorities names existing approval groups.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "quality-not-list",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.quality is at most 50 explicit inspection expectations.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "quality-too-many",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.quality is at most 50 explicit inspection expectations.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "quality-empty",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.quality is at most 50 explicit inspection expectations.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "quality-too-long",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.quality is at most 50 explicit inspection expectations.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "capture-extra-field",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "applicationReview.capture has unsupported fields: recorded.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "capture-too-few-pages",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "capture.maximumPages must be an integer from 1 to 500.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "capture-too-large",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "capture.maximumBytes must be an integer from 1024 to 268435456.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "capture-too-slow",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "capture.timeoutMs must be an integer from 1000 to 600000.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "viewport-too-narrow",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "viewport.width must be an integer from 640 to 3840.",
+        "code": "ARA_POLICY_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "viewport-extra-field",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "capture.viewport has unsupported fields: scale.",
+        "code": "ARA_INPUT_INVALID",
+        "details": {},
+        "exitCode": 1,
+        "cause": null
+      }
+    }
+  ],
+  "phases": [
+    {
+      "id": "current-code",
+      "value": "deliver"
+    },
+    {
+      "id": "current-later-code",
+      "value": "repair"
+    },
+    {
+      "id": "report-after-two-deliveries",
+      "value": "repair"
+    },
+    {
+      "id": "no-explicit-order",
+      "value": "repair"
+    },
+    {
+      "id": "unpublished-later-code",
+      "value": "deliver"
+    },
+    {
+      "id": "no-published-code",
+      "value": "evidence"
+    },
+    {
+      "id": "unknown-current",
+      "value": "repair"
+    },
+    {
+      "id": "null-current",
+      "value": "repair"
+    },
+    {
+      "id": "absent-test-scope",
+      "value": "changed-and-affected"
+    },
+    {
+      "id": "intake-test-scope",
+      "value": "all-configured"
+    },
+    {
+      "id": "amended-test-scope",
+      "value": "new-and-changed"
+    },
+    {
+      "id": "code-generation-phases",
+      "value": {
+        "generatesCode": true,
+        "codePhases": [
+          "deliver"
+        ]
+      }
+    },
+    {
+      "id": "code-generation-workflow",
+      "value": {
+        "generatesCode": true,
+        "codePhases": [
+          "deliver",
+          "repair"
+        ]
+      }
+    },
+    {
+      "id": "code-generation-empty",
+      "value": {
+        "generatesCode": false,
+        "codePhases": []
+      }
+    },
+    {
+      "id": "authoring-configured",
+      "value": "draft-code"
+    },
+    {
+      "id": "authoring-pinned",
+      "value": "original"
+    },
+    {
+      "id": "authoring-pinned-missing",
+      "value": null
+    }
+  ],
+  "records": [
+    {
+      "id": "ordinary",
+      "value": {
+        "record": {
+          "mode": "required",
+          "schemaVersion": 1
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "versioned",
+      "value": {
+        "record": {
+          "schemaVersion": 1,
+          "mode": "off"
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "null-prototype",
+      "value": {
+        "record": {
+          "mode": "optional",
+          "schemaVersion": 1
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "text",
+      "value": {
+        "record": {
+          "schemaVersion": 1,
+          "quality": [
+            "unicode 🧭"
+          ]
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "buffer",
+      "value": {
+        "record": {
+          "schemaVersion": 1,
+          "mode": "required"
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "uint8",
+      "value": {
+        "record": {
+          "mode": "optional",
+          "schemaVersion": 1
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "empty-buffer",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: Unexpected end of JSON input",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "SyntaxError",
+          "message": "Unexpected end of JSON input"
+        }
+      }
+    },
+    {
+      "id": "empty-uint8",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: Unexpected end of JSON input",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "SyntaxError",
+          "message": "Unexpected end of JSON input"
+        }
+      }
+    },
+    {
+      "id": "bom",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: Unexpected token '﻿', \"﻿{\"mode\":\"off\"}\" is not valid JSON",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "SyntaxError",
+          "message": "Unexpected token '﻿', \"﻿{\"mode\":\"off\"}\" is not valid JSON"
+        }
+      }
+    },
+    {
+      "id": "malformed-utf8",
+      "value": {
+        "record": {
+          "x": "�",
+          "schemaVersion": 1
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "text-array",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: top-level value is not an object",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "Error",
+          "message": "top-level value is not an object"
+        }
+      }
+    },
+    {
+      "id": "text-null",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: top-level value is not an object",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "Error",
+          "message": "top-level value is not an object"
+        }
+      }
+    },
+    {
+      "id": "invalid-json",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "SyntaxError",
+          "message": "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+        }
+      }
+    },
+    {
+      "id": "array",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "null",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "undefined",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "date",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "uint16",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "arraybuffer",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "dataview",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "future",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record 'application-review-policy' is stored at schema version 2 (v2), above this build's readable range v1–v1; it was written by a newer sflow — upgrade to read it.",
+        "code": "SCHEMA_VERSION_FUTURE",
+        "details": {
+          "family": "application-review-policy",
+          "storedVersion": 2,
+          "readable": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        },
+        "exitCode": 1,
+        "cause": null
+      }
+    },
+    {
+      "id": "invalid-version",
+      "value": {
+        "record": {
+          "schemaVersion": "future"
+        },
+        "storedVersion": 1
+      }
+    },
+    {
+      "id": "detached-bytes",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Durable record is not valid JSON: Unexpected end of JSON input",
+        "code": "SCHEMA_RECORD_INVALID",
+        "details": null,
+        "exitCode": 1,
+        "cause": {
+          "name": "SyntaxError",
+          "message": "Unexpected end of JSON input"
+        }
+      }
+    },
+    {
+      "id": "shared-bytes",
+      "value": {
+        "record": {
+          "schemaVersion": 1
+        },
+        "storedVersion": 1
+      }
+    }
+  ],
+  "exports": {
+    "native": [
+      "ARA_ACTIONS",
+      "ARA_NAMESPACE",
+      "ARA_READS",
+      "ARA_SURFACES",
+      "ARA_VERSION",
+      "DEFAULT_CODE_DELIVERY_POLICY",
+      "TEST_SCOPES",
+      "applicationReviewOffer",
+      "applicationReviewPhase",
+      "araFail",
+      "assertCodeDeliveryConfiguration",
+      "authoringRoute",
+      "codeOutcomeReviewOffer",
+      "compiledSkillStep",
+      "configuredAuthoringSkill",
+      "deterministicOnlyGeneration",
+      "exactFields",
+      "generationSkillForPhase",
+      "legacyAuthoringSkill",
+      "normalizeApplicationReview",
+      "normalizeCodeDeliveryPolicy",
+      "phaseKernelOwned",
+      "phaseRequiresCodeDelivery",
+      "pinCodeDeliveryTask",
+      "reviewRelativePath",
+      "stepOutputKind",
+      "storyTestScope",
+      "workflowAuthoringRoutes",
+      "workflowCodeGeneration"
+    ],
+    "facade": [
+      "ARA_ACTIONS",
+      "ARA_NAMESPACE",
+      "ARA_READS",
+      "ARA_SURFACES",
+      "ARA_VERSION",
+      "araFail",
+      "exactFields",
+      "normalizeApplicationReview",
+      "reviewRelativePath"
+    ]
+  },
+  "vocabulary": {
+    "TEST_SCOPES": [
+      "all-configured",
+      "changed-and-affected",
+      "new-and-changed"
+    ],
+    "ARA_VERSION": 1,
+    "ARA_NAMESPACE": "ARA",
+    "ARA_SURFACES": [
+      "auto",
+      "web",
+      "backend",
+      "cli",
+      "library",
+      "artifact"
+    ],
+    "ARA_ACTIONS": [
+      "plan",
+      "start",
+      "status",
+      "inspect",
+      "feedback",
+      "repair",
+      "repair-result",
+      "recheck",
+      "accept",
+      "capture",
+      "defer",
+      "close",
+      "browser"
+    ],
+    "ARA_READS": [
+      "plan",
+      "status"
+    ]
+  },
+  "schema": {
+    "id": "application-review-policy",
+    "currentVersion": 1,
+    "minimumReadableVersion": 1,
+    "maximumReadableVersion": 1,
+    "steps": [],
+    "paths": [],
+    "immutable": true,
+    "unversionedAs": 1,
+    "migrationPolicy": "migrate-on-read",
+    "model": "never"
+  },
+  "registry": {
+    "id": "application-review-policy",
+    "currentVersion": 1,
+    "minimumReadableVersion": 1,
+    "maximumReadableVersion": 1,
+    "immutable": true,
+    "model": "never",
+    "unversionedAs": 1,
+    "migrationPolicy": "migrate-on-read"
+  },
+  "functions": {
+    "storyTestScope": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "3e94bdce9a4d41a310d47f53dcb2435973ef91acc4a1fd1703c3ab1c9b8a1658"
+    },
+    "workflowCodeGeneration": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "f2647164db8ce7deaac5350948578501ca5fd51620c8e0b64c0191615f46b078"
+    },
+    "deterministicConvergence": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "9f98f7d5540162f205110a8fa693415873728cdff095a2fefa5ec0be22336dcc"
+    },
+    "configuredAuthoringSkill": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "987161308c77c5863aa678833d3e2d431798f39fa1291762f49609a689fb3708"
+    },
+    "applicationReviewPhase": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "66be757d2fbaf96ca50c7ba65b328d533eea23dade3e23d53aba13c2025807ab"
+    },
+    "araFail": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "97b2c4bb3866b8d528b6a6300f129120ba43df40d6699a8d8542e24dee1513dc"
+    },
+    "exactFields": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "385af5c13de42f08ea7a6e2eeaddca7af06043dd7b9830ab58fb1ecc729e0f2b"
+    },
+    "reviewRelativePath": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "ced57fe664530718d860b98ae29a2116df93bac5d0f295ac49a3cda568623968"
+    },
+    "normalizeApplicationReview": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "9ae89a47d4c894e878845cb2aadc6243842cabba901886593ce59d6025376d81"
+    }
+  },
+  "constants": {
+    "TEST_SCOPES": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "0de95ff2eb27f2f6da22da3601a18066854aba6da2599326d5018945d0b91ca1"
+    },
+    "ARA_NAMESPACE": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "3a1085bab95dba2435246794ab896c5af9a4f23a20d382aa722ef7801704784b"
+    },
+    "ARA_SURFACES": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "90b532959ee9f41b3363a7aa8387645b2386b2e71c3223c8c2c73f4cc919524c"
+    },
+    "ARA_ACTIONS": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "ccbfb56254749ae37b185509dda6b00e71a1682f4581297d364028068c028b7a"
+    },
+    "ARA_READS": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "28aed89896121043ec8e4b49e6e0ef6d5ef664756cc0711d21d0e53b5bd2ee0a"
+    },
+    "bounded": {
+      "source": "src/code-delivery-policy.mjs",
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "4b96764778c154731262af7bbe73fb559afd282aef2d3f23b99672e53f8680ae"
+    }
+  },
+  "versionInitializer": {
+    "original": "1",
+    "reason": "The wire stamp will derive from the same frozen schema metadata used by native and portable readers."
+  },
+  "nativeRecordReader": {
+    "parsedRecord": {
+      "sha256": "ae7f0c643eaafb5450fb222cec6a496595ef72d2a31289bfa60057a053cc9bec",
+      "original": "function parsedRecord(rawBytes) {\n  if (plainObject(rawBytes)) return clone(rawBytes);\n  let text;\n  if (typeof rawBytes === 'string') text = rawBytes;\n  else if (Buffer.isBuffer(rawBytes) || rawBytes instanceof Uint8Array) text = Buffer.from(rawBytes).toString('utf8');\n  else throw new SingularityFlowError('Durable record bytes must be UTF-8 JSON.', { code: 'SCHEMA_RECORD_INVALID' });\n  try {\n    const parsed = JSON.parse(text);\n    if (!plainObject(parsed)) throw new Error('top-level value is not an object');\n    return parsed;\n  } catch (error) {\n    throw new SingularityFlowError(`Durable record is not valid JSON: ${error.message}`, {\n      code: 'SCHEMA_RECORD_INVALID', cause: error\n    });\n  }\n}",
+      "reason": "The native registry delegates parsing to the shared format reader over its original byte primitives."
+    },
+    "readRecord": {
+      "sha256": "1eb92bd8353f6fdabfaf11cca4b48f495f6cb2a3c5215334818a9b2491f20e6f"
+    }
+  }
+}

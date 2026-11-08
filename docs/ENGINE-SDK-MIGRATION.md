@@ -290,6 +290,14 @@ composition entries. Header-only inspection stays narrow. Path syntax v2 supplie
 operations without changing the v1 reader, and portable identifiers/asset boundaries have shared
 pure owners. WCA/package provenance, human confirmation and activation remain separate gates.
 
+[Application-review configuration](ENGINE-SDK-APPLICATION-REVIEW-POLICY.md) now has a kernel-owned
+validator constructed over explicit byte syntax. Foundation and the native registry share one
+record parser and unchanged v1 policy metadata; native migration dispatch remains unchanged.
+The compiler no longer accepts an application-review admission callback. Phase selection and
+code-delivery facts use the shared phase owner, while preview execution and human acceptance
+remain with their existing authorities. Remaining runtime, marketplace and full namespace
+lifecycle work retain their original milestone scope.
+
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first

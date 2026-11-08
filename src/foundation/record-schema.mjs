@@ -4,6 +4,51 @@ import { SingularityFlowError } from './failures.mjs';
 export const TEXT_DIGEST_PROFILE = 'sflow-text-digests/sha256-utf8-v1';
 const TEXT_DIGEST_CAPABILITIES = new WeakMap();
 
+export const RECORD_BYTES_PROFILE = 'sflow-record-bytes/utf8-v1';
+const RECORD_BYTE_SYNTAX = new WeakMap();
+
+/** Capture byte-value primitives only. Parsing, cloning and schema admission belong to foundation. */
+export function recordJsonSyntax(port) {
+  const invalid = () => { throw new SingularityFlowError('Record parsing requires one frozen, explicit UTF-8 byte capability.', {
+    code: 'ENGINE_RECORD_BYTES_PORT_INVALID'
+  }); };
+  if (!port || typeof port !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(port)) || !Object.isFrozen(port)) invalid();
+  const fields = Object.getOwnPropertyDescriptors(port), keys = Reflect.ownKeys(fields);
+  if (keys.length !== 3 || keys.some(key => !['profile', 'isBytes', 'decodeUtf8'].includes(key))) invalid();
+  for (const key of keys) if (!fields[key].enumerable || !Object.hasOwn(fields[key], 'value')
+    || (key === 'profile' ? fields[key].value !== RECORD_BYTES_PROFILE : typeof fields[key].value !== 'function')) invalid();
+  if (RECORD_BYTE_SYNTAX.has(port)) return RECORD_BYTE_SYNTAX.get(port);
+  const isBytes = fields.isBytes.value, decodeUtf8 = fields.decodeUtf8.value;
+  const syntax = Object.freeze({ parseObject(rawBytes) {
+    if (rawBytes != null && typeof rawBytes === 'object' && !Array.isArray(rawBytes) && !(rawBytes instanceof Uint8Array)
+        && [Object.prototype, null].includes(Object.getPrototypeOf(rawBytes))) return structuredClone(rawBytes);
+    let text;
+    if (typeof rawBytes === 'string') text = rawBytes;
+    else {
+      const bytes = Reflect.apply(isBytes, port, [rawBytes]);
+      if (typeof bytes !== 'boolean') throw new SingularityFlowError('The record byte capability did not return an exact byte classification.', { code: 'ENGINE_RECORD_BYTES_RESULT_INVALID' });
+      if (!bytes) throw new SingularityFlowError('Durable record bytes must be UTF-8 JSON.', { code: 'SCHEMA_RECORD_INVALID' });
+      text = Reflect.apply(decodeUtf8, port, [rawBytes]);
+      if (typeof text !== 'string') throw new SingularityFlowError('The record byte capability did not return UTF-8 text.', { code: 'ENGINE_RECORD_BYTES_RESULT_INVALID' });
+    }
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed) || parsed instanceof Uint8Array
+          || ![Object.prototype, null].includes(Object.getPrototypeOf(parsed))) throw new Error('top-level value is not an object');
+      return parsed;
+    } catch (error) {
+      throw new SingularityFlowError(`Durable record is not valid JSON: ${error.message}`, { code: 'SCHEMA_RECORD_INVALID', cause: error });
+    }
+  } });
+  RECORD_BYTE_SYNTAX.set(port, syntax);
+  return syntax;
+}
+
+// One unchanged v1 record family, shared by the portable policy reader and native registry.
+export const APPLICATION_REVIEW_POLICY_SCHEMA = Object.freeze({ id: 'application-review-policy',
+  currentVersion: 1, minimumReadableVersion: 1, maximumReadableVersion: 1, unversionedAs: 1,
+  immutable: true, migrationPolicy: 'migrate-on-read' });
+
 /** Capture a synchronous text primitive without invoking it or evaluating an accessor. */
 export function textDigestCapability(port) {
   const invalid = () => { throw new SingularityFlowError('Record identity requires one frozen, explicit UTF-8 SHA-256 capability.', {

@@ -1,5 +1,6 @@
 /** Shared workflow policy values and validators. No host, source-control, provider or storage access. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
+import { APPLICATION_REVIEW_POLICY_SCHEMA, admitRecordSchemaVersion, recordJsonSyntax } from '../foundation/record-schema.mjs';
 
 // session-policy.mjs
 
@@ -891,3 +892,88 @@ export function assertDocumentStoragePolicy(storage, label = 'documents.storage'
 }
 // Internal compatibility bindings used by native presentation/execution helpers.
 export { DEFAULT_LIMITS as DEFAULT_SPECIFICATION_LIMITS };
+
+
+// Application-review policy values. Launch, capture, retained acceptance and human authority are separate.
+
+/** Explicit application-review adoption shares the existing code-policy configuration entry. */
+
+export const ARA_VERSION = APPLICATION_REVIEW_POLICY_SCHEMA.currentVersion;
+
+export const ARA_NAMESPACE = 'ARA';
+
+export const ARA_SURFACES = Object.freeze(['auto', 'web', 'backend', 'cli', 'library', 'artifact']);
+
+export const ARA_ACTIONS = Object.freeze(['plan', 'start', 'status', 'inspect', 'feedback', 'repair', 'repair-result', 'recheck', 'accept', 'capture', 'defer', 'close', 'browser']);
+
+export const ARA_READS = Object.freeze(['plan', 'status']);
+
+export function araFail(code, message, details = {}) {
+  throw new SingularityFlowError(message, { code, details });
+}
+
+export function exactFields(value, allowed, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) araFail('ARA_INPUT_INVALID', `${label} must be an object.`);
+  const unknown = Object.keys(value).filter(key => !allowed.includes(key));
+  if (unknown.length) araFail('ARA_INPUT_INVALID', `${label} has unsupported fields: ${unknown.join(', ')}.`);
+}
+
+const bounded = (value, fallback, min, max, label) => {
+  const result = value ?? fallback;
+  if (!Number.isSafeInteger(result) || result < min || result > max) araFail('ARA_POLICY_INVALID', `${label} must be an integer from ${min} to ${max}.`);
+  return result;
+};
+
+export function reviewRelativePath(value, label = 'Review path') {
+  if (typeof value !== 'string' || !value || value.length > 1024 || /[\\\x00-\x1f<>:"|?*]/u.test(value)
+      || value.startsWith('/') || value.split('/').some(part => !part || part === '.' || part === '..')) {
+    araFail('ARA_PATH_INVALID', `${label} must be a portable repository-relative path.`);
+  }
+  return value;
+}
+
+const APPLICATION_REVIEW_VALIDATORS = new WeakMap();
+
+/** Explicit bytes are syntax primitives, never a caller-supplied admission or approval rule. */
+export function createApplicationReviewPolicyValidator(recordBytes) {
+  const syntax = recordJsonSyntax(recordBytes);
+  if (APPLICATION_REVIEW_VALIDATORS.has(recordBytes)) return APPLICATION_REVIEW_VALIDATORS.get(recordBytes);
+/** Absent means off; only an explicit work-type adoption is pinned into a new Story. */
+function normalizeApplicationReview(value) {
+  if (value == null) return null;
+  exactFields(value, ['schemaVersion', 'mode', 'surface', 'preview', 'repairAttempts', 'totalRepairAttempts', 'capture', 'quality', 'authorities'], 'applicationReview');
+  admitRecordSchemaVersion(APPLICATION_REVIEW_POLICY_SCHEMA, syntax.parseObject(value));
+  const mode = value.mode ?? 'optional';
+  const surface = value.surface ?? 'auto';
+  if (!['off', 'optional', 'required'].includes(mode) || !ARA_SURFACES.includes(surface)) araFail('ARA_POLICY_INVALID', 'Invalid applicationReview mode or surface.');
+  let preview = null;
+  if (value.preview != null) {
+    exactFields(value.preview, ['entry', 'outputDirectory'], 'applicationReview.preview');
+    if (value.preview.entry != null && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value.preview.entry)) araFail('ARA_POLICY_INVALID', 'preview.entry names a declared application entry.');
+    preview = { entry: value.preview.entry ?? null, outputDirectory: reviewRelativePath(value.preview.outputDirectory ?? 'dist') };
+  }
+  const quality = value.quality ?? [];
+  if (value.authorities != null && (!Array.isArray(value.authorities) || !value.authorities.length
+      || value.authorities.some(item => typeof item !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(item)))) araFail('ARA_POLICY_INVALID', 'applicationReview.authorities names existing approval groups.');
+  if (!Array.isArray(quality) || quality.length > 50 || quality.some(item => typeof item !== 'string' || !item.trim() || item.length > 1000)) araFail('ARA_POLICY_INVALID', 'applicationReview.quality is at most 50 explicit inspection expectations.');
+  const capture = value.capture ?? {};
+  exactFields(capture, ['maximumPages', 'casesPerPage', 'maximumBytes', 'timeoutMs', 'viewport'], 'applicationReview.capture');
+  const viewport = capture.viewport ?? { width: 1280, height: 800 };
+  exactFields(viewport, ['width', 'height'], 'capture.viewport');
+  return {
+    schemaVersion: ARA_VERSION, mode, surface, preview, ...(value.authorities ? { authorities: [...new Set(value.authorities)] } : {}),
+    repairAttempts: bounded(value.repairAttempts, 2, 1, 10, 'repairAttempts'),
+    totalRepairAttempts: bounded(value.totalRepairAttempts, 10, 1, 100, 'totalRepairAttempts'),
+    quality: [...new Set(quality.map(item => item.trim()))],
+    capture: {
+      maximumPages: bounded(capture.maximumPages, 100, 1, 500, 'capture.maximumPages'),
+      casesPerPage: bounded(capture.casesPerPage, 20, 1, 50, 'capture.casesPerPage'),
+      maximumBytes: bounded(capture.maximumBytes, 64 * 1024 * 1024, 1024, 256 * 1024 * 1024, 'capture.maximumBytes'),
+      timeoutMs: bounded(capture.timeoutMs, 120000, 1000, 600000, 'capture.timeoutMs'),
+      viewport: { width: bounded(viewport.width, 1280, 640, 3840, 'viewport.width'), height: bounded(viewport.height, 800, 480, 2160, 'viewport.height') }
+    }
+  };
+}
+  APPLICATION_REVIEW_VALIDATORS.set(recordBytes, normalizeApplicationReview);
+  return normalizeApplicationReview;
+}

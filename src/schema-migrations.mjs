@@ -5,10 +5,12 @@
  * version that was actually stored and the steps used to reach the current version. Migration
  * functions in this module deliberately have no access to I/O, clocks, Git, or model runners.
  */
-import { recordSha256 } from './records.mjs';
+import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
-  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from './foundation/record-schema.mjs';
+  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, recordJsonSyntax } from './foundation/record-schema.mjs';
+
+const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
 
 function plainObject(value) {
   if (value == null || typeof value !== 'object' || Array.isArray(value) || value instanceof Uint8Array) return false;
@@ -3273,7 +3275,7 @@ const families = [
     paths: [/^\$git\/repository-commit-policy\/records\/publication\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'repository-commit-policy-operation', currentVersion: 1,
     paths: [/^\$git\/repository-commit-policy\/operations\/[a-f0-9]{64}\.json$/] }),
-  family({ id: 'application-review-policy', currentVersion: 1, unversionedAs: 1, immutable: true }),
+  family(APPLICATION_REVIEW_POLICY_SCHEMA),
   family({ id: 'application-review-event', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/context\/application-reviews\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'application-review-session', currentVersion: 1 }),
@@ -4071,20 +4073,7 @@ export function stampCurrentRecord(familyId, value = {}) {
 }
 
 function parsedRecord(rawBytes) {
-  if (plainObject(rawBytes)) return clone(rawBytes);
-  let text;
-  if (typeof rawBytes === 'string') text = rawBytes;
-  else if (Buffer.isBuffer(rawBytes) || rawBytes instanceof Uint8Array) text = Buffer.from(rawBytes).toString('utf8');
-  else throw new SingularityFlowError('Durable record bytes must be UTF-8 JSON.', { code: 'SCHEMA_RECORD_INVALID' });
-  try {
-    const parsed = JSON.parse(text);
-    if (!plainObject(parsed)) throw new Error('top-level value is not an object');
-    return parsed;
-  } catch (error) {
-    throw new SingularityFlowError(`Durable record is not valid JSON: ${error.message}`, {
-      code: 'SCHEMA_RECORD_INVALID', cause: error
-    });
-  }
+  return recordSyntax.parseObject(rawBytes);
 }
 
 /**

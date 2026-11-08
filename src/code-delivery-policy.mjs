@@ -1,61 +1,17 @@
+/** Native authoring routes and human offers; phase facts and policy admission have pure owners. */
+import { createApplicationReviewPolicyValidator } from './kernel/configuration-policy.mjs';
+import { NODE_RECORD_BYTES } from './records.mjs';
+import { configuredAuthoringSkill, deterministicConvergence, phaseNeedsGeneration, phaseRequiresCodeDelivery, deterministicOnlyGeneration } from './kernel/phase-policy.mjs';
 import { stepOutputKind, compiledSkillStep } from './kernel/configuration-declarations.mjs';
+import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
+
+export { storyTestScope, workflowCodeGeneration, configuredAuthoringSkill, applicationReviewPhase, TEST_SCOPES } from './kernel/phase-policy.mjs';
+export { ARA_VERSION, ARA_NAMESPACE, ARA_SURFACES, ARA_ACTIONS, ARA_READS, araFail, exactFields, reviewRelativePath } from './kernel/configuration-policy.mjs';
 export { stepOutputKind, compiledSkillStep, pinCodeDeliveryTask, assertCodeDeliveryConfiguration } from './kernel/configuration-declarations.mjs';
 export { DEFAULT_CODE_DELIVERY_POLICY, normalizeCodeDeliveryPolicy } from './kernel/configuration-policy.mjs';
-import { SingularityFlowError } from './util.mjs';
-import { readRecord } from './schema-migrations.mjs';
-import { authoringSkillCatalog, authoringSkillEntry, authoringSkillSourceId } from './authoring-skills.mjs';
-import { phaseUsesDeterministicGeneration } from './kernel/phase-policy.mjs';
-import { isConvergencePhase } from './kernel/phase-policy.mjs';
-import { phaseNeedsGeneration } from './kernel/phase-policy.mjs';
-import { phaseRequiresCodeDelivery, phaseKernelOwned, deterministicOnlyGeneration } from './kernel/phase-policy.mjs';
-export {phaseRequiresCodeDelivery,phaseKernelOwned,deterministicOnlyGeneration} from './kernel/phase-policy.mjs';
+export { phaseRequiresCodeDelivery, phaseKernelOwned, deterministicOnlyGeneration } from './kernel/phase-policy.mjs';
 
-/** Which tests a Story's gates run, widest first [TCE:REQ-090]. */
-export const TEST_SCOPES = Object.freeze(['all-configured', 'changed-and-affected', 'new-and-changed']);
-
-/** The test scope a Story runs under now: its latest change, else what intake chose [TCE:REQ-090]. */
-export function storyTestScope(workflow) {
-  return workflow?.testScopeChanges?.at(-1)?.to ?? workflow?.resolution?.testExecutionMode ?? 'changed-and-affected';
-}
-
-/**
- * Project the code-generation contract of one resolved workflow.
- *
- * Callers must pass the result of `resolveWorkType`, not raw work-type phase ids: generation task
- * overrides and the legacy implementation-summary inference are resolved at the phase boundary.
- * Keeping this projection beside `phaseRequiresCodeDelivery` prevents CLI and editor surfaces from
- * inventing a second, phase-name-based definition of "generates code".
- */
-export function workflowCodeGeneration(resolvedWorkflow) {
-  const phases = Array.isArray(resolvedWorkflow) ? resolvedWorkflow : resolvedWorkflow?.phases;
-  const codePhases = Array.isArray(phases)
-    ? phases.filter((phase) => phaseRequiresCodeDelivery(phase)).map((phase) => phase.id)
-    : [];
-  return { generatesCode: codePhases.length > 0, codePhases };
-}
-
-/**
- * Deterministic convergence, read from Story state (`generationPolicy`), a resolved definition or raw
- * configuration, so Workflow Studio shows the same fixed route a Story uses.
- */
-function deterministicConvergence(phase) {
-  if (!isConvergencePhase(phase)) return false;
-  if (phase.generationPolicy) return phaseUsesDeterministicGeneration(phase);
-  return deterministicOnlyGeneration(phase);
-}
-
-/**
- * The authoring skill a step names. In a Story it comes from the pinned resolution, which is hashed
- * and anchored to the Story's creation commit, never from the mutable step state; outside a Story
- * (a resolved workflow being validated, simulated or shown) it comes from the resolved step.
- */
-export function configuredAuthoringSkill(phase, workflow = null) {
-  if (workflow?.resolution) {
-    const pinned = (workflow.resolution.phases ?? []).find((entry) => entry?.id === phase?.id);
-    return typeof pinned?.authoringSkill === 'string' ? pinned.authoringSkill : null;
-  }
-  return typeof phase?.authoringSkill === 'string' ? phase.authoringSkill : null;
-}
+export const normalizeApplicationReview = /* @__PURE__ */ createApplicationReviewPolicyValidator(NODE_RECORD_BYTES);
 
 /**
  * How a step is drafted: the configured skill, the skill drafting is routed to, and why.
@@ -129,23 +85,6 @@ export function generationSkillForPhase(phase, workflow = null) {
   return phaseRequiresCodeDelivery(phase) ? '/sflow-code' : '/sflow-phase';
 }
 
-/** Explicit application-review adoption shares the existing code-policy configuration entry. */
-
-export const ARA_VERSION = 1;
-export const ARA_NAMESPACE = 'ARA';
-export const ARA_SURFACES = Object.freeze(['auto', 'web', 'backend', 'cli', 'library', 'artifact']);
-export const ARA_ACTIONS = Object.freeze(['plan', 'start', 'status', 'inspect', 'feedback', 'repair', 'repair-result', 'recheck', 'accept', 'capture', 'defer', 'close', 'browser']);
-export const ARA_READS = Object.freeze(['plan', 'status']);
-
-/** Later reporting phases inspect the latest delivered code, rather than starting a non-code review. */
-export function applicationReviewPhase(workflow) {
-  if (phaseRequiresCodeDelivery(workflow.phases?.[workflow.currentPhase])) return workflow.currentPhase;
-  const order = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
-  const current = order.indexOf(workflow.currentPhase);
-  return order.slice(0, current < 0 ? order.length : current).findLast(id => phaseRequiresCodeDelivery(workflow.phases?.[id])
-    && workflow.phases[id].generation > 0) ?? workflow.currentPhase;
-}
-
 /** A stable delivery offers inspection; an offer never starts a preview or records acceptance. */
 export function applicationReviewOffer(workflow, phase) {
   const policy = workflow.resolution?.applicationReview;
@@ -169,61 +108,4 @@ export function codeOutcomeReviewOffer(workflow, phase) {
     required: false, recordsAcceptance: false,
     reason: 'Try this Story’s application and check each acceptance criterion, its test results and outstanding human checks before approval.',
     instruction: 'Open the outcome review for this exact Story, then ask validation.question with its returned choices now. Prefer the native sflowDeliveryValidation tool, otherwise the host question tool. A summary without a question does not finish this handoff. Only the selected action may run; inspection records no acceptance or approval. Final application acceptance, when adopted, uses submitted test evidence; Continue preserves existing submission, sign-off and approval requirements.' };
-}
-export function araFail(code, message, details = {}) {
-  throw new SingularityFlowError(message, { code, details });
-}
-export function exactFields(value, allowed, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) araFail('ARA_INPUT_INVALID', `${label} must be an object.`);
-  const unknown = Object.keys(value).filter(key => !allowed.includes(key));
-  if (unknown.length) araFail('ARA_INPUT_INVALID', `${label} has unsupported fields: ${unknown.join(', ')}.`);
-}
-const bounded = (value, fallback, min, max, label) => {
-  const result = value ?? fallback;
-  if (!Number.isSafeInteger(result) || result < min || result > max) araFail('ARA_POLICY_INVALID', `${label} must be an integer from ${min} to ${max}.`);
-  return result;
-};
-export function reviewRelativePath(value, label = 'Review path') {
-  if (typeof value !== 'string' || !value || value.length > 1024 || /[\\\x00-\x1f<>:"|?*]/u.test(value)
-      || value.startsWith('/') || value.split('/').some(part => !part || part === '.' || part === '..')) {
-    araFail('ARA_PATH_INVALID', `${label} must be a portable repository-relative path.`);
-  }
-  return value;
-}
-
-/** Absent means off; only an explicit work-type adoption is pinned into a new Story. */
-export function normalizeApplicationReview(value) {
-  if (value == null) return null;
-  exactFields(value, ['schemaVersion', 'mode', 'surface', 'preview', 'repairAttempts', 'totalRepairAttempts', 'capture', 'quality', 'authorities'], 'applicationReview');
-  readRecord('application-review-policy', value);
-  const mode = value.mode ?? 'optional';
-  const surface = value.surface ?? 'auto';
-  if (!['off', 'optional', 'required'].includes(mode) || !ARA_SURFACES.includes(surface)) araFail('ARA_POLICY_INVALID', 'Invalid applicationReview mode or surface.');
-  let preview = null;
-  if (value.preview != null) {
-    exactFields(value.preview, ['entry', 'outputDirectory'], 'applicationReview.preview');
-    if (value.preview.entry != null && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value.preview.entry)) araFail('ARA_POLICY_INVALID', 'preview.entry names a declared application entry.');
-    preview = { entry: value.preview.entry ?? null, outputDirectory: reviewRelativePath(value.preview.outputDirectory ?? 'dist') };
-  }
-  const quality = value.quality ?? [];
-  if (value.authorities != null && (!Array.isArray(value.authorities) || !value.authorities.length
-      || value.authorities.some(item => typeof item !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(item)))) araFail('ARA_POLICY_INVALID', 'applicationReview.authorities names existing approval groups.');
-  if (!Array.isArray(quality) || quality.length > 50 || quality.some(item => typeof item !== 'string' || !item.trim() || item.length > 1000)) araFail('ARA_POLICY_INVALID', 'applicationReview.quality is at most 50 explicit inspection expectations.');
-  const capture = value.capture ?? {};
-  exactFields(capture, ['maximumPages', 'casesPerPage', 'maximumBytes', 'timeoutMs', 'viewport'], 'applicationReview.capture');
-  const viewport = capture.viewport ?? { width: 1280, height: 800 };
-  exactFields(viewport, ['width', 'height'], 'capture.viewport');
-  return {
-    schemaVersion: ARA_VERSION, mode, surface, preview, ...(value.authorities ? { authorities: [...new Set(value.authorities)] } : {}),
-    repairAttempts: bounded(value.repairAttempts, 2, 1, 10, 'repairAttempts'),
-    totalRepairAttempts: bounded(value.totalRepairAttempts, 10, 1, 100, 'totalRepairAttempts'),
-    quality: [...new Set(quality.map(item => item.trim()))],
-    capture: {
-      maximumPages: bounded(capture.maximumPages, 100, 1, 500, 'capture.maximumPages'),
-      casesPerPage: bounded(capture.casesPerPage, 20, 1, 50, 'capture.casesPerPage'),
-      maximumBytes: bounded(capture.maximumBytes, 64 * 1024 * 1024, 1024, 256 * 1024 * 1024, 'capture.maximumBytes'),
-      timeoutMs: bounded(capture.timeoutMs, 120000, 1000, 600000, 'capture.timeoutMs'),
-      viewport: { width: bounded(viewport.width, 1280, 640, 3840, 'viewport.width'), height: bounded(viewport.height, 800, 480, 2160, 'viewport.height') }
-    }
-  };
 }

@@ -26,7 +26,7 @@ test('22 original workflow graphs retain findings, route guarantees, pinned byte
   assert.deepEqual(workflowObligationResults({ graph: { ...core, compileObligationGraph: compile }, roles }), baseline.graphs);
   assert.deepEqual(Object.keys(obligationModules.graph).sort(), baseline.exports.graph);
   assert.deepEqual(Object.keys(obligationModules.roles).sort(), baseline.exports.roles);
-  assert.deepEqual(Object.keys(obligationModules.records).sort(), [...baseline.exports.records, 'NODE_TEXT_DIGESTS'].sort());
+  assert.deepEqual(Object.keys(obligationModules.records).sort(), [...baseline.exports.records, 'NODE_TEXT_DIGESTS', 'NODE_RECORD_BYTES'].sort());
 });
 
 test('27 original record cases preserve pretty/compact serialization, hashes and legacy exceptions', () => {

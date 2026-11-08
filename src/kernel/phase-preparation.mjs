@@ -95,14 +95,18 @@ export function phaseDraftMutationInput(input,operation) {
   if(!sha(input.confirm))draftInvalid('Rebinding a local draft requires its exact reviewed body digest.');
   return {...input};
 }
-function phaseAccess(facts,projectId,permission,expected,missing,changed) {
+/** Authenticate a principal without authorizing a new effect (also used to select original receipts). */
+export function phaseAccessIdentity(facts,projectId) {
   if(!facts||facts.projectId!==projectId||!Array.isArray(facts.permissions)||facts.permissions.length>128
     ||facts.permissions.some(value=>typeof value!=='string'||value.length>128)
     ||facts.agentId!==null&&!draftId(facts.agentId))bad();
-  const actor=storyActorValue(facts);
+  return {actor:storyActorValue(facts),agentId:facts.agentId};
+}
+function phaseAccess(facts,projectId,permission,expected,missing,changed) {
+  const {actor,agentId}=phaseAccessIdentity(facts,projectId);
   if(!facts.permissions.includes(permission))throw new SingularityFlowError(missing,{code:'ENGINE_AUTHORITY_REQUIRED',details:{permission}});
   if(expected!==null&&(JSON.stringify(expected.actor)!==JSON.stringify(actor)||expected.agentId!==facts.agentId))throw new SingularityFlowError(changed,{code:'ENGINE_ACTOR_CHANGED'});
-  return {actor,agentId:facts.agentId};
+  return {actor,agentId};
 }
 export function phaseDraftAccess(facts,projectId,permission,{expected=null}={}) {
   return phaseAccess(facts,projectId,permission,expected,'The current principal cannot perform this private draft operation.',

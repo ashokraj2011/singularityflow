@@ -499,6 +499,40 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,status:'retained',effects:{committed:false,pushed:false}});
   });
 
+  await t.test('installed human approval completes the real namespace Story and acknowledges its receipt in another process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';import {registerHooks} from 'node:module';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      const hooks=registerHooks({resolve(specifier,context,next){if(specifier==='node:child_process'||/\\/(?:git|cli|state)\\.mjs$/.test(specifier))
+        throw Error('Unexpected native execution owner: '+specifier);return next(specifier,context);}});
+      const {createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE}=await import('${packageName}/hosts/namespace-approval');
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='portable-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const database=new (await import('node:sqlite')).DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding});
+      try {
+        const access={current:()=>({projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',agentId:fresh?null:'another-prompt-agent',
+          permissions:fresh?['phase.approve']:[],identity:{name:'Example reviewer',email:'reviewer@example.test'}})};
+        const clock={now(){if(!fresh)throw Error('Acknowledgement cannot restamp human approval.');return '2026-11-08T16:00:00.000Z';}};
+        const engine=createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock});
+        assert.equal(NAMESPACE_APPROVAL_PROFILE,'sflow-primary-document-approval/v1');
+        let confirmation;
+        if(fresh){const {manifest}=await engine.run('phase.review',{phaseId:'intake'});confirmation={workId,phase:'intake',generation:manifest.generation,
+          reviewPacketSha256:manifest.reviewBinding.packetSha256};}
+        const result=await engine.run('phase.approve',{phaseId:'intake',...(confirmation?{confirmation}:{})});
+        assert.equal(result.status,'recorded');assert.equal(result.approval.thresholdReached,true);assert.equal(result.currentPhase,null);
+        const review=await engine.run('phase.review',{phaseId:'intake'});assert.equal(review.manifest.integrity,'matched');assert.equal(review.manifest.reviewBinding,null);
+        const document=await engine.run('document.read',{reference:review.manifest.items.find(item=>item.primary).reference});
+        assert.equal(document.document.content.text,'# Authored intake\\n\\nAn observable requirement.\\n');
+        await assert.rejects(engine.run('phase.review'),{code:'ENGINE_PHASE_SELECTION_REQUIRED'});
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();hooks.deregister();}
+    `;
+    const first=JSON.parse(await run('approval.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('approval.mjs',source,['replay']));assert.deepEqual(replay,first);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -518,6 +552,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
       import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
       import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE } from '${packageName}/hosts/namespace-submission';
+      import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
@@ -633,6 +668,16 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       function configurationHost(records:NamespaceStore,content:ContentStore){return createNamespaceConfigurationEngine({records,content,scope:{projectId:'example'},
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['configuration.approve'],actorKind:'human'})},
         clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
+      function approvalHost(records:NamespaceStore,content:ContentStore) {
+        const options={records,content,scope:{projectId:'example'},workId:'example',authority:{id:'application-authority',epoch:1},
+          access:{current:()=>({projectId:'example',principalId:'human-reviewer',actorKind:'human' as const,agentId:null,
+            permissions:['phase.approve'],identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
+          clock:{now:()=> '2026-11-08T00:00:00.000Z'}};
+        createNamespaceApprovalEngine(options);
+        // @ts-expect-error Human approval has no ambient access or clock fallback.
+        createNamespaceApprovalEngine({records,content,scope:options.scope,workId:options.workId,authority:options.authority});
+        return createNamespaceApprovalEngine(options);
+      }
       function storyHost(records:NamespaceStore,content:ContentStore){return createNamespaceStoryEngine({records,content,scope:{projectId:'example'},workId:'example',
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['story.create'],actorKind:'human',identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
         clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}

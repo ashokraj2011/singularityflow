@@ -73,7 +73,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-draft-store.mjs',
     'src/engine-storage/namespace-draft-contract.mjs','src/engine-storage/namespace-preparation.mjs',
     'src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-publication-contract.mjs',
-    'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-submission-contract.mjs']);
+    'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-submission-contract.mjs',
+    'src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-approval-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -243,7 +244,8 @@ test('the internal namespace lifecycle committer composes explicit ports without
     allowed: [contract, ...await sourceFiles('src/foundation'), ...await sourceFiles('src/sda/namespace'), ...await sourceFiles('src/sda/content')] });
   assert.deepEqual(report.problems, []);
   for (const file of await sourceFiles('src')) {
-    if ([owner,'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-submission.mjs'].includes(file)) continue;
+    if ([owner,'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-submission.mjs',
+      'src/engine-storage/namespace-approval.mjs'].includes(file)) continue;
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     assert.equal(text.includes('namespace-lifecycle-commit.mjs'), false, file + ' must not select the new authority before a verified cutover');
   }
@@ -471,6 +473,41 @@ test('shared submission never selects a private working store, Git host or insta
         path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,file+' cannot select a new submission authority');
       ts.forEachChild(node,inspect);
     };inspect(ast);
+  }
+});
+
+test('namespace human approval has explicit ports, a pure vote contract and no installed-authority selection',async()=>{
+  const owner='src/engine-storage/namespace-approval.mjs',reader='src/engine-storage/namespace-approval-reader.mjs',contract='src/engine-storage/namespace-approval-contract.mjs';
+  const allowed=new Map([
+    [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../kernel/phase-preparation.mjs','../kernel/approval-policy.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs',
+      '../kernel/publication-intent.mjs','../kernel/lifecycle-transitions.mjs','../kernel/workflow-decisions.mjs','../kernel/project-enrollment.mjs',
+      '../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs',
+      './namespace-configuration-reader.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-reader.mjs',
+      './namespace-lifecycle-contract.mjs','./namespace-approval-contract.mjs'])],
+    [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs','./namespace-approval-contract.mjs'])]
+  ]);
+  for(const [file,imports]of allowed){const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(imports.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(file+' cannot discover installed state or a reviewer');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+      if(file===reader&&ts.isPropertyAccessExpression(node)&&['put','transact','commit','writeFile'].includes(node.name.text))assert.fail('Vote proof reading cannot mutate records');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+    ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(pure.problems,[]);
+  for(const file of await sourceFiles('src')){
+    if(file===owner)continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{const specifier=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+      :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.'))assert.notEqual(
+        path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,file+' cannot replace installed approval authority');
+      ts.forEachChild(node,visit);
+    };visit(ast);
   }
 });
 

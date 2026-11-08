@@ -23,6 +23,7 @@
     "./hosts/namespace-preparation": { "types": "./dist/hosts/namespace-preparation.d.mts", "import": "./dist/hosts/namespace-preparation.mjs" },
     "./hosts/namespace-publication": { "types": "./dist/hosts/namespace-publication.d.mts", "import": "./dist/hosts/namespace-publication.mjs" },
     "./hosts/namespace-submission": { "types": "./dist/hosts/namespace-submission.d.mts", "import": "./dist/hosts/namespace-submission.mjs" },
+    "./hosts/namespace-approval": { "types": "./dist/hosts/namespace-approval.d.mts", "import": "./dist/hosts/namespace-approval.mjs" },
     "./storage/filesystem": { "types": "./dist/storage/filesystem.d.mts", "import": "./dist/storage/filesystem.mjs" },
     "./storage/sqlite": { "types": "./dist/storage/sqlite.d.mts", "import": "./dist/storage/sqlite.mjs" },
     "./storage/sqlite-content": { "types": "./dist/storage/sqlite-content.d.mts", "import": "./dist/storage/sqlite-content.mjs" },

@@ -280,6 +280,28 @@ export function approvalRequirementsMet(policy, approvals = [], { counts = null 
     && remainingRequiredAuthorities(policy, active).length === 0;
 }
 
+/** Shared human/quorum rules for an explicit-principal host, after immutable vote proofs are read. */
+export function principalApprovalPlan(workflow,phase,reviewer,{author,active=[]}) {
+  const actor=reviewer.actor;
+  if(actor.actorKind!=='human')throw new SingularityFlowError('A phase approval requires an authenticated human reviewer.',{
+    code:'ENGINE_HUMAN_AUTHORITY_REQUIRED'});
+  const authorities=workflow.resolution.approvalAuthorities,policy=phase.approvalPolicy;
+  const authority=requireApprovalAuthority(authorities,policy,actor.identity,
+    {preferredAuthorities:remainingRequiredAuthorities(policy,active)});
+  const key=actor.identity.email?.trim().toLowerCase()||actor.identity.login?.trim().toLowerCase();
+  if(active.some(item=>item.principalId===actor.principalId||sameApprover(item.actor,actor.identity))) {
+    throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`,{
+      code:'APPROVAL_IDENTITY_ALREADY_RECORDED',details:{workId:workflow.workItem.id,phase:phase.id}});
+  }
+  const selfApproval=author?.principalId===actor.principalId||sameApprover(phase.generatedBy??{},actor.identity)
+    ||sameApprover(author?.identity??{},actor.identity);
+  if(selfApproval&&policy.allowSelfApproval===false)throw new SingularityFlowError(
+    `Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized human to approve this generation.`,{
+      code:'APPROVAL_SELF_APPROVAL_PROHIBITED',details:{workId:workflow.workItem.id,phase:phase.id}});
+  const prospective={decision:'approved',actor:actor.identity,principalId:actor.principalId,authorityGroup:authority.authorityGroup};
+  return {key,authorityGroup:authority.authorityGroup,selfApproval,reached:approvalRequirementsMet(policy,[...active,prospective])};
+}
+
 import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 /**

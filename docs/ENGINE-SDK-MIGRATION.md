@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document namespace publication and shared-record submission with retained-receipt recovery, one review-proof reader and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, sequential reviewed-document completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -138,6 +138,18 @@ created/published/submitted projections match captured bytes exactly. Source val
 all 13 unchanged bundle budgets passed. Phase-selection recovery belongs to the pure kernel;
 the namespace adapter binds storage observations and retains legacy native selection errors.
 No installed authority, real Story or Windows host changed.
+
+The [namespace human approval host](ENGINE-SDK-NAMESPACE-APPROVAL.md) records actual confirmed human
+votes and artifact-set evidence through the conditional writer. Pinned authority, self-approval,
+distinct-human quorum and sequential transitions remain kernel rules. Acknowledgement on another
+host retains the original human vote, timestamp and outcome without granting a new decision.
+The installed archive and all three metadata backends complete reviewed-document journeys;
+application code/testing, branch/loop/choice execution and additional policy owners remain required.
+
+That approval slice passed 191 distinct Mac checks across 13 affected files; the final 93-case set
+passed without failures, cancellations or skips. Source validation passed 3,823 checks across 191
+skills. Typechecking, Git ownership and all 13 unchanged bundle budgets passed. The SDK preview
+retains 49 registered operations. No installed Git project was migrated or replaced.
 
 The earlier private-preparation slice passed 296 distinct Mac checks across 17 affected files, with no failures, cancellations
 or skips. The installed archive reopens authored drafts and original receipts in a separate

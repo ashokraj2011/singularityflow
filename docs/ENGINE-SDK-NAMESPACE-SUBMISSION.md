@@ -61,8 +61,8 @@ review binding from a mixed snapshot. Existing read-only projection formats reta
 behavior and do not acquire approval proof from metadata alone.
 
 The manifest still reports `humanReviewRecorded: false` and `approvalRecorded: false`. Reading
-documents and obtaining their exact binding are prerequisites; portable approval remains a
-separate operation owner.
+documents and obtaining their exact binding are prerequisites; [human approval](ENGINE-SDK-NAMESPACE-APPROVAL.md)
+uses its own explicit operation owner and records nothing through the read query.
 
 ## Interrupted preparation, retry and takeover
 
@@ -93,9 +93,10 @@ empty Story. The new host does not perform automatic migration, dual writes or G
 
 ## Remaining scope
 
-This advances Phase 7 with actual shared submission and review proof. Full portable publication
-policies, approval/decision/advancement owners, execution and complete
-cross-agent Story journeys remain required. Existing-project migration, fencing, final cleanup
+This advances Phase 7 with actual shared submission and review proof. The explicit approval host
+now completes sequential reviewed-document workflows. Full portable publication and approval
+policies, decision/routing owners, execution and complete cross-agent application Story journeys
+remain required. Existing-project migration, fencing, final cleanup
 and distribution/performance qualification retain their separate Phase 8–9 scope.
 
 The shared reader now supports explicit versioned terminal views without changing stored v1

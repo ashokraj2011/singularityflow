@@ -88,3 +88,9 @@ The [shared submission host](ENGINE-SDK-NAMESPACE-SUBMISSION.md) adds `hosts/nam
 It uses only shared published records, authenticated access and a clock for new submission.
 The installed archive resumes the real packet and original receipt in another empty-PATH process.
 Read-only and writer hosts share exact submitted review bindings, without claiming human approval.
+
+The [namespace human approval host](ENGINE-SDK-NAMESPACE-APPROVAL.md) adds `hosts/namespace-approval`.
+It verifies the retained submission, requires authenticated human permission and exact confirmation,
+and conditionally records actual vote and artifact-set evidence. Pinned membership, independent
+reviewer policy and quorum stay in the kernel. The ordinary sequential document workflow can
+complete; additional application policy/execution and authority migration remain unfinished.

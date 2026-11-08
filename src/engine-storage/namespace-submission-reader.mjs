@@ -19,10 +19,13 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     if(!same(published.configuration,value.configuration))throw error('The review packet has another configuration pin.','ENGINE_STORAGE_CORRUPT');
     return published;
   }
-  async function review(snapshot,phaseId,{signal}={}) {
-    if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
+  async function inspect(snapshot,phaseId,{signal}={}) {
+    if(!snapshot?.workflow.phases?.[phaseId])return null;
     const phase=snapshot.workflow.phases[phaseId],binding=phase.namespaceSubmission;
     if(!binding)return null;
+    namespaceSubmissionBindingValue(binding);
+    // A successor can retain old submission history without becoming submitted itself.
+    if(binding.generation!==phase.generation)return null;
     const value=await decode(binding,phaseId,{signal}),bindings=phase.publicationBindings,submissions=snapshot.workflow.lineage?.submissions;
     if(!Array.isArray(bindings)||!Array.isArray(submissions))throw error('The submitted publication or lineage inventory is invalid.','ENGINE_STORAGE_CORRUPT');
     const current=bindings.find(item=>item?.generation===phase.generation),lineage=submissions.findLast(item=>item?.phase===phaseId&&item.generation===phase.generation);
@@ -34,7 +37,12 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     if(!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
       throw error('The submitted artifact metadata differs from its publication.','ENGINE_STORAGE_CORRUPT');
     }
-    return {workId,phase:phaseId,generation:phase.generation,packetSha256:binding.record.sha256,sourceRevision:value.baseRevision,observedRevision:snapshot.revision};
+    return {binding,value,published,review:{workId,phase:phaseId,generation:phase.generation,packetSha256:binding.record.sha256,
+      sourceRevision:value.baseRevision,observedRevision:snapshot.revision}};
   }
-  return Object.freeze({decode,publication,review});
+  async function review(snapshot,phaseId,options) {
+    if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
+    return (await inspect(snapshot,phaseId,options))?.review??null;
+  }
+  return Object.freeze({decode,publication,inspect,review});
 }

@@ -75,6 +75,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `hosts/namespace-submission`: submit a published primary document using shared records only,
   retain its exact review packet and acknowledge its receipt on another host without private drafts.
   This requests required human approval; it does not record it.
+- `hosts/namespace-approval`: record an explicitly confirmed human vote over that exact shared
+  submission, enforce pinned authority and quorum, and advance a reviewed-document workflow.
+  Acknowledgement on another host preserves the original receipt and creates no new vote.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,

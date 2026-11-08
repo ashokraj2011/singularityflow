@@ -1,6 +1,6 @@
 # Spec–code sync (SCS) — v1
 
-Status: owner decisions recorded 2026-11-08 (every recommended default taken). M1 to build first and land on main; M2, M3 and M4 to build on a separate branch.
+Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1 is on main; M2, M3 and M4 are on the separate branch scs-next.
 
 The code and the approved documents must say the same thing. When they don't, a person decides each
 difference once: either the code changes to match the document, or the document changes to match the
@@ -26,6 +26,21 @@ The owner took every recommended default below.
    for a release as filtered views, then are retired. *Decided: yes.*
 6. **Quick-fix, careful-change, poc-lite, poc-workflow, document-test-repair and the demo loops stay
    unchanged.** *Decided: yes.*
+
+## Owner decisions (2026-11-09)
+
+Raised while M2 and M3 were built. The owner took every recommended answer.
+
+7. **Update the spec writes only the draft,** not an upstream issue as well. The draft is not a record
+   and decides nothing; proposing it writes the intent amendment, which marks the difference amending
+   (`[SCS:REQ-023]`). *Decided: draft only.*
+8. **Anyone working on the Story may draft the amendment.** Drafting writes no record; the owning
+   document's approvers still decide the amendment. *Decided: open to anyone on the Story.*
+9. **A fix accepted as a departure but never added to the plan is asked about again at convergence.**
+   Settling it there would change how convergence settles, which its records seal. *Decided: leave it
+   as it is.*
+10. **A decided convergence answer can be changed on the decisions list** (`[SCS:REQ-034]`), so the
+    Adjudicate page is no longer the only place to change one before it is retired. *Decided: yes.*
 
 ## What exists today (main 48668471f)
 
@@ -144,6 +159,10 @@ The list never writes over a draft someone changed.
   no chat turn records it.
 - `[SCS:REQ-033]` The Adjudicate page and `/adjudicate` show only convergence items for one release,
   then are retired (owner decision 5).
+- `[SCS:REQ-034]` A decided convergence answer can be changed on the decisions list while the
+  convergence step is open (owner decision 10). It is offered beside the list, holds nothing and is
+  never counted as open. Its approvers choose again with a reason, through the same
+  `story adjudicate --answers --expect` write, and the record keeps the answer it replaces and whose it was.
 
 ## M4 What the person asked for `[SCS:REQ-040]`
 
@@ -218,7 +237,7 @@ need the owner's yes.
 
 - **M1:** a feature Story whose conformance report marks one clause `deviated` cannot get conformance
   approval until a person picks a choice for it. An empty Deviation cell is refused at the draft check.
-- **M2:** picking Update the spec on that row writes the issue and a draft with one slot. Filling the
+- **M2:** picking Update the spec on that row writes a draft with one slot (owner decision 7). Filling the
   slot and approving it makes a new generation of the requirements step, with revalidation rows for
   later steps, all in the one list.
 - **M3:** a spec-driven Story's convergence items and its departures are decided on the same VS Code

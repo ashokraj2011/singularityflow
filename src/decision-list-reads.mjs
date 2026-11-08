@@ -231,13 +231,15 @@ async function departureFacts(root, config, workflow, phase) {
  */
 async function convergenceFacts(root, config, workflow, phase, unavailable) {
   if (workflow.status !== 'in_progress' || phase.id !== workflow.currentPhase || phase.status !== 'in_progress') return null;
-  const { adjudicationList, openConvergencePhase } = await import('./convergence-adjudications.mjs');
+  // From the CLI source, as the departures are: the VS Code bundles that read this list load the table only at an open convergence step.
+  const { adjudicationList, openConvergencePhase } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'convergence-adjudications.mjs')).href);
   if (openConvergencePhase(workflow)?.id !== phase.id) return null;
   try {
     const list = await adjudicationList(root, config, workflow, { actor: null });
     return list.status === 'open' ? list : null;
   } catch (error) {
-    if (!(error instanceof SingularityFlowError)) throw error;
+    // Read from the CLI source, a refusal is that copy's class: known by its name.
+    if (!(error instanceof SingularityFlowError) && error?.name !== 'SingularityFlowError') throw error;
     unavailable.push({ phase: phase.id, reason: error.code ?? 'convergence-unreadable' });
     return null;
   }

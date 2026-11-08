@@ -19,6 +19,8 @@ export const RUNTIME_UNAVAILABLE_MARKER = 'runtime-unavailable';
 const MAX_AGE_MS = 30 * 60 * 1000;
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
 const BUNDLED_AGENTS = new Set(['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']);
+// The turns whose typed words are kept as what the person asked for (asked-for.mjs ASKED_FOR_SKILLS).
+const ASKED_FOR_SKILLS = new Set(['sf-code', 'sflow-code', 'sf-phase', 'sflow-phase']);
 const SEARCH_VALUE_FLAGS = new Set(['-g', '--glob', '-t', '--type', '-T', '--type-not',
   '-m', '--max-count', '-A', '--after-context', '-B', '--before-context', '-C', '--context',
   '--max-depth', '--encoding', '--sort', '--sortr']);
@@ -124,7 +126,8 @@ async function settleObservedEdits(payload) {
 }
 
 /**
- * Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. A prompt
+ * Reset on EVERY prompt, including native turns; never retain the prompt or its attachments, except the
+ * redacted words a person typed after /sf-code or /sf-phase, kept for their Story [SCS:REQ-040]. A prompt
  * naming an SFlow skill, paused or not, also gets the CLI's verified invocation while the CLI is off
  * PATH: that skill's first command would otherwise fail with `command not found`.
  */
@@ -178,8 +181,13 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(temporary, file);
   } finally { await removeRecord(temporary); }
-  const captured = captureMutation ? await captureMutation(payload, record)
-    : await (await import('./copilot-mutation-guard.mjs')).captureMutationTurn(payload, record);
+  // What a person typed after /sf-code or /sf-phase, redacted [SCS:REQ-040]: handed to the Story's own
+  // local record once the turn's Story is known, never kept in this turn record.
+  const typed = ASKED_FOR_SKILLS.has(skill)
+    ? await import('./asked-for.mjs').then((module) => module.typedInstruction(payload, skill)).catch(() => null) : null;
+  const turn = typed ? { ...record, typed } : record;
+  const captured = captureMutation ? await captureMutation(payload, turn)
+    : await (await import('./copilot-mutation-guard.mjs')).captureMutationTurn(payload, turn);
   return captured ?? {};
 }
 

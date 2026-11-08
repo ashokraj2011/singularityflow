@@ -239,8 +239,9 @@ const isSourceFile = (relative) => Boolean(documentationLanguage(relative)) && !
 async function changedLineMeasure(index, { codeRoot, base, affectedRoots }) {
   const { patch, untracked } = sfGuardChangeSet(codeRoot, base);
   const changed = changedLinesFromPatch(patch);
-  for (const relative of untracked) {
-    if (changed.has(relative) || !underRoots(relative, affectedRoots)) continue;
+  // A new file counts whole; only source or a file the report names is read, so an untracked build folder costs nothing.
+  for (const relative of untracked.slice(0, COVERAGE_LIMITS.files * 10)) {
+    if (changed.has(relative) || !underRoots(relative, affectedRoots) || !(isSourceFile(relative) || index(relative))) continue;
     try {
       const bytes = await readFile(path.join(codeRoot, ...relative.split('/')));
       if (bytes.length > COVERAGE_LIMITS.sourceBytes || bytes.includes(0)) continue;

@@ -76,7 +76,9 @@ test('a quick-fix implement step is coded by its agent and published with an eng
   assert.doesNotMatch(entry.context.text, /Complete the configured implementation summary and Agent brief/u);
   assert.doesNotMatch(entry.context.text, /Run only the deterministic kernel action/u);
   assert.match(entry.context.text, /run `singularity-flow prepare implement`, which rebuilds the summary from what changed/u);
-  assert.match(entry.context.text, /upstream-issue raise --phase <EARLIER> --about <ID\|SECTION> --problem "<TEXT>"/u);
+  // What the approved intake lacks is a departure, never an upstream issue raised for its approvers [CQF:REQ-020].
+  assert.match(entry.context.text, /is a departure, not an upstream issue[^\n]*`singularity-flow departure record --kind <kind> --reason <why>`/u);
+  assert.doesNotMatch(entry.context.text, /upstream-issue raise --from-artifact/u);
   assert.match(entry.context.text, /propose it from this step with `singularity-flow story intent-amendment propose/u,
     'implement follows the approved intake scope, so its conflict route is an amendment');
 

@@ -406,7 +406,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,586,200 (measured 9,586,127, commands/phase-lifecycle.mjs): test adequacy merged too; its growth is above.
     // 9,556,350 (measured 9,556,345): the departure reads load from the CLI source, outside the VS Code gateway bundle (state.mjs, delivery-evidence.mjs).
     // 9,586,300 (measured 9,586,254, commands/phase-lifecycle.mjs): the departure modules load from the CLI source, out of the VS Code gateway bundle.
-    assert.ok(closure.bytes <= 9_586_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,587,450 (measured 9,587,396, commands/phase-lifecycle.mjs): a code step's composed context names a departure for what the approved
+    // documents lack, not an upstream issue (phase-authoring-contract.mjs, phase-prompt-composer.mjs) [CQF:REQ-020].
+    assert.ok(closure.bytes <= 9_587_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

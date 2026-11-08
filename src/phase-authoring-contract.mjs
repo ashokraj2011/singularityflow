@@ -78,6 +78,14 @@ export function phaseAuthoringContract(definition, workflow, phase) {
 export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved inputs are fixed evidence. If one is wrong, incomplete or contradictory, do not edit it and do not stop: use the most conservative reading consistent with the pinned source. Under `## Upstream discrepancies` list producer phase, clause/section, problem, assumption, impact and owner action, with every affected qualified clause ID in Impact/Clause; cite existing UPI-IDs, never duplicate them. Missing evidence belongs to its producer. File new items once with `singularity-flow upstream-issue raise --from-artifact`; producer approvers decide. Stop only for a refusal about changed or unapproved input bytes (use its restore/return route), or when no reading satisfies the pinned source: then (ask the person only if clarification permits) raise `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>" --proposed amend` (or `--proposed return`) and end the turn.';
 
 /**
+ * The code step's form of the same rule [CQF:REQ-020]: what the approved documents lack is a
+ * departure, decided once before approval. Given the upstream protocol instead, a real /sf-code turn
+ * raised an upstream issue for the file SFlow had already recorded as DEP-001, so the person had the
+ * same gap to decide twice, the second time by the plan's approvers before the Story could finish.
+ */
+export const CODE_STEP_DEPARTURE_PROTOCOL = '- Departures: approved inputs are fixed evidence. In a code step, what they lack or get wrong (a file, plan row, test, wording or clause) is a departure, not an upstream issue, and never a reason to stop. Record each once with `singularity-flow departure record --kind <kind> --reason <why>` (`--path`, `--clause`; wording or clause: `--target <step> --file <draft copy>`) and keep coding; prepublish records a changed file no plan row names by itself. Never edit the earlier document: a person decides each departure once, before approval. A refusal about changed or unapproved input bytes uses its restore/return route.';
+
+/**
  * `specificationSections` says which optional specification tables this scope step asks for (its
  * policy, required headings or template); null keeps the full contract for a caller that cannot tell.
  */
@@ -94,7 +102,7 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
     '- Unfinished markers: TODO (in capitals), TBD, TBC, FIXME, {{...}} and [describe ...] read as unfinished work and refuse publication, even inside code spans.',
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing repository build/test scripts or runner configuration just to emit its configured report.',
-    ...(deterministicOnly ? [] : [UPSTREAM_DISCREPANCY_PROTOCOL]),
+    ...(deterministicOnly ? [] : [contract.roles?.includes('code') ? CODE_STEP_DEPARTURE_PROTOCOL : UPSTREAM_DISCREPANCY_PROTOCOL]),
     '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations; add no traceability tags or API documentation to them. When one is the requested change itself (a CI pipeline, container or runtime setting), an approved clause claims it with Fulfillment `configuration`; otherwise list tooling under Supporting files with a reason.',
     ...(contract.requirementCoverage && !deterministicOnly ? [REQUIREMENT_AUTHORING_PROTOCOL] : []),
     ...(contract.requirementCoverage ? [

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import {
-  phaseAuthoringContract, phaseAuthoringContractLines, UPSTREAM_DISCREPANCY_PROTOCOL
+  CODE_STEP_DEPARTURE_PROTOCOL, phaseAuthoringContract, phaseAuthoringContractLines, UPSTREAM_DISCREPANCY_PROTOCOL
 } from '../src/phase-authoring-contract.mjs';
 import { phaseRepairLoopSummary } from '../src/phase-repair-journal.mjs';
 import { phaseUpstreamDiscrepancies, upstreamDiscrepanciesFromMarkdown } from '../src/phase-upstream-discrepancies.mjs';
@@ -32,6 +32,25 @@ test('an author records a wrong approved input and continues instead of editing 
   // A kernel-generated artifact is not authored, so it carries no instruction to write into it.
   assert.ok(!phaseAuthoringContractLines(contract, { deterministicOnly: true }).join('\n')
     .includes(UPSTREAM_DISCREPANCY_PROTOCOL));
+});
+
+test('a code step records what the approved documents lack as a departure, never as an upstream issue [CQF:REQ-020]', () => {
+  // A real /sf-code turn given the upstream protocol raised UPI-001 for the file SFlow had already recorded as DEP-001.
+  const workflow = { workItem: { id: 'UPS-3' }, phaseOrder: ['specification', 'planning', 'implementation'],
+    phases: { specification: { id: 'specification' }, planning: { id: 'planning' },
+      implementation: { id: 'implementation', generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' } } } };
+  const contract = phaseAuthoringContract({}, workflow, workflow.phases.implementation);
+  assert.ok(contract.roles.includes('code'));
+  const lines = phaseAuthoringContractLines(contract).join('\n');
+  assert.ok(lines.includes(CODE_STEP_DEPARTURE_PROTOCOL));
+  assert.ok(!lines.includes(UPSTREAM_DISCREPANCY_PROTOCOL));
+  assert.doesNotMatch(lines, /upstream-issue raise|## Upstream discrepancies/u);
+  assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /is a departure, not an upstream issue, and never a reason to stop/u);
+  assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /`singularity-flow departure record --kind <kind> --reason <why>`/u);
+  assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /prepublish records a changed file no plan row names by itself/u);
+  assert.match(CODE_STEP_DEPARTURE_PROTOCOL, /Never edit the earlier document/u);
+  // The step before it still files its upstream problems for their owners.
+  assert.ok(phaseAuthoringContractLines(phaseAuthoringContract({}, workflow, workflow.phases.planning)).includes(UPSTREAM_DISCREPANCY_PROTOCOL));
 });
 
 test('recorded discrepancies are read from bullets and tables, naming only earlier phases', () => {

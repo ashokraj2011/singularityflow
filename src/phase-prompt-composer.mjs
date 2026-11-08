@@ -28,7 +28,7 @@ import { requestedOutcomeLine } from './story-request-summary.mjs';
 import { storyEpicContext } from './story-epic-context.mjs';
 import { renderPromptInputsBlock } from './prompt-input-projection.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
@@ -497,7 +497,8 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
     }),
     ...(deterministicCode ? [
       `- Deterministic summary: \`singularity-flow prepare ${phase.id}\` builds this step's artifact from what changed; never author or edit it by hand. Your authoring here is the planned code and tests.`,
-      '- Upstream discrepancies: approved earlier-step outputs are fixed evidence and this step\'s artifact is kernel-built. If one is wrong, incomplete or contradicts the pinned source, do not edit it and do not stop: work on the most conservative reading and raise it with `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>"`; that step\'s approvers decide it.'
+      // A code step's gap in the approved documents is a departure [CQF:REQ-020], as in an authored code step.
+      '- Departures: approved earlier-step outputs are fixed evidence and this step\'s artifact is kernel-built. What they lack or get wrong (a file, plan row, test, wording or clause) is a departure, not an upstream issue, and never a reason to stop: record it once with `singularity-flow departure record --kind <kind> --reason <why>` and keep coding; prepublish records a changed file no plan row names by itself. A person decides each departure once, before approval.'
     ] : deterministicOnly ? [
       '- Deterministic-only generation: do not author or edit the phase artifact with a model, governed agent, or human. Run only the deterministic kernel action returned by the router; the kernel owns artifact generation.'
     ] : [])
@@ -539,11 +540,14 @@ export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase
   }));
 }
 
-export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { deterministicOnly = false } = {}) {
+export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { deterministicOnly = false, codeStep = false } = {}) {
   // A kernel-built artifact cannot carry an Assumption or a discrepancy section; name the routes that need none.
-  const offEvidence = deterministicOnly
-    ? 'Where the evidence is ambiguous, take the most conservative reading consistent with the pinned source. This step\'s artifact is kernel-built, so raise a problem in an earlier phase with `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>"`.'
-    : 'Where governed evidence is ambiguous, label the reading you choose `Assumption:` with its impact and continue; a problem in an earlier phase goes under `## Upstream discrepancies`.';
+  // A code step names a departure instead: its gaps in the approved documents are decided once, before approval [CQF:REQ-020].
+  const offEvidence = codeStep
+    ? 'Where the evidence is ambiguous, take the most conservative reading consistent with the pinned source; what an approved earlier document lacks or gets wrong is a departure, recorded with `singularity-flow departure record --kind <kind> --reason <why>`.'
+    : deterministicOnly
+      ? 'Where the evidence is ambiguous, take the most conservative reading consistent with the pinned source. This step\'s artifact is kernel-built, so raise a problem in an earlier phase with `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>"`.'
+      : 'Where governed evidence is ambiguous, label the reading you choose `Assumption:` with its impact and continue; a problem in an earlier phase goes under `## Upstream discrepancies`.';
   return [
     '# Final clarification guard',
     '',
@@ -982,7 +986,7 @@ export async function compose(root, options, {
   // release. Repeat the current Story's immutable clarification contract after every authored
   // prompt section so stale or customized agent prose cannot override it by appearing later.
   const clarificationGuard = renderFinalClarificationGuard(signals.phase, clarificationPolicy, {
-    deterministicOnly: Boolean(governed.executionContract?.deterministicOnly)
+    deterministicOnly: Boolean(governed.executionContract?.deterministicOnly), codeStep: phaseRequiresCodeDelivery(phase)
   });
   const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase, workflow });
   const designSources = workflow && phase

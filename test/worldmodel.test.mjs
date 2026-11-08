@@ -68,7 +68,7 @@ test('phase prompts bind deterministic convergence to its exact publication and 
   assert.match(rendered, /do not author or edit the phase artifact with a model, governed agent, or human/i);
 });
 
-test('a deterministic code step writes the code and lets prepare build its summary, with an artifact-free upstream route', () => {
+test('a deterministic code step writes the code and lets prepare build its summary, and records what the approved documents lack as a departure', () => {
   const phase = { id: 'apply-fix', status: 'in_progress', generation: 0, writeScope: 'source-and-artifact',
     requiredArtifact: { kind: 'implementation-summary' },
     generationPolicy: { requirement: 'required', producer: 'deterministic', defaultProducer: 'deterministic',
@@ -82,13 +82,18 @@ test('a deterministic code step writes the code and lets prepare build its summa
   assert.doesNotMatch(rendered, /Run only the deterministic kernel action/u, 'the code is still the agent\'s to write');
   assert.match(rendered, /run `singularity-flow prepare apply-fix`, which rebuilds the summary from what changed/u);
   assert.match(rendered, /never author or edit it by hand/u);
-  assert.match(rendered, /upstream-issue raise --phase <EARLIER> --about <ID\|SECTION> --problem "<TEXT>"/u);
+  // A code step's gap in the approved documents is a departure, decided once before approval [CQF:REQ-020].
+  assert.match(rendered, /is a departure, not an upstream issue[^\n]*`singularity-flow departure record --kind <kind> --reason <why>`/u);
+  assert.doesNotMatch(rendered, /raise it with `singularity-flow upstream-issue raise/u);
   assert.doesNotMatch(rendered, /## Upstream discrepancies/u, 'no heading in an artifact the agent may not edit');
   const guard = renderFinalClarificationGuard(phase.id, { mode: 'off' }, { deterministicOnly: true });
   assert.doesNotMatch(guard, /## Upstream discrepancies|`Assumption:`/u);
   assert.match(guard, /upstream-issue raise --phase <EARLIER>/u);
   assert.match(guard, /this guard grants no authoring authority/u);
   assert.match(renderFinalClarificationGuard(phase.id, { mode: 'off' }), /goes under `## Upstream discrepancies`/u);
+  const code = renderFinalClarificationGuard(phase.id, { mode: 'off' }, { deterministicOnly: true, codeStep: true });
+  assert.match(code, /is a departure, recorded with `singularity-flow departure record --kind <kind> --reason <why>`/u);
+  assert.doesNotMatch(code, /upstream-issue raise|## Upstream discrepancies/u);
 });
 
 test('a scope step is asked for scenario and verification tables only when its template or policy has them', () => {

@@ -14,6 +14,7 @@ import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { findingRiskAuthorities, recordFindingRisk, recordFindingRiskRevocation } from '../finding-risk.mjs';
+import { FINDING_KINDS } from '../findings/model.mjs';
 import { repoRoot } from '../git.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
@@ -53,11 +54,13 @@ function namedFinding(findingId, options) {
   if (!/^sha256:[0-9a-f]{64}$/u.test(fingerprint) || `F-${fingerprint.slice(7, 23)}` !== findingId) {
     throw new SingularityFlowError('--fingerprint takes the sha256:... digest the refusal named, and must belong to --finding.', { code: 'FINDING_RISK_INVALID' });
   }
-  const rule = optionString(options, 'rule') ?? null;
-  const tool = optionString(options, 'tool') ?? null;
+  const bounded = (name, maximum) => { const value = optionString(options, name) ?? null; return value == null ? null : value.slice(0, maximum); };
+  const rule = bounded('rule', 256);
+  const tool = bounded('tool', 128);
+  const kind = bounded('kind', 32);
   if (!tool) throw new SingularityFlowError('Name the tool the refusal gave with --tool, beside --fingerprint.', { code: 'FINDING_RISK_INVALID' });
-  return { id: findingId, fingerprint, rule: rule === 'none' ? null : rule, tool, toolVersion: optionString(options, 'tool-version') ?? null,
-    kind: optionString(options, 'kind') ?? null };
+  if (kind && !FINDING_KINDS.includes(kind)) throw new SingularityFlowError(`--kind is one of ${FINDING_KINDS.join(', ')}.`, { code: 'FINDING_RISK_INVALID' });
+  return { id: findingId, fingerprint, rule: rule === 'none' ? null : rule, tool, toolVersion: bounded('tool-version', 64), kind };
 }
 
 /**

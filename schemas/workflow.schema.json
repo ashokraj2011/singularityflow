@@ -931,6 +931,36 @@
         "additionalProperties": false
       }
     },
+    "findingRisks": {
+      "description": "Append-only acceptances by a person of one lint, static-analysis or security finding a code step keeps, or of a scanner that cannot run under enforce, and their revocations [CQF:REQ-047]. Each binds the finding's fingerprint, rule, tool and tool version until it expires (at most 90 days) or is revoked. A security finding is accepted by the workflow's security reviewers when it names them, otherwise by the step's approvers.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
+          "id": { "type": "string", "pattern": "^FRK-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^FRK-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "findingId": { "type": ["string", "null"], "pattern": "^F-[0-9a-f]{16}$" },
+          "fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "rule": { "type": ["string", "null"], "maxLength": 256 },
+          "tool": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "toolVersion": { "type": ["string", "null"], "maxLength": 64 },
+          "file": { "type": "string" },
+          "severity": { "enum": ["blocker", "critical", "high", "medium", "low", "info"] },
+          "kind": { "enum": ["bug", "vulnerability", "hotspot", "code-smell", "complexity", "duplication", "dependency", "end-of-life"] },
+          "security": { "type": "boolean" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "evidenceReuses": {
       "description": "Append-only decisions by the approvers of a step that a passed, structured test attempt an earlier step of the Story recorded stands for this step, and their revocations. A decision binds the attempt ID, the digest of its record, its source commit and the application source tree digest it ran on; it applies only while the current tree matches that digest. The reusing step is never recorded as having run the tests.",
       "type": "array",

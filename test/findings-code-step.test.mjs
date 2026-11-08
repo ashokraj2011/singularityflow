@@ -186,6 +186,11 @@ test('under enforce the spent loop holds the step for a person, who accepts the 
   const decide = (...extra) => story.run(process.execPath, [CLI, '--no-model', 'decision', 'finding-risk', WORK, '--phase', 'implementation', '--finding', finding.id, ...extra], { allowFailure: true });
   assert.match(decide('--reason', 'too short', '--expires', expires).stderr, /20 to 1000 characters/u);
   assert.match(decide('--reason', 'The nested branches mirror the pricing table.', '--expires', '2099-01-01').stderr, /at most 90 days ahead/u);
+  // On another checkout the refusal's own binding names the finding; it must be this finding's.
+  assert.match(decide('--fingerprint', `sha256:${'0'.repeat(64)}`, '--tool', 'eslint', '--reason', 'The nested branches mirror the pricing table.', '--expires', expires).stderr,
+    /must belong to --finding/u);
+  assert.match(decide('--fingerprint', finding.fingerprint, '--tool', 'eslint', '--kind', 'harmless', '--reason', 'The nested branches mirror the pricing table.', '--expires', expires).stderr,
+    /--kind is one of/u);
   const accepted = decide('--reason', 'The nested branches mirror the pricing table.', '--expires', expires);
   assert.equal(accepted.status, 0, accepted.stderr);
   const [decision] = (await story.workflow()).findingRisks;

@@ -228,8 +228,9 @@ export function rangeLines(text) {
 }
 
 const underRoots = (relative, roots) => !roots?.length || roots.some((root) => root === '.' || relative === root || relative.startsWith(`${root.replace(/\/$/u, '')}/`));
-const isSourceFile = (relative) => Boolean(documentationLanguage(relative)) && !isTestAutomationPath(relative)
-  && !relative.startsWith('singularity/') && !relative.startsWith('.sflow/');
+// Tests are not the code they test, nor are SFlow's own records, though a report (Node 22's) may name them.
+const isCodeUnderTest = (relative) => !isTestAutomationPath(relative) && !relative.startsWith('singularity/') && !relative.startsWith('.sflow/');
+const isSourceFile = (relative) => Boolean(documentationLanguage(relative)) && isCodeUnderTest(relative);
 
 /**
  * The Story's changed lines in `codeRoot` since `base` that a report measured: per file, the changed
@@ -241,7 +242,7 @@ async function changedLineMeasure(index, { codeRoot, base, affectedRoots }) {
   const changed = changedLinesFromPatch(patch);
   // A new file counts whole; only source or a file the report names is read, so an untracked build folder costs nothing.
   for (const relative of untracked.slice(0, COVERAGE_LIMITS.files * 10)) {
-    if (changed.has(relative) || !underRoots(relative, affectedRoots) || !(isSourceFile(relative) || index(relative))) continue;
+    if (changed.has(relative) || !underRoots(relative, affectedRoots) || !isCodeUnderTest(relative) || !(isSourceFile(relative) || index(relative))) continue;
     try {
       const bytes = await readFile(path.join(codeRoot, ...relative.split('/')));
       if (bytes.length > COVERAGE_LIMITS.sourceBytes || bytes.includes(0)) continue;
@@ -251,7 +252,7 @@ async function changedLineMeasure(index, { codeRoot, base, affectedRoots }) {
   }
   const files = [];
   for (const [relative, lines] of [...changed.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    if (!lines.size || !underRoots(relative, affectedRoots)) continue;
+    if (!lines.size || !underRoots(relative, affectedRoots) || !isCodeUnderTest(relative)) continue;
     const measured = index(relative);
     if (!measured) {
       if (isSourceFile(relative)) files.push({ path: relative, inReport: false, executable: 0, covered: 0, coveredLines: '', uncoveredLines: '' });
@@ -285,6 +286,9 @@ export async function capturedCoverage(executionRoot, before, { startedAt = null
     const same = candidate.before && candidate.before.mtimeMs === now.mtimeMs && candidate.before.size === now.size && candidate.before.ino === now.ino;
     if (same || (Number.isFinite(startMs) && now.mtimeMs + 1000 < startMs)) { stale.push(sourcePath); continue; }
     const notMeasured = (reason) => ({ status: 'not-measured', format: candidate.format, sourcePath, reason });
+    // Read only inside the checkout it ran in: a folder linked elsewhere is never read into the Story.
+    const [real, checkout] = await Promise.all([realpath(absolute).catch(() => null), realpath(codeRoot ?? executionRoot).catch(() => null)]);
+    if (!real || !checkout || !real.startsWith(`${checkout}${path.sep}`)) return notMeasured(`${sourcePath} is outside the checkout the command ran in`);
     if (now.size > COVERAGE_LIMITS.reportBytes) return notMeasured(`${sourcePath} is larger than ${COVERAGE_LIMITS.reportBytes / 1024 / 1024} MiB`);
     try {
       const contents = await readFile(absolute);

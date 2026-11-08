@@ -51,7 +51,7 @@ async function repository(t) {
 async function nodeCoverageRun(root) {
   await mkdir(path.join(root, 'coverage'), { recursive: true });
   const result = spawnSync(process.execPath, ['--test', '--experimental-test-coverage', '--test-reporter=lcov', '--test-reporter-destination=coverage/lcov.info',
-    '--test-reporter=tap', '--test-reporter-destination=stdout', 'test/'], { cwd: root, env: GIT_ENV, encoding: 'utf8' });
+    '--test-reporter=tap', '--test-reporter-destination=stdout', 'test/price.test.mjs'], { cwd: root, env: GIT_ENV, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
@@ -147,6 +147,13 @@ test("a real run's lcov is read for the Story's changed lines, and a report the 
   // A changed source file no test loaded is named; the test file and the ignored report are not changed source.
   assert.deepEqual(files['src/unused.mjs'], { path: 'src/unused.mjs', inReport: false, executable: 0, covered: 0, coveredLines: '', uncoveredLines: '' });
   assert.equal(files['test/price.test.mjs'], undefined);
+  // A report that names a test file (Node 22's does) never counts it as changed code.
+  const named = await capturedCoverage(root, await coverageReportsBefore(root, { kind: 'test', argv: ['x'], coverage: { format: 'lcov', path: 'coverage/named.info' } }), { codeRoot: root, base, affectedRoots: ['.'] }) ?? null;
+  assert.equal(named, null);
+  const namedBefore = await coverageReportsBefore(root, { kind: 'test', argv: ['x'], coverage: { format: 'lcov', path: 'coverage/named.info' } });
+  await writeFile(path.join(root, 'coverage/named.info'), 'TN:\nSF:test/price.test.mjs\nDA:1,1\nDA:4,1\nend_of_record\nSF:src/price.mjs\nDA:5,1\nend_of_record\n');
+  const testNamed = await capturedCoverage(root, namedBefore, { codeRoot: root, base, affectedRoots: ['.'] });
+  assert.deepEqual(testNamed.changed.files.map((file) => file.path), ['src/price.mjs', 'src/unused.mjs']);
   assert.equal(captured.changed.base, base);
 });
 
@@ -216,4 +223,30 @@ test("a node --test run whose one reporter writes lcov to a file still reports T
   assert.equal((await nodeTestReporterEnvironment({}, root, { argv: argv('--test-reporter=tap', '--test-reporter-destination=stdout') })).SINGULARITY_FLOW_NODE_TEST_TAP, '0');
   assert.equal((await nodeTestReporterEnvironment({}, root, { argv: argv('--test-reporter', 'lcov', '--test-reporter-destination', 'stdout') })).SINGULARITY_FLOW_NODE_TEST_TAP, '0');
   assert.equal((await nodeTestReporterEnvironment({}, root, { argv: argv() })).SINGULARITY_FLOW_NODE_TEST_TAP, '1');
+});
+
+test('a coverage report through a folder linked outside the checkout is never read', async (t) => {
+  const { root, base } = await repository(t);
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-coverage-outside-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const { symlink } = await import('node:fs/promises');
+  await symlink(outside, path.join(root, 'coverage'));
+  const command = { kind: 'test', argv: ['node', '--test'], workingDirectory: '.', affectedRoots: ['.'] };
+  const before = await coverageReportsBefore(root, command);
+  await writeFile(path.join(outside, 'lcov.info'), 'TN:\nSF:src/price.mjs\nDA:1,1\nend_of_record\n');
+  const captured = await capturedCoverage(root, before, { startedAt: new Date(Date.now() - 5_000).toISOString(), codeRoot: root, base, affectedRoots: ['.'] });
+  assert.deepEqual(captured, { status: 'not-measured', format: 'lcov', sourcePath: 'coverage/lcov.info', reason: 'coverage/lcov.info is outside the checkout the command ran in' });
+});
+
+test("a reused run's coverage report is kept again for its new step, or kept as what it said once its bytes are gone", async (t) => {
+  const { root } = await repository(t);
+  const { keptCoverage, reusedCoverage } = await import('../src/verification/coverage-reports.mjs');
+  const staging = path.join(root, '.git', 'singularity-flow', 'test-attempts', 'COV-1');
+  const contents = Buffer.from('TN:\nSF:src/price.mjs\nDA:1,1\nend_of_record\n');
+  const { createHash } = await import('node:crypto');
+  const digest = createHash('sha256').update(contents).digest('hex');
+  const kept = await keptCoverage(staging, 'singularity/work-items/COV-1', { status: 'measured', format: 'lcov', sourcePath: 'coverage/lcov.info', contents, sha256: digest, bytes: contents.length });
+  assert.deepEqual(await reusedCoverage(root, staging, kept), kept);
+  await rm(path.join(staging, 'raw', digest));
+  assert.deepEqual(await reusedCoverage(root, staging, kept), { ...kept, report: null });
 });

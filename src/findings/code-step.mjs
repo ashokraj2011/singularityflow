@@ -215,7 +215,8 @@ export function countedFindings(workflow, phase, outcome, { at = new Date().toIS
 /**
  * The new-code dependency findings, apart from the loop: a vulnerable package is replaced or accepted,
  * never patched in the code [CQF:REQ-050]. At a severity the command's gate names (critical and high
- * by default) one is `held` until fixed or accepted by a person; below it, `warned`.
+ * by default) one is `held`: the step's approval waits until it is fixed or a person accepts it
+ * (src/findings/dependency-hold.mjs) [CQF:REQ-052]; below it, `warned`.
  */
 export function newDependencyFindings(workflow, phase, outcome, { at = new Date().toISOString() } = {}) {
   const held = [];
@@ -296,7 +297,7 @@ function warnDependencies(phase, outcome, dependencies, { at }) {
   }
   if (dependencies.held.length) {
     console.warn(`Warning: ${dependencies.held.length} known vulnerabilit${dependencies.held.length === 1 ? 'y' : 'ies'} in packages this Story added or upgraded: ${packageWords(dependencies.held)}. `
-      + `They are recorded for ${phase.id}'s approvers.`);
+      + `${phase.id} goes ahead, and its approval waits until each is upgraded to a fixed version or a person accepts it with decision finding-risk [CQF:REQ-052].`);
   }
   if (dependencies.warned.length) console.warn(`Warning: lower-severity advisories in packages this Story added or upgraded: ${packageWords(dependencies.warned)}; they block nothing.`);
 }

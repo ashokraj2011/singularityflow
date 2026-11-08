@@ -230,7 +230,7 @@ test('in the publish check an audit runs only on a changed manifest, and its fin
   assert.equal(evidence.commands[0].database.live, true);
   assert.equal(evidence.commands[0].database.stale, false);
   const summary = publishedFindingsSummary(evidence);
-  assert.match(summary.words, /^3 known vulnerabilities in packages this Story added or upgraded are recorded for the step's approvers \(minimist@1\.2\.5 GHSA-xvch-5gv4-984h; lodash@4\.17\.20 GHSA-/u);
+  assert.match(summary.words, /^3 known vulnerabilities in packages this Story added or upgraded hold the step's approval until upgraded or accepted by a person \(minimist@1\.2\.5 GHSA-xvch-5gv4-984h; lodash@4\.17\.20 GHSA-/u);
   assert.deepEqual(summary.held.map((finding) => finding.fixedVersion), ['1.2.8', '4.18.1', '4.18.1']);
 
   // A database more than a week old informs.

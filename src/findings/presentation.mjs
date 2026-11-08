@@ -21,7 +21,7 @@ export function publishedFindingsSummary(evidence) {
   // A vulnerable package this Story added or upgraded is a person's, never the loop's [CQF:REQ-050].
   if (held.length) {
     parts.push(`${evidence.counts?.dependenciesHeld ?? held.length} known vulnerabilit${held.length === 1 ? 'y' : 'ies'} in packages this Story added or upgraded `
-      + `${held.length === 1 ? 'is' : 'are'} recorded for the step's approvers (${held.slice(0, 3).map((finding) => `${finding.package}${finding.installedVersion ? `@${finding.installedVersion}` : ''} ${finding.rule ?? ''}`.trim()).join('; ')})`);
+      + `${held.length === 1 ? 'holds' : 'hold'} the step's approval until upgraded or accepted by a person (${held.slice(0, 3).map((finding) => `${finding.package}${finding.installedVersion ? `@${finding.installedVersion}` : ''} ${finding.rule ?? ''}`.trim()).join('; ')})`);
   }
   if (stale.length) parts.push(`the advisory database of ${stale.join(', ')} is more than 7 days old`);
   if (remaining.length) {

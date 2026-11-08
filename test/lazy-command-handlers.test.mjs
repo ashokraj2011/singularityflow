@@ -369,7 +369,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // gateway bundle, which it had grown by 28 modules (state.mjs +168).
     // 9,562,800 (measured 9,562,771, commands/phase-lifecycle.mjs): the dependency audits' readers and a report the tool prints
     // (external-command-policy.mjs +1564, state.mjs +375) [CQF:REQ-050]. The readers and manifest comparison stay lazy (findings/).
-    assert.ok(closure.bytes <= 9_562_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,563,550 (measured 9,563,521, commands/phase-lifecycle.mjs): the approval waits on a vulnerable package the Story added
+    // (state.mjs +750) [CQF:REQ-052]. The hold loads from the CLI source only when a gate recorded one; no new eager file.
+    assert.ok(closure.bytes <= 9_563_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

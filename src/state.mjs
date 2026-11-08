@@ -5041,6 +5041,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
 
 // Kept out of the long-lived VS Code bundles like the environment bindings: loaded from the CLI source when a step has a scanner.
 const findingsLoop = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'code-step.mjs')).href);
+// The same for the approval's hold on a vulnerable new package, loaded only when a gate recorded one [CQF:REQ-052].
+const dependencyHold = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'dependency-hold.mjs')).href);
 
 /** Whether a step has a lint, static-analysis or security command, or reads CodeQL: only then is the findings loop loaded. */
 function findingsLoopApplies(workflow, phase) {
@@ -6866,6 +6868,12 @@ export async function evaluateApproval(root, config, workflow, {
         approvalQualityRisk = coverage?.acceptedRisk ?? null;
       }
     }, { needs: ['source-binding', 'test-risk', 'validation'] });
+    await stage('dependency-vulnerabilities', async () => {
+      // A critical or high vulnerability in a package the Story added waits for a fix or a person's acceptance;
+      // publish and submit went ahead with it recorded [CQF:REQ-052].
+      const findings = phase.deliveryEvidence?.submittedFindings ?? phase.deliveryEvidence?.qualityFindings;
+      if (findings?.dependencies?.held?.length) (await dependencyHold()).assertDependencyVulnerabilitiesDecided(workflow, phase, { at: nowIso() });
+    });
     await stage('conformance-gaps', async () => {
       if (phase.requiredArtifact?.kind === 'conformance-report') {
         // An honest partial or missing verdict published and was submitted as written; approval needs a

@@ -658,6 +658,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   PHASE_VALIDATION_FAILED: 'author-repairs',
   CODE_DELIVERY_VALIDATION_REQUIRED: 'author-repairs',
   CODE_DELIVERY_VALIDATION_STALE: 'author-repairs',
+  // A vulnerable package the Story added: upgraded by its author, or accepted by whoever decision 10 names [CQF:REQ-052].
+  DEPENDENCY_VULNERABILITY_HELD: 'someone-decides',
   SPEC_COVERAGE_INCOMPLETE: 'author-repairs',
   CONFORMANCE_BLOCKING_VERDICTS: 'someone-decides',
   STORY_COMPLETION_REFUSED: 'someone-decides',
@@ -769,6 +771,10 @@ function refusalParty(error, workflow, phase) {
     return groups.length ? { groups: [...groups], riskReview: true } : null;
   }
   if (code === 'PHASE_APPEAL_REVIEW_REQUIRED') return { plan: true };
+  // Decision 10: the workflow's security reviewers when it names them, else the step's approvers.
+  if (code === 'DEPENDENCY_VULNERABILITY_HELD') {
+    return (details.authorities ?? []).includes('security-reviewers') ? { groups: ['security-reviewers'], securityReview: true } : { steps: [details.phase ?? phase.id] };
+  }
   // An application review is taken by its step's approvers [application-review.mjs reviewAuthority].
   if (code.startsWith('ARA_') || code === 'PSS_NOT_AN_APPROVER') return { steps: [phase.id] };
   return null;
@@ -798,6 +804,7 @@ export function partyWords(party, workflow) {
   if (party.kind === 'approvers') {
     if (party.plan || party.planRoute) return 'An approver of the plan decides';
     if (party.riskReview) return 'A risk reviewer of this Story decides';
+    if (party.securityReview) return 'A security reviewer of this Story decides';
     const steps = clauseList((party.steps ?? []).map((id) => workflow.phases?.[id]?.label ?? id));
     if (party.barred === 'author') return `An approver of ${steps} other than its author decides`;
     return `${party.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
@@ -831,6 +838,8 @@ export function approvalHold(error, workflow, phase) {
     clearedBy,
     ...(route ? { action: { ...route, ...(skill ? { skill } : {}) } } : {}),
     ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
+    // Each held package with its advisory, fixed version, who may accept it and their command [CQF:REQ-052].
+    ...(error.code === 'DEPENDENCY_VULNERABILITY_HELD' && error.details?.vulnerabilities?.length ? { vulnerabilities: error.details.vulnerabilities } : {}),
     // Only when these paths are all that holds it: then each is a choice, not a repair.
     ...(owner === 'someone-decides' && error.details?.planRows?.length && error.details?.coverage?.unclaimedChangedPaths?.length
       ? { unclaimedPaths: error.details.coverage.unclaimedChangedPaths } : {})

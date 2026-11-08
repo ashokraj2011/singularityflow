@@ -61,11 +61,13 @@ function integerValue(value, minimum, maximum, label) {
 
 export const STATIC_ANALYSIS_MODES = Object.freeze(['warn', 'enforce', 'off']);
 
+// `codeql: github` reads the Story branch's open CodeQL alerts from GitHub code scanning at submit [CQF:REQ-049].
 function staticAnalysisPolicy(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => key !== 'mode')) {
-    throw new SingularityFlowError('codeDelivery.staticAnalysis must be { mode: warn | enforce | off }.');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => !['mode', 'codeql'].includes(key))) {
+    throw new SingularityFlowError('codeDelivery.staticAnalysis must be { mode: warn | enforce | off, codeql?: github | off }.');
   }
-  return { mode: enumValue(value.mode ?? 'warn', STATIC_ANALYSIS_MODES, 'codeDelivery.staticAnalysis.mode') };
+  return { mode: enumValue(value.mode ?? 'warn', STATIC_ANALYSIS_MODES, 'codeDelivery.staticAnalysis.mode'),
+    ...(value.codeql === undefined ? {} : { codeql: enumValue(value.codeql, ['github', 'off'], 'codeDelivery.staticAnalysis.codeql') }) };
 }
 
 /**

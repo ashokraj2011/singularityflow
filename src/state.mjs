@@ -5646,7 +5646,8 @@ async function submitPhaseTransition(root, config, workflow, {
       purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null,
       delivery: codeDeliveryRequired ? phase.deliveryEvidence : null })
   }) : [];
-  if (findingSplit?.findings.length) {
+  // CodeQL's alerts are read from GitHub at submit even when the step runs no scanner itself [CQF:REQ-049].
+  if (findingSplit?.findings.length || (findingSplit && workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github')) {
     const submitted = await (await import('./findings/code-step.mjs')).submitCheckFindings(root, config, workflow, phase, findingSplit.findings,
       findingsKernel(config, workflow, phase, { generation: phase.generation }));
     phase.checks.push(...submitted.checks);

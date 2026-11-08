@@ -91,7 +91,10 @@
         "staticAnalysis": {
           "description": "Lint, static-analysis and security findings in the code step [CQF:REQ-046]. warn (the default) shows new-code findings and returns them to the code step for at most 3 attempts, then publishes; enforce holds the step for a person when they remain; off runs none of it in the loop. A missing scanner blocks nothing under warn. An engine older than this key ignores it.",
           "type": "object",
-          "properties": { "mode": { "enum": ["warn", "enforce", "off"], "default": "warn" } },
+          "properties": {
+            "mode": { "enum": ["warn", "enforce", "off"], "default": "warn" },
+            "codeql": { "description": "github reads the Story branch's open CodeQL alerts from GitHub code scanning at submit, through gh's own sign-in [CQF:REQ-049]. Before CodeQL has analysed the branch it says so and blocks nothing.", "enum": ["github", "off"], "default": "off" }
+          },
           "additionalProperties": false
         }
       },

@@ -63,6 +63,8 @@ test('codeDelivery.staticAnalysis is warn unless set; a capability may only make
   assert.deepEqual(normalizeCodeDeliveryPolicy({ staticAnalysis: {} }).staticAnalysis, { mode: 'warn' });
   assert.throws(() => normalizeCodeDeliveryPolicy({ staticAnalysis: { mode: 'strict' } }), /staticAnalysis\.mode must be warn, enforce, off/u);
   assert.throws(() => normalizeCodeDeliveryPolicy({ staticAnalysis: { mode: 'warn', other: true } }), /staticAnalysis must be/u);
+  assert.deepEqual(normalizeCodeDeliveryPolicy({ staticAnalysis: { codeql: 'github' } }).staticAnalysis, { mode: 'warn', codeql: 'github' });
+  assert.throws(() => normalizeCodeDeliveryPolicy({ staticAnalysis: { codeql: 'local' } }), /staticAnalysis\.codeql must be github, off/u);
   const story = (mode, capability) => ({ resolution: { codeDelivery: mode ? { staticAnalysis: { mode } } : {},
     capability: capability ? { policy: { staticAnalysis: capability } } : null } });
   assert.equal(staticAnalysisMode(story(null)), 'warn');

@@ -321,6 +321,7 @@ export async function submitCheckFindings(root, config, workflow, phase, command
   const normalized = commands.map((command, index) => normalizeExternalCommand(command, index));
   const loop = normalized.filter((command) => !command.sonarqube);
   const servers = normalized.filter((command) => command.sonarqube);
+  const codeql = workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github';
   const testInputSha256 = await kernel.testInputTreeHash(root, config, workflow);
   const candidate = { commit: head(root), treeSha256: await kernel.sourceTreeHash(root, config, workflow), ...(testInputSha256 ? { testInputSha256 } : {}) };
   if (mode === 'off') {
@@ -330,7 +331,21 @@ export async function submitCheckFindings(root, config, workflow, phase, command
   const at = new Date().toISOString();
   const outcome = loop.length ? await runFindingCommands(root, config, workflow, phase, loop, { kernel, purpose: 'submission', deliveryEvidence: phase.deliveryEvidence })
     : { results: [], suppressions: [], candidate };
-  for (const command of servers) outcome.results.push({ command, status: 'unavailable', reason: 'this build does not run a SonarQube server analysis yet', findings: [] });
+  const branch = workflow.workItem?.branch ?? null;
+  const server = servers.length ? await (await import('./servers.mjs')).submitServerAnalyses(root, config, workflow, phase, servers,
+    { kernel, candidate, branch }) : null;
+  const changed = server || codeql ? storyChangedLines(root, workflow, phase.deliveryEvidence?.changeSet) : null;
+  for (const result of server?.results ?? []) outcome.results.push({ ...result, findings: markNewCode(result.findings, changed) });
+  const codeScanning = codeql ? await (await import('./servers.mjs')).codeScanningRead(root, config, workflow,
+    { branch, commit: candidate.commit }) : null;
+  if (codeScanning) {
+    if (codeScanning.status !== 'read') console.warn(`Warning: ${codeScanning.reason}; it blocks nothing.`);
+    else if (!codeScanning.current) console.warn(`Warning: CodeQL's latest analysis of this branch is of ${String(codeScanning.analysedCommit).slice(0, 12)}, not the submitted commit.`);
+    // Alerts count as any finding on changed lines; the commit they were analysed on is shown beside them.
+    if (codeScanning.findings.length) outcome.results.push({ command: { id: 'codeql', kind: 'security', requirement: 'advisory', result: { adapter: 'github-code-scanning' } },
+      identity: { tool: 'CodeQL', toolVersion: codeScanning.toolVersion, rulesetSha256: null }, status: 'read', remote: true,
+      findings: markNewCode(codeScanning.findings, changed) });
+  }
   const { counted, accepted } = countedFindings(workflow, phase, outcome, { at });
   const unavailable = unavailableScanners(workflow, phase, outcome, { at });
   warnUnavailable(mode, unavailable);
@@ -341,8 +356,13 @@ export async function submitCheckFindings(root, config, workflow, phase, command
       more: Math.max(0, counted.length - RETURNED_FINDINGS), unavailable: [], escalated: counted.map((finding) => finding.fingerprint) }, counted, { attempt: null, operation: 'submit' });
   }
   if (counted.length) console.warn(`Warning: ${counted.length} finding(s) on changed lines are recorded for the step's approvers: ${findingWords(counted)}.`);
-  const checks = outcome.results.map((result) => findingCheck(result, { mode, candidate, counted,
+  // GitHub's alerts are a read, not a command of the step: they are evidence, never a check of their own.
+  const checks = outcome.results.filter((result) => !result.remote).map((result) => findingCheck(result, { mode, candidate, counted,
     status: result.status === 'unavailable' ? 'unavailable' : 'passed', reason: result.reason ?? null }));
-  const evidence = findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: counted.length ? 'warned' : 'passed' });
+  const evidence = { ...findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: counted.length ? 'warned' : 'passed' }),
+    ...(server?.servers?.length ? { servers: server.servers } : {}),
+    ...(codeScanning ? { codeScanning: { status: codeScanning.status, ...(codeScanning.reason ? { reason: codeScanning.reason } : {}),
+      repository: codeScanning.repository ?? null, analysedCommit: codeScanning.analysedCommit ?? null, submittedCommit: codeScanning.submittedCommit ?? candidate.commit,
+      current: codeScanning.current ?? false, alerts: codeScanning.findings.length } } : {}) };
   return { checks, evidence };
 }

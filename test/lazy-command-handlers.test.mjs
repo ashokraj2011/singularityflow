@@ -358,7 +358,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // The loop, its readers and its records stay lazy (findings/code-step.mjs); no new eager file.
     // 9,559,100 (measured 9,559,071, commands/phase-lifecycle.mjs): decision finding-risk is a person's step (person-step-catalog.mjs +454,
     // narration/messages.mjs +253, command-registry.mjs +16). The command itself stays lazy; no new eager file.
-    assert.ok(closure.bytes <= 9_559_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,559,600 (measured 9,559,566, commands/phase-lifecycle.mjs): codeDelivery.staticAnalysis.codeql (code-delivery-policy.mjs +294)
+    // and submission reading CodeQL's alerts with no scanner of its own (state.mjs +201). The SonarQube and GitHub reads stay lazy
+    // (findings/servers.mjs); no new eager file.
+    assert.ok(closure.bytes <= 9_559_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -536,7 +539,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
   // 4,165,000 (measured 4,164,950): the same external-command-policy.mjs +5270 and code-delivery-policy.mjs +1205 as start.
   // 4,165,450 (measured 4,165,420): the same person-step-catalog.mjs +454 and command-registry.mjs +16 as start.
-  assert.ok(current.bytes <= 4_165_450, `session current loads ${current.bytes} source bytes`);
+  // 4,165,750 (measured 4,165,714): the same code-delivery-policy.mjs +294 as start.
+  assert.ok(current.bytes <= 4_165_750, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

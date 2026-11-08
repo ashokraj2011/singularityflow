@@ -42,7 +42,7 @@ test('real approved inputs enter the SDK as exact provenance and preserve the na
   assert.equal(f.git('rev-parse','HEAD'),head);
   const captured=path.join(path.dirname(f.root),'inputs.capture.json');
   const response=run(process.execPath,['--experimental-test-module-mocks','--no-warnings','--import',capture,CLI,'--no-model',
-    'inputs','planning','--dry-run','--json'],{cwd:f.root,allowFailure:true,env:{...process.env,NODE_ENV:'test',SINGULARITY_FLOW_BUNDLE:'off',SINGULARITY_FLOW_TEST_ENGINE_CAPTURE:captured}});
+    'inputs','planning','--dry-run','--json'],{cwd:f.root,allowFailure:true,env:{...process.env,NODE_ENV:'test',SINGULARITY_FLOW_BUNDLE:'off',SINGULARITY_FLOW_TEST_ENGINE_CAPTURE:captured,SINGULARITY_FLOW_TEST_ENGINE_CAPTURE_OPERATION:'phase.inputs'}});
   assert.equal(response.status,0,response.stdout+'\n'+response.stderr);
   const actual=JSON.parse(response.stdout),receipt=JSON.parse(await readFile(captured,'utf8'));
   assert.equal(receipt.operation,'phase.inputs');assert.deepEqual(receipt.result,preview);
@@ -54,7 +54,7 @@ test('real approved inputs enter the SDK as exact provenance and preserve the na
 test('source CLI preparation projects its actual SDK snapshot and exact newly issued artifact paths',async t=>{
   const id='ENGINE-INPUTS-CLI',f=await approvedSpecificationStory(t,id),captured=path.join(path.dirname(f.root),'inputs.capture.json');
   const response=run(process.execPath,['--experimental-test-module-mocks','--no-warnings','--import',capture,CLI,'--no-model','inputs','planning','--json'],
-    {cwd:f.root,allowFailure:true,env:{...process.env,NODE_ENV:'test',SINGULARITY_FLOW_BUNDLE:'off',SINGULARITY_FLOW_TEST_ENGINE_CAPTURE:captured}});
+    {cwd:f.root,allowFailure:true,env:{...process.env,NODE_ENV:'test',SINGULARITY_FLOW_BUNDLE:'off',SINGULARITY_FLOW_TEST_ENGINE_CAPTURE:captured,SINGULARITY_FLOW_TEST_ENGINE_CAPTURE_OPERATION:'phase.inputs'}});
   assert.equal(response.status,0,response.stdout+'\n'+response.stderr);
   const actual=JSON.parse(response.stdout),receipt=JSON.parse(await readFile(captured,'utf8')).result;
   assert.equal(receipt.operation,'phase.inputs');assert.equal(actual.artifact.sha256,receipt.manifest.artifact.sha256);

@@ -7,6 +7,10 @@ import * as sdk from '../../src/engine-sdk/index.mjs';
 if(process.env.NODE_ENV!=='test' || !process.env.SINGULARITY_FLOW_TEST_ENGINE_CAPTURE) {
   throw new Error('SDK capture requires an isolated test destination.');
 }
+const target=process.env.SINGULARITY_FLOW_TEST_ENGINE_CAPTURE_OPERATION??null;
+if(target!==null&&!sdk.ENGINE_OPERATIONS.some(operation=>operation.id===target)) {
+  throw new Error('SDK capture requires a registered target operation.');
+}
 function observed(factory) {
   return options => {
     let bound=options;
@@ -21,7 +25,7 @@ function observed(factory) {
     const engine=factory(bound);
     return Object.freeze({...engine,async run(operation,inputs,options){
       const result=await engine.run(operation,inputs,options);
-      await writeFile(process.env.SINGULARITY_FLOW_TEST_ENGINE_CAPTURE,JSON.stringify({operation,result})+'\n',{mode:0o600});
+      if(target===null||target===operation)await writeFile(process.env.SINGULARITY_FLOW_TEST_ENGINE_CAPTURE,JSON.stringify({operation,result})+'\n',{mode:0o600});
       return result;
     }});
   };

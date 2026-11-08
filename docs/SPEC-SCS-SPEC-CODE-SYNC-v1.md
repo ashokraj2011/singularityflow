@@ -41,6 +41,8 @@ Raised while M2 and M3 were built. The owner took every recommended answer.
    as it is.*
 10. **A decided convergence answer can be changed on the decisions list** (`[SCS:REQ-034]`), so the
     Adjudicate page is no longer the only place to change one before it is retired. *Decided: yes.*
+11. **A file the approved plan settled can be overruled on the decisions list** (`[SCS:REQ-035]`), as
+    the Adjudicate page's "Overrule the plan" does today. *Decided: yes.*
 
 ## What exists today (main 48668471f)
 
@@ -163,6 +165,10 @@ The list never writes over a draft someone changed.
   convergence step is open (owner decision 10). It is offered beside the list, holds nothing and is
   never counted as open. Its approvers choose again with a reason, through the same
   `story adjudicate --answers --expect` write, and the record keeps the answer it replaces and whose it was.
+- `[SCS:REQ-035]` A changed file the approved plan already settled is offered beside the list too, while
+  the convergence step is open (owner decision 11). It says what in the plan settled it, holds nothing,
+  and nobody is asked unless they disagree. Its approvers may overrule the plan with a disposition and a
+  reason, through the same write, as the Adjudicate page's "Overrule the plan" does.
 
 ## M4 What the person asked for `[SCS:REQ-040]`
 

@@ -11,7 +11,7 @@
  * before doing any work, and it follows the step's own contract instead of assumptions about the
  * step it was first written for. The audit enforces both on every listed body.
  */
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError } from './foundation/failures.mjs';
 
 /** A direct skill id as a step names it: `sf-design`, never `/sf-design` or `sflow-design`. */
 export const AUTHORING_SKILL_ID = /^sf-[a-z0-9]+(?:-[a-z0-9]+)*$/;

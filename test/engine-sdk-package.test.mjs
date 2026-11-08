@@ -231,6 +231,54 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay, { ...first, replayed: true });
   });
 
+  await t.test('an installed configuration host approves and reopens real content in empty-PATH processes',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';
+      import path from 'node:path';
+      import {readFile,writeFile} from 'node:fs/promises';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceProjectEngine} from '${packageName}/hosts/namespace-project';
+      import {createNamespaceConfigurationEngine,NAMESPACE_CONFIGURATION_HEAD_KEY} from '${packageName}/hosts/namespace-configuration';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1};
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding,create:fresh});
+      const database=new (await import('node:sqlite')).DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding,create:fresh});
+      try {
+        let calls=0;const access={current(){calls++;if(!fresh)throw Error('a retained approval cannot authorize a new effect');
+          return {projectId:scope.projectId,principalId:'human-reviewer',permissions:['project.enroll','configuration.approve'],actorKind:'human'};}};
+        const clock={now(){if(!fresh)throw Error('a retained decision cannot be restamped');return '2026-11-08T00:00:00.000Z';}};
+        let inputs;
+        if(fresh){
+          await createNamespaceProjectEngine({records,content,scope,authority,access,clock}).run('project.enroll',{operationId:'enroll'});
+          const text=async value=>(await content.put(scope,'config',Buffer.from(value))).reference;
+          const body=await text('Apply the verified requirements and retain evidence.\\n');
+          const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',
+            definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md'}},
+              workTypes:{simple:{label:'Simple',phases:['intake']}}},
+            agents:[{id:'analyst',label:'Analyst',phases:['intake'],defaultFor:['intake'],mode:'read-write',body,skills:[],instructions:[]}],
+            skills:[],instructions:[],templates:[{path:'singularity/templates/intake.md',body}],files:[]};
+          const reference=await text(JSON.stringify(packet));
+          inputs={operationId:'approve-configuration',source:reference,expectedRevision:null,confirm:reference.sha256,reason:'Reviewed the complete workflow package.'};
+          await writeFile('configuration-inputs.json',JSON.stringify(inputs));
+        }else inputs=JSON.parse(await readFile('configuration-inputs.json','utf8'));
+        const engine=createNamespaceConfigurationEngine({records,content,scope,authority,access,clock});
+        const result=await engine.run('configuration.approve',inputs);
+        const head=await records.read(scope,'config',NAMESPACE_CONFIGURATION_HEAD_KEY);
+        assert.equal(result.replayed,!fresh);assert.equal(result.revision,head.record.version);assert.equal(result.effects.configurationApproved,true);
+        const compiled=JSON.parse(Buffer.from((await content.read(scope,result.configuration)).data).toString('utf8'));
+        assert.deepEqual(compiled.workTypeIds,['simple']);assert.equal(compiled.definition.agentCatalog[0].id,'analyst');
+        assert.equal(compiled.workflows.simple.phases[0].defaultAgent,'analyst');
+        assert.equal((await content.read(scope,compiled.agents[0].body)).status,'present');
+        if(!fresh)assert.equal(calls,0);
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();}
+    `;
+    const first=JSON.parse(await run('configuration.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('configuration.mjs',source,['replay']));
+    assert.deepEqual(replay,{...first,replayed:true});
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -241,6 +289,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createSqliteContentStore } from '${packageName}/storage/sqlite-content';
       import { createNamespaceReadEngine, namespaceReadRecord } from '${packageName}/hosts/namespace-reader';
       import { createNamespaceProjectEngine } from '${packageName}/hosts/namespace-project';
+      import { createNamespaceConfigurationEngine } from '${packageName}/hosts/namespace-configuration';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
@@ -254,6 +303,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('story.status',{workId:'example'});
       engine.run('story.guide',{workId:'example'});
       engine.run('project.enroll',{operationId:'enroll-1'});
+      const configuration:EngineInputs['configuration.approve']={operationId:'approve-configuration',source:{namespace:'config',sha256:'a'.repeat(64),bytes:1},expectedRevision:null,confirm:'a'.repeat(64),reason:'Reviewed exact content.'};
+      engine.run('configuration.approve',configuration);
+      // @ts-expect-error Exact configuration approval inputs and confirmation are mandatory.
+      engine.run('configuration.approve',{});
+      // @ts-expect-error Source is an immutable content binding, never a laptop path.
+      engine.run('configuration.approve',{...configuration,source:'/another/file'});
+      // @ts-expect-error The trusted application, never operation inputs, supplies reviewer identity.
+      engine.run('configuration.approve',{...configuration,principalId:'administrator'});
       // @ts-expect-error Enrollment requires a stable operation identity.
       engine.run('project.enroll',{});
       // @ts-expect-error Required enrollment inputs cannot be omitted altogether.
@@ -296,8 +353,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       function projectHost(records:NamespaceStore,content:ContentStore){return createNamespaceProjectEngine({records,content,scope:{projectId:'example'},
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'application-owner',permissions:['project.enroll']})},
         clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
+      function configurationHost(records:NamespaceStore,content:ContentStore){return createNamespaceConfigurationEngine({records,content,scope:{projectId:'example'},
+        authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['configuration.approve'],actorKind:'human'})},
+        clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
-      void [head,readHost,projectHost,createSqliteContentStore];
+      void [head,readHost,projectHost,configurationHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],

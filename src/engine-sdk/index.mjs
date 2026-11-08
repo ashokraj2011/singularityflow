@@ -22,7 +22,8 @@ import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phas
 import {workflowAssetSelection,workflowAssetManifest} from '../kernel/workflow-assets.mjs';
 import {phaseInputsAuditRequired,phaseInputsManifest} from '../kernel/phase-inputs.mjs';
 import {workflowNextManifest} from '../kernel/next-plan.mjs';
-import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult} from '../kernel/project-enrollment.mjs';
+import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult,
+  projectConfigurationInput,projectConfigurationBinding,projectConfigurationResult} from '../kernel/project-enrollment.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -143,12 +144,40 @@ const definitions = [
     stages:Object.freeze(['load','inspect']),validate:'phaseReviewInput',execute:'inspectPhaseCheck'},
   { id:'project.enroll',version:1,subject:'project',effect:'project-enrollment',humanDecision:false,
     inputFields:Object.freeze(['operationId']),requiredFields:Object.freeze(['operationId']),port:'projectEnrollment',
-    stages:WRITE_STAGES,validate:'enrollmentInput',execute:'enrollProject' }
+    stages:WRITE_STAGES,validate:'enrollmentInput',execute:'enrollProject' },
+  { id:'configuration.approve',version:1,subject:'configuration',effect:'configuration-approval',humanDecision:true,
+    authority:'configuration.approve',confirmation:'exact-source-sha256',
+    inputFields:Object.freeze(['operationId','source','expectedRevision','confirm','reason']),
+    requiredFields:Object.freeze(['operationId','source','expectedRevision','confirm','reason']),port:'configurationApproval',
+    stages:WRITE_STAGES,validate:'configurationApprovalInput',execute:'approveConfiguration' }
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
+function configurationApprovalInput(value) { return projectConfigurationInput(data(value)); }
+
+async function approveConfiguration(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, { signal }); notCancelled(signal);
+  const binding = data(projectConfigurationBinding(data(context?.binding)));
+  let committed = await port.retained(context, inputs, { signal }); notCancelled(signal);
+  if (committed === null) {
+    try {
+      const prepared = await port.prepare(context, inputs, { signal }); notCancelled(signal);
+      committed = await port.commit(context, prepared, { signal });
+    } catch (cause) {
+      if (!['ENGINE_CONTEXT_CHANGED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code)) throw cause;
+      // A concurrent invocation may have accepted this exact intent. Inspect its immutable
+      // receipt once; never retry a mutation or substitute a newly selected base revision.
+      committed = await port.retained(context, inputs, { signal });
+      if (committed === null) throw cause;
+    }
+  }
+  const facts = data(await port.finish(context, committed, { signal: null }));
+  return data({ schemaVersion: 1, contract: ENGINE_CONTRACT, operation: 'configuration.approve',
+    ...projectConfigurationResult(binding, inputs, facts) });
+}
 
 async function enrollProject(port, inputs, signal) {
   notCancelled(signal);
@@ -1313,7 +1342,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 /** Default SDK composition binds every coordinator to the one data-only registry. */
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
-    enrollmentInput, enrollProject,
+    enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,

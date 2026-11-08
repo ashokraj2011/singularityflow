@@ -9,6 +9,11 @@ import { namespaceLifecycleFixture } from './helpers/namespace-lifecycle-fixture
 
 const wrap = (records, overrides) => ({ descriptor: records.descriptor,
   ...Object.fromEntries(['read','list','transact','inspectOperation','verify'].map(name => [name, records[name].bind(records)])), ...overrides });
+test('project and configuration mutations cannot enter the Story lifecycle writer',async t=>{
+  const f=await namespaceLifecycleFixture(t),snapshot=await f.committer.capture();
+  for(const operation of ['project.enroll','configuration.approve'])await assert.rejects(
+    f.committer.prepare(snapshot,{...f.proposal(snapshot.workflow),operation}),{code:'ENGINE_INPUT_INVALID'});
+});
 for (const backend of ['filesystem','sqlite','application']) {
   test(`${backend}: full lifecycle bytes and immutable operation evidence commit with one conditional head`, async t => {
     const f = await namespaceLifecycleFixture(t, { backend });

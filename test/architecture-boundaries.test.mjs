@@ -66,7 +66,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',
     'src/engine-storage/namespace-reader.mjs', 'src/engine-storage/namespace-read-contract.mjs',
     'src/engine-storage/namespace-lifecycle-commit.mjs', 'src/engine-storage/namespace-lifecycle-contract.mjs',
-    'src/engine-storage/namespace-project.mjs', 'src/engine-storage/namespace-project-contract.mjs']);
+    'src/engine-storage/namespace-project.mjs', 'src/engine-storage/namespace-project-contract.mjs',
+    'src/engine-storage/namespace-configuration.mjs', 'src/engine-storage/namespace-configuration-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -264,6 +265,34 @@ test('project enrollment owns only explicit namespace ports and cannot select in
     if (file === owner) continue;
     assert.equal((await readFile(path.join(packageRoot, file), 'utf8')).includes('namespace-project.mjs'), false,
       file + ' must not enroll an installed project implicitly');
+  }
+});
+
+test('explicit configuration approval cannot discover or select installed authority',async()=>{
+  const owner='src/engine-storage/namespace-configuration.mjs';
+  const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs',
+    '../engine-compatibility/node-namespace-configuration.mjs','../kernel/namespace-configuration.mjs','../kernel/project-enrollment.mjs',
+    '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/content/contract.mjs',
+    './namespace-lifecycle-contract.mjs','./namespace-configuration-contract.mjs']);
+  const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node)&&(node.expression.kind===ts.SyntaxKind.ImportKeyword
+      ||ts.isIdentifier(node.expression)&&['require','eval','Function'].includes(node.expression.text)),false);
+    if(ts.isIdentifier(node)&&node.text==='process')assert.fail('Approval cannot discover ambient workspace, identity or authority.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
+  const contract='src/engine-storage/namespace-configuration-contract.mjs';
+  const report=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,
+    ...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace')]});
+  assert.deepEqual(report.problems,[]);
+  for(const file of await sourceFiles('src')) {
+    if(file===owner)continue;
+    const source=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    for(const node of source.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.')) {
+      assert.notEqual(path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text)),owner,
+        file+' cannot implicitly activate namespace configuration');
+    }
   }
 });
 
@@ -654,7 +683,7 @@ test('the installed configuration adapter composes one compiler and keeps runtim
       if(bindings&&ts.isNamedImports(bindings)&&bindings.elements.some(binding=>(binding.propertyName??binding.name).text==='createWorkflowConfigurationCompiler'))consumers.push(file);
     }
   }
-  assert.deepEqual(consumers,['src/config.mjs']);
+  assert.deepEqual(consumers,['src/config.mjs','src/kernel/namespace-configuration.mjs']);
   const alias=ts.createSourceFile('phase-overrides.mjs',await readFile(path.join(packageRoot,'src/phase-overrides.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
   assert.ok(alias.statements.every(ts.isExportDeclaration));
   for(const file of ['src/workflow-intent-catalog.mjs','src/workflow-intent-capabilities.mjs']) {

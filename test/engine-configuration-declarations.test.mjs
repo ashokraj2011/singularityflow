@@ -29,13 +29,14 @@ test('every original extracted rule body and constant retains its original defin
     if (ts.isFunctionDeclaration(node)) {
       const entry = Object.entries(baseline.functions).find(([name]) => name.endsWith(':' + node.name.text));
       if (!entry) {
-        assert.equal(node.name.text, 'worldModelStateAuthority', 'additional rules need their own captured baseline');
+        assert.ok(['worldModelStateAuthority','agentMappingProblems'].includes(node.name.text), 'additional rules need their own captured baseline');
         continue;
       }
       assert.equal(digest(printer.printNode(ts.EmitHint.Unspecified, node.body, source)), entry[1].sha256, entry[0]); functions.add(entry[0]);
     }
     if (ts.isVariableStatement(node)) for (const declaration of node.declarationList.declarations) {
       const entry = Object.entries(baseline.constants).find(([name]) => name.endsWith(':' + declaration.name.text));
+      if (!entry && declaration.name.text === 'mappedAgent') continue; // separately captured agent-mapping baseline
       assert.ok(entry, declaration.name.text);
       if (entry[1].literalKeys) {
         const elements = declaration.initializer.arguments[0].elements.map(value => value.text);

@@ -8,19 +8,25 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'hosts/namespace-reader', 'hosts/namespace-project',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal']);
-const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite']);
+const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite', 'node:net']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
   'application-namespace-adapter', 'sqlite-namespace-adapter', 'sqlite-namespace-journal', 'sqlite-native', 'sqlite-content-adapter']);
 
 function allowedSource(relative) {
   return relative.startsWith('packages/engine-sdk/src/') || /^src\/(foundation|kernel|engine-sdk|engine-storage|sda\/(namespace|content))\//u.test(relative)
-    || ['src/records.mjs', 'src/document-identity.mjs'].includes(relative)
+    || ['src/records.mjs', 'src/document-identity.mjs', 'src/authoring-skills.mjs',
+      'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
+      'src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
     || /^src\/sda\/([^/]+)\.mjs$/u.test(relative) && adapterNames.has(path.posix.basename(relative, '.mjs'));
 }
 
 function inputType(operation, field) {
+  if (operation.id === 'configuration.approve') {
+    if (field === 'source') return 'ContentReference';
+    if (['confirm','reason'].includes(field)) return 'string';
+  }
   if (field === 'operationId') return 'string';
   if (['workId', 'phaseId'].includes(field)) return 'string | null';
   if (['fetch', 'compose', 'adoptExisting', 'runChecks', 'confirmEvidence', 'notApplicable', 'open', 'fromArtifact', 'repair', 'dryRun'].includes(field)) return 'boolean | null';
@@ -38,6 +44,7 @@ function inputType(operation, field) {
 export function engineDeclarations() {
   return `// Generated from the executable engine registry. Context-dependent constraints are checked at runtime.
 import type { JsonValue } from './namespace.mjs';
+import type { ContentReference } from './content.mjs';
 export * from './errors.mjs';
 export type { JsonValue } from './namespace.mjs';
 export declare const ENGINE_CONTRACT: ${JSON.stringify(ENGINE_CONTRACT)};

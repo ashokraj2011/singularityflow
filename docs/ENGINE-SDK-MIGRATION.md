@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer and explicit new-project enrollment implemented; production portable lifecycle ports and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment and registered namespace configuration approval implemented; Story creation, production portable lifecycle ports and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -317,6 +317,13 @@ migration and final qualification retain their full scope.
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first
 complete namespace runtime; production lifecycle admission remains required.
+
+[Namespace configuration approval](ENGINE-SDK-CONFIGURATION-APPROVAL.md) adds a real registered
+write after project enrollment. The shared compiler validates canonical configuration and its
+explicit agent/skill/instruction/template closure; the host verifies resource bytes and a fresh
+human reviewer before conditional acceptance. Operation receipts preserve original intent across
+reopen and retry. This establishes configuration for new namespace projects; it does not create a
+Story, migrate an installed authority or complete the headless runtime milestone.
 
 [Explicit project enrollment](NAMESPACE-PROJECT-ENROLLMENT.md) now establishes an authority through
 the registered `project.enroll` operation and real namespace transactions. Its prepared intent,

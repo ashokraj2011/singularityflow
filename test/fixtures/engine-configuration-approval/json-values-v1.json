@@ -1,0 +1,123 @@
+{
+  "baseline": "ec6140ece",
+  "functions": {
+    "exactObject": "4a017136daad85e0af8b1c6cf772a569ff0702c99e4ac7de55f33b952aa6df1b",
+    "encode": "f79e230c2e5de3999f4bb285f8c30ceb268c81c91fcaaa3f98a47b3cc09e0b2d",
+    "namespaceJson": "53f672addd00c7081d9d804e71e1338527b0936b59c9849ce1db478392bb5bce"
+  },
+  "results": [
+    {
+      "name": "normal",
+      "value": {
+        "b": [
+          1,
+          true,
+          null,
+          "é"
+        ],
+        "a": {
+          "n": 0
+        }
+      },
+      "identity": "{\"a\":{\"n\":0},\"b\":[1,true,null,\"é\"]}"
+    },
+    {
+      "name": "dangerous-key",
+      "value": {
+        "2": 2,
+        "10": 10,
+        "__proto__": {
+          "x": 1
+        }
+      },
+      "identity": "{\"10\":10,\"2\":2,\"__proto__\":{\"x\":1}}"
+    },
+    {
+      "name": "undefined",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Namespace data must be finite, acyclic plain JSON.",
+        "code": "SDA_NAMESPACE_INPUT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "nan",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Namespace data must be finite, acyclic plain JSON.",
+        "code": "SDA_NAMESPACE_INPUT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "sparse",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Sparse or extended arrays are not JSON records.",
+        "code": "SDA_NAMESPACE_INPUT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "extended-array",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Sparse or extended arrays are not JSON records.",
+        "code": "SDA_NAMESPACE_INPUT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "cycle",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Namespace data must be finite, acyclic plain JSON.",
+        "code": "SDA_NAMESPACE_INPUT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "getter",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "Namespace JSON cannot contain accessors, symbols or hidden properties.",
+        "code": "SDA_NAMESPACE_INPUT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "utf8-budget",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "JSON exceeds the namespace byte limit.",
+        "code": "SDA_NAMESPACE_LIMIT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "depth",
+      "error": {
+        "name": "SingularityFlowError",
+        "constructor": "SingularityFlowError",
+        "message": "JSON exceeds the namespace contract bounds.",
+        "code": "SDA_NAMESPACE_LIMIT_INVALID",
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "null-prototype",
+      "value": {
+        "x": 1
+      },
+      "identity": "{\"x\":1}"
+    }
+  ]
+}

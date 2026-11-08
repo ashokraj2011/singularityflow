@@ -1,0 +1,199 @@
+{
+  "baseline": "ec6140ece",
+  "sha256": "474d5a06334d9cc3b0ee36314aed590f1496f235ee343d55dc37daed47087206",
+  "cases": [
+    {
+      "agents": [],
+      "phases": [
+        "intake",
+        "review"
+      ],
+      "problems": [
+        {
+          "code": "AGENT_PHASE_UNMAPPED",
+          "phaseId": "intake",
+          "message": "Phase 'intake' has no compatible agent.",
+          "compatible": [],
+          "defaults": []
+        },
+        {
+          "code": "AGENT_PHASE_UNMAPPED",
+          "phaseId": "review",
+          "message": "Phase 'review' has no compatible agent.",
+          "compatible": [],
+          "defaults": []
+        }
+      ]
+    },
+    {
+      "agents": [
+        {
+          "id": "writer",
+          "phases": [],
+          "defaultFor": []
+        }
+      ],
+      "phases": [
+        "intake",
+        "review"
+      ],
+      "problems": [
+        {
+          "code": "AGENT_PHASE_DEFAULT_MISSING",
+          "phaseId": "intake",
+          "message": "Phase 'intake' requires exactly one default agent; found 0.",
+          "compatible": [],
+          "defaults": []
+        },
+        {
+          "code": "AGENT_PHASE_DEFAULT_MISSING",
+          "phaseId": "review",
+          "message": "Phase 'review' requires exactly one default agent; found 0.",
+          "compatible": [],
+          "defaults": []
+        }
+      ]
+    },
+    {
+      "agents": [
+        {
+          "id": "writer",
+          "phases": [
+            "intake"
+          ],
+          "defaultFor": [
+            "intake"
+          ]
+        }
+      ],
+      "phases": [
+        "intake",
+        "review"
+      ],
+      "problems": [
+        {
+          "code": "AGENT_PHASE_UNMAPPED",
+          "phaseId": "review",
+          "message": "Phase 'review' has no compatible agent.",
+          "compatible": [],
+          "defaults": []
+        }
+      ]
+    },
+    {
+      "agents": [
+        {
+          "id": "writer",
+          "phases": [
+            "other"
+          ],
+          "defaultFor": [
+            "intake"
+          ]
+        }
+      ],
+      "phases": [
+        "intake",
+        "review"
+      ],
+      "problems": [
+        {
+          "code": "AGENT_PHASE_UNMAPPED",
+          "phaseId": "intake",
+          "message": "Phase 'intake' has no compatible agent.",
+          "compatible": [],
+          "defaults": []
+        },
+        {
+          "code": "AGENT_PHASE_UNMAPPED",
+          "phaseId": "review",
+          "message": "Phase 'review' has no compatible agent.",
+          "compatible": [],
+          "defaults": []
+        }
+      ]
+    },
+    {
+      "agents": [
+        {
+          "id": "a",
+          "phases": [],
+          "defaultFor": [
+            "intake"
+          ]
+        },
+        {
+          "id": "b",
+          "phases": [],
+          "defaultFor": [
+            "intake"
+          ]
+        }
+      ],
+      "phases": [
+        "intake",
+        "review"
+      ],
+      "problems": [
+        {
+          "code": "AGENT_PHASE_DEFAULT_AMBIGUOUS",
+          "phaseId": "intake",
+          "message": "Phase 'intake' requires exactly one default agent; found 2.",
+          "compatible": [],
+          "defaults": [
+            {
+              "id": "a",
+              "label": "a",
+              "scope": null,
+              "source": null
+            },
+            {
+              "id": "b",
+              "label": "b",
+              "scope": null,
+              "source": null
+            }
+          ]
+        },
+        {
+          "code": "AGENT_PHASE_DEFAULT_MISSING",
+          "phaseId": "review",
+          "message": "Phase 'review' requires exactly one default agent; found 0.",
+          "compatible": [],
+          "defaults": []
+        }
+      ]
+    },
+    {
+      "agents": [
+        {
+          "id": "a",
+          "label": "Author",
+          "scope": "repository",
+          "source": "agents/a.md",
+          "phases": [
+            "intake"
+          ],
+          "defaultFor": [
+            "intake"
+          ]
+        },
+        {
+          "id": "reviewer",
+          "phases": [
+            "review"
+          ],
+          "defaultFor": [
+            "review"
+          ]
+        }
+      ],
+      "phases": [
+        "intake",
+        "review"
+      ],
+      "problems": []
+    }
+  ],
+  "mappedAgentSha256": "05aca2feb1f1d97cbd0a7b2f0795074b12ba36d4ba1a4e89f0c6bf42ab6324e2"
+}

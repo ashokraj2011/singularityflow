@@ -489,3 +489,24 @@ export function worldModelStateAuthority(definition = {}, {
     ?? 'origin';
   return Object.freeze({ branch, remote });
 }
+
+
+// Agent/default selection facts, shared by file and namespace configuration.
+const mappedAgent = (agent) => ({ id: agent.id, label: agent.label ?? agent.id, scope: agent.scope ?? null, source: agent.source ?? null });
+
+export function agentMappingProblems(agents, phaseIds) {
+  const problems = [];
+  for (const phaseId of phaseIds) {
+    const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));
+    const defaults = compatible.filter((agent) => agent.defaultFor.includes(phaseId));
+    if (compatible.length && defaults.length === 1) continue;
+    const code = !compatible.length ? 'AGENT_PHASE_UNMAPPED' : defaults.length ? 'AGENT_PHASE_DEFAULT_AMBIGUOUS' : 'AGENT_PHASE_DEFAULT_MISSING';
+    problems.push({
+      code, phaseId,
+      message: !compatible.length ? `Phase '${phaseId}' has no compatible agent.` : `Phase '${phaseId}' requires exactly one default agent; found ${defaults.length}.`,
+      compatible: compatible.filter((agent) => agent.phases.length).map(mappedAgent),
+      defaults: defaults.map(mappedAgent)
+    });
+  }
+  return problems;
+}

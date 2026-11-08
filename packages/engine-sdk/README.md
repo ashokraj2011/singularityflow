@@ -99,6 +99,23 @@ never replaces or reactivates an existing authority, approves configuration, cre
 migrates a Git project. The other lifecycle ports in this host remain unavailable. See the source
 guide `docs/NAMESPACE-PROJECT-ENROLLMENT.md` for persistence and qualification details.
 
+An enrolled namespace project can approve a canonical configuration through
+`createNamespaceConfigurationEngine` from `@singularity-flow/engine-sdk/hosts/namespace-configuration`.
+The registered operation is `configuration.approve`; it requires an operation ID, immutable
+`source` content reference, exact `confirm` SHA-256, `expectedRevision` and review `reason`.
+Use explicit `null` for the first absent head and the last result's `revision` for an update.
+The separate `transactionRevision` identifies the accepted transaction. The source package retains
+the definition, agents, skills, instructions, templates and additional configuration resources.
+All declared bodies are verified, and the existing workflow compiler validates every work type.
+The compiled package retains the effective workflow contracts for later Story creation.
+
+The configuration host takes the same explicit stores, scope, authority and clock as enrollment.
+Its `access.current` additionally returns `actorKind: 'human'` and fresh `configuration.approve`
+permission. A service identity cannot claim human review. Reuse the original operation ID to
+reconcile an interrupted approval; accepted replay preserves its original reviewer and timestamp.
+No Story is created by approval. Source format and ownership details are in
+`docs/ENGINE-SDK-CONFIGURATION-APPROVAL.md` in the source distribution.
+
 Node 22 or later is required for the core and filesystem/application backends. SQLite is loaded
 only when the namespace factory is called and requires the native capabilities qualified on managed Node
 26.12.0. An incompatible SQLite runtime fails explicitly; there is no hidden package download.

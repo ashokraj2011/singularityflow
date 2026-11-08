@@ -57,8 +57,8 @@ accounted for; native guidance retains its original body in the presentation own
 The final Mac qualification passed 345 tests across 36 test files with no failures, cancellations
 or skips. It covers real Git hooks, signing, publication and recovery in disposable repositories,
 alongside the portable rule, compiler, schema and package checks. Source validation passed 3,766
-checks; the Git audit retained all 2,011 registered production sites; CLI and VS Code typechecking
-passed. All 13 rebuilt bundle budgets passed without increasing a limit: the gateway has 851
+checks; the Git audit retained all 2,011 registered production sites; VS Code and installed SDK
+declaration checks passed. All 13 rebuilt bundle budgets passed without increasing a limit: the gateway has 851
 modules, the extension 152, Help 135 and Support 111. No Windows or live-provider qualification
 was run for this extraction.
 

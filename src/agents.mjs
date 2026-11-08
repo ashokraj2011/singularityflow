@@ -1,3 +1,5 @@
+import { agentMappingProblems } from './kernel/configuration-declarations.mjs';
+export { agentMappingProblems } from './kernel/configuration-declarations.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { retainedSkillExpansion } from './retained-skill-instructions.mjs';
 import { resolveSkillInstructions } from './instruction-library.mjs';
@@ -265,7 +267,7 @@ export function validateAgentCatalog(agents, definition) {
 }
 
 /** An agent as a mapping refusal names it: its ID, where it is declared, and whose it is. */
-const mappedAgent = (agent) => ({ id: agent.id, label: agent.label ?? agent.id, scope: agent.scope ?? null, source: agent.source ?? null });
+
 
 /**
  * Every step that has no agent to draft it: none can run it (AGENT_PHASE_UNMAPPED), none is its
@@ -273,22 +275,7 @@ const mappedAgent = (agent) => ({ id: agent.id, label: agent.label ?? agent.id, 
  * gets its agent from `sflow-phases` (may draft it) and `sflow-default-for` (drafts it) in
  * exactly one agent file.
  */
-export function agentMappingProblems(agents, phaseIds) {
-  const problems = [];
-  for (const phaseId of phaseIds) {
-    const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));
-    const defaults = compatible.filter((agent) => agent.defaultFor.includes(phaseId));
-    if (compatible.length && defaults.length === 1) continue;
-    const code = !compatible.length ? 'AGENT_PHASE_UNMAPPED' : defaults.length ? 'AGENT_PHASE_DEFAULT_AMBIGUOUS' : 'AGENT_PHASE_DEFAULT_MISSING';
-    problems.push({
-      code, phaseId,
-      message: !compatible.length ? `Phase '${phaseId}' has no compatible agent.` : `Phase '${phaseId}' requires exactly one default agent; found ${defaults.length}.`,
-      compatible: compatible.filter((agent) => agent.phases.length).map(mappedAgent),
-      defaults: defaults.map(mappedAgent)
-    });
-  }
-  return problems;
-}
+
 
 export function resolvePhaseAgent(agents, phaseId, { requestedAgent = null, nativeCopilotAgent = null } = {}) {
   const fallback = agents.find((agent) => agent.defaultFor.includes(phaseId));

@@ -134,6 +134,11 @@ export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
 export const NAMESPACE_ENROLLMENT_SCHEMAS = Object.freeze({
   intent: frozenFamily('namespace-enrollment-intent'), manifest: frozenFamily('namespace-enrollment-manifest')
 });
+export const NAMESPACE_CONFIGURATION_SCHEMAS = Object.freeze({
+  source: frozenFamily('namespace-configuration-source'), compiled: frozenFamily('namespace-configuration-compiled'),
+  head: frozenFamily('namespace-configuration-head'), intent: frozenFamily('namespace-configuration-intent'),
+  manifest: frozenFamily('namespace-configuration-manifest')
+});
 // Wire shape constraints, selected here without rewriting an immutable historical body.
 const LIFECYCLE_STATE_PROFILES = Object.freeze({
   1: Object.freeze({ requireOwnedCurrentPhase: false, terminalStatuses: Object.freeze([]) }),
@@ -196,4 +201,103 @@ export function canonicalJson(value) {
 /** The ledger's historical compact identity uses the same key ordering, without display spaces. */
 export function compactCanonicalJson(value) {
   return `${JSON.stringify(canonicalize(value))}\n`;
+}
+
+
+/** Closed, bounded JSON value grammar. Limits/codes are data; no adapter or admission callbacks. */
+export function jsonValueContract(options) {
+  const keys=['maximumBytes','maximumDepth','maximumNodes','inputCode','limitCode'];
+  if(!options || ![Object.prototype,null].includes(Object.getPrototypeOf(options))
+    || Reflect.ownKeys(options).length!==keys.length || keys.some(key=>{const d=Object.getOwnPropertyDescriptor(options,key);return !d?.enumerable || !Object.hasOwn(d,'value');})
+    || !Number.isSafeInteger(options.maximumBytes) || options.maximumBytes<1 || options.maximumBytes>134_217_728
+    || !Number.isSafeInteger(options.maximumDepth) || options.maximumDepth<1 || options.maximumDepth>64
+    || !Number.isSafeInteger(options.maximumNodes) || options.maximumNodes<1 || options.maximumNodes>250_000
+    || ![options.inputCode,options.limitCode].every(value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,127}$/u.test(value))) {
+    throw new SingularityFlowError('Invalid closed JSON value contract.',{code:'ENGINE_JSON_CONTRACT_INVALID'});
+  }
+  const NAMESPACE_LIMITS=Object.freeze({maxTransactionBytes:options.maximumBytes,maxDepth:options.maximumDepth,maxNodes:options.maximumNodes});
+  const inputCode=options.inputCode,limitCode=options.limitCode;
+  const namespaceError=(message,code=inputCode)=>new SingularityFlowError(message,{code,details:null});
+function exactObject(value, required, optional = [], label = 'Value') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+    throw namespaceError(`${label} must be a plain object.`);
+  }
+  const allowed = new Set([...required, ...optional]);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (typeof key !== 'string' || !allowed.has(key) || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw namespaceError(`${label} contains an unsupported field or accessor.`);
+    }
+  }
+  if (required.some(key => !Object.hasOwn(value, key))) throw namespaceError(`${label} is missing a required field.`);
+  return value;
+}
+
+function encode(value) {
+  if (Array.isArray(value)) return `[${value.map(encode).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort()
+    .map(key => `${JSON.stringify(key)}:${encode(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
+function namespaceJson(value, {
+  maxBytes = NAMESPACE_LIMITS.maxTransactionBytes, maxDepth = NAMESPACE_LIMITS.maxDepth, maxNodes = NAMESPACE_LIMITS.maxNodes
+} = {}) {
+  for (const [value, maximum] of [[maxBytes, NAMESPACE_LIMITS.maxTransactionBytes],
+    [maxDepth, NAMESPACE_LIMITS.maxDepth], [maxNodes, NAMESPACE_LIMITS.maxNodes]]) {
+    if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+      throw namespaceError('Invalid namespace JSON bound.', limitCode);
+    }
+  }
+  let nodes = 0;
+  let minimumBytes = 0;
+  const budget = amount => {
+    minimumBytes += amount;
+    if (minimumBytes > maxBytes) throw namespaceError('JSON exceeds the namespace byte limit.', limitCode);
+  };
+  const ancestors = new Set();
+  const copy = (item, depth) => {
+    if (++nodes > maxNodes || depth > maxDepth) {
+      throw namespaceError('JSON exceeds the namespace contract bounds.', limitCode);
+    }
+    if (item === null || typeof item === 'boolean' || typeof item === 'string'
+      || (typeof item === 'number' && Number.isFinite(item))) {
+      if (typeof item === 'string' && item.length > maxBytes) {
+        throw namespaceError('JSON exceeds the namespace byte limit.', limitCode);
+      }
+      budget(JSON.stringify(item).length);
+      return Object.is(item, -0) ? 0 : item;
+    }
+    if (!item || typeof item !== 'object' || ancestors.has(item)
+      || (!Array.isArray(item) && ![Object.prototype, null].includes(Object.getPrototypeOf(item)))) {
+      throw namespaceError('Namespace data must be finite, acyclic plain JSON.');
+    }
+    ancestors.add(item);
+    const result = Array.isArray(item) ? [] : {};
+    const keys = Reflect.ownKeys(item);
+    if (Array.isArray(item) && (keys.length !== item.length + 1
+      || keys.some(key => key !== 'length' && (typeof key !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(key) || Number(key) >= item.length)))) {
+      throw namespaceError('Sparse or extended arrays are not JSON records.');
+    }
+    budget(2 + Math.max(0, keys.length - (Array.isArray(item) ? 1 : 0) - 1));
+    for (const key of keys) {
+      if (Array.isArray(item) && key === 'length') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(item, key);
+      if (typeof key !== 'string' || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw namespaceError('Namespace JSON cannot contain accessors, symbols or hidden properties.');
+      }
+      budget(Array.isArray(item) ? 0 : JSON.stringify(key).length + 1);
+      Object.defineProperty(result, key, { value: copy(descriptor.value, depth + 1), enumerable: true });
+    }
+    ancestors.delete(item);
+    return Object.freeze(result);
+  };
+  const result = copy(value, 0);
+  if (new TextEncoder().encode(encode(result)).byteLength > maxBytes) {
+    throw namespaceError('JSON exceeds the namespace byte limit.', limitCode);
+  }
+  return result;
+}
+  return Object.freeze({exactObject,namespaceJson,encode});
 }

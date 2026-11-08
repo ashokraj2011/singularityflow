@@ -14,7 +14,7 @@ const identity = value => hash(namespaceIdentityJson(value));
 const error = (message, code, details = null, cause = undefined) => new SingularityFlowError(message, { code, details, cause });
 const same = (a,b) => namespaceIdentityJson(a) === namespaceIdentityJson(b);
 const sameRef = (a,b) => a.namespace === b.namespace && a.sha256 === b.sha256 && a.bytes === b.bytes;
-const writes = new Set(ENGINE_OPERATIONS.filter(op => op.subject !== 'project' && op.effect !== 'read'
+const writes = new Set(ENGINE_OPERATIONS.filter(op => (!op.subject || op.subject === 'story') && op.effect !== 'read'
   && (op.stages.includes('commit') || op.stages.includes('apply'))).map(op => op.id));
 function cancelled(signal) { if (signal?.aborted) throw error('The lifecycle operation was cancelled before its next effect.', 'ENGINE_OPERATION_CANCELLED'); }
 function validWorkId(value) {

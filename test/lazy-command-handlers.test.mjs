@@ -392,7 +392,19 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,566,000 (measured 9,565,950, commands/phase-lifecycle.mjs): the vulnerable new dependency hold names its catalog entry
     // (finding-catalog.mjs +135) [CQF:REQ-052].
     // 9,578,650 (measured 9,578,606, commands/phase-lifecycle.mjs): security checks merged too; their growth is above.
-    assert.ok(closure.bytes <= 9_578_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,556,800 (measured 9,556,715, commands/phase-lifecycle.mjs): a test command names its coverage report and its attempt keeps it beside
+    // the test report (external-command-policy.mjs, state.mjs, attempts.mjs, node-test-observation.mjs); reading and keeping one stays lazy
+    // (verification/coverage-reports.mjs) [CQF:REQ-030].
+    // 9,558,300 (measured 9,558,278): its changed lines are shown in the printed review and an enforced minimum refuses publication
+    // (code-delivery-policy.mjs, print-phase-review.mjs, phase-review.mjs, state.mjs); the read model stays lazy (verification/changed-line-coverage.mjs) [CQF:REQ-031].
+    // 9,558,950 (measured 9,558,916): both coverage modules load from the CLI source, out of the VS Code gateway bundle, which they had
+    // grown past its module ceiling (state.mjs, attempts.mjs, phase-review.mjs).
+    // 9,560,350 (measured 9,560,306): the assertion and edge-case check runs at publication in warn mode, and the review shows it
+    // (delivery-evidence.mjs, state.mjs, phase-review.mjs, print-phase-review.mjs); the check stays lazy (verification/corner-case-obligations.mjs) [CQF:REQ-032].
+    // 9,560,500 (measured 9,560,457): the review says how many tests prove each criterion and whether each asserts
+    // (phase-review.mjs, print-phase-review.mjs); the proof stays lazy (verification/criterion-proof.mjs) [CQF:REQ-033].
+    // 9,586,200 (measured 9,586,127, commands/phase-lifecycle.mjs): test adequacy merged too; its growth is above.
+    assert.ok(closure.bytes <= 9_586_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -580,7 +592,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,171,000 (measured 4,170,977): the same three merged.
   // 4,167,300 (measured 4,167,278): the same external-command-policy.mjs +1564 as phase-lifecycle [CQF:REQ-050].
   // 4,172,600 (measured 4,172,541): security checks merged too.
-  assert.ok(current.bytes <= 4_172_600, `session current loads ${current.bytes} source bytes`);
+  // 4,161,000 (measured 4,160,916): the same coverage key and lcov reporter rule as start (external-command-policy.mjs, node-test-observation.mjs) [CQF:REQ-030].
+  // 4,161,800 (measured 4,161,719): the changed-line coverage setting (code-delivery-policy.mjs) [CQF:REQ-031].
+  // 4,162,700 (measured 4,162,646): the same warn-mode check at publication as start (delivery-evidence.mjs) [CQF:REQ-032].
+  // 4,176,200 (measured 4,176,134): test adequacy merged too.
+  assert.ok(current.bytes <= 4_176_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

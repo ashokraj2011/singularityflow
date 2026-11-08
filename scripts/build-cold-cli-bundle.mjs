@@ -102,6 +102,11 @@ const FAMILIES = Object.freeze([
     'verification/base-run.mjs',
     // Flaky commands, read by the review packet and `tests summary` [CQF:REQ-013].
     'verification/flaky-runs.mjs',
+    // A test command's coverage report, read by every gate's test run and kept with its attempt, and what it says
+    // of the Story's changed lines, read by the review packet and `tests summary` [CQF:REQ-030, REQ-031].
+    'verification/coverage-reports.mjs', 'verification/changed-line-coverage.mjs',
+    // How many tests prove each criterion and whether each asserts, read by the same readers [CQF:REQ-033].
+    'verification/criterion-proof.mjs',
     // An APM project's lock and workflow.yml `apm` block, read by agent discovery in any command once a
     // repository has apm.lock.yaml [APM A3]; unclaimed, every such command loaded compatibility and models.
     'apm-lock.mjs', 'apm-configuration.mjs',

@@ -96,6 +96,12 @@
             "codeql": { "description": "github reads the Story branch's open CodeQL alerts from GitHub code scanning at submit, through gh's own sign-in [CQF:REQ-049]. Before CodeQL has analysed the branch it says so and blocks nothing.", "enum": ["github", "off"], "default": "off" }
           },
           "additionalProperties": false
+        },
+        "changedLineCoverage": {
+          "description": "Of the lines a Story changed, those its tests' coverage reports mark as run. Unset reads as warn below 80%. warn shows it and refuses nothing; enforce refuses a code step's publication when a measured run is below the minimum. Without a coverage report it is shown as not measured and never refuses.",
+          "type": "object",
+          "properties": { "mode": { "enum": ["off", "warn", "enforce"], "default": "warn" }, "minimum": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80 } },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -1422,6 +1428,16 @@
                 "project": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,400}$" },
                 "branchAnalysis": { "type": "boolean" },
                 "scratchProject": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,400}$" }
+              },
+              "additionalProperties": false
+            },
+            "coverage": {
+              "description": "The coverage report this test command already writes, below its working directory. SFlow reads it beside the test report and never adds a flag to write it. Without it the usual places are read: coverage/lcov.info, coverage/cobertura-coverage.xml, target/site/jacoco/jacoco.xml, build/reports/jacoco/test/jacocoTestReport.xml, coverage.xml, coverage/coverage-final.json. An engine older than this key ignores it.",
+              "type": "object",
+              "required": ["format", "path"],
+              "properties": {
+                "format": { "enum": ["lcov", "cobertura", "jacoco", "istanbul-json"] },
+                "path": { "type": "string", "minLength": 1 }
               },
               "additionalProperties": false
             }

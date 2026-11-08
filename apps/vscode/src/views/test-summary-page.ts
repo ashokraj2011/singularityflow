@@ -32,6 +32,40 @@ function commandHtml(command: CommandTable): string {
     ${command.total !== command.rows.length ? `<p class="muted">${command.rows.length} of ${command.total} shown.</p>` : ''}</section>`;
 }
 
+/** Of the lines the Story changed, those the run ran, per file and per clause, or why it was not measured [CQF:REQ-031, REQ-034]. */
+function coverageHtml(view: TestSummaryView): string {
+  const coverage = view.changedLineCoverage;
+  if (!coverage) return '';
+  const shown = (value: number | null): string => (value === null ? '—' : `${value}%`);
+  const words = `<p class="notice${coverage.status !== 'measured' || coverage.below ? ' warning' : ' ok'}" data-ts-coverage-words>${escape(coverage.words)}</p>`;
+  if (coverage.status !== 'measured') return `<section class="plain ts-coverage" data-ts-coverage="not-measured"><h2>Changed-line coverage</h2>${words}</section>`;
+  const files = coverage.files.map((file) => `<tr data-ts-coverage-file="${escape(file.path)}">
+      <td><button type="button" class="link" data-ts-open="${escape(file.path)}" data-ts-line="${file.firstUncovered ?? 0}">${escape(file.path)}</button></td>
+      <td>${file.inReport ? `${file.covered} of ${file.executable} <small class="muted">${escape(shown(file.percent))}</small>` : '<span class="pill wait">no test loaded it</span>'}</td>
+      <td>${file.uncoveredLines ? `<code>${escape(file.uncoveredLines)}</code>` : '<span class="muted">—</span>'}</td></tr>`).join('');
+  const clauses = coverage.clauses.map((clause) => `<tr data-ts-coverage-clause="${escape(clause.clauseId)}">
+      <td><code class="ts-tag">${escape(clause.clauseId)}</code></td>
+      <td>${clause.covered} of ${clause.executable} <small class="muted">${escape(shown(clause.percent))}</small>${clause.below ? ' <span class="pill wait">below</span>' : ''}</td>
+      <td>${escape([...clause.files, ...clause.notInReport.map((file) => `${file} (no test loaded it)`)].filter((file, index, all) => all.indexOf(file) === index).join(', '))}</td></tr>`).join('');
+  return `<section class="plain ts-coverage" data-ts-coverage="measured"><h2>Changed-line coverage</h2>${words}
+      ${files ? `<table class="ts-coverage-files"><thead><tr><th>Changed file</th><th>Changed lines run</th><th>Not run</th></tr></thead><tbody>${files}</tbody></table>` : ''}
+      ${clauses ? `<table class="ts-coverage-clauses"><thead><tr><th>Clause</th><th>Changed lines run</th><th>Files its plan names</th></tr></thead><tbody>${clauses}</tbody></table>` : ''}
+    </section>`;
+}
+
+/** How many tests prove each criterion and whether each asserts [CQF:REQ-033]. */
+function proofHtml(view: TestSummaryView): string {
+  if (!view.criterionProof.length) return '';
+  const rows = view.criterionProof.map((entry) => `<tr data-ts-proof="${escape(entry.clauseId)}">
+      <td><code class="ts-tag">${escape(entry.clauseId)}</code></td>
+      <td>${entry.tests}${entry.silent ? ` <span class="pill wait">${entry.silent} assert${entry.silent === 1 ? 's' : ''} nothing</span>` : ''}${entry.tests ? '' : ' <span class="pill wait">none</span>'}</td>
+      <td>${entry.witnesses.map((witness) => `${witness.testSource ? `<button type="button" class="link" data-ts-open="${escape(witness.testSource)}" data-ts-line="${witness.line ?? 0}">${escape(witness.test)}</button>` : escape(witness.test)}`
+        + ` <small class="muted">${witness.asserts === true ? 'asserts' : witness.asserts === false ? 'asserts nothing' : 'not read'}</small>`).join('<br>') || '<span class="muted">—</span>'}</td></tr>`).join('');
+  return `<section class="plain ts-proof" data-ts-proof-table><h2>Criteria</h2>
+      <table><thead><tr><th>Criterion</th><th>Tests that prove it</th><th>Each test</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="muted">Read from each test's source at publication: whether it asserts, never whether a branch ran. It refuses nothing.</p></section>`;
+}
+
 /** A failed run's question: is this the change? A fact for a person, which runs only when they ask. */
 function baseHtml(view: TestSummaryView): string {
   if (!view.base.offered) return '';
@@ -83,7 +117,7 @@ export function testSummaryHtml(view: TestSummaryView): string {
       <label><input type="checkbox" data-ts-filter="failedOnly"${view.filters.failedOnly ? ' checked' : ''}> Failed only</label>
       <label><input type="checkbox" data-ts-filter="untagged"${view.filters.untagged ? ' checked' : ''}> Untagged only</label>
       <span class="muted">${view.shown} of ${view.total} test cases shown.</span></div>`;
-  return `${header}${messages}${runHtml}${totals}${baseHtml(view)}
+  return `${header}${messages}${runHtml}${totals}${coverageHtml(view)}${proofHtml(view)}${baseHtml(view)}
     ${view.truncated ? `<p class="notice ts-truncated">The list stops at 5,000 test cases; the totals above count every one. Open a command's own report for the rest.</p>` : ''}
     ${filters}
     <div class="ts-commands">${view.commands.map(commandHtml).join('') || '<p class="muted">No commands ran.</p>'}</div>`;
@@ -101,6 +135,13 @@ export const TEST_SUMMARY_STYLE = `
 .ts-duration, .ts-cases td:first-child, .ts-cases td:first-child .pill { white-space:nowrap; }
 .ts-tag { margin-right:.25rem; }
 .ts-message pre { margin:0; max-height:12rem; overflow:auto; white-space:pre-wrap; font-size:.85em; }
+.ts-coverage { margin:1rem 0; }
+.ts-coverage h2 { margin:0 0 .4rem; font-size:1.05rem; }
+.ts-coverage table { margin:.5rem 0; }
+.ts-coverage td { vertical-align:top; overflow-wrap:anywhere; }
+.ts-proof { margin:1rem 0; }
+.ts-proof h2 { margin:0 0 .4rem; font-size:1.05rem; }
+.ts-proof td { vertical-align:top; overflow-wrap:anywhere; }
 .ts-base { margin:1rem 0; }
 .ts-base-head { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
 .ts-base-results { margin:.5rem 0 0; padding-left:1.1rem; }

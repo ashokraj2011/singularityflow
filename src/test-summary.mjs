@@ -114,7 +114,7 @@ function durationOf(receipt) {
  * `{ receipt, kind, clauses, environment, evidenceClass, countsForStep, label, note, messages, flaky }`, where
  * `messages` (already redacted) is aligned with the receipt's occurrences.
  */
-export function buildTestSummary({ scope, run, entries, history = [] }) {
+export function buildTestSummary({ scope, run, entries, history = [], changedLineCoverage = null, criterionProof = [] }) {
   const totals = { discovered: 0, passed: 0, failed: 0, skipped: 0, flaky: 0, durationMs: 0 };
   const commands = [];
   const cases = [];
@@ -173,6 +173,10 @@ export function buildTestSummary({ scope, run, entries, history = [] }) {
     cases,
     truncated: caseCount > cases.length,
     untagged,
+    // Of the lines the Story changed, those this run ran, per file and per clause, or that it was not measured [CQF:REQ-031, REQ-034].
+    ...(changedLineCoverage ? { changedLineCoverage } : {}),
+    // How many tests prove each criterion of the step, and whether each asserts [CQF:REQ-033].
+    ...(criterionProof?.length ? { criterionProof } : {}),
     history
   };
 }
@@ -225,6 +229,8 @@ export function testSummaryText(summary, { next = null } = {}) {
     }
     if (failed.length > 20) lines.push(`  … and ${failed.length - 20} more (use --json)`);
   }
+  if (summary.changedLineCoverage) lines.push(summary.changedLineCoverage.words, ...(summary.changedLineCoverage.lines ?? []).map((line) => `  ${line}`));
+  if (summary.criterionProof?.length) lines.push('Criteria:', ...summary.criterionProof.map((entry) => `  ${entry.words}`));
   lines.push(`Untagged cases: ${summary.untagged}${summary.truncated ? ` · first ${summary.cases.length} cases listed` : ''}`);
   if (next) lines.push(`Next: ${next}`);
   return lines.join('\n');

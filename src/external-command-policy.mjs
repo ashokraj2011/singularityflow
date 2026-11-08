@@ -87,6 +87,23 @@ function relativePath(value, label, { allowDot = false } = {}) {
   return collapsed || '.';
 }
 
+/** The coverage report forms a test command's `coverage` may name [CQF:REQ-030]. */
+export const COVERAGE_REPORT_FORMATS = Object.freeze(['lcov', 'cobertura', 'jacoco', 'istanbul-json']);
+
+/**
+ * A test command's coverage report [CQF:REQ-030]: where the command already writes it, below its
+ * folder, and in which form. SFlow reads it and never adds a flag to write it. An older engine
+ * ignores it, like any key unknown here.
+ */
+function normalizeCoverage(value, index) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => !['format', 'path'].includes(key))
+      || !COVERAGE_REPORT_FORMATS.includes(value.format)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].coverage must be { format: ${COVERAGE_REPORT_FORMATS.join(' | ')}, path }.`,
+      { code: 'QUALITY_COMMAND_COVERAGE_INVALID' });
+  }
+  return { format: value.format, path: relativePath(value.path, `qualityCommands[${index}].coverage.path`) };
+}
+
 export function normalizeExternalCommand(value, index = 0) {
   if (typeof value === 'string' && value.trim()) {
     // Legacy string commands are still readable, but they are gates, not optional hints. If their
@@ -199,7 +216,8 @@ export function normalizeExternalCommand(value, index = 0) {
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
     ...(value.result != null ? { result } : {}),
     ...(gate ? { gate } : {}),
-    ...(sonarqube ? { sonarqube } : {})
+    ...(sonarqube ? { sonarqube } : {}),
+    ...(value.coverage != null ? { coverage: normalizeCoverage(value.coverage, index) } : {})
   };
 }
 

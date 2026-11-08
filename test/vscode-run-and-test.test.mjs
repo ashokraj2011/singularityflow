@@ -330,6 +330,42 @@ test('the test summary page shows totals, each command\'s cases, file links, tag
   assert.deepEqual([...summaryModel.caseFiles(parsed)], ['src/cart.test.js']);
 });
 
+test('the test summary page shows changed-line coverage per file and per clause, and that it was not measured [CQF:REQ-031, REQ-034]', () => {
+  const changedLineCoverage = { status: 'measured', mode: 'warn', minimum: 80, below: true, covered: 7, executable: 9, percent: 77.7,
+    words: 'Changed-line coverage: 7 of 9 changed lines ran (77.7%). Below the 80% wanted: it warns and refuses nothing.',
+    files: [{ path: 'src/cart.mjs', inReport: true, executable: 2, covered: 2, percent: 100, coveredLines: '1,3', uncoveredLines: '' },
+      { path: 'src/discount.mjs', inReport: true, executable: 7, covered: 5, percent: 71.4, coveredLines: '1-3,6-7', uncoveredLines: '4-5' },
+      { path: 'src/unused.mjs', inReport: false, executable: 0, covered: 0, percent: null, coveredLines: '', uncoveredLines: '' }],
+    clauses: [{ clauseId: 'W-1:AC-002', files: ['src/discount.mjs'], executable: 7, covered: 5, percent: 71.4, notInReport: [], below: true }] };
+  const parsed = summaryModel.testSummaryFrom(summary({ changedLineCoverage }));
+  const html = testSummaryHtml(summaryModel.buildTestSummaryView(parsed, { target: { kind: 'story', workId: 'W-1', phase: 'implement' } }));
+  assert.match(html, /data-ts-coverage="measured"><h2>Changed-line coverage<\/h2><p class="notice warning" data-ts-coverage-words>Changed-line coverage: 7 of 9 changed lines ran \(77\.7%\)\. Below the 80% wanted: it warns and refuses nothing\.<\/p>/);
+  // A file opens at its first line that did not run; one no test loaded says so.
+  assert.match(html, /data-ts-coverage-file="src\/discount\.mjs">[\s\S]*?data-ts-open="src\/discount\.mjs" data-ts-line="4">src\/discount\.mjs<\/button><\/td>[\s\S]*?5 of 7 <small class="muted">71\.4%<\/small>[\s\S]*?<code>4-5<\/code>/);
+  assert.match(html, /data-ts-coverage-file="src\/unused\.mjs">[\s\S]*?no test loaded it/);
+  assert.match(html, /data-ts-coverage-clause="W-1:AC-002">[\s\S]*?5 of 7 <small class="muted">71\.4%<\/small> <span class="pill wait">below<\/span>[\s\S]*?src\/discount\.mjs/);
+  assert.ok(summaryModel.caseFiles(parsed).has('src/discount.mjs'), 'a changed file on the page may be opened');
+  const notMeasured = summaryModel.testSummaryFrom(summary({ changedLineCoverage: { status: 'not-measured', mode: 'warn', minimum: 80,
+    words: 'Coverage not measured: no test command of this step wrote a coverage report SFlow reads. It refuses nothing.' } }));
+  assert.match(testSummaryHtml(summaryModel.buildTestSummaryView(notMeasured, { target: { kind: 'story', workId: 'W-1', phase: 'implement' } })),
+    /data-ts-coverage="not-measured"><h2>Changed-line coverage<\/h2><p class="notice warning" data-ts-coverage-words>Coverage not measured: /);
+  assert.doesNotMatch(testSummaryHtml(summaryModel.buildTestSummaryView(summaryModel.testSummaryFrom(summary()), { target: { kind: 'capability', capability: 'payments-web' } })), /data-ts-coverage/);
+});
+
+test('the test summary page shows how many tests prove each criterion and whether each asserts [CQF:REQ-033]', () => {
+  const criterionProof = [{ clauseId: 'W-1:AC-001', tests: 1, asserting: 1, silent: 0, unread: 0, words: 'W-1:AC-001: 1 test proves it; it asserts',
+    witnesses: [{ test: 'Cart › adds an item', testSource: 'src/cart.test.js', line: 12, asserts: true }] },
+  { clauseId: 'W-1:AC-002', tests: 1, asserting: 0, silent: 1, unread: 0, words: "W-1:AC-002: 1 test proves it; 'Cart › totals' asserts nothing",
+    witnesses: [{ test: 'Cart › totals', testSource: 'src/cart.test.js', line: 44, asserts: false }] },
+  { clauseId: 'W-1:AC-003', tests: 0, asserting: 0, silent: 0, unread: 0, words: 'W-1:AC-003: no test proves it', witnesses: [] }];
+  const parsed = summaryModel.testSummaryFrom(summary({ criterionProof }));
+  const html = testSummaryHtml(summaryModel.buildTestSummaryView(parsed, { target: { kind: 'story', workId: 'W-1', phase: 'implement' } }));
+  assert.match(html, /data-ts-proof="W-1:AC-001">[\s\S]*?<td>1<\/td>[\s\S]*?data-ts-open="src\/cart\.test\.js" data-ts-line="12">Cart › adds an item<\/button> <small class="muted">asserts<\/small>/);
+  assert.match(html, /data-ts-proof="W-1:AC-002">[\s\S]*?1 <span class="pill wait">1 asserts nothing<\/span>[\s\S]*?Cart › totals<\/button> <small class="muted">asserts nothing<\/small>/);
+  assert.match(html, /data-ts-proof="W-1:AC-003">[\s\S]*?0 <span class="pill wait">none<\/span>/);
+  assert.doesNotMatch(testSummaryHtml(summaryModel.buildTestSummaryView(summaryModel.testSummaryFrom(summary()), { target: { kind: 'capability', capability: 'payments-web' } })), /data-ts-proof/);
+});
+
 test('"failed only" and "untagged" filter the cases, alone and together', () => {
   const parsed = summaryModel.testSummaryFrom(summary());
   const names = (filters) => summaryModel.filterCases(parsed.cases, filters).map((entry) => entry.name);

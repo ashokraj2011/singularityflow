@@ -8,6 +8,8 @@ import { pathForDisplay } from './path-for-display.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from '../../package-root.mjs';
 import { criterionResults, witnessResult, describeWitnessResult } from '../../verification/witness-results.mjs';
 import { withReadScope } from '../../read-scope.mjs';
 import { witnessMappingReview } from '../../witness-review-read.mjs';
@@ -218,12 +220,16 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
           }))
         })),
         unattachedTags: phase.deliveryEvidence.acceptanceCriteria?.unattachedTags ?? [],
+        // How many tests prove each criterion, owed ones included, and whether each asserts [CQF:REQ-033].
+        proof: (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'criterion-proof.mjs')).href)).criterionProof(phase.deliveryEvidence),
         skippedTests,
         statement: criteria.length
           ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; a passing run stands for submission while nothing it ran on changes.'}`
           : 'No acceptance criterion is tagged on a test in this delivery.'
       },
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.',
+      // Tests that assert nothing and changed edge cases no test matches, as publication checked them [CQF:REQ-032].
+      ...(phase.deliveryEvidence.assertionCheck ? { assertionCheck: phase.deliveryEvidence.assertionCheck } : {}),
       ...(localIntegrationRuns.length ? { localIntegrationRuns: localIntegrationRuns.map((receipt) => ({
         commandId: receipt.commandId, attemptId: receipt.attemptId, environment: receipt.boundEnvironment?.name ?? null,
         ranBy: receipt.ranBy ?? null, commit: receipt.candidate?.commit ?? null, countsForStep: receipt.countsForStep !== false,
@@ -237,6 +243,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     // Commands whose runs on the same code and environment disagree [CQF:REQ-013].
     ...await (await import('../../verification/flaky-runs.mjs')).flakyTestReview(root, config, workflow, phase),
     ...await securityEvidence(root, config, workflow, phase),
+    // Of the lines the Story changed, those its bound runs ran, per file and per clause, or that it was not measured [CQF:REQ-031, REQ-034].
+    ...await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'verification', 'changed-line-coverage.mjs')).href)).changedLineCoverageReview(root, config, workflow, phase),
     evidenceConsistency,
     witnessReview,
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).

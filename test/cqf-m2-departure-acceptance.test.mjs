@@ -12,9 +12,9 @@ const AT = '2026-11-08T08:00:00.000Z';
 const LATER = '2026-11-08T09:00:00.000Z';
 const story = () => ({ workItem: { id: 'W-1' } });
 
-test('each kind is accepted by the record that already exists for it', () => {
+test('each kind is accepted by the record that already exists for it, and a fix on the way by its own [CQF:REQ-066]', () => {
   assert.deepEqual(DEPARTURE_RECORDS, { path: 'plan-amendment', supporting: 'plan-amendment', 'plan-row': 'plan-row-correction',
-    test: 'plan-row-correction', wording: 'forward-amendment', clause: 'intent-amendment' });
+    test: 'plan-row-correction', wording: 'forward-amendment', clause: 'intent-amendment', finding: 'departure-acceptance' });
 });
 
 test('a planned test change is accepted by a plan row correction that asks for its exact change after it was recorded', () => {

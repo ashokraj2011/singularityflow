@@ -815,6 +815,10 @@ function departureItem(workflow, context, entry, facts) {
   } else if (departure.kind === 'supporting') {
     accepts = [{ ...accept({ label: 'Accept', words: `${files} is listed in the plan as a supporting change (${departure.class}) with your reason.`,
       changes: departure.paths.map((file) => ({ kind: 'add-supporting', path: file, class: departure.class })), writes: 'plan-amendment' }), chat: { command: decide('accepted') } }];
+  } else if (departure.kind === 'finding') {
+    // A fix on the way [CQF:REQ-066]: its files may be planned ones, so nothing in the plan changes.
+    accepts = [{ ...accept({ label: 'Accept', words: `The fix stays in ${files}, and nothing in the plan changes. ${listWords(departure.findings ?? [])} ${(departure.findings ?? []).length === 1 ? 'is' : 'are'} fixed, awaiting proof in the findings register once ${name} is approved.`,
+      writes: 'departure-acceptance' }), chat: { command: decide('accepted') } }];
   } else if (departure.kind === 'wording') {
     const target = stepName(workflow, departure.target?.phase);
     // A forward amendment is approved while the step that found the defect is still open.
@@ -830,8 +834,9 @@ function departureItem(workflow, context, entry, facts) {
         : 'A plan row correction is reviewed in your own terminal with your reason; nothing else in the plan changes.',
       decidedBy: stepDecidedBy(workflow, context, groups, 'You decide it in your own terminal.') }), oneByOne: true }];
   }
-  const restore = ['path', 'supporting'].includes(departure.kind) ? `The model restores ${files} to what ${departure.paths.length === 1 ? 'it' : 'they'} held when this generation began; prepublish checks it.`
-    : 'The approved document stays as it was.';
+  const restore = departure.kind === 'finding' ? `The model takes the fix out of ${files} in this generation, and ${listWords(departure.findings ?? [])} ${(departure.findings ?? []).length === 1 ? 'is' : 'are'} open again in the findings register.`
+    : ['path', 'supporting'].includes(departure.kind) ? `The model restores ${files} to what ${departure.paths.length === 1 ? 'it' : 'they'} held when this generation began; prepublish checks it.`
+      : 'The approved document stays as it was.';
   // One label on every row, so one answer for all reads as itself on a card.
   const reject = { ...option(workflow, context, { id: 'reject', label: 'Reject', words: restore, effects: [effect('reject')], needs: reason }),
     ...(one ? { oneByOne: true } : {}), chat: { command: decide('rejected') } };
@@ -842,7 +847,7 @@ function departureItem(workflow, context, entry, facts) {
     why: `${departure.recordedBy === 'sflow' ? 'SFlow recorded it at prepublish' : 'The model recorded it'}: ${departure.reason}${reopened}${tests} ${name} goes ahead with it; its approval waits for this decision.${one ? ' It is decided on its own, with its own reason.' : ''}`,
     options: [...accepts, reject],
     details: { departure: departure.id, departureKind: departure.kind, status, ...(departure.paths?.length === 1 ? { path: departure.paths[0] } : { paths: departure.paths }),
-      clauses: departure.clauses ?? [], acceptAll: !one, ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
+      clauses: departure.clauses ?? [], acceptAll: !one, ...(departure.findings?.length ? { findings: departure.findings } : {}), ...(departure.target ? { target: departure.target } : {}), ...(departure.diff ? { diff: departure.diff.slice(0, 4000) } : {}),
       commands: [`singularity-flow departure show ${departure.id} --work-id ${workId}`] }
   };
 }
@@ -1334,8 +1339,9 @@ export function effectWords(workflow, effect, values = {}) {
   }
   if (effect.kind === 'departure') {
     const named = (effect.departures ?? [effect.departure]).join(', ');
-    if (effect.decision === 'reject') return `reject ${named}; ${['path', 'supporting'].includes(effect.departureKind) ? 'the model restores what it changed' : 'the approved document stays as it was'} (departure rejection)`;
+    if (effect.decision === 'reject') return `reject ${named}; ${['path', 'supporting', 'finding'].includes(effect.departureKind) ? 'the model restores what it changed' : 'the approved document stays as it was'} (departure rejection)`;
     if (effect.writes === 'forward-amendment') return `accept ${named}: amend the earlier step's document as its next generation (forward amendment)`;
+    if (effect.writes === 'departure-acceptance') return `accept ${named}: the fix stays, and the plan is unchanged (departure acceptance)`;
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `accept ${named}: ${(effect.changes ?? []).map(words).join(', ')} (plan amendment)`;
   }

@@ -23,11 +23,12 @@ function refused(message, code = 'DEPARTURE_OPTIONS_INVALID') {
 }
 
 const USAGE = [
-  'Usage: singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause --reason TEXT [--work-id WORK-ID] [--json]',
+  'Usage: singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause|finding --reason TEXT [--work-id WORK-ID] [--json]',
   '         path, supporting: --path FILE [--path FILE] [--clause CLAUSE]',
   '         plan-row: --clause CLAUSE --row-op add-row|set-fulfillment|remove-location|replace-location [--fulfillment KIND] [--path FILE] [--from FILE --to FILE]',
   '         test: --clause CLAUSE --row-op add-test|replace-test [--test FILE] [--from FILE --to FILE]',
   '         wording, clause: --target EARLIER-STEP --file DRAFT-COPY [--clause CLAUSE]',
+  '         finding (a findings register item fixed on the way): --path FILE [--path FILE] --finding ID',
   '         [--finding ID] [--supersedes DEP-NNN]',
   '       singularity-flow departure list [--phase PHASE] [--open] [--json]',
   '       singularity-flow departure show DEP-NNN [--json]',

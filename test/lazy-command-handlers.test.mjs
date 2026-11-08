@@ -350,7 +350,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,547,900 (measured 9,547,846, commands/phase-lifecycle.mjs): a dirty checkout, an appeal and a chain each name the route that clears them (refusal-remediation.mjs, copilot-mutation-guard.mjs, lifecycle-worktree.mjs).
     // 9,548,000 (measured 9,547,962): a witness names its page and a not-yet one names no command (guard, decision-list, step-sheet).
     // 9,548,300 (measured 9,548,249): a .nvmrc naming a Node not installed here offers the change (test-plan, decision-list, state, recovery-plan).
-    assert.ok(closure.bytes <= 9_548_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,548,400 (measured 9,548,359): the printed review names a flaky command (print-phase-review.mjs); finding one stays lazy (verification/flaky-runs.mjs) [CQF:REQ-013].
+    // 9,549,500 (measured 9,549,468): a non-code step's runs are bound into its packet and read by their counts (state.mjs +756, story-lineage.mjs +280,
+    // evidence-consistency.mjs +167); running and binding them stays lazy (verification/repository-tests.mjs) [CQF:REQ-010, REQ-012].
+    // 9,552,400 (measured 9,552,346): documentation is hashed apart from the code a run's reuse and binding compare (state.mjs sourceTreeDigests,
+    // delivery-evidence.mjs, phase-execution-evidence.mjs, attempts.mjs, story-lineage.mjs, code-delivery-tests.mjs) [CQF:REQ-011]. The gates themselves read it, so not lazy.
+    // 9,553,000 (measured 9,552,936): a Story on only its new tests runs, at its last step that runs tests, the existing tests that import a changed module
+    // (state.mjs, attempts.mjs); finding them stays lazy (verification/test-scope-selection.mjs) [CQF:REQ-017].
+    assert.ok(closure.bytes <= 9_553_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -417,7 +424,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,800 (measured 858,796): convergence-record family v6's step and seal (schema-migrations.mjs +501). Every command reads the registry to dispatch.
   // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
   // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
-  assert.ok(root.bytes <= 858_820, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,851 measured 2026-11-08: tests summary --latest is declared a flag (util.mjs +34) [CQF:REQ-015].
+  assert.ok(root.bytes <= 858_855, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -525,7 +533,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,120,050 (measured 4,120,009): the same plan-amendments.mjs and plan-accounts.mjs as start.
   // 4,142,200 (measured 4,142,112): the same runner table and decisions.
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
-  assert.ok(current.bytes <= 4_158_500, `session current loads ${current.bytes} source bytes`);
+  // 4,158,510 (measured 4,158,509): the same --latest flag as root dispatch.
+  // 4,159,060 (measured 4,159,053): the one documentation definition exported, and a receipt's code digest (delivery-evidence.mjs, code-delivery-tests.mjs) [CQF:REQ-011].
+  assert.ok(current.bytes <= 4_159_060, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

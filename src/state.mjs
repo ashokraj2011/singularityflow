@@ -108,7 +108,7 @@ import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
-  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, isDocumentationPath, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
@@ -3041,6 +3041,25 @@ function rebuildUsageAggregates(workflow) {
 const TEST_INPUT_SELECTION = Symbol('test-input-selection');
 
 export async function sourceTreeHash(root, ...governanceSources) {
+  const { selection, sourcePolicy, manifest } = await sourceTreeManifest(root, ...governanceSources);
+  return manifestDigest(selection === 'test-input' ? { policy: sourcePolicy, manifest } : manifest);
+}
+
+const manifestDigest = (value) => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
+
+/**
+ * The application source digest (`treeSha256`, exactly sourceTreeHash's), the same source without its
+ * documentation (`codeTreeSha256`), and the documentation's own digest, null when there is none, from one
+ * read [CQF:REQ-011]. Recorded digests keep their meaning; a run's reuse and binding compare the code one.
+ */
+export async function sourceTreeDigests(root, ...governanceSources) {
+  const { manifest } = await sourceTreeManifest(root, ...governanceSources);
+  const documentation = manifest.filter((entry) => isDocumentationPath(entry.path));
+  return { treeSha256: manifestDigest(manifest), codeTreeSha256: manifestDigest(manifest.filter((entry) => !isDocumentationPath(entry.path))),
+    documentationSha256: documentation.length ? manifestDigest(documentation) : null };
+}
+
+async function sourceTreeManifest(root, ...governanceSources) {
   const selection = governanceSources.at(-1) === TEST_INPUT_SELECTION ? 'test-input' : 'application';
   if (selection === 'test-input') governanceSources.pop();
   assertNoHiddenWorktreeChanges(root, 'Application source hashing');
@@ -3187,8 +3206,7 @@ export async function sourceTreeHash(root, ...governanceSources) {
     }
     regularFiles.forEach((entry, index) => { entry.object = hashed[index]; });
   }
-  return `sha256:${createHash('sha256').update(canonicalJson(selection === 'test-input'
-    ? { policy: sourcePolicy, manifest } : manifest)).digest('hex')}`;
+  return { selection, sourcePolicy, manifest };
 }
 
 /** A separate, exact binding for approved excluded directories and test configuration files. */
@@ -3400,7 +3418,9 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
       : refuse('the receipt does not describe the approved generation and passing executions.');
   }
   const currentTestInput = await testInputTreeHash(root, config, workflow);
-  if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)
+  // A documentation edit is no change to the tested code [CQF:REQ-011]; a receipt from before the code digest compares its whole tree.
+  const currentTree = await sourceTreeDigests(root, config, workflow);
+  if ((receipt.tree.codeTreeSha256 ? receipt.tree.codeTreeSha256 !== currentTree.codeTreeSha256 : receipt.tree.workingStateDigest !== currentTree.treeSha256)
       || (currentTestInput && receipt.tree.testInputSha256 !== currentTestInput)) {
     const repairTarget = reviewRepairTarget(workflow, phase);
     // Main's own changes, merged in after the code was approved, read as this Story's edits
@@ -3686,6 +3706,8 @@ export async function publishGeneration(root, config, workflow, {
   const dependencyOptions = { producer: effectiveAuthorship.producer,
     generation: nextPhaseGeneration(phase), agent: session.agent };
   let dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
+  // A non-code step runs or reuses the repository's tests here, so its document can cite its own run [CQF:REQ-012].
+  const repositoryRuns = deliveryPreflight ? null : await (await import('./verification/repository-tests.mjs')).preflightRepositoryTests(root, config, workflow, phase, localTestRunKernel);
   // Execute the exact structured test command before consuming the generation intent. Submission
   // reuses this run while nothing it depends on moved [TCE:REQ-080], and command inference, test discovery, and
   // result-adapter incompatibility must be found while the current generation is still editable.
@@ -3744,7 +3766,7 @@ export async function publishGeneration(root, config, workflow, {
     generation: nextPhaseGeneration(phase)
   });
   // Repository-owned tests may change dependency bytes too. Recheck before input/Story writes.
-  if (deliveryPreflight) dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
+  if (deliveryPreflight || repositoryRuns) dependencies = await assertPhasePublicationReadiness(root, config, workflow, phase, dependencyOptions);
   dependencies.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   const { clarification } = dependencies;
   await preparePhaseInputs(root, config, workflow, phase.id);
@@ -3846,6 +3868,9 @@ export async function publishGeneration(root, config, workflow, {
   phase.authorship ??= [];
   const publishedAt = nowIso();
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+  // The runs this generation's publication made or reused; submission binds what it reuses of them [CQF:REQ-012].
+  if (repositoryRuns) phase.stepTestRuns = { generation: phase.generation, preflightAttempts: repositoryRuns };
+  else delete phase.stepTestRuns;
   if (deliveryPreflight) {
     // These are live submission bindings, not publication history. A successor starts without
     // observed evidence; immutable prior claim maps/publications remain in Git and lineage.
@@ -3859,7 +3884,7 @@ export async function publishGeneration(root, config, workflow, {
     const receiptPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}.json`;
     const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
     await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
-    const workingStateDigest = await sourceTreeHash(root, config, workflow);
+    const { treeSha256: workingStateDigest, codeTreeSha256 } = await sourceTreeDigests(root, config, workflow);
     const testInputSha256 = await testInputTreeHash(root, config, workflow);
     const receipt = {
       schemaVersion: currentSchemaVersion('code-delivery'),
@@ -3912,7 +3937,7 @@ export async function publishGeneration(root, config, workflow, {
       ...(autoCandidateVerification ? {
         autoCandidateVerification: structuredClone(autoCandidateVerification)
       } : {}),
-      tree: { workingStateDigest, ...(testInputSha256 ? { testInputSha256 } : {}),
+      tree: { workingStateDigest, codeTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
         generationCommit: null, generationTree: null },
       model: {
         task: 'code',
@@ -4741,7 +4766,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   validateEnvironmentQualityCommandCatalog(declaration, catalog);
   const sourceCommit = head(root);
   // A base run's worktree holds other code by design: what must not change is that worktree's own.
-  const sourceTreeSha256 = await sourceTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
+  const { treeSha256: sourceTreeSha256, codeTreeSha256 } = await sourceTreeDigests(candidateIsOtherCode ? candidateRoot : root, config, workflow);
   const testInputSha256 = await testInputTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
@@ -4905,7 +4930,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       const observed = {};
       await gateRun.attach(observed);
       const standing = await unchangedTestRun(root, workDirRelative(config, workflow.workItem.id), workflow, phase.id, value, {
-        commit: sourceCommit, treeSha256: sourceTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
+        commit: sourceCommit, treeSha256: sourceTreeSha256, codeTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
         ...(pinOf ? { pinSha256: pinOf(policy.id) } : {}) });
       if (standing.attempt) {
         // Nothing ran: the report staged for this run returns untouched.
@@ -4957,7 +4982,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...(isolationNeed?.excluded ?? [])] } : {}),
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-      sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+      sourceCommit, sourceTreeSha256, codeTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
       ...(policy.kind === 'test' ? { testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) } : {}),
       startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
@@ -5026,7 +5051,8 @@ function reusedQualityCheck(policy, command, standing, { testInputSha256, testRu
   const check = {
     id: policy.id, command, kind: policy.kind, requirement: policy.requirement, workingDirectory: policy.workingDirectory,
     resultIsolated: true, externalModelPolicy: policy.modelPolicy, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-    sourceCommit: attempt.candidate.commit, sourceTreeSha256: attempt.candidate.treeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+    sourceCommit: attempt.candidate.commit, sourceTreeSha256: attempt.candidate.treeSha256, ...(attempt.candidate.codeTreeSha256 ? { codeTreeSha256: attempt.candidate.codeTreeSha256 } : {}),
+    ...(testInputSha256 ? { testInputSha256 } : {}),
     testRuntime, startedAt: attempt.process.startedAt, completedAt: attempt.process.completedAt,
     status: 'passed', exitCode: 0, signal: null, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false,
     evidenceUse: 'reused', reusedFrom: { attemptId: attempt.attemptId, phase: attempt.phase, generation: attempt.generation, commit: attempt.candidate.commit,
@@ -5042,10 +5068,15 @@ function mayReuseUnchangedRuns(workflow) {
   return !workflow.testRecovery && workflow.resolution?.testRecovery?.enabled !== true;
 }
 
-/** The commands a gate runs under the Story's test scope; only a Story on its new and changed tests narrows any [TCE:REQ-093]. */
+/**
+ * The commands a gate runs under the Story's test scope; only a Story on its new and changed tests narrows any [TCE:REQ-093].
+ * At its last step that runs tests they take the existing tests that import a changed module too [CQF:REQ-017].
+ */
 async function storyScopedTestCommands(root, workflow, phase, commands, deliveryEvidence) {
   if (storyTestScope(workflow) !== 'new-and-changed') return commands;
-  return (await import('./verification/test-scope-selection.mjs')).newAndChangedTestCommands(root, commands, deliveryEvidence?.testPaths ?? []);
+  const selection = await import('./verification/test-scope-selection.mjs');
+  const importers = selection.lastTestingStep(workflow, phase) ? await selection.storyExistingImporters(root, workflow, phase, deliveryEvidence) : [];
+  return selection.newAndChangedTestCommands(root, commands, deliveryEvidence?.testPaths ?? [], { importers });
 }
 
 async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
@@ -5123,7 +5154,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       recordedRuns.set(command.id, recorded);
       if (recorded) {
         attempts.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
-          receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots });
+          receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots,
+          ...(command.testScope?.importers ? { importers: command.testScope.importers } : {}) });
       }
     }
     for (const command of commands) {
@@ -5628,11 +5660,12 @@ async function submitPhaseTransition(root, config, workflow, {
       stdout: '', stderr: observation.diagnostics.join('\n') });
   }
   if (!codeDeliveryRequired) {
-    // What the repository's tests ran is an attempt like a code step's, so nothing reruns it on the same code [TCE:REQ-080].
-    for (const command of repositoryTests?.commands ?? []) {
-      const check = phase.checks.find((entry) => entry.id === command.id);
-      if (check && !check.unchangedRun && check.status !== 'skipped-warning') await recordTestAttempt(root, workDirRelative(config, workflow.workItem.id), {
-        command, check, purpose: 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation });
+    // What the repository's tests ran is an attempt like a code step's, so nothing reruns it on the same code [TCE:REQ-080],
+    // and every run, fresh or reused, is bound into the Story record [CQF:REQ-010].
+    if (repositoryTests?.commands.length) {
+      phase.stepTestRuns = { ...(Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : {}), generation: phase.generation,
+        testExecutions: await (await import('./verification/repository-tests.mjs')).bindRepositoryTestRuns(root, workDirRelative(config, workflow.workItem.id), {
+          commands: repositoryTests.commands, checks: phase.checks, purpose: 'submission', workflow, phase, generation: phase.generation }) };
     }
     // These phases validate the process exit, not a fresh structured test receipt. An exit-zero
     // command may emit no report at all, so it cannot authorize discarding a preserved report.
@@ -5743,7 +5776,8 @@ async function submitPhaseTransition(root, config, workflow, {
           receiptSha256: recorded.sha256,
           status: receipt.status,
           affectedRoots: command.affectedRoots,
-          ...(check.testNarrowing ? { testNarrowing: check.testNarrowing } : {})
+          ...(check.testNarrowing ? { testNarrowing: check.testNarrowing } : {}),
+          ...(command.testScope?.importers ? { importers: command.testScope.importers } : {})
         });
         submittedAttempts.set(command.id, receipt);
       }
@@ -5797,10 +5831,10 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   phase.validationVerdict = validation.verdict;
   if (codeDeliveryRequired) {
-    const validatedSourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+    const { treeSha256: validatedSourceTreeSha256, codeTreeSha256: validatedCodeTreeSha256 } = await sourceTreeDigests(root, config, workflow);
     const validatedTestInputSha256 = await testInputTreeHash(root, config, workflow);
     const changedAfterCheck = phase.checks.find((check) =>
-      check.sourceTreeSha256 && (check.sourceTreeSha256 !== validatedSourceTreeSha256
+      check.sourceTreeSha256 && ((check.sourceTreeSha256 !== validatedSourceTreeSha256 && !(check.codeTreeSha256 && check.codeTreeSha256 === validatedCodeTreeSha256))
         || (validatedTestInputSha256 && check.testInputSha256 !== validatedTestInputSha256)));
     if (changedAfterCheck) {
       throw new SingularityFlowError(
@@ -5891,7 +5925,7 @@ async function submitPhaseTransition(root, config, workflow, {
       ...(retainedRisk ? { testRecovery: structuredClone(phase.deliveryEvidence.testRecovery) } : {}),
       tree: {
         ...deliveryReceipt.tree,
-        workingStateDigest: validatedSourceTreeSha256,
+        workingStateDigest: validatedSourceTreeSha256, codeTreeSha256: validatedCodeTreeSha256,
         generationCommit: phase.generationCommit,
         generationTree
       },

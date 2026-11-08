@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 12
+version: 13
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -125,7 +125,7 @@ With nothing changed yet and nothing to run at the repository root, a Story's pl
 2. Bind a missing environment from your own secret helper: `your-approved-secret-helper --format sflow-env-json qa | singularity-flow env bind qa --stdin`.
 3. Run `singularity-flow app start web --environment qa`. It prints `Ready at <url>` when the URL answers below 500 (or the log text appears), and stops the whole process tree if it does not become ready in time.
 4. Check it with `singularity-flow app status`, and stop it with Ctrl+C or `singularity-flow app stop web`.
-5. Run the tests with `singularity-flow tests run` (the code step's commands, or the capability's `application.tests`), then read every test case with `singularity-flow tests summary`. A failed case carries `message`, its short failure message (about 2,000 characters at most, redacted like the run's output when an environment was bound): the JUnit `<failure>`/`<error>` message and its first lines, the node:test error, or Jest's and Vitest's `failureMessages`; it is null when the report gives none, and passing cases carry none. With `--work-id` the run is staged for that Story step instead; publication and submission still run their own.
+5. Run the tests with `singularity-flow tests run` (the code step's commands, or the capability's `application.tests`), then read every test case with `singularity-flow tests summary`. A failed case carries `message`, its short failure message (about 2,000 characters at most, redacted like the run's output when an environment was bound): the JUnit `<failure>`/`<error>` message and its first lines, the node:test error, or Jest's and Vitest's `failureMessages`; it is null when the report gives none, and passing cases carry none. The text summary, the VS Code Test summary page and `/sf-test` show it under the case. With `--work-id` the run is staged for that Story step instead; a passing one stands for the step's next publication while nothing it ran on changes. For a Story step, `tests summary` shows the run bound to the step, with the runs it reused from an earlier step merged in, and names a newer run it did not bind; `--latest` shows the newest run.
 
 ## State and safety
 

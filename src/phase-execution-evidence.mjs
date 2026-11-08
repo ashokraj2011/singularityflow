@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './records.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
-import { sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
+import { sourceTreeDigests, testInputTreeHash } from './state-stores.mjs';
 import { commitIsAncestor, exactFileAtObject } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -41,6 +41,14 @@ function reconciliation(workflow, phase) {
   };
 }
 
+/**
+ * Whether a check ran on this tree's code. Documentation is hashed separately, so an edit to it neither
+ * unbinds a run nor makes it stale [CQF:REQ-011]; a check or packet recorded before the code digest
+ * compares the whole tree, as it always did.
+ */
+const sameCode = (check, tree) => check.sourceTreeSha256 === tree?.sourceTreeSha256
+  || Boolean(check.codeTreeSha256 && check.codeTreeSha256 === tree?.codeTreeSha256);
+
 /** Project a hash-verified packet's outcomes; never credit arbitrary live workflow.checks. */
 export function projectExecutionPacket(packet, phase, current, { checkLimit = CHECK_LIMIT, epochVerified = false } = {}) {
   const tests = (packet.checks ?? []).filter(check => check?.kind === 'test');
@@ -48,13 +56,13 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
     && (!phase.testCommandRevalidation || epochVerified);
   const checks = tests.slice(0, checkLimit).map(check => {
     const sourceBound = SHA.test(check.sourceTreeSha256 ?? '')
-      && check.sourceTreeSha256 === packet.sourceTreeSha256
+      && sameCode(check, packet)
       && current.ancestor(check.sourceCommit, packet.evidenceCommit);
     const testInputsBound = (check.testInputSha256 ?? null) === (packet.testInputSha256 ?? null);
     const binding = !sourceBound || !testInputsBound ? 'unbound'
       : !policyCurrent ? 'superseded'
       : current.status !== 'available' ? 'unavailable'
-        : check.sourceTreeSha256 !== current.sourceTreeSha256
+        : !sameCode(check, current)
           || (packet.testInputSha256 ?? null) !== current.testInputSha256 ? 'stale' : 'matched';
     const processPassed = check.status === 'passed' && check.exitCode === 0 && !check.signal
       && !check.timedOut && !check.infrastructureUnavailable;
@@ -98,7 +106,7 @@ export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, l
       receipt = readRecord('test-execution', value).record;
     } catch { return []; }
     if (receipt.attemptId !== source.attemptId || receipt.workId !== packet.workId || receipt.status !== 'passed' || receipt.exitCode !== 0
-        || receipt.candidate?.treeSha256 !== check.sourceTreeSha256 || check.sourceTreeSha256 !== packet.sourceTreeSha256
+        || receipt.candidate?.treeSha256 !== check.sourceTreeSha256 || !sameCode(check, packet)
         || (receipt.candidate?.testInputSha256 ?? null) !== (check.testInputSha256 ?? null)
         || (source.receiptSha256 && source.receiptSha256 !== sha256)) return [];
     return [{ attemptId: receipt.attemptId, commandId: check.id, path: relative, sha256, status: receipt.status, adapter: receipt.adapter, counts: receipt.tests,
@@ -207,8 +215,10 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
     }
   }
   if (packets.some(({ packet }) => packet.checks?.some(check => check.kind === 'test'))) {
-    try { current = { status: 'available', sourceTreeSha256: await sourceTreeHash(root, definition, workflow),
-      testInputSha256: await testInputTreeHash(root, definition, workflow) }; }
+    try {
+      const { treeSha256, codeTreeSha256 } = await sourceTreeDigests(root, definition, workflow);
+      current = { status: 'available', sourceTreeSha256: treeSha256, codeTreeSha256, testInputSha256: await testInputTreeHash(root, definition, workflow) };
+    }
     catch (error) { current.status = 'unavailable'; diagnostics.push({
       phase: phase.id, code: error.code ?? 'CURRENT_EXECUTION_BINDING_UNAVAILABLE', status: 'unavailable' }); }
   }

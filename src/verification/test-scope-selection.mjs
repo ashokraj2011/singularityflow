@@ -13,10 +13,11 @@
  * - a module with several runners, since a test file's path does not say which one runs it;
  * - a runner, or a script around it, that cannot be told to run single files.
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { testCommandCoversPath } from '../code-delivery-tests.mjs';
+import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { isAllowedTestAutomationPath, testCommandCoversPath } from '../code-delivery-tests.mjs';
 import { commandTokens, launcherName, nodeTestRun, packageScriptName, shellSegments } from '../test-command-resolution.mjs';
 
 const MODE = 'new-and-changed';
@@ -71,8 +72,10 @@ async function selectedArgv(root, command, files) {
  * one as `testScope.baseCommand`, so a whole run on the same code still stands for it; `testScope`
  * says which files ran, or why the whole command did.
  */
-export async function newAndChangedTestCommands(root, commands, testPaths) {
+export async function newAndChangedTestCommands(root, commands, testPaths, { importers = [] } = {}) {
   const whole = (command, why) => ({ ...command, testScope: { mode: MODE, whole: why } });
+  // The existing tests that import a changed module, at the Story's last step that runs tests [CQF:REQ-017].
+  testPaths = [...new Set([...testPaths, ...importers])].sort();
   const runners = new Map();
   for (const command of commands) {
     if (command.provenance === 'inferred') for (const key of command.affectedRoots ?? []) runners.set(key, (runners.get(key) ?? 0) + 1);
@@ -85,6 +88,58 @@ export async function newAndChangedTestCommands(root, commands, testPaths) {
     const folder = command.workingDirectory === '.' ? '' : command.workingDirectory;
     const argv = await selectedArgv(root, command, covered.map((file) => path.posix.relative(folder, file)));
     if (!argv) return whole(command, 'this runner, or the script around it, cannot be told to run single files');
-    return { ...command, argv, testScope: { mode: MODE, files: covered, baseCommand: command } };
+    const imported = covered.filter((file) => importers.includes(file));
+    return { ...command, argv, testScope: { mode: MODE, files: covered, ...(imported.length ? { importers: imported } : {}), baseCommand: command } };
   }));
+}
+
+/**
+ * Whether `phase` is the Story's last step that runs tests: no later step it reaches is a code step or
+ * runs the repository's tests. There a Story on its new and changed tests also runs, once, the existing
+ * tests that import a module it changed [CQF:REQ-017].
+ */
+export function lastTestingStep(workflow, phase) {
+  const order = workflow.phaseOrder ?? [];
+  return !order.slice(order.indexOf(phase.id) + 1).some((id) => {
+    const step = workflow.phases?.[id];
+    const pinned = workflow.resolution?.phases?.find((entry) => entry.id === id);
+    return step && step.status !== 'skipped' && (phaseRequiresCodeDelivery(step) || (pinned?.repositoryTests === 'run' && !pinned.testEvidenceFrom));
+  });
+}
+
+const MAX_IMPORTER_FILES = 5_000;
+const MAX_IMPORTER_BYTES = 1024 * 1024;
+
+/**
+ * The existing test files Git tracks that import one of `changed` directly, read with
+ * extractModuleSpecifiers; `exclude` (the Story's own new and changed tests) is left out [CQF:REQ-017].
+ */
+export async function existingTestsImporting(root, changed, { exclude = [] } = {}) {
+  if (!changed.length) return [];
+  const [{ trackedPathListing }, { buildIncrementalVerificationGraph }] = await Promise.all([
+    import('../git.mjs'), import('./incremental-verification-graph.mjs')]);
+  const listing = trackedPathListing(root);
+  const own = new Set(exclude);
+  const tests = listing.paths.filter((file) => isAllowedTestAutomationPath(file) && !own.has(file)
+    && /\.(?:[cm]?[jt]sx?)$/iu.test(file)).slice(0, MAX_IMPORTER_FILES);
+  const sourceByPath = new Map();
+  for (const file of tests) {
+    try {
+      const absolute = path.join(root, file);
+      if ((await stat(absolute)).size <= MAX_IMPORTER_BYTES) sourceByPath.set(file, await readFile(absolute, 'utf8'));
+    } catch { /* a file it cannot read imports nothing here */ }
+  }
+  const graph = buildIncrementalVerificationGraph({ files: [...changed, ...sourceByPath.keys()], sourceByPath });
+  return [...new Set(changed.flatMap((file) => graph.dependentsByFile[file] ?? []).filter((file) => sourceByPath.has(file)))].sort();
+}
+
+/**
+ * The existing tests that import a module the Story's code steps changed, with `delivery` the evidence of
+ * a code step being published now, when it is not yet on its phase [CQF:REQ-017].
+ */
+export async function storyExistingImporters(root, workflow, phase = null, delivery = null) {
+  const deliveries = Object.values(workflow.phases ?? {}).filter((step) => phaseRequiresCodeDelivery(step) && step.id !== phase?.id)
+    .map((step) => step.deliveryEvidence).concat(delivery ?? (phase && phaseRequiresCodeDelivery(phase) ? phase.deliveryEvidence : null)).filter(Boolean);
+  return existingTestsImporting(root, [...new Set(deliveries.flatMap((entry) => entry.sourcePaths ?? []))].sort(),
+    { exclude: deliveries.flatMap((entry) => entry.testPaths ?? []) });
 }

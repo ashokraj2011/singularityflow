@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, access, chmod } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { sourceTreeHash, testInputTreeHash } from '../src/state.mjs';
+import { sourceTreeDigests, sourceTreeHash, testInputTreeHash } from '../src/state.mjs';
 
 const git = (root, ...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 
@@ -47,6 +47,26 @@ test('source and separate test-input bindings survive CRLF staging/publication w
   assert.notEqual(await sourceTreeHash(root, {}, workflow), source, 'real application changes remain stale');
   await writeFile(path.join(root, 'runner.txt'), 'runner = 3\r\n');
   assert.notEqual(await testInputTreeHash(root, {}, workflow), input, 'real test-input changes remain stale');
+});
+
+test('documentation is hashed separately: the tree digest keeps its meaning, and the code digest ignores a README edit [CQF:REQ-011]', async t => {
+  const root = await repository(t);
+  await writeFile(path.join(root, 'README.md'), '# App\n');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'readme');
+  const before = await sourceTreeDigests(root);
+  assert.equal(before.treeSha256, await sourceTreeHash(root), 'the recorded tree digest is unchanged');
+  assert.notEqual(before.codeTreeSha256, before.treeSha256);
+  assert.match(before.documentationSha256, /^sha256:[a-f0-9]{64}$/u);
+  await writeFile(path.join(root, 'README.md'), '# App\n\nHow to run it.\n');
+  const notes = await sourceTreeDigests(root);
+  assert.notEqual(notes.treeSha256, before.treeSha256, 'the whole tree still moves');
+  assert.notEqual(notes.documentationSha256, before.documentationSha256);
+  assert.equal(notes.codeTreeSha256, before.codeTreeSha256, 'the code did not');
+  await writeFile(path.join(root, 'docs.md'), 'Not top-level project notes.\n');
+  await writeFile(path.join(root, 'src/README.md'), 'A nested README may be product input.\n');
+  assert.notEqual((await sourceTreeDigests(root)).codeTreeSha256, before.codeTreeSha256, 'only the one definition of documentation is left out');
+  await rm(path.join(root, 'README.md'));
+  assert.equal((await sourceTreeDigests(root)).documentationSha256, null, 'no documentation, no digest');
 });
 
 test('canonical source hashes preserve executable Git modes and SHA-256 object repositories', async t => {

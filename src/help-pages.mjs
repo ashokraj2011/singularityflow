@@ -1327,7 +1327,8 @@ const PAGES = Object.freeze({
       'directory (the last 20 runs) and never evidence for any Story. With --work-id it stages one attempt per',
       'command for the step, as publish preflight does; the step\'s next publication or submission admits it with',
       'the others, and its gates still run their own. It prints totals per command and the summary to read next.',
-      'tests summary reads one run (the latest, or --run) as resultType sflow-test-summary: totals, each command',
+      'tests summary reads one run as resultType sflow-test-summary: for a Story step the run bound to it, with the runs',
+      'it reused from another step merged in (--latest for the newest, --run for another), else the latest: totals, each command',
       '(perCase false, with a note, for report formats that give totals only), up to 5,000 test cases with their',
       '@ac requirement tags from the evidence matrix\'s scanners, the untagged count and the run history.',
       'A command linked to an environment runs with that environment\'s values only when the capability policy',
@@ -1343,6 +1344,7 @@ const PAGES = Object.freeze({
       ['--environment ENV', 'run only: the environment for commands that use one.'],
       ['--expect-command sha256:DIGEST', 'run only: the identity tests plan showed, once per command; a changed command refuses with TESTS_COMMAND_CHANGED.'],
       ['--run RUN-ID', 'summary only: a RUN- local run, or a TA- attempt of the Story step.'],
+      ['--latest', 'summary only: the newest run of the Story step, even one its gate did not bind.'],
       ['--json', 'Machine-readable output (sflow-test-plan, sflow-test-run, sflow-test-summary).']
     ],
     examples: [

@@ -136,6 +136,13 @@ test('missing/omitted packets, stale source and unstructured command success are
   assert.equal(snapshot.phases.find((p) => p.phase === 'release').status, 'no-retained-submission');
 });
 
+test('a run that exited 0 with no test in its report reads as no tests ran [CQF:REQ-010]', () => {
+  const item = fixture();
+  item.executionEvidence.entries[0].executions[0].counts = { discovered: 0, passed: 0, failed: 0, skipped: 0 };
+  const line = projectEvidenceConsistency(item).summary.find((entry) => entry.startsWith('implementation generation'));
+  assert.match(line, /: passed, no tests ran; source binding/u);
+});
+
 test('custom renamed phases and future workflows use the same role-independent facts', () => {
   const item = fixture();
   const custom = { ...item.phase, id: 'team-close', label: 'Ship it' };

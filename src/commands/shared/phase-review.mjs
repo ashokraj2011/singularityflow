@@ -23,17 +23,30 @@ async function reusedTestEvidence(root, config, workflow, phase) {
   return { reusedTestEvidence: [...reuse.active, ...reuse.lapsed] };
 }
 
-/** What a reviewer must not read as a run of this step or as the whole suite. Absent when neither applies. */
+/** A non-code step's own runs, and what a reviewer must not read as a run of this step or as the whole suite. Absent when none applies. */
 function testRunsReview(workflow, phase) {
   const reused = (phase.checks ?? []).filter((check) => check.reusedFrom).map((check) => ({
     commandId: check.id, attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase, commit: check.reusedFrom.commit, counts: check.reusedFrom.counts ?? null,
     words: `reused: ${check.reusedFrom.attemptId} recorded by ${check.reusedFrom.phase} at ${String(check.reusedFrom.commit).slice(0, 12)}; the code has not changed since, so ${check.id} was not run again` }));
+  // A non-code step's own runs, read by their counts, beside those it reused [CQF:REQ-010].
+  const evidence = Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : null;
+  const own = (evidence?.testExecutions ?? evidence?.preflightAttempts ?? []).filter((run) => !run.reusedFrom).map((run) => ({
+    commandId: run.commandId, attemptId: run.attemptId, status: run.status, counts: run.counts ?? null,
+    words: `${run.attemptId} by ${phase.id}: ${run.commandId} ${run.status}, ${!run.counts ? 'no structured counts' : Number(run.counts.discovered) === 0 ? 'no tests ran'
+      : `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped`}` }));
   const scope = storyTestScope(workflow);
   const change = workflow.testScopeChanges?.at(-1);
+  // Which existing tests the last step that runs tests ran, and why [CQF:REQ-017].
+  const bound = phase.deliveryEvidence ? phase.deliveryEvidence.testExecutions?.length ? phase.deliveryEvidence.testExecutions : phase.deliveryEvidence.preflightAttempts
+    : evidence?.testExecutions ?? evidence?.preflightAttempts;
+  const importers = [...new Set((bound ?? []).flatMap((entry) => entry.importers ?? []))].sort();
   const words = scope === 'new-and-changed'
-    ? `This Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}. Its existing tests were not run.`
+    ? `This Story runs only its new and changed tests${change ? ` (${change.id}, ${change.actor}: ${change.reason})` : ''}. ${importers.length
+      ? `As its last step that runs tests, ${phase.id} also ran once the existing tests that import a module it changed: ${importers.join(', ')}. Its other existing tests were not run.`
+      : 'Its existing tests were not run.'}`
     : change ? `This Story's test scope is ${scope} (${change.id}, ${change.actor}${change.reason ? `: ${change.reason}` : ''}).` : null;
-  return { ...(reused.length ? { reusedTestRuns: reused } : {}), ...(words ? { testScope: { scope, words, changes: workflow.testScopeChanges ?? [] } } : {}) };
+  return { ...(own.length ? { stepTestRuns: own } : {}), ...(reused.length ? { reusedTestRuns: reused } : {}),
+    ...(words ? { testScope: { scope, words, changes: workflow.testScopeChanges ?? [] } } : {}) };
 }
 
 /**
@@ -176,6 +189,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       // reason [TCE:REQ-024], each shown as what it is: acceptedRisks and acceptedNarrowings.
       ...await (await import('../../test-narrowing.mjs')).acceptedTestRunDecisions(workflow, phase, submittedDelivery),
       // What the approver is shown about acceptance criteria, stated at its real strength [E2G-017].
+      // Submission reuses a passing preflight run on unchanged code [TCE:REQ-080], so it is not said to run again [CQF:REQ-016].
       acceptance: {
         criteria: criteria.map((entry) => ({
           clauseId: entry.clauseId, status: entry.status, assurance: entry.assurance, identity: entry.identity, execution: entry.execution,
@@ -188,7 +202,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
         unattachedTags: phase.deliveryEvidence.acceptanceCriteria?.unattachedTags ?? [],
         skippedTests,
         statement: criteria.length
-          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; submission runs the tests again.'}`
+          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; a passing run stands for submission while nothing it ran on changes.'}`
           : 'No acceptance criterion is tagged on a test in this delivery.'
       },
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.',
@@ -202,6 +216,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     ...await reusedTestEvidence(root, config, workflow, phase),
     // Runs that stood because the code had not changed, and which tests the Story runs at all [TCE:REQ-083, REQ-094].
     ...testRunsReview(workflow, phase),
+    // Commands whose runs on the same code and environment disagree [CQF:REQ-013].
+    ...await (await import('../../verification/flaky-runs.mjs')).flakyTestReview(root, config, workflow, phase),
     evidenceConsistency,
     witnessReview,
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).

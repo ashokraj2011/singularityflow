@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 37
+version: 38
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -381,7 +381,7 @@ A Story has one test scope. It starts as the intake choice and can be changed at
 |---|---|
 | `all-configured` | The repository's own suite as well as the tests of every module it touches |
 | `changed-and-affected` | Every test of the modules it touches. This is the default |
-| `new-and-changed` | Only the test files the Story added, changed or planned for its criteria. Its other tests never run |
+| `new-and-changed` | Only the test files the Story added, changed or planned for its criteria, and once, at its last step that runs tests, the existing tests that import a module it changed |
 
 - **Copilot:** `/sf-test-scope <WORK-ID> new-and-changed <why>`
 - **Shell:** `singularity-flow story test-policy scope <WORK-ID> --to new-and-changed --reason "<why>"`
@@ -393,7 +393,7 @@ A Story has one test scope. It starts as the intake choice and can be changed at
 
 **On `new-and-changed`:**
 
-- Existing tests never run, at any step. A later `verification` or `testing` step records why instead of running the repository's suite, and each step's review says the existing tests were not run. A regression in an existing test is not something SFlow can see on this scope.
+- Existing tests run only once: at the Story's last step that runs tests (its last `verification` or `testing` step with `repositoryTests: run`, else its last code step), the existing test files that import a module the Story changed run with that step's tests, each told to the command that covers it. A failure there is that step's test failure. A passing run stands like any other, so submission does not run it again. Every other step records why instead of running the repository's suite, and each step's review says which existing tests ran and why. A regression in an existing test that imports nothing the Story changed is not something SFlow can see on this scope; neither is one behind an indirect import.
 - It is declared in the open, so `CODE_TEST_NARROWED` does not refuse it. An `.only`, a filter added to a script, or added skip markers are still refused: this setting is the only open way to run fewer tests.
 - A command runs whole, and its attempt says why, when narrowing it could lose tests or would not be honest:
   - the workflow or a person named the command, so it runs as written

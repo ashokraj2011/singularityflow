@@ -35,6 +35,8 @@ export interface TestSummaryCommand {
   environment: string | null; label: string | null;
   /** The command's own totals (`tests`), which a report with totals only still gives. */
   counts: { discovered: number; passed: number; failed: number; skipped: number } | null;
+  /** The engine's words when its runs on the same code and environment disagree [CQF:REQ-013]. */
+  flaky: string | null;
 }
 
 export interface TestSummaryCase {
@@ -141,7 +143,8 @@ export function testSummaryFrom(raw: unknown): TestSummary | null {
         exitCode: typeof command.exitCode === 'number' ? command.exitCode : null,
         perCase: command.perCase !== false, note: text(command.note),
         environment: text(command.environment), label: text(command.label),
-        counts: counted ? { discovered: count(tests.discovered), passed: count(tests.passed), failed: count(tests.failed), skipped: count(tests.skipped) } : null
+        counts: counted ? { discovered: count(tests.discovered), passed: count(tests.passed), failed: count(tests.failed), skipped: count(tests.skipped) } : null,
+        flaky: text(record(command.flaky)?.words)
       }] : [];
     }),
     cases: (Array.isArray(value.cases) ? value.cases : []).flatMap((item) => {
@@ -212,11 +215,13 @@ export function caseFiles(summary: TestSummary | null): Set<string> {
 export interface CaseRow {
   name: string; suite: string | null; outcome: string; outcomePill: 'ok' | 'bad' | 'wait' | '';
   duration: string; file: string | null; line: number | null; location: string | null; clauses: string[];
+  /** A failed case's message as the engine bounded and redacted it [CQF:REQ-014]. */
+  message: string | null;
 }
 
 export interface CommandTable {
   id: string; kind: string | null; adapter: string | null; status: string | null; exitCode: number | null;
-  perCase: boolean; note: string | null; environment: string | null; label: string | null; rows: CaseRow[]; total: number;
+  perCase: boolean; note: string | null; environment: string | null; label: string | null; flaky: string | null; rows: CaseRow[]; total: number;
 }
 
 export interface RunOption { id: string; label: string; title: string; selected: boolean }
@@ -248,7 +253,8 @@ function row(entry: TestSummaryCase): CaseRow {
   return {
     name: entry.name, suite: entry.suite, outcome: entry.outcome, outcomePill: PILLS[entry.outcome] ?? '',
     duration: formatDuration(entry.durationMs), file: entry.file, line: entry.line,
-    location: entry.file ? `${entry.file}${entry.line ? `:${entry.line}` : ''}` : null, clauses: entry.clauses
+    location: entry.file ? `${entry.file}${entry.line ? `:${entry.line}` : ''}` : null, clauses: entry.clauses,
+    message: entry.outcome === 'failed' ? entry.message : null
   };
 }
 
@@ -275,7 +281,7 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
   const shownCases = filterCases(summary.cases, filters);
   const listed = new Set(summary.commands.map((command) => command.id));
   const extra = [...new Set(summary.cases.map((entry) => entry.command).filter((id) => !listed.has(id)))]
-    .map((id): TestSummaryCommand => ({ id: id || 'other', kind: null, adapter: null, status: null, exitCode: null, perCase: true, note: null, environment: null, label: null, counts: null }));
+    .map((id): TestSummaryCommand => ({ id: id || 'other', kind: null, adapter: null, status: null, exitCode: null, perCase: true, note: null, environment: null, label: null, counts: null, flaky: null }));
   const commands = [...summary.commands, ...extra].map((command): CommandTable => ({
     ...command,
     // A command's own label only when it says something the run's does not.

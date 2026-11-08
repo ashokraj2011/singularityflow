@@ -111,7 +111,7 @@ function durationOf(receipt) {
 
 /**
  * Build the summary. Each entry is one command's receipt with its run metadata:
- * `{ receipt, kind, clauses, environment, evidenceClass, countsForStep, label, note, messages }`, where
+ * `{ receipt, kind, clauses, environment, evidenceClass, countsForStep, label, note, messages, flaky }`, where
  * `messages` (already redacted) is aligned with the receipt's occurrences.
  */
 export function buildTestSummary({ scope, run, entries, history = [] }) {
@@ -141,6 +141,8 @@ export function buildTestSummary({ scope, run, entries, history = [] }) {
       ...(entry.label ? { label: entry.label } : {}),
       // A gate run that ran narrowed, and the acceptance that let it through [TCE:REQ-024].
       ...(entry.narrowing ? { narrowing: entry.narrowing } : {}),
+      // Runs of it on the same code and environment that disagree [CQF:REQ-013].
+      ...(entry.flaky ? { flaky: entry.flaky } : {}),
       attemptId: receipt.attemptId ?? null
     });
     for (const [index, occurrence] of occurrences.entries()) {
@@ -197,6 +199,8 @@ export function testSummaryText(summary, { next = null } = {}) {
   }
   const run = summary.run;
   lines.push(`Test summary — ${scope} · ${run.label} · ${run.id}${run.commit ? ` · commit ${String(run.commit).slice(0, 7)}` : ''}${run.uncommittedChanges ? ' (uncommitted changes)' : ''}`);
+  // The step's bound run is the default; a newer one it did not bind is named [CQF:REQ-015].
+  if (run.newer) lines.push(`The run bound to this step. A newer run, ${run.newer.id}, is not bound to it: ${run.newer.command}`);
   const t = summary.totals;
   lines.push(`Totals: ${t.discovered} discovered · ${t.passed} passed · ${t.failed} failed · ${t.skipped} skipped · ${t.flaky} flaky · ${(t.durationMs / 1000).toFixed(1)} s`);
   for (const command of summary.commands) {
@@ -205,6 +209,7 @@ export function testSummaryText(summary, { next = null } = {}) {
     lines.push(`  ${command.id} (${command.adapter ?? command.kind}): ${command.status}${command.exitCode != null ? `, exit ${command.exitCode}` : ''}${counts}${environment}`);
     if (command.label && command.label !== run.label) lines.push(`    ${command.label}`);
     if (command.note) lines.push(`    ${command.note}`);
+    if (command.flaky) lines.push(`    ${command.flaky.words}; it refuses nothing.`);
     if (command.narrowing) {
       const accepted = command.narrowing.accepted;
       lines.push(`    Narrowed: ${command.narrowing.words}; ${accepted ? `accepted as ${accepted.id}: ${accepted.reason}` : 'not accepted, so its gate refuses it'}`);
@@ -213,7 +218,11 @@ export function testSummaryText(summary, { next = null } = {}) {
   const failed = summary.cases.filter((entry) => entry.outcome === 'failed');
   if (failed.length) {
     lines.push('Failed:');
-    for (const entry of failed.slice(0, 20)) lines.push(`  ✖ ${entry.command} › ${caseLine(entry)}`);
+    for (const entry of failed.slice(0, 20)) {
+      lines.push(`  ✖ ${entry.command} › ${caseLine(entry)}`);
+      // Its message, bounded and redacted as the JSON's [CQF:REQ-014].
+      if (entry.message) for (const line of entry.message.split('\n')) lines.push(line ? `      ${line}` : '');
+    }
     if (failed.length > 20) lines.push(`  … and ${failed.length - 20} more (use --json)`);
   }
   lines.push(`Untagged cases: ${summary.untagged}${summary.truncated ? ` · first ${summary.cases.length} cases listed` : ''}`);

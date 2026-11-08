@@ -399,8 +399,9 @@ function pathInside(candidate, root) {
 // Documentation may accompany a code delivery, but it cannot itself satisfy the product-source
 // requirement. Keep this intentionally narrow: a Markdown file under docs/ or a nested README
 // may be executable product input in a documentation application. Only conventional top-level
-// project notes get this special classification.
-function isDocumentationPath(candidate) {
+// project notes get this special classification. It is the one definition of documentation: test-run
+// reuse and run binding leave the same paths out of the code they compare [CQF:REQ-011].
+export function isDocumentationPath(candidate) {
   const relative = posix(candidate ?? '');
   return /^(?:README|CHANGELOG|CONTRIBUTING|LICENSE|NOTICE)(?:\.(?:md|markdown|mdx|rst|adoc|txt))?$/iu.test(relative);
 }
@@ -2245,7 +2246,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     if (testReceipt.phase !== receipt.phase || Number(testReceipt.generation) !== Number(receipt.generation)) {
       fail(`test receipt ${execution.commandId} is an attempt of another step or generation`);
     }
-    if (!testReceipt.candidate?.treeSha256 || testReceipt.candidate.treeSha256 !== receipt.tree?.workingStateDigest) {
+    // A run reused across a documentation edit ran on the same code [CQF:REQ-011].
+    if (!testReceipt.candidate?.treeSha256 || (testReceipt.candidate.treeSha256 !== receipt.tree?.workingStateDigest
+        && !(testReceipt.candidate.codeTreeSha256 && testReceipt.candidate.codeTreeSha256 === receipt.tree?.codeTreeSha256))) {
       fail(`test receipt ${execution.commandId} did not run against the published candidate`);
     }
     const replayReports = [];

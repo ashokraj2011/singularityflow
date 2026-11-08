@@ -42,8 +42,8 @@ async function repository(t, { tests = null } = {}) {
   execute('git', ['config', 'user.name', 'Verification Tester'], root);
   execute('git', ['config', 'user.email', 'verification.tester@example.invalid'], root);
   await writeFile(path.join(root, 'README.md'), '# Ledger\n');
-  if (tests) {
-    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'ledger', private: true, type: 'module', scripts: { test: 'node --test' } }));
+  if (tests) await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'ledger', private: true, type: 'module', scripts: { test: 'node --test' } }));
+  if (tests && tests !== 'none') {
     await mkdir(path.join(root, 'test'));
     await writeFile(path.join(root, 'test/ledger.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\n"
       + `test('ledger balances', () => assert.equal(1 + 1, ${tests === 'passing' ? 2 : 3}));\n`);
@@ -135,12 +135,31 @@ test('a failing run goes to the reviewer, who returns the Story to repair it', s
   const run = phase.checks.find((check) => check.source === 'repository-tests');
   assert.equal(run.status, 'failed');
   assert.equal(phase.status, 'awaiting_approval');
+  // Publication ran it and refused nothing; submission ran it again, and both runs are bound by their counts [CQF:REQ-010, REQ-012].
+  assert.equal(phase.stepTestRuns.preflightAttempts[0].status, 'failed');
+  assert.equal(phase.stepTestRuns.testExecutions[0].status, 'failed');
+  assert.notEqual(phase.stepTestRuns.testExecutions[0].attemptId, phase.stepTestRuns.preflightAttempts[0].attemptId);
+  assert.equal(phase.stepTestRuns.testExecutions[0].counts.failed, 1);
   const approve = flow(root, ['approve', '--yes', '--json'], { allowFailure: true });
   assert.notEqual(approve.status, 0);
   assert.equal(JSON.parse(approve.stdout).error.code, 'PHASE_VALIDATION_FAILED');
   flow(root, ['reject', '--to', 'implementation', '--reason', 'The ledger suite fails.']);
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/CH-FAIL/workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'implementation');
+});
+
+test('a run that exits 0 with no test in it reads as no tests ran, and refuses nothing new [CQF:REQ-010]', slowLane({ timeout: 300_000 }), async (t) => {
+  const root = await repository(t, { tests: 'none' });
+  const { phase } = await submitVerification(root, 'CH-ZERO');
+  const check = phase.checks.find((entry) => entry.source === 'repository-tests');
+  assert.equal(check.status, 'passed', 'its exit code is unchanged');
+  const [run] = phase.stepTestRuns.testExecutions;
+  assert.deepEqual([run.counts.discovered, run.status], [0, 'failed'], 'judged by its counts');
+  const review = JSON.parse(flow(root, ['phase', 'show', 'verification', '--json']).stdout);
+  assert.match(review.stepTestRuns[0].words, /: node-tests failed, no tests ran$/u);
+  flow(root, ['approve', '--yes']);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/CH-ZERO/workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.verification.status, 'approved');
 });
 
 test('a repository with no test command gets a note, and the step can still be approved', slowLane({ timeout: 300_000 }), async (t) => {

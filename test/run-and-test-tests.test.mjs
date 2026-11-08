@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildTestSummary, SUMMARY_CASE_LIMIT } from '../src/test-summary.mjs';
+import { selectStoryRun } from '../src/commands/tests.mjs';
+import { buildTestSummary, SUMMARY_CASE_LIMIT, testSummaryText } from '../src/test-summary.mjs';
 import { KEPT_TEST_RUNS, listTestRuns, newTestRunId, saveTestRun, TEST_RUN_FORMAT } from '../src/test-runs.mjs';
 import { latestStepAttempts, recordTestAttempt } from '../src/verification/attempts.mjs';
 
@@ -167,6 +168,29 @@ test('the summary read model reports perCase false for counts-only adapters and 
   assert.equal(summary.commands[2].perCase, false);
   assert.match(summary.commands[2].note, /This TAP report has totals only/u);
   assert.equal(summary.totals.discovered, SUMMARY_CASE_LIMIT + 9);
+});
+
+test('a Story step summary reads its bound run with the runs it reused merged in, and names a newer one it did not bind [CQF:REQ-015]', () => {
+  const at = (second) => `2026-11-08T00:00:${String(second).padStart(2, '0')}.000Z`;
+  const attempt = (attemptId, fields) => ({ attemptId, commandId: 'unit', phase: 'verify', generation: 1, purpose: 'submission', process: { completedAt: at(fields.second) }, ...fields });
+  const reused = attempt('TA-code', { phase: 'code', commandId: 'e2e', purpose: 'submission', second: 1 });
+  const own = attempt('TA-own', { second: 5 });
+  const failedLater = attempt('TA-again', { second: 9, status: 'failed' });
+  const phase = { id: 'verify', generation: 1, checks: [{ id: 'e2e', reusedFrom: { attemptId: 'TA-code', phase: 'code' } }],
+    deliveryEvidence: { status: 'ready', testExecutions: [{ commandId: 'unit', attemptId: 'TA-own' }] } };
+  const attempts = [reused, own, failedLater];
+  const chosen = selectStoryRun(attempts, phase);
+  assert.deepEqual(chosen.group.members.map((entry) => entry.attemptId).sort(), ['TA-code', 'TA-own'], 'its own bound run and the reused one, as one run');
+  assert.equal(chosen.newer.id, 'TA-again', 'a newer failed run it did not bind is named');
+  assert.equal(selectStoryRun(attempts, phase, { latest: true }).group.id, 'TA-again', '--latest reads the newest');
+  assert.equal(selectStoryRun(attempts, phase, { wanted: 'TA-code' }).group.id, 'TA-code');
+  assert.equal(selectStoryRun(attempts, { id: 'verify', generation: 1 }).group.id, 'TA-again', 'nothing bound: the newest');
+  // A reused run of another step's same purpose never joins this step's group of that purpose.
+  assert.equal(chosen.groups.find((entry) => entry.id === 'TA-code').members.length, 1);
+  const text = testSummaryText({ scope: { kind: 'story', workId: 'W-1', phase: 'verify' }, run: { id: chosen.group.id, label: 'Run by submission',
+    newer: { id: 'TA-again', command: 'singularity-flow tests summary --work-id W-1 --phase verify --latest' } },
+  totals: { discovered: 0, passed: 0, failed: 0, skipped: 0, flaky: 0, durationMs: 0 }, commands: [], cases: [], untagged: 0, truncated: false });
+  assert.match(text, /^The run bound to this step\. A newer run, TA-again, is not bound to it: singularity-flow tests summary --work-id W-1 --phase verify --latest$/mu);
 });
 
 test('a Story step run is staged as local attempts, read as a local run, and admitted only with the next publication', slowLane({ timeout: 300_000 }), async (t) => {

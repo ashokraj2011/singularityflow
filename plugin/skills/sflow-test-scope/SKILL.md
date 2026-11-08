@@ -18,5 +18,5 @@ Changing it edits no code, runs no test and leaves every recorded run as it is. 
 
 1. Run `singularity-flow story test-policy scope [WORK-ID] --json` and report `label` and `meaning`, then every entry of `scopes`. Without a scope in `$ARGUMENTS`, that report is the answer.
 2. With one, use its exact ID: `all-configured`, `changed-and-affected` or `new-and-changed` ("only new"). `changeable: false` means it cannot change now; say why from `sealedBy` or the Story's state.
-3. A move to fewer tests needs a reason, 10 to 500 characters, and the step's reviewer reads it. Use the person's words from `$ARGUMENTS`; if they gave none, ask with `ask_user`. Say plainly when `new-and-changed` means the Story's existing tests will never run.
+3. A move to fewer tests needs a reason, 10 to 500 characters, and the step's reviewer reads it. Use the person's words from `$ARGUMENTS`; if they gave none, ask with `ask_user`. Say plainly when `new-and-changed` means the Story's existing tests will run only once, at its last step that runs tests, and only those that import a module it changed.
 4. Run `singularity-flow story test-policy scope [WORK-ID] --to <SCOPE> [--reason <WHY>] --json` once. Report the new `label`, the recorded `record.id` and what `meaning` says runs next.

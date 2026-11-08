@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 91
+version: 92
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -307,8 +307,8 @@ The same holds for every role:
 ## A verification step runs the repository's tests
 
 A step that is not a code step and sets `repositoryTests: run` also runs the repository's own test
-suite when it is submitted: the command its build files name, such as `npm test`, `mvn test` or
-`go test ./...`. The packaged `verification` and `testing` steps set it, so their test evidence is
+suite when it is published, so its document can cite its own run, and submission reuses that run: the
+command its build files name, such as `npm test`, `mvn test` or `go test ./...`. The packaged `verification` and `testing` steps set it, so their test evidence is
 no longer only what the author wrote. Set `repositoryTests: off` in a work type's
 `phaseOverrides` to rely on the code step's tests alone. Code steps already run their tests, so the
 setting changes nothing there.
@@ -316,7 +316,10 @@ setting changes nothing there.
 - **Already passed on this code:** when the code step's run is the same command on the same code, in the
   same environment, it is reused and not run again; the review says so. See "When tests do not run
   again" in `singularity-flow explain test-recovery`.
-- **Pass:** the run is recorded with the step's checks and shown in its review.
+- **Pass:** the run is recorded with the step's checks and shown in its review, read by its counts; one
+  that exits 0 with no test in its report reads as no tests ran. Every run, fresh or reused, is bound into
+  the step's submission, so the steps after it and the evidence matrix read its counts.
+- **Fail at publication:** nothing is refused; submission runs it again.
 - **Fail:** the submission still completes, and the warning says so. Its reviewer cannot approve the
   step (`PHASE_VALIDATION_FAILED`) and returns it with `reject --to <step>` to the step that
   repairs it.

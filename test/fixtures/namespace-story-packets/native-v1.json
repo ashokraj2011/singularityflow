@@ -1,0 +1,907 @@
+{
+  "baseline": "9d486f4d3",
+  "scope": {
+    "projectId": "new-project"
+  },
+  "workId": "story-1",
+  "authority": {
+    "id": "application-authority",
+    "epoch": 1
+  },
+  "limits": {
+    "maxPage": 1000,
+    "maxChanges": 128,
+    "maxPreconditions": 256,
+    "maxEvents": 128,
+    "maxValueBytes": 65536,
+    "maxTransactionBytes": 262144,
+    "maxDepth": 24,
+    "maxNodes": 20000
+  },
+  "recordsId": "sqlite-namespace",
+  "contentId": "sqlite-content",
+  "result": {
+    "schemaVersion": 1,
+    "contract": "sflow-engine/v1",
+    "operation": "story.create",
+    "status": "created",
+    "subject": {
+      "kind": "story",
+      "id": "story-1"
+    },
+    "operationId": "create-story-1",
+    "authority": {
+      "id": "application-authority",
+      "epoch": 1
+    },
+    "principalId": "application-owner",
+    "configurationId": "configuration-1",
+    "currentPhase": "intake",
+    "generation": 0,
+    "recordedAt": "2026-11-08T00:00:00.000Z",
+    "revision": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-4",
+    "transactionRevision": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa",
+    "requestDigest": "344ac83307b00b477cafb422694774c2f3b45fb4d3e227f1e6ef10932f2c371b",
+    "replayed": false,
+    "source": {
+      "kind": "story-document",
+      "id": "story-source",
+      "workId": "story-1"
+    },
+    "effects": {
+      "committed": true,
+      "pushed": false,
+      "storyCreated": true,
+      "configurationApproved": false,
+      "humanReviewRecorded": false,
+      "approvalRecorded": false
+    }
+  },
+  "intent": {
+    "namespace": "runtime",
+    "key": "stories/prepared/39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895",
+    "version": "sql:c6f8cfc4-f8ff-4d18-9f2b-9154d9740f05/record-1",
+    "immutable": true,
+    "value": {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-story-intent/v1",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "authorityId": "application-authority",
+      "epoch": 1,
+      "operationId": "create-story-1",
+      "parametersSha256": "2f9f9e4b010f6b922a93e6b68064bdedce727a499d85a52a8abde5dbeff912f5",
+      "configurationId": "configuration-1",
+      "configuration": {
+        "key": "configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+        "content": {
+          "namespace": "config",
+          "sha256": "99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+          "bytes": 16127
+        }
+      },
+      "configurationVersion": "sql:704409fe-a5c7-4adf-b245-ecf42dcf6f7a/record-2",
+      "authorityVersion": "sql:872175c6-6346-40e6-b675-f12694ded9a8/record-2",
+      "source": {
+        "namespace": "state",
+        "sha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce",
+        "bytes": 52
+      },
+      "title": "Converter",
+      "workTypeId": "simple",
+      "actor": {
+        "principalId": "application-owner",
+        "actorKind": "human",
+        "identity": {
+          "name": "Example reviewer",
+          "email": "reviewer@example.test",
+          "login": null
+        }
+      },
+      "recordedAt": "2026-11-08T00:00:00.000Z",
+      "state": {
+        "namespace": "state",
+        "sha256": "1f22fe615465b27ba73839f90da295a0f41af8e51951cc6f2a9cc4e8c94ed149",
+        "bytes": 10720
+      },
+      "initialPhase": "intake",
+      "requestDigest": "344ac83307b00b477cafb422694774c2f3b45fb4d3e227f1e6ef10932f2c371b"
+    }
+  },
+  "genesis": {
+    "namespace": "state",
+    "key": "stories/f7014fb0d09e42761dde10fae5ca49bc57770d3ae061aa7a7ade4984716826e7/genesis",
+    "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-3",
+    "immutable": true,
+    "value": {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-story-genesis/v1",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "authorityId": "application-authority",
+      "epoch": 1,
+      "operationId": "create-story-1",
+      "parametersSha256": "2f9f9e4b010f6b922a93e6b68064bdedce727a499d85a52a8abde5dbeff912f5",
+      "configurationId": "configuration-1",
+      "configuration": {
+        "key": "configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+        "content": {
+          "namespace": "config",
+          "sha256": "99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+          "bytes": 16127
+        }
+      },
+      "configurationVersion": "sql:704409fe-a5c7-4adf-b245-ecf42dcf6f7a/record-2",
+      "authorityVersion": "sql:872175c6-6346-40e6-b675-f12694ded9a8/record-2",
+      "source": {
+        "namespace": "state",
+        "sha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce",
+        "bytes": 52
+      },
+      "title": "Converter",
+      "workTypeId": "simple",
+      "actor": {
+        "principalId": "application-owner",
+        "actorKind": "human",
+        "identity": {
+          "name": "Example reviewer",
+          "email": "reviewer@example.test",
+          "login": null
+        }
+      },
+      "recordedAt": "2026-11-08T00:00:00.000Z",
+      "state": {
+        "namespace": "state",
+        "sha256": "1f22fe615465b27ba73839f90da295a0f41af8e51951cc6f2a9cc4e8c94ed149",
+        "bytes": 10720
+      },
+      "initialPhase": "intake"
+    }
+  },
+  "head": {
+    "namespace": "state",
+    "key": "stories/f7014fb0d09e42761dde10fae5ca49bc57770d3ae061aa7a7ade4984716826e7/head",
+    "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-4",
+    "immutable": false,
+    "value": {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-lifecycle-head/v1",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "authorityId": "application-authority",
+      "epoch": 1,
+      "sequence": 0,
+      "configuration": {
+        "key": "configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+        "content": {
+          "namespace": "config",
+          "sha256": "99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+          "bytes": 16127
+        }
+      },
+      "state": {
+        "namespace": "state",
+        "sha256": "1f22fe615465b27ba73839f90da295a0f41af8e51951cc6f2a9cc4e8c94ed149",
+        "bytes": 10720
+      },
+      "previous": null,
+      "operationId": "create-story-1"
+    }
+  },
+  "manifest": {
+    "namespace": "evidence",
+    "key": "stories/creations/39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895",
+    "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-1",
+    "immutable": true,
+    "value": {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-story-manifest/v1",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "authorityId": "application-authority",
+      "epoch": 1,
+      "operationId": "create-story-1",
+      "parametersSha256": "2f9f9e4b010f6b922a93e6b68064bdedce727a499d85a52a8abde5dbeff912f5",
+      "configurationId": "configuration-1",
+      "configuration": {
+        "key": "configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+        "content": {
+          "namespace": "config",
+          "sha256": "99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+          "bytes": 16127
+        }
+      },
+      "configurationVersion": "sql:704409fe-a5c7-4adf-b245-ecf42dcf6f7a/record-2",
+      "authorityVersion": "sql:872175c6-6346-40e6-b675-f12694ded9a8/record-2",
+      "source": {
+        "namespace": "state",
+        "sha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce",
+        "bytes": 52
+      },
+      "title": "Converter",
+      "workTypeId": "simple",
+      "actor": {
+        "principalId": "application-owner",
+        "actorKind": "human",
+        "identity": {
+          "name": "Example reviewer",
+          "email": "reviewer@example.test",
+          "login": null
+        }
+      },
+      "recordedAt": "2026-11-08T00:00:00.000Z",
+      "state": {
+        "namespace": "state",
+        "sha256": "1f22fe615465b27ba73839f90da295a0f41af8e51951cc6f2a9cc4e8c94ed149",
+        "bytes": 10720
+      },
+      "initialPhase": "intake"
+    }
+  },
+  "readHead": {
+    "namespace": "state",
+    "key": "stories/b1680d9ab66360d24b8f65091ef80b7c6481829650596d199dc93aea3d564877/read-head",
+    "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-2",
+    "immutable": false,
+    "value": {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-read-lifecycle-head/v1",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "lifecycleHead": "stories/f7014fb0d09e42761dde10fae5ca49bc57770d3ae061aa7a7ade4984716826e7/head",
+      "authority": {
+        "id": "application-authority",
+        "epoch": 1
+      }
+    }
+  },
+  "prepared": {
+    "status": "committed",
+    "receipt": {
+      "operationId": "story-prepare-39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895",
+      "scope": {
+        "projectId": "new-project"
+      },
+      "revision": "sql:c6f8cfc4-f8ff-4d18-9f2b-9154d9740f05",
+      "requestDigest": "57903ccb341fef3028e72e1757219777bedcb83bba4870c9a73c343f5046623b",
+      "records": [
+        {
+          "namespace": "runtime",
+          "key": "stories/prepared/39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895",
+          "version": "sql:c6f8cfc4-f8ff-4d18-9f2b-9154d9740f05/record-1"
+        }
+      ],
+      "eventIds": []
+    }
+  },
+  "committed": {
+    "status": "committed",
+    "receipt": {
+      "operationId": "story-create-39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895",
+      "scope": {
+        "projectId": "new-project"
+      },
+      "revision": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa",
+      "requestDigest": "344ac83307b00b477cafb422694774c2f3b45fb4d3e227f1e6ef10932f2c371b",
+      "records": [
+        {
+          "namespace": "evidence",
+          "key": "stories/creations/39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895",
+          "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-1"
+        },
+        {
+          "namespace": "state",
+          "key": "stories/b1680d9ab66360d24b8f65091ef80b7c6481829650596d199dc93aea3d564877/read-head",
+          "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-2"
+        },
+        {
+          "namespace": "state",
+          "key": "stories/f7014fb0d09e42761dde10fae5ca49bc57770d3ae061aa7a7ade4984716826e7/genesis",
+          "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-3"
+        },
+        {
+          "namespace": "state",
+          "key": "stories/f7014fb0d09e42761dde10fae5ca49bc57770d3ae061aa7a7ade4984716826e7/head",
+          "version": "sql:93c2fba3-8c51-47da-a164-3aa0076dd5fa/record-4"
+        }
+      ],
+      "eventIds": [
+        "story-create-39e51163662946b962f6783d328b0772cba36f76ada8c7e6bb5f9942471df895"
+      ]
+    }
+  },
+  "body": {
+    "schemaVersion": 2,
+    "format": "sflow-namespace-lifecycle-state/v2",
+    "projectId": "new-project",
+    "authorityId": "application-authority",
+    "epoch": 1,
+    "workId": "story-1",
+    "configuration": {
+      "namespace": "config",
+      "sha256": "99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a",
+      "bytes": 16127
+    },
+    "workflow": {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-story-workflow/v1",
+      "workItem": {
+        "id": "story-1",
+        "title": "Converter",
+        "workType": "simple",
+        "workTypeLabel": "Simple",
+        "branch": null,
+        "baseBranch": null,
+        "createdAt": "2026-11-08T00:00:00.000Z",
+        "createdBy": {
+          "principalId": "application-owner",
+          "actorKind": "human",
+          "identity": {
+            "name": "Example reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        },
+        "source": {
+          "type": "namespace-text",
+          "content": {
+            "namespace": "state",
+            "sha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce",
+            "bytes": 52
+          },
+          "contentSha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce"
+        }
+      },
+      "lineage": {
+        "canonicalBranch": null,
+        "parentStoryId": "story-1",
+        "childBranches": [],
+        "submissions": []
+      },
+      "resolution": {
+        "analysisLimits": {
+          "maxArtifactBytes": 2097152,
+          "maxChangedPaths": 2000,
+          "maxClauses": 2000,
+          "maxEvidenceRecords": 500,
+          "maxFacts": 500,
+          "maxOutputBytes": 4194304
+        },
+        "approvalAuthorities": {
+          "reviewers": {
+            "allowAnyGitIdentity": false,
+            "githubTeams": [],
+            "label": "Reviewers",
+            "members": [
+              {
+                "email": "reviewer@example.test",
+                "githubLogin": null,
+                "name": null
+              }
+            ]
+          }
+        },
+        "approvalSecurity": {
+          "allowAnyGitIdentity": false,
+          "allowSelfApproval": true,
+          "autoEnrollNewIdentities": true,
+          "profile": "team",
+          "requireNamedMembers": false
+        },
+        "architectureIntent": {
+          "allowedPhases": [],
+          "blockRequiredUnfulfilledAt": [],
+          "enabled": false
+        },
+        "artifactSets": {},
+        "auto": {
+          "allowedPaces": [
+            "step",
+            "continuous",
+            "phase",
+            "interval"
+          ],
+          "ceilings": null,
+          "defaultUntil": "first-human-boundary",
+          "eligibility": "disabled"
+        },
+        "codeDelivery": {
+          "changeSet": {
+            "includeCommitted": true,
+            "includeIndex": true,
+            "includeUntracked": true,
+            "includeWorktree": true,
+            "renameDetection": "required",
+            "symlinks": "reject"
+          },
+          "display": {
+            "fullDocumentMaximumBytes": 65536,
+            "previewBytes": 4096,
+            "source": "reference-preview"
+          },
+          "generationBoundary": {
+            "dirtyStart": "block",
+            "requireBegin": true
+          },
+          "mode": "enforce",
+          "model": {
+            "minimumAssurance": "unavailable"
+          },
+          "publication": {
+            "idempotency": "generation-intent"
+          },
+          "schemaVersion": 2,
+          "tests": {
+            "executionAssurance": "module",
+            "minimumDiscovered": 1,
+            "minimumPassed": 1,
+            "requireAffectedModuleCoverage": true,
+            "requireExecutableSource": true,
+            "requireResultAdapter": true,
+            "stringCommands": "reject",
+            "unknownModelPolicy": "block"
+          },
+          "traceability": {
+            "bareIdCompatibility": "unique-only",
+            "requireNamespaceQualifiedIds": true,
+            "source": "pinned-spec-index",
+            "sourceBindings": "enforce"
+          }
+        },
+        "constitution": {
+          "mode": "off",
+          "path": "singularity/constitution.md"
+        },
+        "contextPolicy": {
+          "onApproval": "keep",
+          "onRejection": "keep",
+          "phaseOverrides": {}
+        },
+        "designSources": null,
+        "documents": {
+          "allowedPhases": []
+        },
+        "faultRepair": {
+          "boundedAuto": false,
+          "enabled": true,
+          "environmentCeilings": {
+            "ci": "propose",
+            "copilot": "guided",
+            "ide": "guided",
+            "integration": "propose",
+            "local": "guided",
+            "production": "diagnose",
+            "staging": "propose"
+          },
+          "leaseMinutes": 60,
+          "maxAttempts": 3,
+          "maxMinutes": 20,
+          "maxTokens": 30000,
+          "maximumEvidenceBytes": 67108864,
+          "maximumInlineEvidenceBytes": 16384,
+          "protectedPaths": [
+            ".git",
+            "singularity",
+            "infra/production"
+          ]
+        },
+        "harnessImports": {
+          "conformance": {
+            "maximumActions": "off",
+            "previewRespected": "off",
+            "questionPrecedesMutation": "off",
+            "verbatimRelay": "off"
+          },
+          "knowledge": {
+            "enabled": false,
+            "maximumBytes": 8192
+          },
+          "mode": "off",
+          "previewTextBytes": 16384,
+          "totalEnvelopeBytes": 32768
+        },
+        "id": "simple",
+        "inputsMode": "off",
+        "intelligence": {
+          "agentBriefs": "inherit",
+          "ast": "inherit",
+          "worldModel": "inherit"
+        },
+        "label": "Simple",
+        "ledger": {
+          "behind": "warn",
+          "branch": "state",
+          "enabled": false,
+          "enforcement": "shadow",
+          "maxRetries": 4,
+          "pinTransport": "refs",
+          "publication": "warn",
+          "remote": "origin",
+          "retentionDays": 2555,
+          "signing": "off",
+          "trustTier": "T0"
+        },
+        "obligationGraph": {
+          "compilerVersion": 1,
+          "digest": "sha256:31882536a0284a37105deda7f07f4d9f58f5b5c24eb0f871d61404e35a7f1f6b",
+          "edges": [
+            {
+              "decision": null,
+              "from": "intake",
+              "kind": "next",
+              "omits": [
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "scope"
+                },
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "plan"
+                },
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "implement"
+                },
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "verify"
+                }
+              ],
+              "route": null,
+              "to": "$end"
+            }
+          ],
+          "endpoints": [
+            {
+              "decision": null,
+              "from": "intake",
+              "guaranteed": [
+                "review"
+              ],
+              "missing": [],
+              "omits": [
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "scope"
+                },
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "plan"
+                },
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "implement"
+                },
+                {
+                  "authority": "reviewers",
+                  "reason": "This workflow creates a reviewed intake document, without defining or delivering application requirements.",
+                  "responsibility": "verify"
+                }
+              ],
+              "route": null
+            }
+          ],
+          "findings": [],
+          "nodes": [
+            {
+              "id": "intake",
+              "responsibilities": [
+                "review"
+              ],
+              "reviewKind": "human"
+            }
+          ],
+          "shapeDigest": "sha256:cfa8a4f4f19b6a3eb169986b2065cb0e677d14428c0f06d744a7a035b8f25029"
+        },
+        "phaseSemantics": {
+          "profile": "sflow-phase-semantics/v1"
+        },
+        "phases": [
+          {
+            "approval": {
+              "allowSelfApproval": true,
+              "authorities": [
+                "reviewers"
+              ],
+              "changeRequests": {
+                "commentRequired": true,
+                "reopenCompleted": true
+              },
+              "maximumChangedPaths": null,
+              "minimum": 1,
+              "mode": "required",
+              "policy": null,
+              "rejectTo": [
+                "intake"
+              ],
+              "requiredAuthorities": []
+            },
+            "artifact": {
+              "path": "artifacts/intake/plan.md"
+            },
+            "clarification": {
+              "markers": {
+                "mode": "off"
+              },
+              "maxQuestions": 5,
+              "mode": "off",
+              "topics": []
+            },
+            "comparison": {},
+            "defaultAgent": "analyst",
+            "defaultTemplate": "intake.md",
+            "generation": {
+              "allowedProducers": [
+                "governed-agent",
+                "human"
+              ],
+              "defaultProducer": "governed-agent",
+              "producer": "agent",
+              "requirement": "required",
+              "task": null
+            },
+            "id": "intake",
+            "inputs": [],
+            "label": "Intake",
+            "mcp": {
+              "evidence": [],
+              "requireSmoke": false,
+              "requiredServers": []
+            },
+            "order": 0,
+            "repairBudget": null,
+            "sourceBoundary": "unrestricted",
+            "specificationQuality": {
+              "assisted": false,
+              "checklist": "requirements-quality-v1",
+              "exceptionAuthority": null,
+              "mode": "off"
+            },
+            "template": "intake.md",
+            "worldModel": {}
+          }
+        ],
+        "plannedClaims": {
+          "clausePhases": [],
+          "disabledBecause": "no-code-delivery-phases",
+          "mode": "disabled",
+          "owners": {},
+          "reason": null
+        },
+        "referenceRepositoryPolicy": {
+          "mode": "optional"
+        },
+        "sequenceGates": {
+          "binding": "hard",
+          "completion": "hard",
+          "currentPhase": "hard",
+          "default": "hard",
+          "documentPhase": "hard",
+          "freshGeneration": "hard",
+          "generationCommit": "hard",
+          "phaseStatus": "hard",
+          "publicationPending": "hard",
+          "remoteGeneration": "hard"
+        },
+        "sourceReview": {
+          "mode": "off",
+          "phases": [],
+          "reviewerAgent": null
+        },
+        "spec": {
+          "acceptance": "off",
+          "compositionCache": "local",
+          "conformanceRows": "qualified",
+          "coverage": "off",
+          "excludes": [
+            "singularity",
+            ".github/agents",
+            ".git",
+            "node_modules"
+          ],
+          "limits": {
+            "maxClaimBytes": 2097152,
+            "maxClausesPerArtifact": 2000,
+            "maxDependenciesPerClause": 100,
+            "maxPathsPerClaim": 1000
+          },
+          "mode": "off",
+          "namespace": null,
+          "testCommands": {}
+        },
+        "testRuntime": {
+          "nodeOptions": []
+        },
+        "tokenEconomy": {
+          "ast": "optional",
+          "cacheStableComposition": true,
+          "composer": "legacy-v1",
+          "enabled": true,
+          "historicalMemory": false,
+          "mode": "observe",
+          "observationFirewall": true,
+          "profile": "standard",
+          "profiles": {
+            "standard": {
+              "maxExpansionTokens": 8000,
+              "maximumEstimatedPromptTokens": 18000,
+              "observationCapsuleTokens": 3000,
+              "policyOnBudgetBreach": "refuse",
+              "reservedOutputTokens": 6000
+            }
+          },
+          "progressiveRetrieval": true,
+          "providerTelemetry": "optional"
+        },
+        "verification": {
+          "comparison": {
+            "channelTolerance": 0,
+            "maxDifferingPixelRatio": null,
+            "maxDifferingPixels": null,
+            "maxPixels": 40000000,
+            "mode": "off"
+          },
+          "coverage": "warn",
+          "profiles": []
+        },
+        "worldModelGrounding": "off",
+        "workItemRoot": "singularity/work-items",
+        "configurationApprovalId": "configuration-1",
+        "configurationSource": {
+          "bytes": 2154,
+          "namespace": "config",
+          "sha256": "2e4fe6e82828fc8d31464c73c7a49471dd0089f72c7d017974a92fa0eeacda72"
+        },
+        "sourceSha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce"
+      },
+      "status": "in_progress",
+      "currentPhase": "intake",
+      "phaseOrder": [
+        "intake"
+      ],
+      "phases": {
+        "intake": {
+          "id": "intake",
+          "label": "Intake",
+          "order": 0,
+          "defaultAgent": "analyst",
+          "status": "in_progress",
+          "requiredArtifact": {
+            "path": "artifacts/intake/plan.md"
+          },
+          "template": "intake.md",
+          "worldModel": {},
+          "writeScope": "artifact-only",
+          "sourceBoundary": "unrestricted",
+          "comparison": {},
+          "mcp": {
+            "evidence": [],
+            "requireSmoke": false,
+            "requiredServers": []
+          },
+          "repairBudget": null,
+          "inputs": [],
+          "generationPolicy": {
+            "allowedProducers": [
+              "governed-agent",
+              "human"
+            ],
+            "defaultProducer": "governed-agent",
+            "producer": "agent",
+            "requirement": "required",
+            "task": null
+          },
+          "approvalPolicy": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "intake"
+            ],
+            "requiredAuthorities": []
+          },
+          "qualityCommands": [],
+          "startedAt": "2026-11-08T00:00:00.000Z",
+          "submittedAt": null,
+          "approvedAt": null,
+          "approvedBy": null,
+          "rejectedAt": null,
+          "rejectedBy": null,
+          "rejectionReason": null,
+          "generation": 0,
+          "generatedBy": null,
+          "generatedAgent": null,
+          "authorship": [],
+          "usage": [],
+          "telemetry": [],
+          "approvals": [],
+          "generationPublications": [],
+          "submissionArchitectureDecision": null,
+          "designSourceSets": [],
+          "artifactRegistrationRepairs": [],
+          "artifacts": [],
+          "checks": []
+        }
+      },
+      "usage": {
+        "mode": "exact-or-unavailable",
+        "totalTokens": 0,
+        "records": 0,
+        "exactRecords": 0,
+        "unavailableRecords": 0,
+        "byPhase": {},
+        "byAgent": {},
+        "byWorkType": {},
+        "byWorkItem": {}
+      },
+      "telemetry": {
+        "mode": "work-item-sanitized"
+      },
+      "documents": {
+        "count": 0,
+        "updatedAt": null
+      },
+      "collaboration": {
+        "assignments": {},
+        "notifications": []
+      },
+      "sequenceOverrides": [],
+      "changeRequests": [],
+      "execution": {
+        "status": "unbound",
+        "repositories": [],
+        "observations": []
+      },
+      "mcpAuthorizations": {},
+      "namespaceDocuments": [
+        {
+          "id": "story-source",
+          "phase": null,
+          "generation": null,
+          "sourceKey": "USER-STORY.md",
+          "role": "file",
+          "name": "Story source",
+          "kind": "story-source",
+          "mimeType": "text/markdown",
+          "encoding": "utf8",
+          "locality": "project",
+          "status": "active",
+          "aliases": [
+            "source"
+          ],
+          "content": {
+            "namespace": "state",
+            "sha256": "948a3eff5a559ded1be2898d0ddb42bded246ec48bd85928839141ce0906a3ce",
+            "bytes": 52
+          }
+        }
+      ],
+      "history": [
+        {
+          "at": "2026-11-08T00:00:00.000Z",
+          "actor": "application-owner",
+          "agent": null,
+          "event": "work_started",
+          "phase": "intake",
+          "detail": "Created simple Story"
+        }
+      ]
+    }
+  }
+}

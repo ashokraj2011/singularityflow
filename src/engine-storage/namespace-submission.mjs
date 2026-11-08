@@ -12,9 +12,10 @@ import {submissionRoutingSelection} from '../kernel/submission-routing.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
-import {createNamespaceLifecycleObserver,namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
-import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
+import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
@@ -29,9 +30,8 @@ function cancelled(signal){if(signal?.aborted)throw error('Submission was cancel
 
 export function createNamespaceSubmissionPorts({records,content,scope,workId,authority,access,clock,notice=()=>{}}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
-  const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
+  const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
-  const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
   const publications=createNamespacePublicationReader({observer,scope,workId});
   const packets=createNamespaceSubmissionReader({observer,scope,workId});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof notice!=='function')throw error('Submission needs explicit authenticated access, clock and notice ports.','ENGINE_INPUT_INVALID');
@@ -56,7 +56,7 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
     return {value,published};
   }
   async function retained(plan,s,signal) {
-    checkedPlan(plan,s);const state=observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head),phase=state.workflow.phases[s.phaseId];
+    checkedPlan(plan,s);const state=await observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head,{signal}),phase=state.workflow.phases[s.phaseId];
     if(!phase||phase.generation!==s.generation||phase.status!=='awaiting_approval')throw error('The accepted submission has another phase state.','ENGINE_STORAGE_CORRUPT');
     const {value}=await packet(phase.namespaceSubmission,s,signal);
     const submissions=state.workflow.lineage?.submissions;
@@ -137,67 +137,74 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
     async prepare(context,input,_intent,{signal}={}) {
       const s=selected(context),agent=s.agent;
       if(!agent)throw error('Submission needs its authenticated selection before preparation.','ENGINE_INPUT_INVALID');
-      const snapshot=await committer.capture({signal}),workflow=snapshot.workflow,phase=workflow.phases[s.phaseId];
-      const expected=s.plan?.basis.headVersion??s.observed.revision;
-      if(snapshot.revision!==expected)throw error('The Story changed before submission preparation.','ENGINE_CONTEXT_CHANGED');
-      const sequence=sequenceAdmission(workflow,{requestedPhase:s.phaseId});
-      if(!sequence.allowed)throw error('Submission requires the current in-progress phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
-      const hold=phaseGovernancePlan(workflow,phase);if(hold)throw error('Resolve the phase hold before submission.',hold.code,hold);
-      const approved=await configured.approved(workflow.resolution.configurationApprovalId,{signal});
-      if(!same(approved.configuration,snapshot.configuration))throw error('Submission has another configuration pin.','ENGINE_STORAGE_CORRUPT');
-      const mutation=phaseAgentMutationFacts({agents:Object.fromEntries(approved.compiled.definition.agentCatalog.map(item=>[item.id,item]))},workflow,phase,{agent:agent.agentId},'submit');
-      if(!mutation.allowed)throw error('The selected agent cannot submit this phase.',mutation.code,mutation);
-      if(phase.defaultAgent&&phase.defaultAgent!==agent.agentId)throw error('Select the pinned phase author before submission.','AGENT_SESSION_REQUIRED',{agentId:phase.defaultAgent});
-      const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
-      if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
-      if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
-      if(s.decisionPlan?.kind==='retained')required.add('retained-decision-input-provenance');
-      if(workflow.resolution.presence)required.add('person-presence');
-      if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
-      const published=await publications.read(s.publication,s.phaseId,{signal});
-      if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation
-        ||!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
-        throw error('Submission requires the exact retained artifact and publication configuration.','ENGINE_STORAGE_CORRUPT');
-      }
-      if(s.plan) {
-        const original=await retained(s.plan,s,signal);
-        if(!same(original.packet.actor,agent.actor)||original.packet.agentId!==agent.agentId)throw error('Resume submission under its original authenticated author.','ENGINE_ACTOR_CHANGED');
-      }else {
-        const submittedAt=projectEnrollmentTimestamp(await now());
-        if(s.decisionPlan?.kind==='record')applySubmittedDecisionInput(phase,s.decisionPlan,{at:submittedAt,actorId:agent.actor.principalId});
-        const value=namespaceSubmissionRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
-          operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
-          publication:s.publication,actor:agent.actor,agentId:agent.agentId,submittedAt},{routing:await routing(snapshot,phase,signal)});
-        namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
-        const data=Buffer.from(canonicalJson(value)),expectedReference={namespace:'evidence',sha256:hash(data),bytes:data.byteLength};
-        const saved=await put(scope,'evidence',data,{signal});
-        if(!same(contentReference(saved?.reference),expectedReference)||typeof saved.reused!=='boolean')throw error('The content port stored another review packet.','ENGINE_PORT_RESULT_INVALID');
-        await observer.bytes(expectedReference,expectedReference.bytes,signal);
-        beginPhaseSubmission(phase,submittedAt);applyPhaseSubmissionDisposition(phase,{reviewableFailure:false,applicationReviewPending:false,waiver:null});
-        phase.namespaceSubmission=namespaceSubmissionBindingValue({schemaVersion:NAMESPACE_SUBMISSION_SCHEMAS.binding.currentVersion,
-          format:'sflow-namespace-phase-submission-binding/v1',generation:phase.generation,record:expectedReference});
-        workflow.lineage??={};workflow.lineage.submissions??=[];
-        workflow.lineage.submissions.push({phase:s.phaseId,generation:phase.generation,packetSha256:expectedReference.sha256,packetReference:expectedReference,submittedAt});
-        workflow.namespaceDocuments.push({id:'REVIEW-'+s.phaseId+'-GEN-'+phase.generation,phase:s.phaseId,generation:phase.generation,
-          sourceKey:(approved.compiled.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/reviews/'+s.phaseId+'-gen'+phase.generation+'.json',
-          role:'file',name:(phase.label??s.phaseId)+' review packet',kind:'review-packet',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:expectedReference});
-        workflow.history.push({at:submittedAt,actor:agent.actor.principalId,agent:agent.agentId,event:'phase_submitted',phase:s.phaseId,detail:'generation '+phase.generation});
-        const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow});
-        await authorize(signal,agent);await unchanged(snapshot,signal);
-        try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.submit',inputsSha256:s.requestSha256,state:Buffer.from(canonicalJson(body)),
-          evidence:[expectedReference,s.publication.record,published.artifact.content]},{signal});}
-        catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
-          const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;
-          const original=await retained(competing,s,signal);if(!same(original.packet.actor,agent.actor)||original.packet.agentId!==agent.agentId)throw cause;}
-        s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
-      }
-      if(!s.plan)throw error('Submission preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
-      const token=Object.freeze({});preparations.set(token,{context,agent,snapshot});return token;
+      return prepareNamespaceOperation(committer,s.operationId,async()=>{
+        const snapshot=await committer.capture({signal}),workflow=snapshot.workflow,phase=workflow.phases[s.phaseId];
+        const approved=await observer.approved(snapshot,{signal});
+        const expected=s.plan?.basis.headVersion??s.observed.revision;
+        if(snapshot.revision!==expected)throw error('The Story changed before submission preparation.','ENGINE_CONTEXT_CHANGED');
+        const sequence=sequenceAdmission(workflow,{requestedPhase:s.phaseId});
+        if(!sequence.allowed)throw error('Submission requires the current in-progress phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
+        const hold=phaseGovernancePlan(workflow,phase);if(hold)throw error('Resolve the phase hold before submission.',hold.code,hold);
+        if(!same(approved.configuration,snapshot.configuration))throw error('Submission has another configuration pin.','ENGINE_STORAGE_CORRUPT');
+        const mutation=phaseAgentMutationFacts({agents:Object.fromEntries(approved.compiled.definition.agentCatalog.map(item=>[item.id,item]))},workflow,phase,{agent:agent.agentId},'submit');
+        if(!mutation.allowed)throw error('The selected agent cannot submit this phase.',mutation.code,mutation);
+        if(phase.defaultAgent&&phase.defaultAgent!==agent.agentId)throw error('Select the pinned phase author before submission.','AGENT_SESSION_REQUIRED',{agentId:phase.defaultAgent});
+        const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
+        if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
+        if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
+        if(s.decisionPlan?.kind==='retained')required.add('retained-decision-input-provenance');
+        if(workflow.resolution.presence)required.add('person-presence');
+        if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
+        const published=await publications.read(s.publication,s.phaseId,{signal});
+        if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation
+          ||!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
+          throw error('Submission requires the exact retained artifact and publication configuration.','ENGINE_STORAGE_CORRUPT');
+        }
+        if(s.plan) {
+          const original=await retained(s.plan,s,signal);
+          if(!same(original.packet.actor,agent.actor)||original.packet.agentId!==agent.agentId)throw error('Resume submission under its original authenticated author.','ENGINE_ACTOR_CHANGED');
+        }else {
+          const submittedAt=projectEnrollmentTimestamp(await now());
+          if(s.decisionPlan?.kind==='record')applySubmittedDecisionInput(phase,s.decisionPlan,{at:submittedAt,actorId:agent.actor.principalId});
+          const value=namespaceSubmissionRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
+            operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
+            publication:s.publication,actor:agent.actor,agentId:agent.agentId,submittedAt},{routing:await routing(snapshot,phase,signal)});
+          namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
+          const data=Buffer.from(canonicalJson(value)),expectedReference={namespace:'evidence',sha256:hash(data),bytes:data.byteLength};
+          const saved=await put(scope,'evidence',data,{signal});
+          if(!same(contentReference(saved?.reference),expectedReference)||typeof saved.reused!=='boolean')throw error('The content port stored another review packet.','ENGINE_PORT_RESULT_INVALID');
+          await observer.bytes(expectedReference,expectedReference.bytes,signal);
+          beginPhaseSubmission(phase,submittedAt);applyPhaseSubmissionDisposition(phase,{reviewableFailure:false,applicationReviewPending:false,waiver:null});
+          phase.namespaceSubmission=namespaceSubmissionBindingValue({schemaVersion:NAMESPACE_SUBMISSION_SCHEMAS.binding.currentVersion,
+            format:'sflow-namespace-phase-submission-binding/v1',generation:phase.generation,record:expectedReference});
+          workflow.lineage??={};workflow.lineage.submissions??=[];
+          workflow.lineage.submissions.push({phase:s.phaseId,generation:phase.generation,packetSha256:expectedReference.sha256,packetReference:expectedReference,submittedAt});
+          workflow.namespaceDocuments.push({id:'REVIEW-'+s.phaseId+'-GEN-'+phase.generation,phase:s.phaseId,generation:phase.generation,
+            sourceKey:(approved.compiled.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/reviews/'+s.phaseId+'-gen'+phase.generation+'.json',
+            role:'file',name:(phase.label??s.phaseId)+' review packet',kind:'review-packet',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:expectedReference});
+          workflow.history.push({at:submittedAt,actor:agent.actor.principalId,agent:agent.agentId,event:'phase_submitted',phase:s.phaseId,detail:'generation '+phase.generation});
+          const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow});
+          await authorize(signal,agent);await unchanged(snapshot,signal);
+          try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.submit',inputsSha256:s.requestSha256,state:Buffer.from(canonicalJson(body)),
+            evidence:[expectedReference,s.publication.record,published.artifact.content]},{signal});}
+          catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+            const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;
+            const original=await retained(competing,s,signal);if(!same(original.packet.actor,agent.actor)||original.packet.agentId!==agent.agentId)throw cause;}
+          s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        }
+        if(!s.plan)throw error('Submission preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
+        const token=Object.freeze({});preparations.set(token,{context,agent,snapshot});return token;
+      },async accepted=>{
+        const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        if(!plan)throw error('The accepted submission lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
+        await retained(plan,s,signal);s.plan=plan;
+        const token=Object.freeze({});preparations.set(token,{context,accepted});return token;
+      },{signal});
     },
     async commit(context,token,{signal}={}) {
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this submission preparation.','ENGINE_INPUT_INVALID');
-      const accepted=await committer.inspect(s.operationId,{signal});if(accepted.status==='committed')return accepted;
-      await authorize(signal,p.agent);await unchanged(p.snapshot,signal);return committer.commit(s.operationId,{signal});
+      if(p.accepted)return p.accepted;
+      return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,p.agent);await unchanged(p.snapshot,signal);},{signal});
     },
     async finish(context,_prepared,accepted) {
       const s=selected(context),plan=checkedPlan(await committer.intent(s.operationId),s);

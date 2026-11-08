@@ -11,9 +11,12 @@ import { namespaceScope, namespaceRevision,namespaceIdentifier,exactObject } fro
 import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
 import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex,
   namespaceReadRecord,projectNamespaceLifecycleReadState } from './namespace-read-contract.mjs';
-import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
+import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import { createNamespaceSubmissionReader } from './namespace-submission-reader.mjs';
 import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
+import {namespaceStoryReadKey} from './namespace-story-codec.mjs';
+export {namespaceStoryReadKey} from './namespace-story-codec.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const unavailable = (message, code, details = null, cause = undefined) => new SingularityFlowError(message, { code, details, cause });
@@ -22,10 +25,6 @@ const documentKey = record => JSON.stringify([record.phase,record.generation,rec
 const bodyReference = (workId,phase,record) => ({ kind: 'phase-document', id: `review-document-${recordSha256({ workId,
   phase: phase.id, generation: phase.generation, path: record.sourceKey, role: record.role })}`, workId, phase: phase.id, generation: phase.generation });
 
-export function namespaceStoryReadKey(workId) {
-  if (typeof workId !== 'string' || !workId || workId.length > 2048) throw unavailable('A namespace read host needs one explicit Story ID.', 'ENGINE_INPUT_INVALID');
-  return `stories/${recordSha256({workId})}/read-head`;
-}
 function cancelled(signal) { if (signal?.aborted) throw unavailable('The read was cancelled before it recorded any effect.', 'ENGINE_OPERATION_CANCELLED'); }
 function errorData(error, depth = 0) {
   const result = { name: error.name ?? 'Error', message: error.message ?? String(error), code: error.code ?? null,
@@ -103,7 +102,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
       if(authority&&(selected.value.authority.id!==authority.id||selected.value.authority.epoch!==authority.epoch))throw unavailable(
         'The canonical read locator belongs to another bound authority.','ENGINE_AUTHORITY_FENCED',{workId,authority});
       if(selected.value.lifecycleHead!==namespaceLifecycleStoryKey(workId))throw unavailable('The lifecycle locator points at another Story.','ENGINE_STORAGE_CORRUPT');
-      const observer=createNamespaceLifecycleObserver({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority});
+      const observer=createNamespaceStoryObserver({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority});
       const {snapshot,basis}=await observer.capture({signal}),workflow=snapshot.workflow;
       let policy,documents,projected;
       try {

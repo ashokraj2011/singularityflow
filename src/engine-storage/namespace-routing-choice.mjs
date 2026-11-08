@@ -9,9 +9,10 @@ import {routingChoiceSelection,planRoutingChoice,routingChoiceRequirements} from
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
-import {createNamespaceLifecycleObserver,namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
-import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
+import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
 import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
@@ -25,9 +26,8 @@ function cancelled(signal){if(signal?.aborted)throw error('The route choice was 
 
 export function createNamespaceRoutingChoicePorts({records,content,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
-  const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
+  const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
-  const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
   const questions=createNamespaceRoutingChoiceReader({observer,scope,workId});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function')throw error('A human choice needs explicit access and clock ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap();
@@ -79,11 +79,11 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
   }
   async function retained(plan,s,signal) {
     checkedPlan(plan,s);
-    const body=observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head);
+    const body=await observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head,{signal});
     const links=namespaceRoutingChoiceReceipts(body.workflow,{projectId:scope.projectId,workId}).filter(item=>item.operationId===s.operationId);
     if(links.length!==1||s.receiptReference&&!same(links[0].record,s.receiptReference))throw error('The choice lost its original receipt link.','ENGINE_STORAGE_CORRUPT');
     const link=links[0],value=await decode(link.record,signal);
-    const original=observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head);
+    const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
     const snapshot={workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
     const source=await questions.read(snapshot,{signal});
     if(!source||value.operationId!==s.operationId||value.requestSha256!==s.requestSha256||!same(value.request,s.request)
@@ -119,7 +119,7 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
         const value=await decode(link.record,signal);
         if(!same(value.actor,reviewer.actor)||!same(link,namespaceRoutingChoiceReceipt(value,link.record)))throw error('The receipt needs its original authenticated identity.','ENGINE_ACTOR_CHANGED');
         const plan=await committer.intent(link.operationId,{signal});if(!plan)throw error('The choice lost its original prepared operation.','ENGINE_STORAGE_CORRUPT');
-        bound=observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head).workflow;
+        bound=(await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal})).workflow;
         state={...state,reviewer:{actor:reviewer.actor,agentId:value.agentId},operationId:link.operationId,replay:true,receiptReference:link.record};
       }else {
         const choice=routingChoiceSelection(workflow,supplied);
@@ -133,51 +133,56 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
     async prepare(context,supplied,{signal}={}) {
       const s=selected(context);
       if(!same(request(supplied),s.request))throw error('Use the originally issued choice intent.','ENGINE_INPUT_INVALID');
-      const accepted=await committer.inspect(s.operationId,{signal}),plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
-      if(accepted.status==='committed') {
+      return prepareNamespaceOperation(committer,s.operationId,async()=>{
+        const accepted=await committer.inspect(s.operationId,{signal}),plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        if(accepted.status==='committed') {
+          if(!plan)throw error('The accepted choice lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
+          await retained(plan,s,signal);s.accepted=accepted;return s.request;
+        }
+        if(s.replay)throw error('The retained choice has no original accepted receipt.','ENGINE_STORAGE_CORRUPT');
+        phaseTransitionAccess(s.initialFacts,scope.projectId,'decision.choose');
+        const snapshot=await committer.capture({signal}),workflow=snapshot.workflow,phase=workflow.phases[s.phaseId];
+        const approved=await observer.approved(snapshot,{signal});
+        if(snapshot.revision!==(plan?.basis.headVersion??s.observed.revision))throw error('The question changed before choice preparation.','ENGINE_CONTEXT_CHANGED');
+        const source=await questions.read(snapshot,{signal});
+        if(!source)throw error('The Story is not waiting for a decision.','DECISION_NOT_PENDING');
+        const choice=routingChoiceSelection(workflow,s.request),authorityGroup=humanAuthority(workflow,s.reviewer);
+        if(!same(approved.configuration,snapshot.configuration))throw error('The choice has another configuration pin.','ENGINE_STORAGE_CORRUPT');
+        const required=routingChoiceRequirements(workflow,phase,{definition:approved.compiled.definition});
+        if(required.length)throw error('This choice needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
+          operation:'decision.choose',required});
+        if(plan) {await retained(plan,s,signal);s.plan=plan;}
+        else {
+          const recordedAt=projectEnrollmentTimestamp(await now());
+          const planned=planRoutingChoice(workflow,s.request,{at:recordedAt,actorId:s.reviewer.actor.principalId,
+            agentId:s.reviewer.agentId,authorityGroup});
+          const value=namespaceRoutingChoiceRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
+            operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
+            question:{key:choice.pendingKey,approval:source.approved.binding.record},request:s.request,actor:s.reviewer.actor,
+            agentId:s.reviewer.agentId,authorityGroup,recordedAt,outcome:planned.outcome,currentPhase:planned.workflow.currentPhase});
+          namespaceRoutingChoiceValue(value,{projectId:scope.projectId,workId});
+          const reference=await save(value,signal),proposal=proposed(workflow,value,reference);
+          const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
+            configuration:snapshot.configuration.content,workflow:proposal});
+          await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
+          try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'decision.choose',inputsSha256:s.requestSha256,
+            state:Buffer.from(canonicalJson(body)),evidence:evidence(value,reference,source.proof)},{signal});}
+          catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+            const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;await retained(competing,s,signal);}
+          s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        }
+        if(!s.plan)throw error('The choice preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
+        s.snapshot=snapshot;return s.request;
+      },async accepted=>{
+        const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
         if(!plan)throw error('The accepted choice lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
         await retained(plan,s,signal);s.accepted=accepted;return s.request;
-      }
-      if(s.replay)throw error('The retained choice has no original accepted receipt.','ENGINE_STORAGE_CORRUPT');
-      phaseTransitionAccess(s.initialFacts,scope.projectId,'decision.choose');
-      const snapshot=await committer.capture({signal}),workflow=snapshot.workflow,phase=workflow.phases[s.phaseId];
-      if(snapshot.revision!==(plan?.basis.headVersion??s.observed.revision))throw error('The question changed before choice preparation.','ENGINE_CONTEXT_CHANGED');
-      const source=await questions.read(snapshot,{signal});
-      if(!source)throw error('The Story is not waiting for a decision.','DECISION_NOT_PENDING');
-      const choice=routingChoiceSelection(workflow,s.request),authorityGroup=humanAuthority(workflow,s.reviewer);
-      const approved=await configured.approved(workflow.resolution.configurationApprovalId,{signal});
-      if(!same(approved.configuration,snapshot.configuration))throw error('The choice has another configuration pin.','ENGINE_STORAGE_CORRUPT');
-      const required=routingChoiceRequirements(workflow,phase,{definition:approved.compiled.definition});
-      if(required.length)throw error('This choice needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
-        operation:'decision.choose',required});
-      if(plan) {await retained(plan,s,signal);s.plan=plan;}
-      else {
-        const recordedAt=projectEnrollmentTimestamp(await now());
-        const planned=planRoutingChoice(workflow,s.request,{at:recordedAt,actorId:s.reviewer.actor.principalId,
-          agentId:s.reviewer.agentId,authorityGroup});
-        const value=namespaceRoutingChoiceRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
-          operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
-          question:{key:choice.pendingKey,approval:source.approved.binding.record},request:s.request,actor:s.reviewer.actor,
-          agentId:s.reviewer.agentId,authorityGroup,recordedAt,outcome:planned.outcome,currentPhase:planned.workflow.currentPhase});
-        namespaceRoutingChoiceValue(value,{projectId:scope.projectId,workId});
-        const reference=await save(value,signal),proposal=proposed(workflow,value,reference);
-        const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
-          configuration:snapshot.configuration.content,workflow:proposal});
-        await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
-        try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'decision.choose',inputsSha256:s.requestSha256,
-          state:Buffer.from(canonicalJson(body)),evidence:evidence(value,reference,source.proof)},{signal});}
-        catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
-          const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;await retained(competing,s,signal);}
-        s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
-      }
-      if(!s.plan)throw error('The choice preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
-      s.snapshot=snapshot;return s.request;
+      },{signal});
     },
     async commit(context,intent,{signal}={}) {
       const s=selected(context);if(!same(intent,s.request))throw error('Use the prepared routing choice.','ENGINE_INPUT_INVALID');
       if(s.accepted)return s.accepted;
-      const accepted=await committer.inspect(s.operationId,{signal});if(accepted.status==='committed')return accepted;
-      await authorize(signal,s.reviewer);await unchanged(s.snapshot,signal);return committer.commit(s.operationId,{signal});
+      return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(s.snapshot,signal);},{signal});
     },
     async finish(context,_intent,accepted) {
       const s=selected(context),plan=checkedPlan(await committer.intent(s.operationId),s);

@@ -208,6 +208,8 @@ test('every shipped workflow retains native start admission and its actual pinne
       assert.equal(result.currentPhase,expected.phases[0].id);
       assert.equal(snapshot.workflow.resolution.configurationApprovalId,'seeded-configuration');
       assert.equal(snapshot.configuration.content.sha256,approval.configuration.sha256);
+      const source=await f.make({workId}).run('document.read',{reference:result.source});
+      assert.equal(source.document.integrity,'matched');assert.equal(source.document.expected.sha256,inputs.source.sha256);
     }
   }
   assert.equal(checked,18);assert.ok(created>0);

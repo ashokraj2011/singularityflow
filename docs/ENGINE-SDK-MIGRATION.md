@@ -107,6 +107,18 @@ configuration approval, source retention and lifecycle genesis through the regis
 locator follows canonical lifecycle state; it does not introduce another authority or claim
 execution readiness. Production namespace policy ports and complete Story execution remain.
 
+The [original-policy proof](ENGINE-SDK-STORY-POLICY-PROOF.md) shares the frozen creation codec
+between the writer and a read-only proof owner. Namespace operations compare copied policy with
+the actual original lifecycle state and creation receipts, preserving legitimate creator enrollment
+without recompiling old meaning. Low-level storage admission and installed Git behavior remain
+unchanged. Additional policy/execution owners and the complete application Story remain required.
+
+That proof and receipt-coordination slice passed 480 Mac checks across 24 files, including a
+separate installed SDK consumer. Source validation passed 3,855 checks across 191 skills;
+typechecking, Git ownership and all 13 unchanged bundle budgets passed. Preparation and final
+commit races recover only the exact genuinely accepted receipt. Real failures and ordinary
+display edits keep their separate meanings. Phases 5, 7, 8 and 9 remain open.
+
 The [source-binding delivery](ENGINE-SDK-SOURCE-BINDING.md) retains real selected-checkout
 observations through explicit SGOS units and SDA content/record ports. Takeover preserves first
 observations and original receipts without storing source code or physical roots. Binding does

@@ -12,7 +12,8 @@ import {namespaceScope,namespaceIdentifier,namespaceIdentityJson} from '../sda/n
 import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
-import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs';
+import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
+import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {namespacePublicationValue,NAMESPACE_PUBLICATION_PROFILE} from './namespace-publication-contract.mjs';
@@ -28,7 +29,7 @@ function cancelled(signal){if(signal?.aborted)throw error('Publication was cance
 export function createNamespacePublicationPort(options={},runtime=null) {
   const {records,content,clock,modelEnabled=true,notice=()=>{}}=options;
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID'),authority=Object.freeze(structuredClone(options.authority));
-  const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority}),observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
+  const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority}),observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const publicationReader=createNamespacePublicationReader({observer,scope,workId});
   const put=content.put.bind(content),now=clock.now.bind(clock),contexts=new WeakMap(),preparations=new WeakMap();
   if(typeof notice!=='function')throw error('Publication notice must be an explicit observer.','ENGINE_INPUT_INVALID');
@@ -48,7 +49,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
     return publicationReader.read(binding,s.phaseId,{signal});
   }
   async function retainedPublication(plan,s,signal) {
-    checkedPlan(plan,s);const state=observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head),phase=state.workflow.phases[s.phaseId];
+    checkedPlan(plan,s);const state=await observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head,{signal}),phase=state.workflow.phases[s.phaseId];
     const binding=(phase?.publicationBindings??[]).find(item=>item.generation===phase.generation);
     if(!binding)throw error('The prepared publication lost its retained binding.','ENGINE_STORAGE_CORRUPT');
     const publication=await readPublication(binding,s,signal);
@@ -101,72 +102,80 @@ export function createNamespacePublicationPort(options={},runtime=null) {
       const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
       if(plan){s.plan=plan;context.phase=(await retainedPublication(plan,s,signal)).phase;}
       else {
-        s.snapshot=await committer.capture({signal});context.phase=s.snapshot.workflow.phases[s.phaseId];
+        s.snapshot=await committer.capture({signal});await observer.approved(s.snapshot,{signal});context.phase=s.snapshot.workflow.phases[s.phaseId];
         if(!context.phase)throw error('The phase is not in this Story.','ENGINE_PHASE_UNAVAILABLE',{phase:s.phaseId});
       }
       return null;
     },
     async prepare(context,_input,intent,{signal}={}) {
       const s=selected(context);if(runtime===null)throw workingRequired(s.phaseId);
-      const admission=await runtime.admitDraft(s.draft,'phase.publish',{signal}),observed=runtime.draftFacts(admission);
-      const snapshot=s.snapshot??await committer.capture({signal}),phase=snapshot.workflow.phases[s.phaseId];
-      if(snapshot.revision!==observed.revision||s.plan&&snapshot.revision!==s.plan.basis.headVersion)throw error('The Story changed before publication preparation.','ENGINE_CONTEXT_CHANGED');
-      const required=primaryDocumentPublicationRequirements(snapshot.workflow,phase,{definition:observed.definition});
-      if(required.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
-        operation:'phase.publish',phase:s.phaseId,required});
-      const data=runtime.artifactBytes(admission),text=artifactBytesAreText(data),observation=text?artifactContentObservation(data.toString('utf8')):null;
-      const original=artifactContentObservation(runtime.initialArtifactBytes(admission).toString('utf8'));
-      const configured={...phase,authoringBaseline:{generation:observed.payload.generation,fingerprint:'sha256:'+hash(original.fingerprintText)}};
-      const fingerprint=observation?'sha256:'+hash(observation.fingerprintText):null;
-      const findings=observation?inspectRequiredArtifactObservation(observation,configured,{path:observed.payload.artifact.key,generation:observed.payload.generation,fingerprint})
-        :inspectBinaryArtifactSize(data.byteLength,configured,{path:observed.payload.artifact.key});
-      if(findings.length)throw error('Complete the authored artifact before publication.','ARTIFACT_AUTHORING_INCOMPLETE',{
-        workId,phase:s.phaseId,findings,operation:'phase.draft.write'});
-      if(s.plan) {
-        const retained=(await retainedPublication(s.plan,s,signal)).publication;
-        if(!same(retained.actor,observed.actor)||retained.agentId!==observed.agentId)throw error('Resume publication under its original authenticated author.','ENGINE_ACTOR_CHANGED');
-      }else{
-        const artifact=await shared(data,signal),publishedAt=projectEnrollmentTimestamp(await now()),generation=observed.payload.generation;
-        const sourceKey=(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+observed.payload.artifact.key;
-        const authorship=buildGenerationAuthorship({options:intent.authorship,actor:observed.actor.identity,
-          governedAgentContext:intent.authorship.producer==='governed-agent'?observed.agentId:null,
-          source:null,generation});
-        const record={schemaVersion:PHASE_PUBLICATION_SCHEMAS.manifest.currentVersion,format:'sflow-namespace-phase-publication/v1',profile:NAMESPACE_PUBLICATION_PROFILE,
-          projectId:scope.projectId,workId,phase:s.phaseId,generation,operationId:s.operationId,requestSha256:s.requestSha256,
-          baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
-          actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
-          artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-        namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
-        const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
-          format:'sflow-phase-publication-binding/v1',generation,record:reference};phasePublicationBindingValue(binding);
-        beginGenerationPublication(phase,{targetGeneration:generation,actor:observed.actor.identity,agent:observed.agentId,producer:intent.authorship.producer});
-        appendGenerationAuthorship(phase,authorship,publishedAt);resetGenerationDeliveryBindings(phase);
-        phase.publicationBindings=[...(phase.publicationBindings??[]).filter(item=>item.generation!==generation),binding];
-        phase.artifacts=[{path:sourceKey,sha256:artifact.sha256,size:artifact.bytes,kind:record.artifact.kind}];
-        snapshot.workflow.namespaceDocuments=[...(snapshot.workflow.namespaceDocuments??[]),{id:'PUB-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
-          sourceKey,role:'artifact',name:phase.label??s.phaseId,kind:record.artifact.kind,mimeType:text?'text/markdown':'application/octet-stream',encoding:record.artifact.encoding,
-          locality:'project',status:'active',aliases:[],content:artifact}];
-        snapshot.workflow.history.push({at:publishedAt,actor:observed.actor.principalId,agent:observed.agentId,event:'phase_generated',phase:s.phaseId,detail:'generation '+generation});
-        const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
-          configuration:snapshot.configuration.content,workflow:snapshot.workflow});
-        await runtime.revalidateDraft(admission,{signal});
-        const evidence=[...new Map([artifact,reference,...observed.resources.map(item=>item.reference).filter(ref=>ref.namespace==='evidence')]
-          .map(ref=>[canonicalJson(ref),ref])).values()];
-        try{await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.publish',inputsSha256:s.requestSha256,
-          state:Buffer.from(canonicalJson(body)),evidence},{signal});}
-        catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
-          const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;
-          const original=(await retainedPublication(competing,s,signal)).publication;
-          if(!same(original.actor,observed.actor)||original.agentId!==observed.agentId)throw cause;}
-        s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
-        if(!s.plan)throw error('Publication preparation has no retained intent.','ENGINE_STORAGE_CORRUPT');
-      }
-      const token=Object.freeze({});preparations.set(token,{context,admission});return token;
+      return prepareNamespaceOperation(committer,s.operationId,async()=>{
+        const admission=await runtime.admitDraft(s.draft,'phase.publish',{signal}),observed=runtime.draftFacts(admission);
+        const snapshot=s.snapshot??await committer.capture({signal}),phase=snapshot.workflow.phases[s.phaseId];
+        await observer.approved(snapshot,{signal});
+        if(snapshot.revision!==observed.revision||s.plan&&snapshot.revision!==s.plan.basis.headVersion)throw error('The Story changed before publication preparation.','ENGINE_CONTEXT_CHANGED');
+        const required=primaryDocumentPublicationRequirements(snapshot.workflow,phase,{definition:observed.definition});
+        if(required.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
+          operation:'phase.publish',phase:s.phaseId,required});
+        const data=runtime.artifactBytes(admission),text=artifactBytesAreText(data),observation=text?artifactContentObservation(data.toString('utf8')):null;
+        const original=artifactContentObservation(runtime.initialArtifactBytes(admission).toString('utf8'));
+        const configured={...phase,authoringBaseline:{generation:observed.payload.generation,fingerprint:'sha256:'+hash(original.fingerprintText)}};
+        const fingerprint=observation?'sha256:'+hash(observation.fingerprintText):null;
+        const findings=observation?inspectRequiredArtifactObservation(observation,configured,{path:observed.payload.artifact.key,generation:observed.payload.generation,fingerprint})
+          :inspectBinaryArtifactSize(data.byteLength,configured,{path:observed.payload.artifact.key});
+        if(findings.length)throw error('Complete the authored artifact before publication.','ARTIFACT_AUTHORING_INCOMPLETE',{
+          workId,phase:s.phaseId,findings,operation:'phase.draft.write'});
+        if(s.plan) {
+          const retained=(await retainedPublication(s.plan,s,signal)).publication;
+          if(!same(retained.actor,observed.actor)||retained.agentId!==observed.agentId)throw error('Resume publication under its original authenticated author.','ENGINE_ACTOR_CHANGED');
+        }else{
+          const artifact=await shared(data,signal),publishedAt=projectEnrollmentTimestamp(await now()),generation=observed.payload.generation;
+          const sourceKey=(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+observed.payload.artifact.key;
+          const authorship=buildGenerationAuthorship({options:intent.authorship,actor:observed.actor.identity,
+            governedAgentContext:intent.authorship.producer==='governed-agent'?observed.agentId:null,
+            source:null,generation});
+          const record={schemaVersion:PHASE_PUBLICATION_SCHEMAS.manifest.currentVersion,format:'sflow-namespace-phase-publication/v1',profile:NAMESPACE_PUBLICATION_PROFILE,
+            projectId:scope.projectId,workId,phase:s.phaseId,generation,operationId:s.operationId,requestSha256:s.requestSha256,
+            baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
+            actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
+            artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
+          namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
+          const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
+            format:'sflow-phase-publication-binding/v1',generation,record:reference};phasePublicationBindingValue(binding);
+          beginGenerationPublication(phase,{targetGeneration:generation,actor:observed.actor.identity,agent:observed.agentId,producer:intent.authorship.producer});
+          appendGenerationAuthorship(phase,authorship,publishedAt);resetGenerationDeliveryBindings(phase);
+          phase.publicationBindings=[...(phase.publicationBindings??[]).filter(item=>item.generation!==generation),binding];
+          phase.artifacts=[{path:sourceKey,sha256:artifact.sha256,size:artifact.bytes,kind:record.artifact.kind}];
+          snapshot.workflow.namespaceDocuments=[...(snapshot.workflow.namespaceDocuments??[]),{id:'PUB-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey,role:'artifact',name:phase.label??s.phaseId,kind:record.artifact.kind,mimeType:text?'text/markdown':'application/octet-stream',encoding:record.artifact.encoding,
+            locality:'project',status:'active',aliases:[],content:artifact}];
+          snapshot.workflow.history.push({at:publishedAt,actor:observed.actor.principalId,agent:observed.agentId,event:'phase_generated',phase:s.phaseId,detail:'generation '+generation});
+          const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
+            configuration:snapshot.configuration.content,workflow:snapshot.workflow});
+          await runtime.revalidateDraft(admission,{signal});
+          const evidence=[...new Map([artifact,reference,...observed.resources.map(item=>item.reference).filter(ref=>ref.namespace==='evidence')]
+            .map(ref=>[canonicalJson(ref),ref])).values()];
+          try{await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.publish',inputsSha256:s.requestSha256,
+            state:Buffer.from(canonicalJson(body)),evidence},{signal});}
+          catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+            const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;
+            const original=(await retainedPublication(competing,s,signal)).publication;
+            if(!same(original.actor,observed.actor)||original.agentId!==observed.agentId)throw cause;}
+          s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+          if(!s.plan)throw error('Publication preparation has no retained intent.','ENGINE_STORAGE_CORRUPT');
+        }
+        const token=Object.freeze({});preparations.set(token,{context,admission});return token;
+      },async accepted=>{
+        const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        if(!plan)throw error('The accepted publication lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
+        await retainedPublication(plan,s,signal);s.plan=plan;
+        const token=Object.freeze({});preparations.set(token,{context,accepted});return token;
+      },{signal});
     },
     async commit(context,token,{signal}={}) {
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this publication preparation.','ENGINE_INPUT_INVALID');
-      const accepted=await committer.inspect(s.operationId,{signal});if(accepted.status==='committed')return accepted;
-      await runtime.revalidateDraft(p.admission,{signal});return committer.commit(s.operationId,{signal});
+      if(p.accepted)return p.accepted;
+      return commitNamespaceOperation(committer,s.operationId,()=>runtime.revalidateDraft(p.admission,{signal}),{signal});
     },
     async finish(context,_prepared,accepted) {
       const s=selected(context),plan=checkedPlan(await committer.intent(s.operationId),s);

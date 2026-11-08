@@ -16,8 +16,7 @@ import { namespaceScope,namespaceJson,namespaceIdentityJson,namespaceIdentifier,
 import { contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
 import { NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
 import { createNamespaceDraftStore } from './namespace-draft-store.mjs';
-import { createNamespaceLifecycleObserver } from './namespace-lifecycle-reader.mjs';
-import { createNamespaceConfigurationObserver } from './namespace-configuration-reader.mjs';
+import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -35,8 +34,7 @@ function privateSchema(kind,value) {
 export function createNamespacePreparationRuntime({records,content,localRecords,localContent,scope,workId,authority,access,clock,
   sources=[],modelEnabled=true}={}) {
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
-  const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
-  const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
+  const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof modelEnabled!=='boolean'||!Array.isArray(sources)||sources.length>32) {
     throw error('Preparation needs explicit access, clock, source and model-mode ports.','ENGINE_INPUT_INVALID');
   }
@@ -133,7 +131,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const hold=phaseGovernancePlan(w,phase);
     if(hold)throw error('Select the phase author before preparing or publishing this draft.',hold.code,hold);
     if(phase.generationIntent?.status==='consumed'&&!phaseExplicitlyReopened(w,phase))throw error('The published code generation needs an explicitly reviewed successor.','GENERATION_INTENT_ALREADY_CONSUMED');
-    const approval=await configured.approved(w.resolution.configurationApprovalId,{signal});
+    const approval=await observer.approved(captured.snapshot,{signal});
     if(!same(approval.configuration,captured.snapshot.configuration))throw error('Preparation has another immutable configuration pin.','ENGINE_STORAGE_CORRUPT');
     const catalog=approval.compiled.definition.agentCatalog??[];
     const config={agents:Object.fromEntries(catalog.map(item=>[item.id,item]))};

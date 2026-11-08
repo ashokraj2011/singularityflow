@@ -14,9 +14,10 @@ import {routedApprovalSelection,planRoutedApproval} from '../kernel/routed-appro
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
-import {createNamespaceLifecycleObserver,namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
+import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
-import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
+import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespaceApprovalReader,namespaceRoutingQuestionKey} from './namespace-approval-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
@@ -31,9 +32,8 @@ function cancelled(signal){if(signal?.aborted)throw error('Approval was cancelle
 
 export function createNamespaceApprovalPorts({records,content,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
-  const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
+  const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
-  const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
   const packets=createNamespaceSubmissionReader({observer,scope,workId}),votes=createNamespaceApprovalReader({observer,scope,workId});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function')throw error('Approval needs explicit authenticated access and clock ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap(),preparations=new WeakMap();
@@ -72,7 +72,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     const link=links[0],binding=namespaceApprovalBindingValue({schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.binding.currentVersion,
       format:'sflow-namespace-phase-approval-binding/v1',generation:link.generation,record:link.record});
     if(s.receiptReference&&!same(binding.record,s.receiptReference))throw error('The current receipt link differs from its originally accepted vote.','ENGINE_STORAGE_CORRUPT');
-    const original=observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head);
+    const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
     const snapshot={workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The routed approval lost its original submitted packet.','ENGINE_STORAGE_CORRUPT');
@@ -94,7 +94,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
   }
   async function retained(plan,s,signal) {
     checkedPlan(plan,s);
-    const body=observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head);
+    const body=await observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head,{signal});
     if(s.routed)return retainedRouting(plan,s,body,signal);
     const snapshot={workflow:body.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
@@ -144,7 +144,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           if(!value.routing||!same(link,namespaceApprovalReceipt(value,binding)))throw error('The routed receipt link does not match its immutable vote.','ENGINE_STORAGE_CORRUPT');
           if(!same(value.actor,identified.reviewer.actor))throw error('Acknowledge the routed receipt under its original authenticated identity.','ENGINE_ACTOR_CHANGED');
           const plan=await committer.intent(value.operationId,{signal});if(!plan)throw error('The routed receipt lost its original prepared operation.','ENGINE_STORAGE_CORRUPT');
-          const original=observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head);
+          const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
           if(original.workflow.phases[phaseId]?.generation!==value.generation)throw error('The routed receipt belongs to another original generation.','ENGINE_STORAGE_CORRUPT');
           const context={subject:{kind:'story',id:workId},workflow:original.workflow,phase:original.workflow.phases[phaseId],
             reviewBinding:{workId,phase:phaseId,generation:value.generation,reviewPacketSha256:value.reviewPacket.sha256}};
@@ -179,87 +179,93 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     async prepare(context,input,{signal}={}) {
       const s=selected(context);
       if(input.confirmation!=null)assertApprovalReviewConfirmation(s.reviewBinding,input.confirmation);
-      const accepted=await committer.inspect(s.operationId,{signal}),plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
-      if(accepted.status==='committed') {
+      return prepareNamespaceOperation(committer,s.operationId,async()=>{
+        const accepted=await committer.inspect(s.operationId,{signal}),plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        if(accepted.status==='committed') {
+          if(!plan)throw error('The accepted approval lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
+          await retained(plan,s,signal);
+          const token=Object.freeze({confirmation:s.reviewBinding});preparations.set(token,{context,accepted});return token;
+        }
+        if(s.replay)throw error('The retained human vote has no accepted original receipt.','ENGINE_STORAGE_CORRUPT');
+        assertApprovalReviewConfirmation(s.reviewBinding,input.confirmation);
+        phaseTransitionAccess(s.initialFacts,scope.projectId,'phase.approve');
+        const snapshot=await committer.capture({signal}),workflow=snapshot.workflow,phase=workflow.phases[s.phaseId];
+        const approved=await observer.approved(snapshot,{signal});
+        if(snapshot.revision!==(plan?.basis.headVersion??s.observed.revision))throw error('The Story changed before approval preparation.','ENGINE_CONTEXT_CHANGED');
+        const sequence=sequenceAdmission(workflow,{requestedPhase:s.phaseId,allowedStatuses:['awaiting_approval']});
+        if(!sequence.allowed)throw error('Approval requires the current submitted phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
+        const hold=phaseGovernancePlan(workflow,phase);if(hold)throw error('Resolve the phase hold before approval.',hold.code,hold);
+        if(!same(approved.configuration,snapshot.configuration))throw error('Approval has another configuration pin.','ENGINE_STORAGE_CORRUPT');
+        const mutation=phaseAgentMutationFacts({agents:Object.fromEntries(approved.compiled.definition.agentCatalog.map(item=>[item.id,item]))},
+          workflow,phase,{agent:s.reviewer.agentId},'approve');
+        if(!mutation.allowed)throw error('The selected agent cannot approve this phase.',mutation.code,mutation);
+        const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
+        if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
+        if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
+        if(workflow.resolution.presence)required.add('person-presence');
+        if(s.routed&&!s.proof.value.routing)required.add('namespace-submission-routing');
+        for(const key of ['selectionReceipt','checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason','fetch']) {
+          if(input[key]!=null&&input[key]!==false&&(!Array.isArray(input[key])||input[key].length))required.add('approval-'+key);
+        }
+        if(input.agent!=null&&input.agent!==s.reviewer.agentId)throw error('Approval uses the authenticated agent, never the request agent.','ENGINE_ACTOR_CHANGED');
+        if(required.size)throw error('This approval needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
+          operation:'phase.approve',required:[...required].sort()});
+        const policy=principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
+        if(plan) {
+          const original=await retained(plan,s,signal);
+          if(original.value.authorityGroup!==policy.authorityGroup||original.value.selfApproval!==policy.selfApproval||original.value.thresholdReached!==policy.reached) {
+            throw error('The retained approval no longer matches its policy basis.','ENGINE_CONTEXT_CHANGED');
+          }
+          s.plan=plan;
+        }else {
+          const recordedAt=projectEnrollmentTimestamp(await now()),set={schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.artifactSet.currentVersion,
+            format:'sflow-namespace-primary-approval-artifact-set/v1',projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
+            reviewPacket:s.proof.binding.record,artifact:{sourceKey:s.proof.published.artifact.sourceKey,kind:s.proof.published.artifact.kind,content:s.proof.published.artifact.content}};
+          namespaceApprovalArtifactSetValue(set,{projectId:scope.projectId,workId,phaseId:s.phaseId});
+          const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
+          const artifactSet=await save(set,signal),value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
+            generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
+            reviewPacket:s.proof.binding.record,artifactSet,actor:s.reviewer.actor,agentId:s.reviewer.agentId,recordedAt,
+            authorityGroup:policy.authorityGroup,selfApproval:policy.selfApproval,thresholdReached:policy.reached,currentPhase:s.routed?route.selected.currentPhase:s.phaseId},
+            {routing:route?.value??null});
+          // Only the checked human threshold can complete this ordinary sequential phase.
+          if(!s.routed&&policy.reached) {
+            resolvePhaseChangeRequests(workflow,phase,{at:recordedAt,actor:s.reviewer.actor.principalId});
+            advanceCompletedPhase(workflow,phase,recordedAt);
+          }
+          if(!s.routed)value.currentPhase=workflow.currentPhase;
+          namespaceApprovalValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
+          const reference=await save(value,signal),binding=namespaceApprovalBindingValue({schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.binding.currentVersion,
+            format:'sflow-namespace-phase-approval-binding/v1',generation:phase.generation,record:reference});
+          let proposed=workflow;
+          if(s.routed)proposed=routedWorkflow(workflow,s.phaseId,value,binding);
+          else {
+            const decision=namespaceApprovalDecision(value,binding);recordPhaseApprovalState(phase,decision,{key:value.actor.principalId,reached:policy.reached});
+            workflow.history.push({at:recordedAt,actor:value.actor.principalId,agent:value.agentId,event:'phase_approved',phase:s.phaseId,
+              detail:policy.reached?'required human approvals recorded':'human approval recorded; threshold not yet met'});
+          }
+          const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow:proposed});
+          await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
+          const evidence=[reference,artifactSet,value.reviewPacket,s.proof.value.publication.record,s.proof.published.artifact.content];
+          try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.approve',inputsSha256:s.requestSha256,
+            state:Buffer.from(canonicalJson(body)),evidence},{signal});}
+          catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+            const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;await retained(competing,s,signal);}
+          s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
+        }
+        if(!s.plan)throw error('Approval preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
+        const token=Object.freeze({confirmation:s.reviewBinding});preparations.set(token,{context,snapshot});return token;
+      },async accepted=>{
+        const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
         if(!plan)throw error('The accepted approval lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
-        await retained(plan,s,signal);
+        await retained(plan,s,signal);s.plan=plan;
         const token=Object.freeze({confirmation:s.reviewBinding});preparations.set(token,{context,accepted});return token;
-      }
-      if(s.replay)throw error('The retained human vote has no accepted original receipt.','ENGINE_STORAGE_CORRUPT');
-      assertApprovalReviewConfirmation(s.reviewBinding,input.confirmation);
-      phaseTransitionAccess(s.initialFacts,scope.projectId,'phase.approve');
-      const snapshot=await committer.capture({signal}),workflow=snapshot.workflow,phase=workflow.phases[s.phaseId];
-      if(snapshot.revision!==(plan?.basis.headVersion??s.observed.revision))throw error('The Story changed before approval preparation.','ENGINE_CONTEXT_CHANGED');
-      const sequence=sequenceAdmission(workflow,{requestedPhase:s.phaseId,allowedStatuses:['awaiting_approval']});
-      if(!sequence.allowed)throw error('Approval requires the current submitted phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
-      const hold=phaseGovernancePlan(workflow,phase);if(hold)throw error('Resolve the phase hold before approval.',hold.code,hold);
-      const approved=await configured.approved(workflow.resolution.configurationApprovalId,{signal});
-      if(!same(approved.configuration,snapshot.configuration))throw error('Approval has another configuration pin.','ENGINE_STORAGE_CORRUPT');
-      const mutation=phaseAgentMutationFacts({agents:Object.fromEntries(approved.compiled.definition.agentCatalog.map(item=>[item.id,item]))},
-        workflow,phase,{agent:s.reviewer.agentId},'approve');
-      if(!mutation.allowed)throw error('The selected agent cannot approve this phase.',mutation.code,mutation);
-      const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
-      if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
-      if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
-      if(workflow.resolution.presence)required.add('person-presence');
-      if(s.routed&&!s.proof.value.routing)required.add('namespace-submission-routing');
-      for(const key of ['selectionReceipt','checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason','fetch']) {
-        if(input[key]!=null&&input[key]!==false&&(!Array.isArray(input[key])||input[key].length))required.add('approval-'+key);
-      }
-      if(input.agent!=null&&input.agent!==s.reviewer.agentId)throw error('Approval uses the authenticated agent, never the request agent.','ENGINE_ACTOR_CHANGED');
-      if(required.size)throw error('This approval needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
-        operation:'phase.approve',required:[...required].sort()});
-      const policy=principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
-      if(plan) {
-        const original=await retained(plan,s,signal);
-        if(original.value.authorityGroup!==policy.authorityGroup||original.value.selfApproval!==policy.selfApproval||original.value.thresholdReached!==policy.reached) {
-          throw error('The retained approval no longer matches its policy basis.','ENGINE_CONTEXT_CHANGED');
-        }
-        s.plan=plan;
-      }else {
-        const recordedAt=projectEnrollmentTimestamp(await now()),set={schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.artifactSet.currentVersion,
-          format:'sflow-namespace-primary-approval-artifact-set/v1',projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
-          reviewPacket:s.proof.binding.record,artifact:{sourceKey:s.proof.published.artifact.sourceKey,kind:s.proof.published.artifact.kind,content:s.proof.published.artifact.content}};
-        namespaceApprovalArtifactSetValue(set,{projectId:scope.projectId,workId,phaseId:s.phaseId});
-        const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
-        const artifactSet=await save(set,signal),value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
-          generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
-          reviewPacket:s.proof.binding.record,artifactSet,actor:s.reviewer.actor,agentId:s.reviewer.agentId,recordedAt,
-          authorityGroup:policy.authorityGroup,selfApproval:policy.selfApproval,thresholdReached:policy.reached,currentPhase:s.routed?route.selected.currentPhase:s.phaseId},
-          {routing:route?.value??null});
-        // Only the checked human threshold can complete this ordinary sequential phase.
-        if(!s.routed&&policy.reached) {
-          resolvePhaseChangeRequests(workflow,phase,{at:recordedAt,actor:s.reviewer.actor.principalId});
-          advanceCompletedPhase(workflow,phase,recordedAt);
-        }
-        if(!s.routed)value.currentPhase=workflow.currentPhase;
-        namespaceApprovalValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
-        const reference=await save(value,signal),binding=namespaceApprovalBindingValue({schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.binding.currentVersion,
-          format:'sflow-namespace-phase-approval-binding/v1',generation:phase.generation,record:reference});
-        let proposed=workflow;
-        if(s.routed)proposed=routedWorkflow(workflow,s.phaseId,value,binding);
-        else {
-          const decision=namespaceApprovalDecision(value,binding);recordPhaseApprovalState(phase,decision,{key:value.actor.principalId,reached:policy.reached});
-          workflow.history.push({at:recordedAt,actor:value.actor.principalId,agent:value.agentId,event:'phase_approved',phase:s.phaseId,
-            detail:policy.reached?'required human approvals recorded':'human approval recorded; threshold not yet met'});
-        }
-        const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow:proposed});
-        await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
-        const evidence=[reference,artifactSet,value.reviewPacket,s.proof.value.publication.record,s.proof.published.artifact.content];
-        try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.approve',inputsSha256:s.requestSha256,
-          state:Buffer.from(canonicalJson(body)),evidence},{signal});}
-        catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
-          const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;await retained(competing,s,signal);}
-        s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
-      }
-      if(!s.plan)throw error('Approval preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
-      const token=Object.freeze({confirmation:s.reviewBinding});preparations.set(token,{context,snapshot});return token;
+      },{signal});
     },
     async commit(context,token,{signal}={}) {
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this approval preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
-      const accepted=await committer.inspect(s.operationId,{signal});if(accepted.status==='committed')return accepted;
-      await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);return committer.commit(s.operationId,{signal});
+      return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);},{signal});
     },
     async finish(context,_prepared,accepted) {
       const s=selected(context),plan=checkedPlan(await committer.intent(s.operationId),s);

@@ -5,23 +5,21 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { initialNamespaceStory,storyCreationAccess,storyCreationBinding } from '../kernel/story-creation.mjs';
 import { projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
 import { namespaceLimits } from '../sda/namespace/contract.mjs';
-import { exactObject,namespaceIdentifier,namespaceScope,namespaceJson,namespaceIdentityJson,namespaceRevision } from '../sda/namespace/values.mjs';
-import { namespaceTransaction,namespaceTransactionIdentity } from '../sda/namespace/transaction.mjs';
-import { namespaceJournalReceipt } from '../sda/namespace/journal-contract.mjs';
+import { exactObject,namespaceIdentifier,namespaceScope,namespaceJson,namespaceIdentityJson } from '../sda/namespace/values.mjs';
 import { contentReference } from '../sda/content/contract.mjs';
 import { createNamespaceConfigurationObserver } from './namespace-configuration-reader.mjs';
-import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
+import { createNamespaceLifecycleObserver } from './namespace-lifecycle-reader.mjs';
 import { LIFECYCLE_AUTHORITY_KEY,LIFECYCLE_STATE_MAXIMUM_BYTES,lifecycleRecord } from './namespace-lifecycle-contract.mjs';
 import { namespaceStoryRecord,namespaceStoryValue } from './namespace-story-contract.mjs';
-import { namespaceReadRecord } from './namespace-read-contract.mjs';
-import { createNamespaceReadPorts,namespaceStoryReadKey } from './namespace-reader.mjs';
+import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
+import { createNamespaceReadPorts } from './namespace-reader.mjs';
+export {namespaceStoryGenesisKey} from './namespace-story-codec.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const identity=value=>hash(namespaceIdentityJson(value));
 const same=(a,b)=>namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story creation was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
-export const namespaceStoryGenesisKey=workId=>namespaceLifecycleStoryKey(workId).replace(/\/head$/u,'/genesis');
 
 export function createNamespaceStoryPorts({records,content,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);exactObject(authority,['id','epoch']);
@@ -34,40 +32,7 @@ export function createNamespaceStoryPorts({records,content,scope,workId,authorit
   const limits=namespaceLimits(records.descriptor.limits),transact=records.transact.bind(records),inspect=records.inspectOperation.bind(records),put=content.put.bind(content);
   const current=access.current.bind(access),now=clock.now.bind(clock),recordId=records.descriptor.id,contentId=content.descriptor.id;
   const binding=Object.freeze({projectId:scope.projectId,workId,authority}),contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap();
-  const headKey=namespaceLifecycleStoryKey(workId),genesisKey=namespaceStoryGenesisKey(workId),readKey=namespaceStoryReadKey(workId);
-  const keys=operationId=>{const id=identity({binding,operationId});return {prepared:`stories/prepared/${id}`,manifest:`stories/creations/${id}`,
-    prepareOperation:`story-prepare-${id}`,operation:`story-create-${id}`,event:`story-create-${id}`};};
-  const txDigest=tx=>hash(namespaceTransactionIdentity(scope,tx,limits));
-  const projected=(kind,plan)=>namespaceStoryRecord(kind,Object.fromEntries(Object.entries(plan).filter(([key])=>!['schemaVersion','format','requestDigest'].includes(key))));
-  const firstHead=plan=>lifecycleRecord('head',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,sequence:0,
-    configuration:plan.configuration,state:plan.state,previous:null,operationId:plan.operationId});
-  function transaction(plan,prepare=false) {
-    const k=keys(plan.operationId);
-    return namespaceTransaction({operationId:prepare?k.prepareOperation:k.operation,preconditions:[
-      {namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,version:plan.authorityVersion},
-      {namespace:'config',key:plan.configuration.key,version:plan.configurationVersion},
-      {namespace:'state',key:headKey,version:null},{namespace:'state',key:genesisKey,version:null},
-      {namespace:'state',key:readKey,version:null},{namespace:'evidence',key:k.manifest,version:null},
-      ...(prepare?[{namespace:'runtime',key:k.prepared,version:null}]:[])
-    ],changes:prepare?[{op:'put',namespace:'runtime',key:k.prepared,immutable:true,value:plan}]:[
-      {op:'put',namespace:'state',key:headKey,immutable:false,value:firstHead(plan)},
-      {op:'put',namespace:'state',key:genesisKey,immutable:true,value:projected('genesis',plan)},
-      {op:'put',namespace:'state',key:readKey,immutable:false,value:namespaceReadRecord('lifecycle-head',{
-        projectId:scope.projectId,workId,lifecycleHead:headKey,authority})},
-      {op:'put',namespace:'evidence',key:k.manifest,immutable:true,value:projected('manifest',plan)}
-    ],events:prepare?[]:[{eventId:k.event,eventType:'engine.story-created',namespace:'state',payload:{workId,configuration:plan.configuration,
-      source:plan.source,principalId:plan.actor.principalId,authorityId:authority.id,epoch:authority.epoch}}]},limits);
-  }
-  function receipt(result,tx) {
-    let r;
-    try {r=namespaceJournalReceipt(result?.receipt,scope,tx.operationId);
-      if(result.status!=='committed'||r.requestDigest!==txDigest(tx)||result.replayed!==undefined&&typeof result.replayed!=='boolean'
-        ||r.records.length!==tx.changes.length||r.records.some(item=>namespaceRevision(item.version)===null
-          ||!tx.changes.some(change=>change.namespace===item.namespace&&change.key===item.key))
-        ||!same(r.eventIds,tx.events.map(event=>event.eventId)))throw new Error('Another transaction binding.');
-    }catch(cause){throw error('Inspect the original Story creation operation: its receipt is invalid.','ENGINE_PORT_RESULT_INVALID',null,cause);}
-    return r;
-  }
+  const {headKey,genesisKey,readKey,keys,txDigest,projected,firstHead,transaction,receipt}=createNamespaceStoryCodec({scope,workId,authority,limits});
   function select(context){const selected=contexts.get(context);if(!selected)throw error('Story creation needs its issued context.','ENGINE_INPUT_INVALID');return selected;}
   function retainedValue(kind,value,operationId) {
     try {return namespaceStoryValue(kind,value,scope,workId,operationId);}

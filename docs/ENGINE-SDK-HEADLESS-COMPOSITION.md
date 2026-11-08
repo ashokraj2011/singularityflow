@@ -115,8 +115,9 @@ or push was involved.
 ## Remaining milestones
 
 This supplies one public composition for the implemented ports. It does not finish Phase 7's
-production policy/execution scope or the complete cross-agent application Story. Remaining native
-policy/query extraction and pinned-policy projection proofs also retain their scope. Verified
+production policy/execution scope or the complete cross-agent application Story. The
+[original-policy proof](ENGINE-SDK-STORY-POLICY-PROOF.md) now verifies copied policy against actual
+creation receipts. Remaining native policy/query extraction retains its scope. Verified
 existing-project migration, authority cutover, obsolete-access removal, final surface/distribution
 qualification and performance comparison remain Phases 8 and 9. No installed Git project is
 migrated or reconfigured by importing this host.

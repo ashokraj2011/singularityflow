@@ -17,7 +17,8 @@ import type { ReviewConfirmationRequest } from './review-confirmation-page.ts';
 export interface DecisionTextNeed { default: string; minimum: number; maximum: number }
 export interface DecisionDateNeed { default: string; latest: string }
 /** The clauses a person may name for a statement. */
-export interface DecisionClauseNeed { known?: string[] }
+/** `words` asks for the clauses and `label` names them in a summary, when they are not the ones that carry the item. */
+export interface DecisionClauseNeed { known?: string[]; words?: string; label?: string }
 /** A checklist answered one article at a time. */
 export interface DecisionArticleNeed { articles: Array<{ id: string; title: string; question: string }>; decisions: string[] }
 export interface DecisionNeeds { reason?: DecisionTextNeed; cause?: DecisionTextNeed; expires?: DecisionDateNeed; clause?: DecisionClauseNeed; article?: DecisionArticleNeed }
@@ -297,7 +298,7 @@ export function decisionAnswersFromChoices(packet: DecisionPacket, raw: unknown,
       const typed = (text(entry?.clause) ?? '').trim();
       choice.clause = typed;
       if (typed) (answers.clause ??= {})[itemId] = typed;
-      else { errors.push(`${item.title}: name the clauses that carry it.`); valid = false; }
+      else { errors.push(`${item.title}: name ${(option.needs.clause.words ?? 'the clauses that carry it').replace(/^The /u, 'the ')}.`); valid = false; }
     }
     const articles = option.needs?.article;
     if (articles) {

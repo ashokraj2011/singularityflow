@@ -40,13 +40,15 @@ export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label
 function fieldsHtml(item: DecisionItemPacket, entered: DecideDraft extends ReadonlyMap<string, infer V> ? V | undefined : never): string {
   const name = escape(item.title);
   const needed = (flag: 'reason' | 'cause' | 'expires' | 'clause' | 'article') => item.options.filter(decidable).find((option) => option.needs?.[flag])?.needs?.[flag];
-  const reason = needed('reason') as { default: string; minimum: number; maximum: number } | undefined;
+  // The rule a choice here needs most: a convergence item may be sent back unexplained, and its other answers may not.
+  const reason = item.options.filter(decidable).map((option) => option.needs?.reason as { default: string; minimum: number; maximum: number } | undefined)
+    .filter((need) => need !== undefined).sort((left, right) => right.minimum - left.minimum)[0];
   const cause = needed('cause') as { default: string; minimum: number; maximum: number } | undefined;
   const expires = needed('expires') as { latest: string } | undefined;
-  const clause = needed('clause') as { known?: string[] } | undefined;
+  const clause = needed('clause') as { known?: string[]; words?: string } | undefined;
   const article = needed('article') as { articles: Array<{ id: string; title: string; question: string }>; decisions: string[] } | undefined;
   return [
-    clause ? `<input data-field="clause" aria-label="The clauses that carry ${name}" placeholder="Clauses: ${escape((clause.known ?? []).slice(0, 4).join(', ') || 'their IDs, separated by commas')}" value="${escape(entered?.clause ?? '')}">` : '',
+    clause ? `<input data-field="clause" aria-label="${escape(clause.words ?? 'The clauses that carry')}${clause.words ? ', for' : ''} ${name}" placeholder="Clauses: ${escape((clause.known ?? []).slice(0, 4).join(', ') || 'their IDs, separated by commas')}" value="${escape(entered?.clause ?? '')}">` : '',
     article ? `<div data-field="article" class="dc-articles">${article.articles.map(({ id, title, question }) => {
       const given = entered?.article?.find((entry) => entry.article === id);
       return `<label class="dc-article"><span title="${escape(question)}">${escape(title)}</span><select data-article="${escape(id)}" aria-label="${escape(question)}"><option value="">Choose…</option>${article.decisions.map((decision) => `<option value="${escape(decision)}"${given?.decision === decision ? ' selected' : ''}>${escape(decision)}</option>`).join('')}</select>
@@ -193,7 +195,7 @@ export function decideSummary(packet: DecisionPacket, choices: readonly Decision
     const item = rows.find((entry) => entry.id === choice.item);
     const option = item?.options.find((entry) => entry.id === choice.option);
     const articles = choice.article?.map((entry) => `${entry.article}: ${entry.decision}${entry.reason ? ` (${entry.reason})` : ''}`).join('; ');
-    return `${item?.title ?? choice.item}: ${option?.label ?? choice.option}.${choice.clause ? ` Carried by ${choice.clause}.` : ''}${articles ? ` ${articles}.` : ''}${choice.expires ? ` Until ${choice.expires}.` : ''}${choice.cause ? ` What stops the tests: ${choice.cause.replace(/\.+$/u, '')}.` : ''}${choice.reason ? ` Reason: ${choice.reason}` : ''}`;
+    return `${item?.title ?? choice.item}: ${option?.label ?? choice.option}.${choice.clause ? ` ${option?.needs?.clause?.label ? `${option.needs.clause.label}:` : 'Carried by'} ${choice.clause}.` : ''}${articles ? ` ${articles}.` : ''}${choice.expires ? ` Until ${choice.expires}.` : ''}${choice.cause ? ` What stops the tests: ${choice.cause.replace(/\.+$/u, '')}.` : ''}${choice.reason ? ` Reason: ${choice.reason}` : ''}`;
   });
   const left = openRows(packet).filter((item) => item.decidedBy?.allowed && !choices.some((choice) => choice.item === item.id));
   return [...lines, ...(left.length ? ['', `Still undecided: ${left.map((item) => item.title).join('; ')}`] : [])].join('\n');

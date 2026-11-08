@@ -636,7 +636,10 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
     `singularity-flow decisions record OTHER --choose d1=dismiss --confirm ${digest}`,
     'singularity-flow decisions record PMC-1 --choose d1=dismiss',
     'singularity-flow decisions record PMC-1 --answers answers.json',
-    `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest} --fetch`]) {
+    `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest} --fetch`,
+    // A convergence item is adjudicated by a person on a card or in their own terminal, never by a chat turn [SCS:REQ-032].
+    ...['rework', 'accepted-deviation', 'dismissed', 'deferred'].map((disposition) => `singularity-flow decisions record PMC-1 --choose d1=${disposition} --confirm ${digest}`),
+    `singularity-flow decisions record PMC-1 --choose d1=update-intent --clause d1=REQ-001 --reason "d1=The spec is wrong." --confirm ${digest}`]) {
     const denied = await shell(decide, command);
     assert.equal(denied.permissionDecision, 'deny', command);
   }

@@ -87,6 +87,8 @@ const FAMILIES = Object.freeze([
     // The one pending list that nextsteps and readiness count from, and the approval check it
     // previews. Unclaimed, they fell into compatibility, so nextsteps on an open step loaded it and models.
     'decision-list-reads.mjs', 'decision-list.mjs', 'step-sheet.mjs', 'approval-check.mjs', 'visual-profile-decisions.mjs', 'commands/decision-plan-amendment.mjs', 'commands/decision-obligation-risk.mjs', 'commands/decision-story-records.mjs', 'commands/story-adjudicate-terminal.mjs', '../plugin/extensions/decisions/decisions.mjs', '../plugin/extensions/decisions/form-rounds.mjs',
+    // The convergence table, read by `story adjudications` and by the list at an open convergence step [SCS:REQ-030].
+    'convergence-adjudications.mjs',
     // A code step's departures: recorded at prepublish and publication, read by the list and the approval [CQF M2].
     'departures.mjs', 'departure-records.mjs', 'commands/departure.mjs',
     // A gate's test run environment and toolchain record, loaded by publication and submission; test command

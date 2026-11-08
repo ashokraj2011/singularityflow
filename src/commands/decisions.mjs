@@ -16,7 +16,7 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  *
  * The Copilot guard lets an agent record here only options that write upstream-issue records, in a
  * /sf-decide turn; everything else is the person's own step, on a host's card or in their own terminal,
- * as for `decision evidence-reuse`, `decision test-risk` and `decision test-command`.
+ * as for `decision evidence-reuse`, `decision test-risk`, `decision test-command` and a convergence adjudication.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -304,7 +304,7 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       }
       if (option.needs.clause) {
         const known = option.needs.clause.known ?? [];
-        values.clause[item.id] = await ask(`   The clauses that carry it, separated by commas${known.length ? ` (${known.slice(0, 8).join(', ')})` : ''}: `);
+        values.clause[item.id] = await ask(`   ${option.needs.clause.words ?? 'The clauses that carry it'}, separated by commas${known.length ? ` (${known.slice(0, 8).join(', ')})` : ''}: `);
       }
       if (option.needs.article) {
         const { articles, decisions } = option.needs.article;
@@ -399,6 +399,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     return (await records.commitRoutingChoice(root, config, workflow, { option: effect.option ?? null, to: effect.to ?? null, reason: step.values.reason, expected: effect.key },
       { actor, agent })).result.outcome;
   }
+  if (effect.kind === 'convergence-adjudication') {
+    // The one write of an adjudication, as `story adjudicate --answers FILE --expect DIGEST` makes it [SCS:REQ-030].
+    const [{ recordConvergenceAnswers }, { adjudicationAnswersOf }] = await Promise.all([import('./story.mjs'), import('../decision-list.mjs')]);
+    return recordConvergenceAnswers(root, config, { workId: workflow.workItem.id, answers: effect.answers ?? adjudicationAnswersOf(step), expect: effect.expect });
+  }
   if (effect.kind === 'test-command') {
     const { recordStoryTestCommand } = await import('./decision-test-command.mjs');
     return (await recordStoryTestCommand(root, config, workflow, { accept: effect.request, reason: step.values.reason ?? '' }, { actor, agent })).record;
@@ -427,6 +432,7 @@ function recordId(kind, record) {
   if (kind === 'completeness-review') return 'completeness review';
   if (kind === 'applicability') return `${record?.responsibility} does not apply`;
   if (kind === 'routing') return `route ${record?.route}`;
+  if (kind === 'convergence-adjudication') return (record?.recorded ?? []).join(', ') || 'unchanged';
   return record?.id ?? record?.accepts ?? record?.revokes ?? null;
 }
 

@@ -7,9 +7,10 @@ function needsHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   const fields: string[] = [];
   const { reason, cause, expires, clause } = option.needs;
   if (clause) {
-    fields.push(`<label class="field dl-field"><span>The clauses that carry it</span>
+    const words = clause.words ?? 'The clauses that carry it';
+    fields.push(`<label class="field dl-field"><span>${escape(words)}</span>
       <input data-field="clause" required placeholder="${escape((clause.known ?? []).slice(0, 4).join(', ') || 'Their IDs, separated by commas')}" value="${escape(chosen?.clause ?? '')}"
-        aria-label="${escape(`${item.title}: the clauses that carry it`)}"></label>`);
+        aria-label="${escape(`${item.title}: ${words.replace(/^The /u, 'the ')}`)}"></label>`);
   }
   if (expires) {
     fields.push(`<label class="field dl-field"><span>Until</span>

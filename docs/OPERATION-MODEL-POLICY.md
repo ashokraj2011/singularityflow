@@ -241,6 +241,7 @@ Every public operation is classified before its implementation module is importe
 | decision.choose | mutation | never | — | — |
 | decision.completeness | mutation | never | — | — |
 | decision.evidence-reuse | mutation | never | — | — |
+| decision.finding-risk | mutation | never | — | — |
 | decision.plan | mutation | never | — | — |
 | decision.risk | mutation | never | — | — |
 | decision.scope | mutation | never | — | — |

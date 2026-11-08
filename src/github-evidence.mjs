@@ -55,6 +55,37 @@ export function githubActionsRuns(root, remote, { branch = null, commit = null, 
 }
 
 /**
+ * GitHub code scanning for one branch, read-only [CQF:REQ-049]: the open alerts of `tool` (CodeQL) and
+ * whether that tool has analysed the branch at all, through gh's own sign-in and the same host and SSH
+ * alias resolution as the check runs. A repository without code scanning answers 404 or 403; that is
+ * returned as `{ available: false }`, never thrown, since a missing source never blocks.
+ */
+export function githubCodeScanning(root, remote, { ref, tool = 'CodeQL', maximumPages = 10, runCommand = run } = {}) {
+  const target = resolveGitHubSshHost(root, remote, parseGitHubRemote(remote), { runCommand });
+  const query = (pathname, page) => `repos/${target.slug}/code-scanning/${pathname}?ref=${encodeURIComponent(ref)}&tool_name=${encodeURIComponent(tool)}`
+    + (pathname === 'alerts' ? '&state=open' : '') + `&per_page=${pathname === 'alerts' ? 100 : 1}&page=${page}`;
+  const read = (pathname, page) => {
+    const result = runCommand('gh', ['api', '--hostname', target.host, query(pathname, page)], { cwd: root, allowFailure: true });
+    if (result.status !== 0) return { error: String(result.stderr || result.stdout || '').trim().slice(0, 300) };
+    try { return { value: JSON.parse(result.stdout) }; } catch { return { error: 'GitHub CLI returned invalid JSON.' }; }
+  };
+  const analyses = read('analyses', 1);
+  if (analyses.error) return { available: false, host: target.host, repository: target.slug, reason: analyses.error };
+  const latest = Array.isArray(analyses.value) ? analyses.value[0] ?? null : null;
+  if (!latest) return { available: true, analysed: false, host: target.host, repository: target.slug, alerts: [] };
+  const alerts = [];
+  for (let page = 1; page <= maximumPages; page += 1) {
+    const answer = read('alerts', page);
+    if (answer.error) return { available: false, host: target.host, repository: target.slug, reason: answer.error };
+    if (!Array.isArray(answer.value)) break;
+    alerts.push(...answer.value);
+    if (answer.value.length < 100) break;
+  }
+  return { available: true, analysed: true, host: target.host, repository: target.slug,
+    analysis: { commit: latest.commit_sha ?? null, createdAt: latest.created_at ?? null, toolVersion: latest.tool?.version ?? null }, alerts };
+}
+
+/**
  * The real host behind an SSH remote's host alias (`git@github-work:owner/repo`), from `ssh -G`, which
  * applies ~/.ssh/config exactly as Git's own push does. gh cannot sign in to an alias, so the hint
  * `gh auth login --hostname github-work` was a dead end (2026-10-29). Anything else is unchanged.

@@ -222,7 +222,7 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
-  evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand, withCommandLiteralEnvironment
+  evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, normalizeExternalCommand, withCommandLiteralEnvironment
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
@@ -3714,6 +3714,10 @@ export async function publishGeneration(root, config, workflow, {
   // Otherwise the only way to repair a bad adapter is to mutate bytes after publication and enter
   // generation recovery for a failure the kernel could have detected earlier.
   if (deliveryPreflight) {
+    // Lint and scanners first: they are quick, and a finding sent back to the code step costs no test
+    // run. Their findings on changed lines return in this turn while the loop has attempts [CQF:REQ-043].
+    const qualityFindings = findingsLoopApplies(workflow, phase) ? await (await findingsLoop()).publishCheckFindings(root, config,
+      workflow, phase, deliveryPreflight, findingsKernel(config, workflow, phase)) : null;
     await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
     const testedSelection = deliveryPreflight.trpSelection ?? null;
     const testedRisk = deliveryPreflight.testRecovery ?? null;
@@ -3739,6 +3743,7 @@ export async function publishGeneration(root, config, workflow, {
     if (testedRisk) deliveryPreflight.testRecovery = testedRisk;
     if (testedRunRisks) deliveryPreflight.testRunRisks = testedRunRisks;
     deliveryPreflight.preflightAttempts = testedAttempts;
+    if (qualityFindings) deliveryPreflight.qualityFindings = qualityFindings;
   }
   // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
   // publication path. Re-read the immutable Candidate after all preflight tests and before the
@@ -4845,6 +4850,16 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       : commandRoot;
     let restoreTransientResult = null;
     let structuredResultTarget = null;
+    // A finding command's report is SFlow's own, under .sflow/results: an earlier run's is removed
+    // first, here and in the candidate it runs on, so only this run's report is read [CQF:REQ-041].
+    const findingsReport = findingCommand(policy);
+    if (findingsReport) {
+      for (const [base, folder] of [[root, commandRoot], ...(isolation ? [[isolation.root, executionRoot]] : [])]) {
+        const report = await secureRepositoryPath(base, path.relative(base, path.resolve(folder, policy.result.path)),
+          { label: `Finding report '${policy.result.path}'`, mustExist: false });
+        await rm(report.absolute, { force: true });
+      }
+    }
     if (policy.kind === 'test' && policy.result?.path) {
       const resultTarget = path.resolve(commandRoot, policy.result.path);
       // `secureRepositoryPath` resolves macOS' /var -> /private/var alias. Compare the result to the
@@ -4959,7 +4974,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
-    if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
+    if (isolation && (policy.kind === 'test' || findingsReport)) await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
       isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
     });
     if (isolatedResultRestore) {
@@ -5026,6 +5041,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         }, check) : error;
     }
     await gateRun?.attach(check);
+    // Where it ran, so its report's absolute paths read as repository paths after the candidate is gone.
+    if (findingsReport) Object.defineProperty(check, 'findingRoots', { value: { isolated: isolation?.root ?? null }, configurable: true });
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     qualityCommandResults.set(check, result);
     checks.push(check);
@@ -5040,6 +5057,21 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     finally { await isolation?.dispose?.(); }
   }
   return checks;
+}
+
+// Kept out of the long-lived VS Code bundles like the environment bindings: loaded from the CLI source when a step has a scanner.
+const findingsLoop = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'code-step.mjs')).href);
+
+/** Whether a step has a lint, static-analysis or security command, or reads CodeQL: only then is the findings loop loaded. */
+function findingsLoopApplies(workflow, phase) {
+  return workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github'
+    || [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])].some((command) => FINDING_COMMAND_KINDS.includes(command?.kind));
+}
+
+/** What the findings loop (src/findings/code-step.mjs) runs its commands and hashes its code with. */
+function findingsKernel(config, workflow, phase, { generation = nextPhaseGeneration(phase) } = {}) {
+  return { generation, sourceTreeHash, testInputTreeHash,
+    qualityChecks: (root, ...rest) => qualityChecks(root, ...rest) };
 }
 
 /**
@@ -5629,6 +5661,10 @@ async function submitPhaseTransition(root, config, workflow, {
     ? await (await import('./verification/repository-tests.mjs')).verificationRepositoryTests(root, config, workflow, phase, deliveryCommands)
     : null;
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
+  // A later step reads CodeQL's alerts for the Story branch too; they inform and never block [CQF:REQ-049].
+  if (!codeDeliveryRequired && runChecks && workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github') {
+    phase.codeScanning = await (await findingsLoop()).laterStepCodeScanning(root, config, workflow, phase);
+  }
   const pins = codeDeliveryRequired && !retainedRisk && runChecks
     ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands, phase.deliveryEvidence) : null;
   // A runner amendment's epoch needs its own fresh run of the whole command.
@@ -5637,8 +5673,14 @@ async function submitPhaseTransition(root, config, workflow, {
     const selected = new Map(requiredTestCommands.filter((command) => command.testScope?.files).map((command) => [command.id, command]));
     deliveryCommands = deliveryCommands.map((command) => (command?.kind === 'test' && selected.get(command.id)) || command);
   }
+  // A code step's finding commands run, or stand on unchanged code, through the findings rules, after
+  // the others and in the same order as the commands the validation lists [CQF:REQ-045].
+  const findingSplit = codeDeliveryRequired && runChecks && findingsLoopApplies(workflow, phase)
+    ? (await findingsLoop()).splitFindingCommands(deliveryCommands) : null;
+  if (findingSplit?.findings.length) deliveryCommands = [...findingSplit.others, ...findingSplit.findings];
+  const executedCommands = findingSplit?.findings.length ? findingSplit.others : deliveryCommands;
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
-    retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
+    retainedRisk ? executedCommands.filter(command => command?.kind !== 'test') : executedCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
       trpSelection && command?.kind === 'test' ? command.provenance
@@ -5649,6 +5691,13 @@ async function submitPhaseTransition(root, config, workflow, {
       purpose: testCommandEpochRun ? 'epoch' : 'submission', workId: workflow.workItem.id, phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null,
       delivery: codeDeliveryRequired ? phase.deliveryEvidence : null })
   }) : [];
+  // CodeQL's alerts are read from GitHub at submit even when the step runs no scanner itself [CQF:REQ-049].
+  if (findingSplit?.findings.length || (findingSplit && workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github')) {
+    const submitted = await (await findingsLoop()).submitCheckFindings(root, config, workflow, phase, findingSplit.findings,
+      findingsKernel(config, workflow, phase, { generation: phase.generation }));
+    phase.checks.push(...submitted.checks);
+    phase.deliveryEvidence.submittedFindings = submitted.evidence;
+  }
   if (retainedRisk) {
     const observation = retainedRisk.observation;
     phase.checks.push({ id: observation.obligationId, command: externalCommandText(requiredTestCommands[0], 0),

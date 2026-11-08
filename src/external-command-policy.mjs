@@ -13,6 +13,22 @@ export const TEST_RESULT_ADAPTERS = Object.freeze([
   'karma-text', 'dotnet-trx', 'cargo-json', 'sflow-test-result-v1', 'mocha-json'
 ]);
 /**
+ * The kinds whose command reports findings rather than tests [CQF:REQ-041], and the readers their
+ * `result.adapter` may name (src/findings/readers/). Such a command may also name
+ * `gate: { failOn: [severities] }`: the severities of a new-code finding that count against it.
+ */
+export const FINDING_COMMAND_KINDS = Object.freeze(['lint', 'static-analysis', 'security']);
+export const FINDING_RESULT_ADAPTERS = Object.freeze(['eslint-json', 'sarif', 'sonarqube']);
+export const FINDING_GATE_SEVERITIES = Object.freeze(['blocker', 'critical', 'high', 'medium', 'low', 'info']);
+// What counts when a command names no gate: the severities a person would hold a change for.
+export const DEFAULT_FINDING_GATE = Object.freeze({ failOn: Object.freeze(['blocker', 'critical', 'high']) });
+
+/** Whether a normalized command reports findings through a reader, so the findings loop reads it. */
+export function findingCommand(command) {
+  return FINDING_COMMAND_KINDS.includes(command?.kind) && FINDING_RESULT_ADAPTERS.includes(command?.result?.adapter);
+}
+
+/**
  * The source languages a test command can be scoped to (code-delivery-tests.mjs reads them in this
  * order). A command's optional `ecosystem` makes it evidence only for that language's source and files
  * of no language below its roots, as an inferred command is; a test setup suggestion carries its own.
@@ -125,9 +141,16 @@ export function normalizeExternalCommand(value, index = 0) {
   }
   const normalizedRoots = [...new Set(affectedRoots.map((root) => relativePath(root, `qualityCommands[${index}].affectedRoots`, { allowDot: true })))];
   let result = null;
-  if (value.result != null) {
+  const findingKind = FINDING_COMMAND_KINDS.includes(kind);
+  if (value.result != null && findingKind && FINDING_RESULT_ADAPTERS.includes(value.result?.adapter)) {
+    result = normalizeFindingResult(value.result, index);
+  } else if (value.result != null) {
     if (!value.result || typeof value.result !== 'object' || Array.isArray(value.result)) {
       throw new SingularityFlowError(`qualityCommands[${index}].result must be an object.`);
+    }
+    if (findingKind && !TEST_RESULT_ADAPTERS.includes(value.result.adapter)) {
+      throw new SingularityFlowError(`qualityCommands[${index}].result.adapter must be ${FINDING_RESULT_ADAPTERS.join(', ')} for a ${kind} command.`,
+        { code: 'QUALITY_COMMAND_FINDING_ADAPTER_INVALID' });
     }
     if (!TEST_RESULT_ADAPTERS.includes(value.result.adapter)) {
       throw new SingularityFlowError(`qualityCommands[${index}].result.adapter must be ${TEST_RESULT_ADAPTERS.join(', ')}.`);
@@ -153,6 +176,12 @@ export function normalizeExternalCommand(value, index = 0) {
       sourceExtensions: [...new Set(sourceExtensions.map((extension) => extension.toLowerCase()))]
     };
   }
+  if (value.gate != null && !(findingKind && result?.adapter && FINDING_RESULT_ADAPTERS.includes(result.adapter))) {
+    throw new SingularityFlowError(`qualityCommands[${index}].gate needs kind lint, static-analysis or security and a finding result adapter.`,
+      { code: 'QUALITY_COMMAND_GATE_INVALID' });
+  }
+  const gate = value.gate == null ? null : normalizeFindingGate(value.gate, index);
+  const sonarqube = value.sonarqube == null ? null : normalizeSonarqubeServer(value.sonarqube, index, result);
   return {
     id, command, argv, modelPolicy, requirement, timeoutMs,
     ...(value.kind != null ? { kind } : {}),
@@ -161,8 +190,59 @@ export function normalizeExternalCommand(value, index = 0) {
     ...(value.ecosystem != null ? { ecosystem: value.ecosystem } : {}),
     ...(value.workingDirectory != null ? { workingDirectory } : {}),
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
-    ...(value.result != null ? { result } : {})
+    ...(value.result != null ? { result } : {}),
+    ...(gate ? { gate } : {}),
+    ...(sonarqube ? { sonarqube } : {})
   };
+}
+
+/**
+ * A finding command's report [CQF:REQ-041]. It lives under `.sflow/results/`, SFlow's own transient
+ * folder, so SFlow may clear it before each run and it is never application source; a scanner's
+ * caches belong there too (ESLint `--cache-location`, `-Dsonar.working.directory`).
+ */
+function normalizeFindingResult(value, index) {
+  const allowed = new Set(['adapter', 'path']);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length) {
+    throw new SingularityFlowError(`qualityCommands[${index}].result for adapter ${value.adapter} takes only adapter and path, not ${unknown.join(', ')}.`,
+      { code: 'QUALITY_COMMAND_FINDING_RESULT_INVALID' });
+  }
+  const resultPath = relativePath(value.path, `qualityCommands[${index}].result.path`);
+  if (!/^(?:.+\/)?\.sflow\/results\/.+/u.test(resultPath)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].result.path must be a file under .sflow/results/, such as .sflow/results/eslint.json.`,
+      { code: 'QUALITY_COMMAND_FINDING_RESULT_INVALID' });
+  }
+  return { adapter: value.adapter, path: resultPath };
+}
+
+function normalizeFindingGate(value, index) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => key !== 'failOn')
+      || !Array.isArray(value.failOn) || value.failOn.some((severity) => !FINDING_GATE_SEVERITIES.includes(severity))) {
+    throw new SingularityFlowError(`qualityCommands[${index}].gate must be { failOn: [${FINDING_GATE_SEVERITIES.join(', ')}] }.`,
+      { code: 'QUALITY_COMMAND_GATE_INVALID' });
+  }
+  return { failOn: FINDING_GATE_SEVERITIES.filter((severity) => value.failOn.includes(severity)) };
+}
+
+/**
+ * Where a SonarQube scanner command analyses [CQF:REQ-048]. It runs once, at submit. `branchAnalysis`
+ * says the server supports branch analysis (Developer Edition or above), so the Story branch is
+ * analysed under `project`; without it, only a named `scratchProject` is analysed, and never the main
+ * project. Its host and token come from the command's environment.
+ */
+function normalizeSonarqubeServer(value, index, result) {
+  const at = `qualityCommands[${index}].sonarqube`;
+  const key = /^[A-Za-z0-9_.:-]{1,400}$/u;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || result?.adapter !== 'sonarqube'
+      || Object.keys(value).some((name) => !['project', 'branchAnalysis', 'scratchProject'].includes(name))
+      || !key.test(String(value.project ?? '')) || (value.branchAnalysis != null && typeof value.branchAnalysis !== 'boolean')
+      || (value.scratchProject != null && (!key.test(String(value.scratchProject)) || value.scratchProject === value.project))) {
+    throw new SingularityFlowError(`${at} must be { project, branchAnalysis?, scratchProject? } on a command whose result adapter is sonarqube; a scratch project is not the main project.`,
+      { code: 'QUALITY_COMMAND_SONARQUBE_INVALID' });
+  }
+  return { project: value.project, branchAnalysis: value.branchAnalysis === true,
+    ...(value.scratchProject ? { scratchProject: value.scratchProject } : {}) };
 }
 
 export function externalCommandText(value, index = 0) {

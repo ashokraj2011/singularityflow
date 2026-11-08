@@ -315,10 +315,18 @@ export const LOCAL_INTEGRATION_EVIDENCE_VALUES = Object.freeze(['off', 'allowed'
  */
 export const PLAIN_CHAT_SECRETS_VALUES = Object.freeze(['refuse', 'allow']);
 
+/**
+ * Whether a capability's code steps enforce their lint, static-analysis and security findings
+ * [CQF decision 6]. `warn` leaves the workflow's codeDelivery.staticAnalysis as it is; `enforce` holds
+ * the step for a person when new-code findings remain. Folding only tightens, as above.
+ */
+export const STATIC_ANALYSIS_POLICY_VALUES = Object.freeze(['enforce', 'warn']);
+
 // Each field's values, the tighter first. A child may always choose the tighter.
 const ONE_WAY_POLICY = Object.freeze({
   localIntegrationEvidence: LOCAL_INTEGRATION_EVIDENCE_VALUES,
-  plainChatSecrets: PLAIN_CHAT_SECRETS_VALUES
+  plainChatSecrets: PLAIN_CHAT_SECRETS_VALUES,
+  staticAnalysis: STATIC_ANALYSIS_POLICY_VALUES
 });
 
 function foldOneWayPolicy(field, parent, child) {
@@ -351,7 +359,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     'allowedPhases', 'requiredChecks', 'requiredAuthorityGroups', 'jiraProjects', 'jiraHosts', 'jiraOperations', 'jiraFields',
     'protectedPaths', 'worldModelGrounding', 'worldModelStaleness', 'requiredWorldModelViews',
     'writeScopes', 'qualityCommands', 'storageProviders', 'allowedMimeTypes', 'tokenBudget',
-    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatSecrets'
+    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatSecrets', 'staticAnalysis'
   ]);
   for (const key of Object.keys(child)) if (!allowed.has(key)) throw new SingularityFlowError(`Capability policy contains unknown key '${key}'.`);
   const array = (key) => uniqueStrings(child[key], `Capability policy.${key}`);
@@ -396,7 +404,8 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     contextMaxBytes: min(parentContextMaxBytes, childContextMaxBytes),
     auto: foldCapabilityAutoPolicy(parentAuto, childAuto),
     localIntegrationEvidence: foldOneWayPolicy('localIntegrationEvidence', parent.localIntegrationEvidence, child.localIntegrationEvidence),
-    plainChatSecrets: foldOneWayPolicy('plainChatSecrets', parent.plainChatSecrets, child.plainChatSecrets)
+    plainChatSecrets: foldOneWayPolicy('plainChatSecrets', parent.plainChatSecrets, child.plainChatSecrets),
+    staticAnalysis: foldOneWayPolicy('staticAnalysis', parent.staticAnalysis, child.staticAnalysis)
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }

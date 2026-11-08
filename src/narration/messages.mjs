@@ -300,6 +300,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run with the same environment cause is let through until it expires or is revoked.`,
     preserves: false
   },
+  'decision.finding-risk.succeeded': {
+    headline: (s) => `Recorded ${slot(s.record)}; the scanners still run every time, and only this finding, from the same rule, tool and version, is kept until it expires or is revoked.`,
+    preserves: false
+  },
   'decision.evidence-reuse.succeeded': {
     headline: (s) => `Recorded ${slot(s.record)}; the run stays the earlier step's, and the reuse lapses as soon as the source it tested changes.`,
     preserves: false

@@ -90,9 +90,15 @@ export async function run({ positionals, options }) {
   const shown = await step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
   // First, with what follows: the prepublish fields after it describe the draft before publication.
+  const after = afterPublication(published.value, shown.value);
+  // What the findings loop let through is the person's to hear in this reply [CQF:REQ-043].
+  if (published.value?.qualityFindings?.words && after.next?.instruction) {
+    after.next = { ...after.next, instruction: `${after.next.instruction} Also say, as written: ${published.value.qualityFindings.words}` };
+  }
   console.log(JSON.stringify({ publishIfReady: {
-    published: true, ...afterPublication(published.value, shown.value),
+    published: true, ...after,
     ...(published.value?.applicationReview ? { applicationReview: published.value.applicationReview } : {}),
+    ...(published.value?.qualityFindings ? { qualityFindings: published.value.qualityFindings } : {}),
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value
   }, ...withoutPublishOffer(prepublish) }));

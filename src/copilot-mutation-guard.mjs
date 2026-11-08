@@ -713,7 +713,7 @@ export function argvAllowed(argv, mode, value) {
   if (intentAmendmentDecision(positionals)) return false;
   // Accepting that a step's tests cannot run here or ran narrowed, reusing another step's recorded run
   // for it, or saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
-  if (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
+  if (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
   // An agent may request a Story-only test command; accepting or revoking it is the step approvers' call.
   if (storyTestCommandDecision(positionals, options)) return false;
   // A Story's authorized browser target is a security boundary: a person pins it, in no turn (its preview is a read).
@@ -914,7 +914,7 @@ function testRunRiskDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
   const { positionals, options } = parseCli(safe.argv);
-  return (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
+  return (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
     || storyTestCommandDecision(positionals, options)
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
 }

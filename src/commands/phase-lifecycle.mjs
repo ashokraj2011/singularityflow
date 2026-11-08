@@ -539,6 +539,8 @@ export async function phaseCommand(positionals, options) {
   const approvedDrift = await (await import('./input-restore.mjs')).approvedArtifactDriftWarnings(root, config, workflow, phase).catch(() => []);
   const applicationReview = applicationReviewOffer(workflow, phase);
   const outcomeReview = codeOutcomeReviewOffer(workflow, phase);
+  // What the findings loop let through: findings that remain, scanners that could not run [CQF:REQ-043].
+  const qualityFindings = (await import('../findings/presentation.mjs')).publishedFindingsSummary(phase.deliveryEvidence?.qualityFindings);
   if (optionBoolean(options, 'json')) {
     // Publication is complete here. A GUI needs the exact receipt, not a second expensive review
     // projection before it can acknowledge success. Documents remain available on explicit request.
@@ -550,10 +552,12 @@ export async function phaseCommand(positionals, options) {
       artifact: phase.requiredArtifact.path,
       ...(outcomeReview ? { outcomeReview } : {}),
       ...(applicationReview ? { applicationReview } : {}),
+      ...(qualityFindings ? { qualityFindings } : {}),
       ...(approvedDrift.length ? { warnings: approvedDrift } : {})
     }));
     return;
   }
+  if (qualityFindings?.words) console.log(`Warning: ${qualityFindings.words}`);
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
   if (outcomeReview) for (const line of commandGuidanceLines(outcomeReview, 'Try and review this Story')) console.log(line);
   if (applicationReview) for (const line of commandGuidanceLines(applicationReview, 'Review application')) console.log(line);

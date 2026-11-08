@@ -157,6 +157,10 @@
               "localIntegrationEvidence": {
                 "description": "Whether an environment-linked quality command may run on the person's machine with its private values and count as local-integration evidence. Inherited parent to child; a child may turn it off but never allowed under an off parent.",
                 "enum": ["off", "allowed"]
+              },
+              "staticAnalysis": {
+                "description": "enforce holds a code step for a person while lint, static-analysis or security findings on new code remain; warn leaves the workflow's codeDelivery.staticAnalysis as it is. A child may enforce under a warn parent, never warn under an enforce one [CQF decision 6].",
+                "enum": ["enforce", "warn"]
               }
             },
             "additionalProperties": false

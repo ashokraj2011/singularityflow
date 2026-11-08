@@ -11,6 +11,7 @@ import { specificFindingDocumentation } from './finding-catalog.mjs';
 import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { stripGlobalModelOptions } from './model-mode.mjs';
 import { repairContinuationForPinChange, repairContinuationForTestFailure } from './phase-finding-policy.mjs';
+import { repairContinuationForFindings } from './findings/repair-continuation.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
   commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
@@ -1463,6 +1464,13 @@ const KNOWN = Object.freeze({
     'Use the risk-review authority already pinned in the Story. A copied receipt, Git name, exhausted retry budget or ordinary phase approval cannot grant an exception.',
     'singularity-flow explain test-recovery', 'diagnostic')],
   CODE_TEST_SKIPPED: (argv, error) => requiredTestFailureSteps(argv, error),
+  // Findings on changed lines [CQF:REQ-043]: fixed in the code in this turn, then the same check again.
+  CODE_QUALITY_FINDINGS: (_argv, error) => {
+    const phase = lowerKebab(error?.details?.phase);
+    return [step('repair-quality-findings',
+      'Fix each finding in details.qualityFindings.findings at its file and line, in the code, without a suppression comment; then run the same check once.',
+      phase ? `singularity-flow phase prepublish ${phase} --for-agent --json --publish-if-ready` : null, 'remediation', '/sf-code')];
+  },
   CODE_TEST_ZERO_DISCOVERED: (argv, error) => requiredTestFailureSteps(argv, error),
   CODE_TEST_TIMEOUT: (argv, error) => requiredTestFailureSteps(argv, error),
   QUALITY_COMMAND_SOURCE_MUTATION: (argv, error) => requiredTestFailureSteps(argv, error),
@@ -1876,6 +1884,9 @@ export function refusalRemediationPlan(error, argv = []) {
   const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
     || code === 'QUALITY_COMMAND_SOURCE_MUTATION';
   const requiredTestFailure = requiredTestExecutionForRefusal(error)?.failure;
+  // A code step's findings loop [CQF:REQ-043]; its held outcomes are a person's, through the refusal's own routes.
+  const qualityFindingsBlocked = code === 'CODE_QUALITY_FINDINGS';
+  const qualityFindingsHeld = ['CODE_QUALITY_FINDINGS_HELD', 'CODE_QUALITY_SCANNER_UNAVAILABLE'].includes(code);
   // The cause lives in an earlier phase's approved input: never "repair the current phase".
   const upstreamInputBlocked = UPSTREAM_INPUT_CODES.has(code);
   const gapSteps = code === 'CONFORMANCE_BLOCKING_VERDICTS' ? conformanceGapSteps(error) : [];
@@ -1953,8 +1964,10 @@ export function refusalRemediationPlan(error, argv = []) {
           : [...phaseSteps, ...known, ...nonDuplicateExplicit]
       : upstreamInputBlocked
         ? [...known, ...nonDuplicateExplicit, ...phaseSteps]
-      : requiredTestBlocked
+      : requiredTestBlocked || qualityFindingsBlocked
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
+      : qualityFindingsHeld
+        ? [...nonDuplicateExplicit, ...phaseSteps]
       : authoringIncomplete
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
         : [...nonDuplicateExplicit, ...known, ...phaseSteps]
@@ -1992,6 +2005,10 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Retry after the test runtime or dependency has actually changed; the same source may then be rechecked. Do not loop against an unchanged environment.'
     : requiredTestBlocked
     ? 'Retry only after the identified test, report, or source-mutation condition is repaired and the current phase is rechecked. Do not repeat an unchanged failing run.'
+    : qualityFindingsBlocked
+    ? 'Retry once the listed findings are fixed in the code; the loop has the attempts the refusal names. Never retry unchanged code or add a suppression.'
+    : qualityFindingsHeld
+    ? 'Do not retry in this turn: a person decides each held finding or scanner (fix it later, or accept it with decision finding-risk). Nothing was published or accepted.'
     : code === 'CAPABILITY_PROPOSAL_VALUE_CONFLICT'
     ? 'Activating this proposal again is refused the same way. Discard it, and activate the new proposal once it is reviewed.'
     : code === 'CLARIFICATION_MODE_OFF'
@@ -2021,6 +2038,9 @@ export function refusalRemediationPlan(error, argv = []) {
     } : {}),
     ...(requiredTestBlocked && phaseContext && requiredTestExecutionForRefusal(error) ? {
       repairContinuation: repairContinuationForTestFailure(phaseContext, requiredTestExecutionForRefusal(error))
+    } : {}),
+    ...(qualityFindingsBlocked && phaseContext && error.details?.qualityFindings ? {
+      repairContinuation: repairContinuationForFindings(phaseContext, error.details.qualityFindings)
     } : {}),
     ...(phaseContext ? { context: skillHostBlocked
       ? Object.freeze({ ...phaseContext, strategy: 'external-host-prerequisite', recoveryCommand: null, retryCommand: null, retrySkill: null })
@@ -2153,6 +2173,18 @@ export function refusalDetails(details) {
   if (obligations.length) projected.obligations = obligations;
   const gate = projectGateRefusal(details.gate);
   if (gate) projected.gate = gate;
+  // A code step's findings on changed lines [CQF:REQ-043]: each a tool's words, bounded and redacted as data.
+  const quality = details.qualityFindings;
+  if (quality && typeof quality === 'object') {
+    const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
+    projected.qualityFindings = compact({ mode: text(quality.mode), attempt: position(quality.attempt), maximumAttempts: position(quality.maximumAttempts),
+      more: Number.isSafeInteger(quality.more) && quality.more > 0 ? quality.more : null,
+      findings: list(quality.findings, (finding) => (finding && typeof finding === 'object' ? compact({ id: text(finding.id), tool: text(finding.tool),
+        toolVersion: text(finding.toolVersion), rule: text(finding.rule), severity: text(finding.severity), kind: text(finding.kind), file: text(finding.file),
+        line: position(finding.line), endLine: position(finding.endLine), message: text(finding.message), fingerprint: text(finding.fingerprint), url: text(finding.url) }) : null)).slice(0, 20),
+      unavailable: list(quality.unavailable, (entry) => (entry && typeof entry === 'object' ? compact({ commandId: text(entry.commandId), reason: text(entry.reason) }) : null)).slice(0, 10),
+      escalated: list(quality.escalated, text).slice(0, 20) });
+  }
   // A run in which no test executed: the step approvers' risk route, so every surface can name it.
   const runRisk = details.testRunRisk;
   // The refusing operation's own next command, when it is a safe Singularity Flow command.

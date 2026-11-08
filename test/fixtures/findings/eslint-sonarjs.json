@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "filePath": "/repo/src/pricing.js",
+      "messages": [
+        {
+          "ruleId": "sonarjs/cognitive-complexity",
+          "severity": 2,
+          "message": "Refactor this function to reduce its Cognitive Complexity from 18 to the 15 allowed.",
+          "line": 3,
+          "column": 17,
+          "nodeType": null,
+          "endLine": 3,
+          "endColumn": 22
+        },
+        {
+          "ruleId": "sonarjs/no-duplicate-string",
+          "severity": 1,
+          "message": "Define a constant instead of duplicating this literal 3 times.",
+          "line": 20,
+          "column": 10,
+          "nodeType": null,
+          "endLine": 20,
+          "endColumn": 19
+        }
+      ],
+      "suppressedMessages": [],
+      "errorCount": 1,
+      "fatalErrorCount": 0,
+      "warningCount": 1,
+      "fixableErrorCount": 0,
+      "fixableWarningCount": 0,
+      "source": "// pricing\n\nexport function price(order) {\n  return order;\n}\n",
+      "usedDeprecatedRules": []
+    },
+    {
+      "filePath": "/repo/src/broken.js",
+      "messages": [
+        { "ruleId": null, "fatal": true, "severity": 2, "message": "Parsing error: Unexpected token )", "line": 2, "column": 9 }
+      ],
+      "suppressedMessages": [],
+      "errorCount": 1,
+      "fatalErrorCount": 1,
+      "warningCount": 0,
+      "fixableErrorCount": 0,
+      "fixableWarningCount": 0,
+      "usedDeprecatedRules": []
+    },
+    {
+      "filePath": "/repo/src/clean.js",
+      "messages": [],
+      "suppressedMessages": [{ "ruleId": "no-console", "severity": 2, "message": "Unexpected console statement.", "line": 1, "column": 1, "suppressions": [{ "kind": "directive", "justification": "" }] }],
+      "errorCount": 0, "fatalErrorCount": 0, "warningCount": 0, "fixableErrorCount": 0, "fixableWarningCount": 0,
+      "usedDeprecatedRules": []
+    }
+  ],
+  "metadata": {
+    "cwd": "/repo",
+    "rulesMeta": {
+      "sonarjs/cognitive-complexity": { "type": "suggestion", "docs": { "description": "Cognitive Complexity of functions should not be too high", "recommended": true, "url": "https://sonarsource.github.io/rspec/#/rspec/S3776/javascript" } },
+      "sonarjs/no-duplicate-string": { "type": "suggestion", "docs": { "description": "String literals should not be duplicated", "url": "https://sonarsource.github.io/rspec/#/rspec/S1192/javascript" } }
+    }
+  }
+}

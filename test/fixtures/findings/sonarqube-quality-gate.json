@@ -1,0 +1,13 @@
+{
+  "projectStatus": {
+    "status": "ERROR",
+    "conditions": [
+      { "status": "ERROR", "metricKey": "new_coverage", "comparator": "LT", "errorThreshold": "80", "actualValue": "71.4" },
+      { "status": "OK", "metricKey": "new_duplicated_lines_density", "comparator": "GT", "errorThreshold": "3", "actualValue": "0.0" },
+      { "status": "ERROR", "metricKey": "new_security_hotspots_reviewed", "comparator": "LT", "errorThreshold": "100", "actualValue": "0.0" }
+    ],
+    "ignoredConditions": false,
+    "period": { "mode": "REFERENCE_BRANCH", "date": "2026-11-01T09:00:00+0000", "parameter": "main" },
+    "caycStatus": "compliant"
+  }
+}

@@ -357,7 +357,24 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // delivery-evidence.mjs, phase-execution-evidence.mjs, attempts.mjs, story-lineage.mjs, code-delivery-tests.mjs) [CQF:REQ-011]. The gates themselves read it, so not lazy.
     // 9,553,000 (measured 9,552,936): a Story on only its new tests runs, at its last step that runs tests, the existing tests that import a changed module
     // (state.mjs, attempts.mjs); finding them stays lazy (verification/test-scope-selection.mjs) [CQF:REQ-017].
-    assert.ok(closure.bytes <= 9_553_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,555,300 (measured 9,555,270, commands/phase-lifecycle.mjs): a lint, static-analysis or security command names its finding reader,
+    // gate and SonarQube project (external-command-policy.mjs +5270), codeDelivery.staticAnalysis (code-delivery-policy.mjs +1205) and
+    // policy.staticAnalysis (capabilities.mjs +546) [CQF M4]. Configuration is read synchronously everywhere; no new eager file.
+    // 9,558,400 (measured 9,558,348, commands/phase-lifecycle.mjs): a code step runs its finding commands in the publish check, reads
+    // their reports there and at submit (state.mjs +2697), and its publication says what the loop let through (phase-lifecycle.mjs +381).
+    // The loop, its readers and its records stay lazy (findings/code-step.mjs); no new eager file.
+    // 9,559,100 (measured 9,559,071, commands/phase-lifecycle.mjs): decision finding-risk is a person's step (person-step-catalog.mjs +454,
+    // narration/messages.mjs +253, command-registry.mjs +16). The command itself stays lazy; no new eager file.
+    // 9,559,600 (measured 9,559,566, commands/phase-lifecycle.mjs): codeDelivery.staticAnalysis.codeql (code-delivery-policy.mjs +294)
+    // and submission reading CodeQL's alerts with no scanner of its own (state.mjs +201). The SonarQube and GitHub reads stay lazy
+    // (findings/servers.mjs); no new eager file.
+    // 9,559,800 (measured 9,559,794, commands/phase-lifecycle.mjs): the findings refusals name their catalog entry (finding-catalog.mjs +228).
+    // 9,560,350 (measured 9,560,305, commands/phase-lifecycle.mjs): the findings loop loads only for a step with a scanner or CodeQL
+    // (state.mjs +511), so every other step's publication and submission imports none of it.
+    // 9,560,700 (measured 9,560,664, commands/phase-lifecycle.mjs): a later step reads CodeQL's alerts too (state.mjs +359). The read stays lazy.
+    // 9,560,850 (measured 9,560,832, commands/phase-lifecycle.mjs): the findings loop loads from the CLI source, out of the VS Code
+    // gateway bundle, which it had grown by 28 modules (state.mjs +168).
+    assert.ok(closure.bytes <= 9_560_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`); // BUDGET-REMEASURE
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -425,7 +442,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
   // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
   // 858,851 measured 2026-11-08: tests summary --latest is declared a flag (util.mjs +34) [CQF:REQ-015].
-  assert.ok(root.bytes <= 858_855, `root dispatch loads ${root.bytes} source bytes`);
+  // 858,850 (measured 858,833): decision finding-risk classifies as a person's mutation (command-registry.mjs +16).
+  assert.ok(root.bytes <= 858_850, `root dispatch loads ${root.bytes} source bytes`); // BUDGET-REMEASURE
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -535,7 +553,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
   // 4,158,510 (measured 4,158,509): the same --latest flag as root dispatch.
   // 4,159,060 (measured 4,159,053): the one documentation definition exported, and a receipt's code digest (delivery-evidence.mjs, code-delivery-tests.mjs) [CQF:REQ-011].
-  assert.ok(current.bytes <= 4_159_060, `session current loads ${current.bytes} source bytes`);
+  // 4,165,000 (measured 4,164,950): the same external-command-policy.mjs +5270 and code-delivery-policy.mjs +1205 as start.
+  // 4,165,450 (measured 4,165,420): the same person-step-catalog.mjs +454 and command-registry.mjs +16 as start.
+  // 4,165,750 (measured 4,165,714): the same code-delivery-policy.mjs +294 as start.
+  assert.ok(current.bytes <= 4_165_750, `session current loads ${current.bytes} source bytes`); // BUDGET-REMEASURE
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

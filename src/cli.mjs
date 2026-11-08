@@ -4037,11 +4037,12 @@ async function decisionCommand(positionals, options) {
   if (action === 'risk') return decisionRiskCommand(positionals, options);
   if (action === 'test-risk' || action === 'test-narrowing') return (await import('./commands/decision-test-risk.mjs')).decisionTestRiskCommand(positionals, options);
   if (action === 'test-command') return (await import('./commands/decision-test-command.mjs')).decisionTestCommandCommand(positionals, options);
+  if (action === 'finding-risk') return (await import('./commands/decision-finding-risk.mjs')).decisionFindingRiskCommand(positionals, options);
   if (action === 'evidence-reuse') return (await import('./commands/decision-evidence-reuse.mjs')).decisionEvidenceReuseCommand(positionals, options);
   if (action === 'visual-profile') return (await import('./commands/decision-visual-profile.mjs')).decisionVisualProfileCommand(positionals, options);
   if (action === 'witness') return decisionWitnessCommand(positionals, options);
   if (action === 'witness-exception') return (await import('./commands/decision-witness-exception.mjs')).decisionWitnessExceptionCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision risk, decision test-risk, decision test-narrowing, decision test-command, decision evidence-reuse, decision visual-profile, decision witness or decision witness-exception.`, { code: 'COMMAND_UNKNOWN' });
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision risk, decision test-risk, decision test-narrowing, decision test-command, decision finding-risk, decision evidence-reuse, decision visual-profile, decision witness or decision witness-exception.`, { code: 'COMMAND_UNKNOWN' });
 }
 
 function printApplicability(rows) {

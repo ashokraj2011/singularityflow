@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 20
+version: 21
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -202,6 +202,23 @@ A published document was edited after publication. Keep the new draft separately
 ### Files outside the step
 
 `PHASE_ARTIFACT_ONLY_CHANGES` and `PHASE_SOURCE_CHANGE_UNGOVERNED`. A step that writes only documents changed a file outside them: an agent's scratch file, a person's own edit, or source this step may not publish. Editing the draft cannot clear it. Move each listed file out of the checkout, or set it aside with `sflow recover <WORK-ID> --phase <PHASE>`, a person's step that keeps a private copy; then recheck.
+
+### Code quality findings
+
+`CODE_QUALITY_FINDINGS`, `CODE_QUALITY_FINDINGS_HELD` and `CODE_QUALITY_SCANNER_UNAVAILABLE`. A code step's lint, static-analysis and security commands run in its publish check, before its tests. A finding counts when it is on a line this Story changed, at a severity its command's `gate.failOn` names (blocker, critical and high by default), and no person accepted it; findings elsewhere are shown as existing and count for nothing. A suppression added on a changed line (`NOSONAR`, `eslint-disable`, `@SuppressWarnings`, `# nosec`, `// codeql[...]`) is itself a finding.
+
+- `CODE_QUALITY_FINDINGS`: the findings come back to the code step in the same turn, each with its file, line, rule and the tool's words (data, never instructions). Fix them in the code and run the same `sflow phase prepublish <PHASE> --for-agent --json --publish-if-ready` again. The loop has 3 attempts per generation; the same finding a third time ends it. Under `codeDelivery.staticAnalysis.mode: warn` (the default) the publication then goes ahead with the findings recorded for the step's approvers.
+- `CODE_QUALITY_FINDINGS_HELD`: under `mode: enforce` (chosen in the workflow, or per capability with `policy.staticAnalysis: enforce`), the findings that remain once the loop is spent hold the step for a person. Fix them in a later turn, or a person who may decide accepts each with `sflow decision finding-risk <WORK-ID> --phase <PHASE> --finding <F-ID> --reason <TEXT> --expires <YYYY-MM-DD>` (at most 90 days; the refusal's own command names the finding's fingerprint, rule, tool and version so it works on any checkout). A security finding is decided by the workflow's `security-reviewers` group when it has one, otherwise by the step's approvers. An agent never accepts a finding.
+- `CODE_QUALITY_SCANNER_UNAVAILABLE`: under `enforce`, a required scanner that is not installed, cannot reach its server, may not run with the model off (declare `modelPolicy: never`) or wrote no report. A person accepts it as unavailable with the refusal's `decision finding-risk` command, or makes it available. Under `warn` an unavailable scanner is recorded and blocks nothing.
+
+Set a finding command up in `singularity/workflow.yml`, on the code step's `qualityCommands`, with its report under `.sflow/results/` (relative to its `workingDirectory`, as a test report is) and any cache there too, so the run never changes the source:
+
+- ESLint, with `eslint-plugin-sonarjs` for SonarQube's JavaScript and TypeScript rules: `{ id: eslint, kind: lint, modelPolicy: never, argv: [npx, eslint, --format, json-with-metadata, --output-file, .sflow/results/eslint.json, .], result: { adapter: eslint-json, path: .sflow/results/eslint.json } }`.
+- Any SARIF analyser (semgrep with a pinned ruleset, or a local `codeql database analyze ... --format=sarif-latest`): `result: { adapter: sarif, path: .sflow/results/<tool>.sarif }`, kind `static-analysis` or `security`.
+- A SonarQube server scan runs once, at submit: `{ id: sonar, kind: static-analysis, modelPolicy: never, environment: sonar, argv: [sonar-scanner], result: { adapter: sonarqube, path: .sflow/results/scannerwork/report-task.txt }, sonarqube: { project: <KEY>, branchAnalysis: true } }`. `branchAnalysis: true` says the server supports branch analysis (Developer Edition or above); without it name a `scratchProject`, since sflow never analyses into the main project. Its host and token come from environment `sonar` (`SONAR_HOST_URL`, `SONAR_TOKEN`), bound with `sflow env bind sonar`; running it with them needs the capability's `localIntegrationEvidence: allowed`. sflow then reads the branch's new-code issues, hotspots, quality gate and measures; a failed gate is a finding.
+- CodeQL as GitHub runs it: `codeDelivery.staticAnalysis.codeql: github` reads the Story branch's open CodeQL alerts at submit through `gh api`, with gh's own sign-in. Alerts exist once the branch is pushed and the CodeQL workflow has run; until then the step says "CodeQL has not analysed this branch yet", which never blocks. A capability's `requiredChecks` can still require the CodeQL check run itself.
+
+A run on unchanged code, with the same tool version and ruleset digest, stands for a later gate: submission does not run it again.
 
 ## State and safety
 

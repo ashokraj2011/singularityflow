@@ -30,6 +30,8 @@ const COMMAND_FIRST = new RegExp([
   String.raw`^(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run\s`, String.raw`^nx\s+[a-z][\w:@/.-]*`,
   String.raw`^node\s+[\w./-]+\.(?:js|mjs|cjs|ts)\b`, String.raw`^node(?:\s+--?[\w-]+(?:=\S+)?)*\s+--test(?=[\s=]|$)`,
   String.raw`^(?:tox|nox|jest|vitest|mocha|cypress|playwright|phpunit|rspec|rake|ruff|eslint|tsc|mypy|flake8|pylint|black|prettier|gofmt|swiftlint|ktlint|detekt)\b`,
+  // Scanners a team runs: each can be a step's static-analysis or security check [CQF:REQ-049].
+  String.raw`^(?:sonar-scanner|codeql|semgrep|pip-audit|osv-scanner|dependency-check(?:\.sh|\.bat)?|bandit|gosec|trivy)\b`,
   String.raw`^make(?:\s|$)`, String.raw`^(?:bazel|deno)\s+test\b`, String.raw`^go\s+(?:test|build|vet|run|fmt)\b`, String.raw`^dotnet\s+(?:test|build|run|format|publish)\b`,
   String.raw`^cargo\s+(?:test|build|clippy|fmt|run)\b`, String.raw`^bundle\s+exec\b`, String.raw`^composer\s+(?:test|run|install)\b`,
   String.raw`^(?:swift\s+(?:test|build)|xcodebuild\b|flutter\s+(?:test|build|analyze)|dart\s+(?:test|analyze))`,
@@ -40,6 +42,9 @@ const COMMAND_FIRST = new RegExp([
 // that sflow runs at submit; scripts, runs, installs and deployments stay with the agent.
 const CATEGORIES = [
   ['deploy', /\b(?:deploy|release|publish|rollout|promote)\b|^(?:kubectl|helm|terraform\s+apply|ansible-playbook|fastlane|firebase\s+deploy|docker\s+push|az\b|aws\b|gcloud\b)/u],
+  // A security scan or dependency audit, and SonarQube's analysis, before anything their words also say (`codeql ... analyze`).
+  ['security', /^(?:codeql|semgrep|pip-audit|osv-scanner|dependency-check(?:\.sh|\.bat)?|bandit|gosec|trivy)\b|^(?:npm|pnpm|yarn)\s+audit\b|^snyk\s+test\b/u],
+  ['static-analysis', /^sonar-scanner\b|\bsonar:sonar\b|^(?:\.\/)?(?:gradle|gradlew)(?:\.bat)?\s+(?:\S+\s+)*sonar(?:qube)?\b|^dotnet\s+sonarscanner\b/u],
   ['test', /\b(?:test|tests|spec|specs|e2e|pytest|jest|vitest|mocha|cypress|playwright|phpunit|rspec|tox|nox|verify|check)\b|^(?:npm|pnpm|yarn)\s+t\b/u],
   ['lint', /\b(?:lint|eslint|ruff|flake8|pylint|clippy|vet|swiftlint|ktlint|detekt|analy[sz]e)\b/u],
   ['typecheck', /\b(?:tsc|mypy|typecheck|type-check|types)\b/u],
@@ -50,7 +55,8 @@ const CATEGORIES = [
   ['script', /^(?:bash|sh|zsh|pwsh)\s|^\.?\/?(?:scripts?|bin|tools)\/|^\.\/[\w./-]+\.(?:sh|ps1|py)\b|^make(?:\s|$)/u]
 ];
 /** Categories a step can run as its check, and the quality-command kind each becomes. */
-export const CHECK_KINDS = Object.freeze({ test: 'test', lint: 'lint', typecheck: 'static-analysis', format: 'format', build: 'compile' });
+export const CHECK_KINDS = Object.freeze({ test: 'test', lint: 'lint', typecheck: 'static-analysis', format: 'format', build: 'compile',
+  'static-analysis': 'static-analysis', security: 'security' });
 // "When the channel is web", "if platform = mobile": a value the work goes a different way on.
 const CONDITION = /\b(?:if|when|for|where)\s+(?:the\s+)?([a-z][a-z0-9_-]*(?:\s[a-z][a-z0-9_-]*)?)\s+(?:is|==?|equals|is set to)\s+["'\u201c]?([A-Za-z0-9][\w.-]{0,40})/giu;
 const OTHERWISE = /\b(?:otherwise|else\b|in (?:all|any) other cases?|for (?:all|any) others?\b|for everything else)/iu;
@@ -94,8 +100,8 @@ function endpoint(value) {
 }
 
 /**
- * What a command is for: test, lint, typecheck, format, build, install, run, deploy, script or
- * other. Deployment wins over everything (a "release test" still releases).
+ * What a command is for: test, lint, typecheck, format, build, security, static-analysis, install,
+ * run, deploy, script or other. Deployment wins over everything (a "release test" still releases).
  */
 export function classifyCommand(command) {
   const text = String(command ?? '').toLowerCase().replace(/^(?:[a-z_][a-z0-9_]*=\S*\s+)+/u, '');

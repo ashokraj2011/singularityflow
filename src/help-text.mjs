@@ -919,6 +919,7 @@ Usage:
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
   singularity-flow decision test-risk [WORK-ID] [--fetch] (--phase PHASE [--command ID [--cause-class CLASS] [--argv-sha256 DIGEST]] --cause TEXT --expires YYYY-MM-DD | --revoke TRR-ID) --reason TEXT [--json]
   singularity-flow decision test-narrowing [WORK-ID] [--fetch] (--phase PHASE [--command ID] [--expires YYYY-MM-DD] | --revoke TNR-ID) --reason TEXT [--json]
+  singularity-flow decision finding-risk [WORK-ID] (--phase PHASE --finding F-ID --expires YYYY-MM-DD | --revoke FRK-ID) --reason TEXT [--json]
   singularity-flow decision evidence-reuse [WORK-ID] [--fetch] (--phase PHASE --from-attempt TA-ID [--expires YYYY-MM-DD] | --revoke ERU-ID) --reason TEXT [--json]
   singularity-flow decision visual-profile [WORK-ID] [--fetch] (--phase VISUAL-STEP --profile PROFILE-ID --not-applicable | --revoke VPD-ID) --reason TEXT [--json]
   singularity-flow decision witness-exception [WORK-ID] [--fetch] --phase STEP --mapping sha256:... --expires YYYY-MM-DD --reason TEXT [--json]

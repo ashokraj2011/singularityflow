@@ -65,7 +65,8 @@ const COMMANDS = Object.freeze({
   'test-run-risk': ['singularity-flow decision test-risk PMC-1 --phase custom-step --cause "No browser here." --expires 2099-01-01 --reason "Decided by the approver."',
     'singularity-flow decision test-narrowing PMC-1 --phase custom-step --reason "Decided by the approver."',
     'singularity-flow decision evidence-reuse PMC-1 --phase custom-step --from-attempt TA-001 --reason "Decided by the approver."',
-    'singularity-flow decision visual-profile PMC-1 --phase custom-step --profile tablet --not-applicable --reason "Decided by the approver."'],
+    'singularity-flow decision visual-profile PMC-1 --phase custom-step --profile tablet --not-applicable --reason "Decided by the approver."',
+    'singularity-flow decision finding-risk PMC-1 --phase custom-step --finding F-0123456789abcdef --expires 2099-01-01 --reason "The nested branches mirror the table."'],
   'test-command-decision': ['singularity-flow decision test-command PMC-1 --accept TCD-001', 'singularity-flow decision test-command PMC-1 --revoke TCD-001 --reason "The repository configures this runner now."'],
   'decision-list-record': ['singularity-flow decisions record PMC-1 --answers /tmp/card-answers.json --json', `singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
     `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`, 'singularity-flow decisions record PMC-1'],
@@ -210,7 +211,7 @@ async function answeredTurns(t, status) {
 /** The tables themselves, and what each answers for a command: routes, signing and review effects. */
 function tablesToday() {
   const allCommands = Object.values(COMMANDS).flat();
-  const effectKinds = ['upstream-issue', 'upstream-issue-decision', 'evidence-reuse', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'plan-amendment', 'obligation-risk'];
+  const effectKinds = ['upstream-issue', 'upstream-issue-decision', 'evidence-reuse', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'plan-amendment', 'obligation-risk', 'finding-risk'];
   return {
     ownTerminalSteps: OWN_TERMINAL_STEPS.map((step) => step.id),
     routes: Object.fromEntries(allCommands.map((command) => [command, { own: ownTerminalStep(command), skill: skillForCommandLine(command), withoutSkill: commandLineWithoutSkill(command) }])),

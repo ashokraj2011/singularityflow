@@ -33,7 +33,7 @@ const SECOND_OPERAND = Object.freeze({
   state: ['planes', 'reconcile'], ledger: ['reconcile'], delivery: ['workflow-status'], pr: ['describe'],
   story: ['target-origin', 'return'], decisions: ['record'],
   decision: ['show', 'plan', 'choose', 'applicability', 'scope', 'completeness', 'risk', 'witness',
-    'test-risk', 'test-command', 'evidence-reuse', 'visual-profile']
+    'test-risk', 'test-command', 'finding-risk', 'evidence-reuse', 'visual-profile']
 });
 // `story test-policy <action> [WORK-ID]`.
 const STORY_TEST_POLICY_ACTIONS = new Set(['show', 'scope', 'plan', 'confirm', 'repair', 'baseline', 'amend', 'attest',

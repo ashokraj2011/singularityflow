@@ -167,3 +167,31 @@ test('under warn the loop ends after 3 attempts and publishes; a suppression add
   assert.equal(evidence.findings[0].rule, 'suppression-added:eslint-disable');
 });
 
+test('under enforce the spent loop holds the step for a person, who accepts the finding with decision finding-risk [CQF:REQ-046, REQ-047]', slowLane({ timeout: 900_000 }), async (t) => {
+  if (!ESLINT || !SONARJS) return absent(t, 'eslint and eslint-plugin-sonarjs are not installed: set SINGULARITY_FLOW_TEST_NODE_TOOLS and SINGULARITY_FLOW_TEST_SONARJS_TOOLS');
+  const WORK = 'CQF-403';
+  const story = await storyAtImplementation(t, WORK, { qualityCommands: [eslintCommand()], staticAnalysis: { mode: 'enforce' } });
+  for (const attempt of [1, 2]) assert.equal(refusal(story.prepublish()).details.qualityFindings.attempt, attempt);
+  const held = story.prepublish();
+  const error = refusal(held);
+  assert.equal(error.code, 'CODE_QUALITY_FINDINGS_HELD');
+  assert.equal(held.value.remediationPlan.repairContinuation, undefined, 'no same-turn repair once the loop is spent');
+  assert.match(held.value.remediationPlan.retry.label, /a person decides each held finding/u);
+  const route = held.value.remediationPlan.steps.find((step) => /decision finding-risk/u.test(step.command ?? ''));
+  assert.ok(route, JSON.stringify(held.value.remediationPlan.steps));
+  const [finding] = error.details.qualityFindings.findings;
+  assert.match(route.command, new RegExp(`--finding ${finding.id} --fingerprint ${finding.fingerprint} --rule sonarjs/no-collapsible-if --tool eslint --tool-version \\S+ --kind code-smell`, 'u'));
+  // A short reason and a far expiry are refused; the person's decision binds the finding.
+  const expires = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+  const decide = (...extra) => story.run(process.execPath, [CLI, '--no-model', 'decision', 'finding-risk', WORK, '--phase', 'implementation', '--finding', finding.id, ...extra], { allowFailure: true });
+  assert.match(decide('--reason', 'too short', '--expires', expires).stderr, /20 to 1000 characters/u);
+  assert.match(decide('--reason', 'The nested branches mirror the pricing table.', '--expires', '2099-01-01').stderr, /at most 90 days ahead/u);
+  const accepted = decide('--reason', 'The nested branches mirror the pricing table.', '--expires', expires);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  const [decision] = (await story.workflow()).findingRisks;
+  assert.deepEqual([decision.id, decision.fingerprint, decision.rule, decision.tool, decision.phase], ['FRK-001', finding.fingerprint, 'sonarjs/no-collapsible-if', 'eslint', 'implementation']);
+  const published = story.prepublish();
+  assert.equal(published.status, 0, JSON.stringify(published.value).slice(0, 3000));
+  const evidence = (await story.workflow()).phases.implementation.deliveryEvidence.qualityFindings;
+  assert.deepEqual([evidence.outcome, evidence.counts.counted, evidence.accepted.map((entry) => entry.decision.id)], ['passed', 0, ['FRK-001']]);
+});

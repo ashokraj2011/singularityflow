@@ -65,7 +65,7 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['adjudication-table', adjudicationTableStep],
   ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
   ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
-  ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile'].includes(sub)],
+  ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(sub)],
   ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
     && (options.accept !== undefined || options.revoke !== undefined)],
   // A /sf-decide turn records only chat options; any other choice, an answers file or the
@@ -186,6 +186,10 @@ export const PERSON_STEPS = Object.freeze([
     // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
     review: { kind: 'test-risk', entry: safe({ testRunRisks: 'risk_decided' }) },
     family: { list: 'testRunRisks', action: 'decision.test-risk', label: 'Test-run risk decision', isPerson: always } },
+  { id: 'finding-risk', guard: 'own:test-run-risk', effect: 'finding-risk',
+    // A person's acceptance of one lint, static-analysis or security finding, or its revocation (`decision finding-risk`) [CQF:REQ-047].
+    review: { kind: 'finding-risk', entry: safe({ findingRisks: 'risk_decided' }) },
+    family: { list: 'findingRisks', action: 'decision.finding-risk', label: 'Finding risk decision', isPerson: always } },
   { id: 'evidence-reuse', guard: 'own:test-run-risk', effect: 'evidence-reuse', inApproval: true,
     // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
     review: { kind: 'evidence-reuse', entry: safe({ evidenceReuses: 'evidence_reuse_decided' }) },
@@ -258,7 +262,7 @@ export const PERSON_STEPS = Object.freeze([
 export const PERSON_STEP_FAMILIES = Object.freeze(PERSON_STEPS.filter((row) => row.family).map((row) => Object.freeze({ id: row.id, ...row.family })));
 
 // The order a commit's lists are read in (REVIEW_SAFE_DECISION_LISTS).
-const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'risk', 'test-risk', 'test-narrowing', 'evidence-reuse', 'test-scope', 'visual-profile',
+const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
   'witness-exception', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'workflow']);
 /** What each decision kind does to a submitted review: REVIEW_EFFECTS's `decision-made:*` (state.mjs). */
 export const PERSON_STEP_REVIEW_EFFECTS = Object.freeze(Object.fromEntries(REVIEW_KIND_ORDER.map((kind) =>

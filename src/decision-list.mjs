@@ -834,7 +834,7 @@ function departureItem(workflow, context, entry, facts) {
     : 'The approved document stays as it was.';
   // One label on every row, so one answer for all reads as itself on a card.
   const reject = { ...option(workflow, context, { id: 'reject', label: 'Reject', words: restore, effects: [effect('reject')], needs: reason }),
-    chat: { command: decide('rejected') } };
+    ...(one ? { oneByOne: true } : {}), chat: { command: decide('rejected') } };
   const reopened = status === 'reopened' ? ` ${entry.acceptance?.id ?? 'Its acceptance'} accepted it, and ${listWords(entry.changed ?? [])} changed since, so it is asked again.` : '';
   const tests = facts.tests?.[departure.id]?.length ? ` Tests changed under the same clause: ${listWords(facts.tests[departure.id])}.` : '';
   return {
@@ -1334,7 +1334,7 @@ export function effectWords(workflow, effect, values = {}) {
   }
   if (effect.kind === 'departure') {
     const named = (effect.departures ?? [effect.departure]).join(', ');
-    if (effect.decision === 'reject') return `reject ${named}; the model restores what it changed (departure rejection)`;
+    if (effect.decision === 'reject') return `reject ${named}; ${['path', 'supporting'].includes(effect.departureKind) ? 'the model restores what it changed' : 'the approved document stays as it was'} (departure rejection)`;
     if (effect.writes === 'forward-amendment') return `accept ${named}: amend the earlier step's document as its next generation (forward amendment)`;
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `accept ${named}: ${(effect.changes ?? []).map(words).join(', ')} (plan amendment)`;

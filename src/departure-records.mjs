@@ -275,7 +275,7 @@ export async function recordPathDepartures(root, config, workflow, phase, { acto
     const supportingClass = classifySupportingChange(file).class ?? null;
     return { kind: supportingClass ? 'supporting' : 'path', phase: phase.id, generation: Number(phase.generationIntent?.generation ?? 0), paths: [file],
       contentHashes, baseHashes, target, clauses: !supportingClass && rows.length === 1 ? [rows[0][0]] : [], supportingClass,
-      reason: `${file} changed in this generation and no row of the approved plan names it; SFlow recorded it at prepublish so it is published with the step and decided once.`,
+      reason: `${file} changed in this generation, and no row of the approved plan names it.`,
       recordedBy: 'sflow' };
   });
   try {

@@ -95,3 +95,27 @@ test('the terminal table asks once to accept every file departure with one reaso
     d3: 'The renamed test still proves the clause.' });
   assert.doesNotMatch(shown, /1\. DEP-001/u, 'a row accepted with the others is not asked again');
 });
+
+test('on the list a file departure is one of "Accept all", and a planned test change is decided on its own row, in its own terminal', async () => {
+  const { decisionPacket, effectWords } = await import('../src/decision-list.mjs');
+  const workflow = { workItem: { id: 'W-1' }, status: 'in_progress', currentPhase: 'code', phaseOrder: ['plan', 'code'],
+    phases: { plan: { id: 'plan', label: 'Plan', status: 'approved', generation: 1, approvalPolicy: { authorities: ['planners'] } },
+      code: { id: 'code', label: 'Code', status: 'awaiting_approval', generation: 1, approvalPolicy: { authorities: ['engineers'], minimum: 1 } } },
+    resolution: { plannedClaims: { owners: { code: 'plan' } } } };
+  const authorities = { planners: { label: 'Planners', allowAnyGitIdentity: true }, engineers: { label: 'Engineers', allowAnyGitIdentity: true } };
+  const file = { id: 'DEP-001', kind: 'path', phase: 'code', paths: ['src/a.mjs'], clauses: ['W-1:REQ-001'], reason: 'The change needed a module of its own.', recordedBy: 'agent' };
+  const test = { id: 'DEP-002', kind: 'test', phase: 'code', paths: [], clauses: ['W-1:REQ-001'], change: { op: 'add-test', clauseId: 'W-1:REQ-001', test: 't.mjs' },
+    reason: 'A format test the plan did not list.', recordedBy: 'agent' };
+  const entry = (departure, acceptAll) => ({ departure, status: 'open', groups: ['planners'], words: departure.id, acceptAll });
+  const packet = decisionPacket(workflow, { phaseId: 'code', pending: {}, departures: { phase: 'code', planRows: [], codeStepOpen: false,
+    entries: [entry(file, true), entry(test, false)], acceptance: { 'DEP-002': 'singularity-flow decision plan W-1 --fetch --add-test W-1:REQ-001=t.mjs --reason "<REASON>"' }, reopens: {}, tests: {} } },
+  { authorities, actor: { email: 'person@example.invalid' }, at: '2026-11-08T08:00:00.000Z' });
+  const [fileRow, testRow] = packet.items.filter((item) => item.kind === 'departure');
+  assert.deepEqual(fileRow.options.map((option) => [option.id, Boolean(option.oneByOne)]), [['accept', false], ['reject', false]]);
+  assert.deepEqual(fileRow.options[0].effects[0].changes, [{ kind: 'add-location', clauseId: 'W-1:REQ-001', path: 'src/a.mjs' }]);
+  assert.match(fileRow.options[0].chat.command, /^singularity-flow decision departure W-1 --fetch --departure DEP-001 --as accepted --reason "<REASON>"$/u);
+  assert.deepEqual(testRow.options.map((option) => [option.id, Boolean(option.oneByOne), option.recordable !== false]), [['accept', true, false], ['reject', true, true]]);
+  assert.match(testRow.options[0].action.command, /--add-test W-1:REQ-001=t\.mjs/u, 'a plan row correction is its own terminal step');
+  assert.match(effectWords(workflow, testRow.options[1].effects[0]), /the approved document stays as it was/u);
+  assert.match(effectWords(workflow, fileRow.options[1].effects[0]), /the model restores what it changed/u);
+});

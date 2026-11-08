@@ -208,7 +208,7 @@ test('without a coverage report, coverage not measured is shown and nothing refu
   const summary = story.json('tests', 'summary', '--work-id', W, '--phase', 'implement');
   const coverage = (summary.data ?? summary).changedLineCoverage;
   assert.equal(coverage.status, 'not-measured');
-  assert.match(coverage.words, /^Coverage not measured: no test command of this step wrote a coverage report SFlow reads \(coverage\/lcov\.info, .*\)\. It refuses nothing\.$/u);
+  assert.match(coverage.words, /^Coverage not measured: no test command of this step wrote a coverage report SFlow reads \(the one its coverage names, or one in a usual place such as coverage\/lcov\.info or target\/site\/jacoco\/jacoco\.xml\)\. It refuses nothing\.$/u);
   assert.match(story.sflow('tests', 'summary', '--work-id', W, '--phase', 'implement').stdout, /\nCoverage not measured: /u);
   const review = story.json('phase', 'show', 'implement');
   assert.equal((review.data ?? review).changedLineCoverage.status, 'not-measured');

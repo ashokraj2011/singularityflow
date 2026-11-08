@@ -52,7 +52,7 @@ export function changedLineCoverage(attempts, { policy = DEFAULT_CHANGED_LINE_CO
   const changed = measured.filter((attempt) => Array.isArray(attempt.coverage.changed?.files));
   if (!changed.length) {
     const why = measured.length ? measured.map((attempt) => `${attempt.commandId}: its report could not be read against the Story's changes${attempt.coverage.changed?.unavailable ? ` (${attempt.coverage.changed.unavailable})` : ''}`)
-      : reasons.length ? reasons : ['no test command of this step wrote a coverage report SFlow reads (coverage/lcov.info, coverage/cobertura-coverage.xml, target/site/jacoco/jacoco.xml, coverage.xml, or the one its coverage names)'];
+      : reasons.length ? reasons : ['no test command of this step wrote a coverage report SFlow reads (the one its coverage names, or one in a usual place such as coverage/lcov.info or target/site/jacoco/jacoco.xml)'];
     return { status: 'not-measured', mode, minimum, reasons: why,
       words: `Coverage not measured: ${why.join('; ')}. It refuses nothing.` };
   }

@@ -93,6 +93,7 @@ export async function run({ positionals, options }) {
   console.log(JSON.stringify({ publishIfReady: {
     published: true, ...afterPublication(published.value, shown.value),
     ...(published.value?.applicationReview ? { applicationReview: published.value.applicationReview } : {}),
+    ...(published.value?.qualityFindings ? { qualityFindings: published.value.qualityFindings } : {}),
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value
   }, ...withoutPublishOffer(prepublish) }));

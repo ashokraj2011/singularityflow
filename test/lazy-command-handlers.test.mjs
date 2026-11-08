@@ -353,7 +353,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,555,300 (measured 9,555,270, commands/phase-lifecycle.mjs): a lint, static-analysis or security command names its finding reader,
     // gate and SonarQube project (external-command-policy.mjs +5270), codeDelivery.staticAnalysis (code-delivery-policy.mjs +1205) and
     // policy.staticAnalysis (capabilities.mjs +546) [CQF M4]. Configuration is read synchronously everywhere; no new eager file.
-    assert.ok(closure.bytes <= 9_555_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,558,400 (measured 9,558,348, commands/phase-lifecycle.mjs): a code step runs its finding commands in the publish check, reads
+    // their reports there and at submit (state.mjs +2697), and its publication says what the loop let through (phase-lifecycle.mjs +381).
+    // The loop, its readers and its records stay lazy (findings/code-step.mjs); no new eager file.
+    assert.ok(closure.bytes <= 9_558_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

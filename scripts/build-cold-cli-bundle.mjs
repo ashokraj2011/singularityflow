@@ -122,7 +122,10 @@ const FAMILIES = Object.freeze([
     'spec-library/sources.mjs', 'spec-library/share-check.mjs', 'spec-library/presence.mjs',
     'presence/repository-steps.mjs', 'presence/repository-seals.mjs', 'workflow-build/store.mjs',
     // Upload and source admission, loaded only when a document or source is added or read.
-    'document-admission.mjs']],
+    'document-admission.mjs',
+    // A code step's findings loop and what its publication says of it, loaded by publication and
+    // submission only when the step has a lint, static-analysis or security command [CQF M4].
+    'findings/code-step.mjs', 'findings/presentation.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);
 

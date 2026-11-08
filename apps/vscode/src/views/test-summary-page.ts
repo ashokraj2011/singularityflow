@@ -98,7 +98,7 @@ export const TEST_SUMMARY_STYLE = `
 .ts-command-head { display:flex; flex-wrap:wrap; gap:.6rem; align-items:baseline; }
 .ts-command-head h2 { margin:0; font-size:1.05rem; }
 .ts-cases td { vertical-align:top; overflow-wrap:anywhere; }
-.ts-duration { white-space:nowrap; }
+.ts-duration, .ts-cases td:first-child, .ts-cases td:first-child .pill { white-space:nowrap; }
 .ts-tag { margin-right:.25rem; }
 .ts-message pre { margin:0; max-height:12rem; overflow:auto; white-space:pre-wrap; font-size:.85em; }
 .ts-base { margin:1rem 0; }

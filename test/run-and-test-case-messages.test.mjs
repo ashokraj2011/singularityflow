@@ -95,9 +95,9 @@ test('the summary text shows each failed case\'s message under it [CQF:REQ-014]'
   const summary = buildTestSummary({ scope: { kind: 'capability', capability: 'web' }, run: { id: 'RUN-1', label: 'Local preview' }, entries: [
     { receipt: { commandId: 'unit', adapter: 'junit-xml', status: 'failed', exitCode: 1, tests: { discovered: 2, passed: 0, failed: 2, skipped: 0 },
       occurrences: [{ className: 'a', name: 'two', outcome: 'failed', file: 'test/a.test.js', line: 4 }, { className: 'a', name: 'three', outcome: 'failed' }] },
-    messages: ['Expected: 2\nReceived: 1', null] }] });
+    messages: ['Expected: 2\n\nReceived: 1', null] }] });
   const text = testSummaryText(summary);
-  assert.match(text, /^ {2}✖ unit › a › two \(test\/a\.test\.js:4\)\n {6}Expected: 2\n {6}Received: 1\n {2}✖ unit › a › three\n/mu);
+  assert.match(text, /^ {2}✖ unit › a › two \(test\/a\.test\.js:4\)\n {6}Expected: 2\n\n {6}Received: 1\n {2}✖ unit › a › three\n/mu, 'a blank line stays blank');
 });
 
 const SECRET = 'case-message-secret-4d1f';

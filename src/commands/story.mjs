@@ -22,7 +22,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
-import { matchApprovalAuthority, normalizeApprovalAuthorities, requireApprovalAuthority } from '../approval-authority.mjs';
+import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
@@ -36,7 +36,7 @@ import {
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import {
   adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
-  convergenceProjection, DISPOSITIONS, decodeConvergenceRecord, findingAdjudication, replacedAnswers,
+  convergenceProjection, findingAdjudication, replacedAnswers,
   renderConvergenceArtifact, serializeConvergence
 } from '../convergence.mjs';
 import {
@@ -44,6 +44,7 @@ import {
   currentConvergenceContext, loadVerifiedConvergenceProjection, missingConvergenceProjectionError
 } from '../convergence-context.mjs';
 import { convergenceReviewRoute } from '../convergence-review-route.mjs';
+import { adjudicationList, convergenceRecordRelative, readConvergence } from '../convergence-adjudications.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import {
   admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
@@ -1254,10 +1255,6 @@ async function savedConvergenceCandidates(root, itemRelative, match) {
   return found.sort((a, b) => String(b.record.generatedAt).localeCompare(String(a.record.generatedAt)))[0] ?? null;
 }
 
-function convergenceRecordRelative(itemRelative, iteration) {
-  return posix(path.join(itemRelative, 'context', 'convergence', `iteration-${iteration}.json`));
-}
-
 function convergenceLegacyArchiveRelative(itemRelative, iteration, planSha256) {
   return posix(path.join(
     itemRelative,
@@ -1397,20 +1394,6 @@ async function migrateLegacyConvergenceDraft(root, workflow, subject, legacyRela
     await writeJson(archiveAbsolute, archive);
   }
   return { archiveRelative, planSha256, candidateBindings: planCandidateBindings, recordSha256: archive.recordSha256 };
-}
-
-async function readConvergence(root, itemRelative, iteration) {
-  const relative = convergenceRecordRelative(itemRelative, iteration);
-  if (!(await exists(path.join(root, relative)))) return null;
-  try {
-    return decodeConvergenceRecord(await readFile(path.join(root, relative)), { iteration });
-  } catch (error) {
-    if (['SCHEMA_VERSION_FUTURE', 'SCHEMA_VERSION_ARCHIVED'].includes(error?.code)) throw error;
-    throw new SingularityFlowError(
-      `Convergence record '${relative}' is corrupt and cannot authorize a decision: ${error.message}`,
-      { code: error.code ?? 'CONVERGENCE_RECORD_CORRUPT', details: { path: relative }, cause: error }
-    );
-  }
 }
 
 function currentConvergenceProjectionInputs(workflow, subject) {
@@ -1655,66 +1638,6 @@ export async function storyConvergeCommand(positionals, options) {
   }
 }
 
-/**
- * `story adjudicate` — the human decision `[SPK:REQ-079]`.
- *
- * A separate command from `converge` on purpose. `[SPK:CON-036]` forbids the agent running
- * convergence from disposing of what it found, and the cleanest way to hold that line is for the
- * disposition to be a different invocation by a different identity.
- */
-const DISPOSITION_WORDS = Object.freeze({ 'accepted-deviation': 'Accept as is', rework: 'Send back to fix',
-  'update-intent': 'The spec should change', dismissed: 'Not a real finding', deferred: 'Decide later' });
-
-/**
- * Everything a person decides at convergence, on one page: what changed, what the plan already says
- * about it, and what is decided. Read-only. Every host's card reads this and records through
- * `story adjudicate --answers`, so a person sees and is asked the same thing wherever they work.
- */
-async function adjudicationList(root, config, workflow) {
-  const phase = convergencePhaseOf(workflow);
-  const base = { schemaVersion: 1, resultType: 'sflow-adjudications', workId: workflow.workItem.id, phase: phase?.id ?? null, repositoryPath: root };
-  if (!phase || workflow.currentPhase !== phase.id || phase.status !== 'in_progress') {
-    return { ...base, status: 'not-open', items: [], open: 0, message: 'There is nothing to adjudicate: this Story is not at an open convergence step.' };
-  }
-  const subject = await convergenceSubject(root, config, workflow);
-  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-  if (!projection) return { ...base, status: 'not-prepared', items: [], open: 0, message: `Convergence has not been prepared. Run singularity-flow prepare ${phase.id}.` };
-  const changed = new Map((subject.reconciliation?.findings ?? []).map((finding) => [posix(finding.path), finding]));
-  const planSays = (file) => subject.planAccount(changed.get(file) ?? { path: file });
-  const decided = new Map((projection.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
-  const decisionOn = (id) => {
-    const decision = decided.get(id);
-    return decision ? { disposition: decision.disposition, reason: decision.reason ?? null, clauseIds: decision.clauseIds ?? [], actor: decision.actor ?? null, at: decision.at ?? null,
-      replaced: (decision.replaced ?? []).map(({ disposition, reason, actor, at }) => ({ disposition, reason: reason ?? null, actor, at })) } : null;
-  };
-  const items = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])].map((item) => {
-    return { id: item.id, kind: item.kind ?? 'item', paths: item.paths ?? [], clauseIds: item.clauseIds ?? [], detail: item.detail ?? item.summary ?? null,
-      plan: (item.paths ?? []).map(planSays).find(Boolean) ?? null,
-      // One reason may cover only changed files no requirement claims: a failing test or a missing bound test gets its own answer.
-      acceptAll: item.kind === 'unclaimed-changed-path',
-      decision: decisionOn(item.id) };
-  });
-  // Files that changed together for how tests run are one row wherever a person is asked; each still gets its own record.
-  const open = (item) => item.kind === 'unclaimed-changed-path' && !item.decision && !item.plan && item.paths.length === 1;
-  const setup = new Set((await import('../test-support-files.mjs')).testSetupFiles(items.filter(open).map((item) => item.paths[0])));
-  for (const item of items) if (open(item) && setup.has(posix(item.paths[0]))) item.group = 'test-setup';
-  // Not a question, and never out of sight: each says which entry of the plan answered it.
-  const settled = (projection.settledByPlan ?? []).map((item) => ({ id: item.id, paths: item.paths, clauseIds: item.clauseIds, settledBy: item.settledBy, decision: decisionOn(item.id) }));
-  const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
-  const groups = phase.approvalPolicy?.authorities ?? [];
-  let registry = {};
-  try { registry = normalizeApprovalAuthorities(authorities); } catch { registry = {}; }
-  const labels = groups.map((id) => registry?.[id]?.label ?? id);
-  let allowed = false;
-  try { allowed = matchApprovalAuthority(authorities, phase.approvalPolicy, actionActor(root)).authorized === true; } catch { allowed = false; }
-  return { ...base, status: 'open', iteration: subject.iteration, items, settled, open: items.filter((item) => !item.decision).length,
-    ...(setup.size ? { groupWords: { 'test-setup': 'These changed together for how tests run: one change, so one decision. Each file is still recorded by name.' } } : {}),
-    decidedBy: { groups, labels, allowed, words: `${allowed ? 'You may decide these' : `The ${labels.join(' or ')} decide these`}${allowed && labels.length ? ` (${labels.join(' or ')})` : ''}.` },
-    dispositions: DISPOSITIONS.map((id) => ({ id, label: DISPOSITION_WORDS[id] ?? id })),
-    digest: `sha256:${recordSha256({ iteration: subject.iteration, settled: settled.map(({ id, settledBy, decision }) => ({ id, settledBy, decision: decision && { disposition: decision.disposition, reason: decision.reason, clauseIds: decision.clauseIds } })), items: items.map(({ id, paths, decision }) =>
-      ({ id, paths, decision: decision && { disposition: decision.disposition, reason: decision.reason, clauseIds: decision.clauseIds } })) })}` };
-}
-
 /** `story adjudications`: the list a card shows, or plain lines for a person in a terminal. */
 export async function storyAdjudicationsCommand(positionals, options) {
   const root = repoRoot();
@@ -1743,13 +1666,26 @@ async function adjudicationAnswers(file) {
   let parsed;
   try { parsed = JSON.parse(await readFile(file, 'utf8')); }
   catch { throw new SingularityFlowError(`--answers must name a readable JSON file; could not read ${file}.`, { code: 'ADJUDICATION_ANSWERS_INVALID' }); }
-  const answers = parsed?.answers;
+  return checkedAnswers(parsed?.answers);
+}
+
+function checkedAnswers(answers) {
   if (!Array.isArray(answers) || !answers.length || answers.length > 500
       || answers.some((entry) => typeof entry?.itemId !== 'string' || typeof entry.disposition !== 'string')
       || new Set(answers.map((entry) => entry.itemId)).size !== answers.length) {
     throw new SingularityFlowError('--answers holds { "answers": [{ "itemId", "disposition", "reason", "clauseIds" }] }, each item once.', { code: 'ADJUDICATION_ANSWERS_INVALID' });
   }
   return answers;
+}
+
+/**
+ * The convergence answers a person gave on the decision list [SCS:REQ-030]: the same write as
+ * `story adjudicate --answers FILE --expect DIGEST`, bound to the digest of the table the list was
+ * read with and checked against the convergence approvers. No other route writes an adjudication.
+ */
+export async function recordConvergenceAnswers(root, config, { workId, answers, expect }) {
+  const checked = checkedAnswers(answers);
+  return answersRecorded(await writeAdjudications(root, config, { 'work-id': workId }, { answers: checked, itemIds: checked.map((entry) => entry.itemId), expect }));
 }
 
 /** The one write of a person's adjudications: named on the command line, or answered on a table bound to `expect`. */
@@ -1850,6 +1786,13 @@ function answersRecorded({ decisions, unchanged, projection, phaseId }) {
     next: undecided.length ? 'Some items still need a decision.' : `All decided. Run singularity-flow prepare ${phaseId} to regenerate the report.` };
 }
 
+/**
+ * `story adjudicate` — the human decision `[SPK:REQ-079]`.
+ *
+ * A separate command from `converge` on purpose. `[SPK:CON-036]` forbids the agent running
+ * convergence from disposing of what it found, and the cleanest way to hold that line is for the
+ * disposition to be a different invocation by a different identity.
+ */
 export async function storyAdjudicateCommand(positionals, options) {
   const root = repoRoot();
   const workId = optionString(options, 'work-id');

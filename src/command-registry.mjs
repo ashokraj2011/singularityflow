@@ -5,11 +5,11 @@ import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowE
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['outcome', 'result', 'specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'gate', 'explain', 'comprehension', 'precheck', 'index']);
-const STRUCTURED = new Set(['git-policy', 'outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard']);
+const STRUCTURED = new Set(['git-policy', 'outcome', 'result', 'about', 'specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'index', 'lock', 'backup', 'guard', 'findings']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['git-policy', 'skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'departure', 'decisions', 'app-review', 'app', 'tests', 'call', 'gateway', 'apm', 'lock', 'backup', 'guard', 'findings']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
 const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config', 'connections']);
 const APP_READS = Object.freeze(['plan', 'status', 'suggest', 'config', 'connections']);
@@ -28,6 +28,10 @@ const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 // SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
 const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
 const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
+// Security team and TLM findings [CQF:REQ-070]: template writes a new local file; import and link write
+// the register on the state branch, and import --dry-run is a read.
+const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start', 'report']);
+const FINDINGS_READS = Object.freeze(['list', 'plan']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 // A code step's departures [CQF:REQ-021]: the model records one, anyone reads them.
 const DEPARTURE_SUBCOMMANDS = Object.freeze(['record', 'list', 'show']);
@@ -178,6 +182,7 @@ const LAZY_MODULES = Object.freeze({
   lock: './commands/lock.mjs',
   backup: './commands/backup.mjs',
   guard: './commands/guard.mjs',
+  findings: './commands/findings.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs',
   help: './commands/help.mjs',
@@ -256,7 +261,9 @@ export const COMMAND_REGISTRY = Object.freeze([
   // Backups of the drafts and documents that exist only on this laptop (SDA M5).
   ['backup'],
   // SF Guard: presence-signed person steps (SPEC-PSS-v1).
-  ['guard']
+  ['guard'],
+  // Security team and TLM findings: the workbook, the register on the state branch, remediation Stories (CQF M6).
+  ['findings']
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
@@ -580,6 +587,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   lock: LOCK_SUBCOMMANDS,
   backup: BACKUP_SUBCOMMANDS,
   guard: GUARD_SUBCOMMANDS,
+  findings: FINDINGS_SUBCOMMANDS,
   telemetry: TELEMETRY_SUBCOMMANDS,
   visual: VISUAL_SUBCOMMANDS,
   mcp: MCP_SUBCOMMANDS,
@@ -1694,6 +1702,12 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     if (!DEPARTURE_SUBCOMMANDS.includes(action)) return unknownSubcommand('departure', action, DEPARTURE_SUBCOMMANDS);
     return never(`departure.${action}`, definition, action === 'record' ? 'mutation' : 'read');
   }
+  if (definition.name === 'findings') {
+    const action = positionals[1];
+    if (!FINDINGS_SUBCOMMANDS.includes(action)) return unknownSubcommand('findings', action, FINDINGS_SUBCOMMANDS);
+    if (action === 'import' && optionBoolean(options, 'dry-run')) return never('findings.import.preview', definition, 'read');
+    return never(`findings.${action}`, definition, FINDINGS_READS.includes(action) ? 'read' : 'mutation');
+  }
   if (definition.name === 'upstream-issue') {
     const action = positionals[1] ?? 'list';
     if (!UPSTREAM_ISSUE_SUBCOMMANDS.includes(action)) return unknownSubcommand('upstream-issue', action, UPSTREAM_ISSUE_SUBCOMMANDS);
@@ -1973,6 +1987,8 @@ export function operationCatalog() {
     ...LOCK_SUBCOMMANDS.map(name => never(`lock.${name}`, commandDefinition('lock'), LOCK_READS.includes(name) ? 'read' : 'mutation')),
     ...BACKUP_SUBCOMMANDS.map(name => never(`backup.${name}`, commandDefinition('backup'), name === 'inspect' ? 'read' : 'mutation')),
     ...GUARD_SUBCOMMANDS.map(name => never(`guard.${name}`, commandDefinition('guard'), GUARD_READS.includes(name) ? 'read' : 'mutation')),
+    ...FINDINGS_SUBCOMMANDS.map(name => never(`findings.${name}`, commandDefinition('findings'), FINDINGS_READS.includes(name) ? 'read' : 'mutation')),
+    never('findings.import.preview', commandDefinition('findings'), 'read'),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

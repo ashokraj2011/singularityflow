@@ -205,7 +205,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'cb10e2ec957759b702df2935ed7889192da5946814c97f9ca6c9e53b173f3342',
     'd7aa40fde49e3111836cc478b20d9cef03bb403512d48f8fee8b620c6f2af878',
     'da4f136ae11c0cb459500d4008a5629797f168ec4df87ba807da31c12a59c467',
-    '8770e647612b0c805ad583e7615f2ebe7fbb79b93bab2c1f3ad9237da5ff3d69'
+    '8770e647612b0c805ad583e7615f2ebe7fbb79b93bab2c1f3ad9237da5ff3d69',
+    // Before it wrote the findings-remediation plan (CQF M6, 2026-11-08).
+    '9d481daa57ed45b31c0608ac50dc0876c8ddf27392f87f6e116a04b9c03dbb44'
   ]),
   '.github/agents/developer.agent.md': Object.freeze([
     'e58aa358944af2247810f2f272d6571c253d43709da34b0ec7f012083a233606',
@@ -365,7 +367,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'f6d6bb18fac60c089b7867453ee4e84759a294a9f42a48ae52f6802f86fb78a0',
     'fcd6757dbc695423e0df1a9bd906e88569c7e000cd84c35f1a1b532bfcd822e2',
     '84b653bdf4c778841221c46552a198deee1a23feb4e5bfc152a117796a673a10',
-    'b64af2abe7d1dfe818e4a2d6461efc641f7a853105690789bb01912aa351e341'
+    'b64af2abe7d1dfe818e4a2d6461efc641f7a853105690789bb01912aa351e341',
+    // Before it wrote the findings-remediation intake (CQF M6, 2026-11-08).
+    'a7631cf39679463f2e505ad7726352b7466ec1de73ee3db38a9f89541d21b18d'
   ]),
   '.github/agents/qa.agent.md': Object.freeze([
     '1d9963e539be077db1efe3cbd55572c1365c755db98008857ed0aa958f67fd4a',
@@ -443,6 +447,9 @@ const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
+  // The findings-remediation workflow's two starter templates (CQF M6).
+  'singularity/templates/findings-remediation/intake.md': '006a191fc00c3fb3a02286cc4c97bfd4bf97d478c42018948b15c91bc7864e50',
+  'singularity/templates/findings-remediation/remediation-plan.md': 'd7cea4e52ea5f07ae744807487a92c15c67dc6fb48cbc8de8e0d0ca960fa04a8',
   // The sample user-defined agent (careful-change): its agent, its step's starter template, and
   // its folder and manifest under singularity/user-defined/.
   '.github/agents/careful-change.agent.md': '2c10baa768720e6eeed2d2ed34b00fed58d94959561a4b468b51221c113fd94c',
@@ -486,7 +493,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
   'singularity/templates/demo-web-e2e-testing/intake.md': '90c4f1684bdb932884707041d8787f5f9225963994e2605098cc74b0218c57b1',
   'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
-  '.github/agents/architect.agent.md': '9d481daa57ed45b31c0608ac50dc0876c8ddf27392f87f6e116a04b9c03dbb44',
+  '.github/agents/architect.agent.md': '1a6832345721bb2530cba9e9da6944fb2a6714fddd73b0a8dd18a1d1140625e0',
   '.github/agents/developer.agent.md': 'a88a659a79439033c4eb7f43fee9223fe9cf10c013265bbe33fb08da3196047b',
   '.github/agents/document-analyst.agent.md': 'ec617bc402986620a35e86d8417fe1da5226432a4073678bd4cadb17430bafeb',
   '.github/agents/mobile-architect.agent.md': 'fb0e3273ea40c4af0d6faacd8c54e277fd7a902d8401f26813213e9452419726',
@@ -499,7 +506,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/poc-test-developer.agent.md': '85cdcd87d11d4964ca9976cd189d1351c7c4aa8d7616c9f36f6b11d93a5a81a9',
   '.github/agents/poc-validator.agent.md': '466d8266770df2613784d0dc353fb370fab4900945893084a476c16f2c4ce192',
   '.github/agents/product-designer.agent.md': '01b6714c5e933cbee9a53dbb680b6166d2b83caa15fd38f28500c5dcbd4e438e',
-  '.github/agents/product-owner.agent.md': 'a7631cf39679463f2e505ad7726352b7466ec1de73ee3db38a9f89541d21b18d',
+  '.github/agents/product-owner.agent.md': '781dbe6c8ce3c8cfdfc894b5796a6e5d5c62c8737d03364ad6459c2cf3b6fb8a',
   '.github/agents/qa.agent.md': '913904d9f5bbc2dae081b7e44f4bf21806ddfeffc02bdf47f81e8ffd920fac02',
   '.github/agents/scenario-developer.agent.md': '9ac24c7c72a73839a3c5b19816670bfaed0d5f71147ee3c4e8a70a87b323ec16',
   '.github/agents/scenario-tester.agent.md': 'f0e7ecd9c0c537459720f37fd25188e7819391616870bd8f7fa2c813a3085f48',

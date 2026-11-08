@@ -1145,6 +1145,7 @@ const PAGES = Object.freeze({
       ['--reference-repository ID=URL', 'Repeatable read-only source repository. Pair every entry with the same ID in --reference-branch.'],
       ['--reference-branch ID=BRANCH', 'Branch to resolve and freeze as an exact reference commit before Story mutation.'],
       ['--target-url URL', 'Exact authorized browser target, pinned into Story state. Required by the POC workflow; any other workflow with a step that smoke-checks a browser against it takes it here or pins it later with story target-origin. Workflow check and Story-start readiness name those steps.'],
+      ['--address ID,...', 'Security findings and TLM items from the register this Story addresses (singularity-flow findings list). Each becomes a clause with its proof and is marked "in a Story". Nothing is picked unless named; an ID that cannot be taken is said.'],
       ['--base BRANCH', 'Cut from this branch instead of the configured default.'],
       ['--fetch', 'Fetch the remote before creating the branch.'],
       ['--json', 'Emit the created Story as JSON.']
@@ -1495,6 +1496,61 @@ const PAGES = Object.freeze({
       ['singularity-flow guard remote-check', 'Whether the remote check is required on the default branch, and its CI recipe.']
     ],
     seeAlso: ['approve', 'configuration', 'decisions', 'governance']
+  },
+  findings: {
+    summary: 'The security team\'s findings and the TLM list, from a workbook in SFlow\'s format.',
+    description: [
+      'The security team and the technology lifecycle (TLM) owners keep their lists in one .xlsx workbook with a',
+      'Security sheet and a TLM sheet, or in a CSV file per list. findings template writes that workbook, with the',
+      'headers and one made-up example row on each sheet. The first row holds the headers, matched by name without',
+      'regard to case, spaces or punctuation; a team whose sheet uses other headers maps them in',
+      'singularity/findings.yml (columns:), so no code changes. Cell text is data: it is bounded, quoted where it is',
+      'shown and never read as an instruction. template never overwrites a file.',
+      'findings import reads a workbook or CSV file into the register: findings/security.json, findings/tlm.json and',
+      'findings/imports.json on the SFlow state branch, so every developer and Story reads one list. A row that fails',
+      'validation is reported with its sheet, row and reason, and the rest import. A later import from the same source',
+      'replaces that source\'s rows: an item it no longer lists is marked "not in the latest import", never deleted. The',
+      'history records who imported, when, the file\'s SHA-256 and every rejected row; the file itself is never committed.',
+      'On a public repository, or when that cannot be checked, the register stays in this clone\'s private local store,',
+      'and the import says why.',
+      'findings list shows this repository\'s items (every repository with --all-repositories), most severe and soonest',
+      'due first, with the Story that addresses each. It reads the state ref this clone has and never fetches. A new Story',
+      'picks items with start --address ID,...: each becomes a clause with its proof and is "in a Story". findings link',
+      'marks them when the Story\'s own start could not write the register.',
+      'findings plan previews remediation Stories: security findings per repository by due date, at most ten a Story',
+      '(stories.maximumFindings in findings.yml), and TLM items per component. findings start opens a Story of the seeded',
+      'findings-remediation workflow for one group, through start itself: its items are its clauses, it runs all existing',
+      'tests, and a major upgrade is listed for a person and never made by itself. Its Auto flight to a tested Candidate is',
+      'planned with auto plan --story, which a person confirms. An import moves items whose Story has closed: a TLM item to',
+      'closed when the default branch pins at least its target version, else fixed awaiting proof; a security finding to',
+      'fixed awaiting rescan, which closes when the security team\'s next list no longer calls it open.',
+      'findings report writes the update for the security team and the TLM owners in the same workbook format, with each',
+      'item\'s SFlow state, the Story that addresses it and its evidence in three more columns. A person sends it; SFlow',
+      'never sends anything. It never overwrites a file.'
+    ],
+    options: [
+      ['--out FILE', 'template and report: where to write the workbook (.xlsx). The defaults are sflow-findings-template.xlsx and sflow-findings-report-DATE.xlsx here.'],
+      ['--feed security|tlm', 'import only: the list a CSV file or a single sheet holds.'],
+      ['--source NAME', 'import only: where the rows came from (lower-kebab, such as security-team); its columns: map applies.'],
+      ['--dry-run', 'import only: read and check the file, show what would change, write nothing.'],
+      ['--state active|all|STATE', 'list only: active (the default: not closed, accepted or waived), all, or one state such as open or in-story.'],
+      ['--all-repositories', 'list only: every repository\'s items, not only this one\'s.'],
+      ['--address ID,...', 'link only: the items the named Story addresses.'],
+      ['--work-id ID', 'start only: the new Story\'s ID; the default is FIX- and the group, such as FIX-TLM-NODE.'],
+      ['--from-branch BRANCH', 'start only: the base branch; the default is the repository\'s default branch.'],
+      ['--json', 'Machine-readable output (sflow-findings-template, -import, -list, -link, -plan, -report; start prints Story start\'s own result).']
+    ],
+    examples: [
+      ['singularity-flow findings template --out ~/Desktop/findings.xlsx', 'Write an empty workbook for the security team and the TLM owners to fill in.'],
+      ['singularity-flow findings import ~/Downloads/findings.xlsx --dry-run', 'See what an import would add, change and reject.'],
+      ['singularity-flow findings import tlm.csv --feed tlm --source tlm-owners', 'Import the TLM list from a CSV export.'],
+      ['singularity-flow findings list', 'This repository\'s open items, and the Stories addressing them.'],
+      ['singularity-flow findings plan', 'Preview the remediation Stories for what is open.'],
+      ['singularity-flow findings start tlm-node --from-branch main', 'Open a findings-remediation Story for the node upgrade.'],
+      ['singularity-flow findings report --out ~/Desktop/findings-update.xlsx', 'Prepare the update for the security team and the TLM owners.'],
+      ['singularity-flow start PAY-7 --from-branch main --work-type bugfix --title "Fix the order search" --address SEC-1001', 'Start a Story that addresses SEC-1001.']
+    ],
+    seeAlso: ['start', 'tests', 'decision']
   },
   backup: {
     summary: 'Save the drafts and documents kept only on this laptop, and restore them on another laptop or this one.',

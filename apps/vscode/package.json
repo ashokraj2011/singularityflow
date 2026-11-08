@@ -948,6 +948,16 @@
         "icon": "$(shield)"
       },
       {
+        "command": "singularityFlow.findings",
+        "title": "Singularity Flow: Findings",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "singularityFlow.uploadFindings",
+        "title": "Singularity Flow: Upload security or TLM findings…",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "singularityFlow.workspaceRunTest",
         "title": "Singularity Flow: Workspace Run & Test",
         "icon": "$(play-circle)"

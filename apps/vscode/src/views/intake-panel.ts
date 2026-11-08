@@ -22,7 +22,7 @@ import {
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload, baseSelected, baseSelectionKey, launchBaseBranch,
-  type BaseBranchChoice, type BaseRepository, type CatalogSnapshot, type InFlight, type IntakeForm, type ProfileChoice,
+  type BaseBranchChoice, type BaseRepository, type CatalogSnapshot, type FindingChoice, type InFlight, type IntakeForm, type ProfileChoice,
   type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
@@ -168,7 +168,31 @@ interface CatalogListing {
     profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
     profileReason?: string | null;
     approvalAuthorityMissing?: boolean;
+    /** The register's open security findings and TLM items for this repository [CQF:REQ-065]. */
+    findings?: EngineFindingsForStart;
   };
+}
+
+interface EngineFindingsForStart {
+  available?: boolean;
+  reason?: string;
+  total?: number;
+  items?: { id?: string; feed?: string; label?: string; severity?: string | null; dueAt?: string | null;
+    state?: string; story?: string | null; file?: string | null; package?: string | null }[];
+}
+
+/** The engine's findings for a new Story as tick-box choices, and a note when there are none to offer. */
+function findingChoicesOf(findings: EngineFindingsForStart | undefined): { findingChoices: FindingChoice[]; findingsNote: string | null } {
+  if (!findings) return { findingChoices: [], findingsNote: null };
+  if (findings.available === false) {
+    return { findingChoices: [], findingsNote: `The findings register could not be read: ${findings.reason ?? 'unknown reason'}.` };
+  }
+  const findingChoices = (findings.items ?? []).filter((item) => typeof item.id === 'string' && (item.feed === 'security' || item.feed === 'tlm'))
+    .map((item) => ({ id: item.id!, feed: item.feed as 'security' | 'tlm', label: String(item.label ?? ''),
+      severity: item.severity ?? null, dueAt: item.dueAt ?? null, state: String(item.state ?? 'open'), story: item.story ?? null,
+      file: item.file ?? null, package: item.package ?? null }));
+  const hidden = (findings.total ?? findingChoices.length) - findingChoices.length;
+  return { findingChoices, findingsNote: hidden > 0 ? `${hidden} more are not shown; see singularity-flow findings list.` : null };
 }
 
 /** The first listing, the fresh one replacing a cached paint, or a reload after a configuration change. */
@@ -771,6 +795,11 @@ export class IntakePanel {
           workflowReason: listed.intake?.workflowReason
             ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null
         }),
+        ...(listed.intake ? (() => {
+          const { findingChoices, findingsNote } = findingChoicesOf(listed.intake.findings);
+          const offered = new Set(findingChoices.filter((choice) => !choice.story).map((choice) => choice.id));
+          return { findingChoices, findingsNote, addressFindings: this.form.addressFindings.filter((id) => offered.has(id)) };
+        })() : {}),
         baseBranchChoices,
         baseBranchOrphans: [...new Set(Object.values(listed.orphaned ?? {}).flat())]
           .filter((name): name is string => typeof name === 'string' && name.length > 0).sort(),
@@ -1105,6 +1134,12 @@ export class IntakePanel {
         storyAttachments: this.form.storyAttachments.map((entry, slot) => slot === index && entry ? { ...entry, store: value } : entry),
         error: null
       });
+    },
+    addressFindings: (message) => {
+      const raw = Array.isArray(message.value) ? message.value : null;
+      const offered = new Set(this.form.findingChoices.filter((choice) => !choice.story).map((choice) => choice.id));
+      if (!raw || raw.some((entry) => typeof entry !== 'string' || !offered.has(entry))) return;
+      this.update({ addressFindings: this.form.findingChoices.map((choice) => choice.id).filter((id) => raw.includes(id)), error: null });
     },
     attachmentPhases: (message) => {
       const index = this.attachmentIndex(message);

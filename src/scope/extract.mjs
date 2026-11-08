@@ -140,6 +140,11 @@ export function storySourceStatements(source, { sourceId = 'story' } = {}) {
       found.push({ sourceId, line: null, field: 'specification', text: entry.replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(entry), signal: 'structured' });
     }
   }
+  // A security finding or TLM item the Story addresses [CQF:REQ-065]: one requirement each, with its proof.
+  for (const finding of Array.isArray(source?.findings) ? source.findings : []) {
+    const entry = `${finding?.anchor ?? ''} ${finding?.text ?? ''} Proof: ${finding?.proof ?? ''}`;
+    found.push({ sourceId, line: null, field: 'findings', text: entry.replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(entry), signal: 'structured' });
+  }
   for (const field of ['description', 'desiredOutcome', 'notes']) {
     for (const entry of entries(source?.[field])) {
       for (const statement of extractNormativeStatements(entry, { sourceId }).filter((item) => item.signal !== 'structured')) {

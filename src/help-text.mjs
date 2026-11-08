@@ -143,7 +143,7 @@ Usage:
     Document phases and storage are given once for every document, or once per document in the same order.
     [--reference-repository ID=URL --reference-branch ID=BRANCH]...
     [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
-    [--spec SPEC-ID[@N][=REQ-001,...] [--allow-partial-dependency --reason TEXT]]...
+    [--spec SPEC-ID[@N][=REQ-001,...] [--allow-partial-dependency --reason TEXT]]... [--address FINDING-ID,...]
     [--isolated-worktree] [--intake-receipt ID] [--baseline-failures repair-in-story|resolve-outside]
     [--readiness-baseline reuse|run|defer] [--test-execution-mode changed-and-affected|all-configured|new-and-changed]
     [--gate-mode hard|soft]
@@ -803,6 +803,13 @@ Usage:
   singularity-flow backup create --out <DIRECTORY> [--json]
   singularity-flow backup inspect <DIRECTORY> [--json]
   singularity-flow backup restore <DIRECTORY> [--json]
+  singularity-flow findings template [--out FILE] [--json]
+  singularity-flow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run] [--json]
+  singularity-flow findings list [--feed security|tlm] [--state active|all|STATE] [--all-repositories] [--limit N] [--json]
+  singularity-flow findings link <WORK-ID> --address ID,... [--json]
+  singularity-flow findings plan [--feed security|tlm] [--all-repositories] [--json]
+  singularity-flow findings start <GROUP-ID> [--work-id ID] [--from-branch BRANCH] [--fetch] [--isolated-worktree] [--json]
+  singularity-flow findings report [--out FILE] [--feed security|tlm] [--all-repositories] [--json]
   singularity-flow git-policy discover|show [--json]
   singularity-flow git-policy plan|validate --operation sha256:<OWNER-ISSUED-ID> [--json]
   singularity-flow guard status [--json]

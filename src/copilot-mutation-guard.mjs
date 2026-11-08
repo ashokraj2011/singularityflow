@@ -1306,7 +1306,7 @@ const NO_STORY_COMMANDS = Object.freeze({
   'epic-requirements': ['epic', 'initiative'], 'epic-resume': ['epic'], 'epic-review': ['epic'],
   'epic-review-decision': ['epic'], 'epic-sources': ['epic'], 'epic-start': ['epic', 'initiative'],
   'epic-stories': ['epic'], 'epic-story-draft': ['epic', 'initiative'], 'epic-sync': ['epic'],
-  'factory-reset': ['factory-reset'], fault: ['fault'], 'fresh-install': ['fresh-install'], goal: ['goal'],
+  'factory-reset': ['factory-reset'], fault: ['fault'], findings: ['findings'], 'fresh-install': ['fresh-install'], goal: ['goal'],
   // A fault and its bounded repair need no Story (/sf-fault records one in any checkout).
   fix: ['fault', 'fix', 'repair'],
   'governance-rebuild': ['governance'],

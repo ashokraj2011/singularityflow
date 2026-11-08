@@ -174,6 +174,7 @@ skills:
   sflow-gate: { class: mutation }
   sflow-goal: { class: interactive, executionBoundary: machine }
   sflow-grounding: { class: conversational, executionBoundary: repository }
+  sflow-findings: { class: echo, executionBoundary: repository }
   sflow-guard: { class: echo, executionBoundary: repository }
   sflow-journal: { class: interactive, executionBoundary: machine }
   sflow-harness: { class: echo, executionBoundary: repository }
@@ -255,7 +256,7 @@ skills:
   sflow-snapshot: { class: echo, executionBoundary: repository }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation, executionBoundary: repository }
-  sflow-start: { class: interactive, executionBoundary: repository, maximumTokenOverride: 821, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. It reads --target-url from the workflow's own targetUrl mode (required or recommended), not one workflow ID." }
+  sflow-start: { class: interactive, executionBoundary: repository, maximumTokenOverride: 850, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. It reads --target-url from the workflow's own targetUrl mode (required or recommended), not one workflow ID. Since 2026-11-08 step 5 offers the register's open security and TLM findings, none picked, as --address (CQF M6): one clause, no exit." }
   sflow-status: { class: conversational, executionBoundary: repository }
   sflow-stories: { class: interactive, executionBoundary: machine }
   sflow-story-branch: { class: interactive, executionBoundary: repository }

@@ -548,6 +548,28 @@ workTypes:
       conformance:
         inputs: [implementation, verification]
         approval: { rejectTo: [intake, implementation, verification, conformance] }
+  # Security findings and TLM items from the findings register, as a Story of their own [CQF:REQ-067].
+  # `singularity-flow findings start` opens one for a group; each picked item is a clause with its proof.
+  findings-remediation:
+    label: Security and TLM remediation
+    description: Fixes security findings and TLM items picked from the findings register. A major upgrade is listed for a person and never made by itself; verification runs all existing tests.
+    phases: [findings-intake, remediation-plan, implementation, verification, conformance]
+    # Each picked item is a clause of the intake; the remediation plan owns the code step's claims.
+    plannedClaims:
+      mode: required
+      clausePhases: [findings-intake]
+      owners: { implementation: remediation-plan }
+    phaseOverrides:
+      remediation-plan: { inputs: [findings-intake] }
+      implementation:
+        inputs: [findings-intake, remediation-plan]
+        approval: { rejectTo: [findings-intake, remediation-plan, implementation] }
+      verification:
+        inputs: [remediation-plan, implementation]
+        approval: { rejectTo: [findings-intake, remediation-plan, implementation, verification] }
+      conformance:
+        inputs: [remediation-plan, implementation, verification]
+        approval: { rejectTo: [findings-intake, remediation-plan, implementation, verification, conformance] }
   figma-mobile:
     label: Figma export to mobile app
     phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]
@@ -1171,6 +1193,21 @@ phases:
       topics: [changed behavior, test expectations, compatibility, failure behavior, rollback]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, reproduction, fix-design, fix-spec] }
+  # The findings-remediation steps: the picked items, one clause each, and the fix per item.
+  findings-intake:
+    label: Findings intake
+    defaultTemplate: findings-remediation/intake.md
+    artifact: { path: artifacts/findings-intake/findings-intake.md, kind: requirements, minimumBytes: 200 }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [scope, exceptions, due dates] }
+    writeScope: artifact-only
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [findings-intake] }
+  remediation-plan:
+    label: Remediation plan
+    defaultTemplate: findings-remediation/remediation-plan.md
+    artifact: { path: artifacts/remediation-plan/remediation-plan.md, kind: implementation-spec, minimumBytes: 300 }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [major upgrades, compatibility, rollback] }
+    writeScope: artifact-only
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [findings-intake, remediation-plan] }
   design-intake:
     label: Design package intake
     defaultTemplate: figma-mobile/design-intake.md

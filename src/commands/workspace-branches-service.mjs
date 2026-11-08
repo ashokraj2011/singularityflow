@@ -154,7 +154,10 @@ async function readAtRoot(options, root) {
           generatesCode: workflow.generatesCode, codePhases: workflow.codePhases
         })),
         workflowCatalogReason: packagedCatalog.reason,
-        workflowReason: null
+        workflowReason: null,
+        // The register's open security findings and TLM items for this repository, for the person to
+        // pick at creation [CQF:REQ-065]; read from this clone's state ref, never fetched.
+        findings: await (await import('../findings/register/pick.mjs')).findingsForStart(root, { ledger: definition?.ledger ?? {}, limit: 30 })
       } : null;
     const storyId = optionString(options, 'preflight-story');
     const storyBranch = optionString(options, 'ref', storyId);

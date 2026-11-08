@@ -1164,9 +1164,9 @@
     },
     "src/github-evidence.mjs": {
       "counts": {
-        "command-runCommand": 5
+        "command-runCommand": 6
       },
-      "digest": "6b14cb3611f2926a99bd0a95c2a69a4c6ab49fbd28c8b261df3659683ac21898"
+      "digest": "731a80c1e2b9b10a6b15403faa980473d02811e67e2f2b4506abe8233958e3c8"
     },
     "src/governance.mjs": {
       "counts": {

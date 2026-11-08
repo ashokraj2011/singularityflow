@@ -1291,6 +1291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.decide', 'singularityFlow.sfGuard',
+    'singularityFlow.findings', 'singularityFlow.uploadFindings',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -9807,6 +9808,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { root: () => repository, memento: context.globalState, refresh: refreshAfterKnownMutation, output, signRequired: sfGuardSignRequired }),
     // SF Guard: on or off, keys and expiry, exceptions, branch protection, recording, and labels by Story (SPEC-PSS-v1 M5, SPEC-SFG-v1 G5).
     'singularityFlow.sfGuard': async () => lazyPanels().SfGuardPanel.show(client, { memento: context.globalState, output, refresh: refreshAfterKnownMutation }),
+    // Security team and TLM findings: the register's Security and TLM tabs, and the upload that imports a workbook (CQF M6).
+    'singularityFlow.findings': async () => lazyPanels().FindingsPanel.show(client, { output, refresh: refreshAfterKnownMutation }),
+    'singularityFlow.uploadFindings': async () => {
+      const { uploadFindings, FindingsPanel, findingsImportSummary } = lazyPanels();
+      const result = await uploadFindings(client, { output, refresh: refreshAfterKnownMutation });
+      if (!result) return;
+      const summary = findingsImportSummary(result);
+      await FindingsPanel.refreshOpen(summary);
+      const choice = await showCompactInformationMessage(`Findings import ${result.importId}: ${summary}`, 'Open Findings');
+      if (choice === 'Open Findings') FindingsPanel.show(client, { output, refresh: refreshAfterKnownMutation }, summary);
+    },
     'singularityFlow.inspectCompositionCache': async () => {
       const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);
       void showCompactInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);

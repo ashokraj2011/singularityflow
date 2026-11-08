@@ -444,6 +444,13 @@ function specificationSection(slices, inherited = false) {
   ].join('\n')).join('\n\n')}\n`;
 }
 
+/** The security findings and TLM items a Story addresses [CQF:REQ-065]: each a clause with its proof. */
+function findingsSection(findings) {
+  if (!Array.isArray(findings) || !findings.length) return '';
+  return `\n## Security and TLM findings this Story addresses\n\nEach is a clause of this Story. Quoted text is the security team's or the TLM owners' own words, kept as data.\n\n${
+    findings.map((finding) => `- ${finding.anchor} ${String(finding.text).replace(/\s+/gu, ' ')}\n  Proof: ${String(finding.proof).replace(/\s+/gu, ' ')}`).join('\n')}\n`;
+}
+
 function sourceMarkdown(source) {
   const details = [
     `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
@@ -468,6 +475,7 @@ function sourceMarkdown(source) {
     + sourceSection('Risks', source.risks)
     + sourceSection('Notes', source.notes)
     + specificationSection(source.specification)
+    + findingsSection(source.findings)
     + `\n## Subtasks\n\n${subtasks}\n`;
 }
 

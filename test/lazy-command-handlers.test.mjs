@@ -406,7 +406,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,586,200 (measured 9,586,127, commands/phase-lifecycle.mjs): test adequacy merged too; its growth is above.
     // 9,556,350 (measured 9,556,345): the departure reads load from the CLI source, outside the VS Code gateway bundle (state.mjs, delivery-evidence.mjs).
     // 9,586,300 (measured 9,586,254, commands/phase-lifecycle.mjs): the departure modules load from the CLI source, out of the VS Code gateway bundle.
-    assert.ok(closure.bytes <= 9_586_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,563,900 (measured 9,563,852, commands/phase-lifecycle.mjs): the findings command and its import preview classify in
+    // command-registry.mjs (+1,227), map to /sf-findings (command-skills.mjs +29) and take --all-repositories (util.mjs +70); a
+    // Story's picked findings are clauses of its source (scope/extract.mjs, state.mjs findingsSection); the release registries
+    // know the findings-remediation workflow (packaged-asset-history.mjs, packaged-workflow-history.mjs +631). The command, its
+    // workbook reader and its register stay lazy.
+    // 9,589,300 (measured 9,589,274, commands/phase-lifecycle.mjs): the security and TLM findings register merged too; its growth is above.
+    assert.ok(closure.bytes <= 9_589_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -477,7 +483,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,850 (measured 858,833): decision finding-risk classifies as a person's mutation (command-registry.mjs +16).
   // 859,700 (measured 859,660): `departure`, `decision departure` and `appeal prepare`, which now records, classify in command-registry.mjs (+843), which every command reads to dispatch.
   // 859,750 (measured 859,710): the same three merged: --latest, decision departure and decision finding-risk.
-  assert.ok(root.bytes <= 859_750, `root dispatch loads ${root.bytes} source bytes`);
+  // 860,150 (measured 860,120): the findings command, its subcommands and import preview classify in command-registry.mjs (+1,217),
+  // and --all-repositories is a flag (util.mjs +70), which every command reads to dispatch.
+  // 861,050 (measured 861,007): the security and TLM findings register merged too; its growth is above.
+  assert.ok(root.bytes <= 861_050, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -600,7 +609,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,176,200 (measured 4,176,134): test adequacy merged too.
   // 4,163,250 (measured 4,163,210): their reads load from the CLI source, outside the VS Code gateway bundle (delivery-evidence.mjs).
   // 4,176,200 (measured 4,176,184): the same source-path loads.
-  assert.ok(current.bytes <= 4_176_200, `session current loads ${current.bytes} source bytes`);
+  // 4,167,700 (measured 4,167,661): the same command-registry.mjs +1,217, util.mjs +70 and command-skills.mjs +29 as root
+  // dispatch, and the release registries' findings-remediation entries (+631).
+  // 4,178,150 (measured 4,178,141): the security and TLM findings register merged too; its growth is above.
+  assert.ok(current.bytes <= 4_178_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

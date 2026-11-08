@@ -344,8 +344,9 @@ test('all packaged workflow phase IDs use the same missing-input readiness contr
     const resolved = resolveWorkType(definition, id);
     for (const phase of resolved.phases) seen.add(phase.id);
   }
-  assert.equal(Object.keys(definition.workTypes).length, 18);
-  assert.equal(seen.size, 49);
+  // 19 workflows and 51 steps since findings-remediation (findings-intake, remediation-plan), CQF M6.
+  assert.equal(Object.keys(definition.workTypes).length, 19);
+  assert.equal(seen.size, 51);
   assert.deepEqual(resolveWorkType(definition, 'demo-web-e2e-testing').phases.map((phase) => phase.id),
     ['demo-web-intake', 'demo-web-check', 'demo-web-repair', 'demo-web-retest']);
   const f = await fixture(t);

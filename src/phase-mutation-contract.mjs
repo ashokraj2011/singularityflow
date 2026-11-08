@@ -34,6 +34,8 @@ const KERNEL_ONLY_SKILLS = new Set([
   'call-add', 'environment', 'factory-reset', 'fault', 'governance-rebuild', 'impact', 'import', 'integrations',
   'knowledge', 'learn', 'ledger', 'mcp', 'prompt-log', 'reset-all', 'secrets', 'sgos', 'sgos-create', 'stack',
   'telemetry', 'watch',
+  // The security team's and TLM owners' workbook into the register, and remediation Stories (CQF M6).
+  'findings',
   'capability-add', 'capability-depend', 'capability-protect', 'capability-doctor',
   'workspace-bootstrap', 'workspace-impact', 'refresh-configuration',
   // Machine-level installation, reset and local state.

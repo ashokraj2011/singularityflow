@@ -1496,6 +1496,14 @@ async function startCommandAtRoot(positionals, options) {
     const launchRepository = optionString(options, 'story-launch-repository');
     if (launchRepository && path.resolve(launchRepository) !== path.resolve(root)) await (await import('../spec-library/sources.mjs')).copySliceSources(launchRepository, root, specification);
   }
+  // Security findings and TLM items the person picked [CQF:REQ-065]: each becomes a clause with its
+  // proof. Read from the register this clone has; an ID that cannot be taken is said, never refused.
+  let addressedFindings = null;
+  if (optionStrings(options, 'address').length) {
+    const pick = await import('../findings/register/pick.mjs');
+    addressedFindings = await pick.resolveAddressedFindings(root, pick.addressedIds(optionStrings(options, 'address')), { ledger: config.ledger ?? {} });
+    if (addressedFindings.picked.length) source = { ...source, findings: addressedFindings.picked };
+  }
   const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
     approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }
   );
@@ -1994,6 +2002,10 @@ async function startCommandAtRoot(positionals, options) {
   // What this repository can test, sealed with the Story and disclosed before any code [E2G-019, §12 #18].
   const sealedTestPolicy = workflow.testPolicy
     ? await readJson(path.join(workDir(root, config, workflow.workItem.id), workflow.testPolicy.path)).catch(() => null) : null;
+  // The picked items are "in a Story" now that the Story exists; a mark that cannot land is said.
+  const findingsMark = addressedFindings?.picked.length
+    ? await (await import('../findings/register/pick.mjs')).markFindingsInStory(root, addressedFindings.picked, workflow.workItem.id, { branch: workflow.workItem.branch, ledger: config.ledger ?? {} })
+    : null;
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -2024,6 +2036,11 @@ async function startCommandAtRoot(positionals, options) {
       } : null,
       readiness: startReadiness,
       documents: supportingDocuments.length,
+      ...(addressedFindings ? { findings: {
+        addressed: addressedFindings.picked.map((entry) => ({ id: entry.id, feed: entry.feed, anchor: entry.anchor })),
+        skipped: addressedFindings.skipped, marked: findingsMark?.marked ?? [],
+        ...(findingsMark?.error ? { markError: findingsMark.error, nextAction: findingsMark.nextAction } : { store: findingsMark?.store ?? null })
+      } } : {}),
       // Present only when a capability base was chosen, so `--json` consumers can tell the
       // single-repository start from the capability-wide one instead of inferring it.
       base: {
@@ -2130,6 +2147,9 @@ async function startCommandAtRoot(positionals, options) {
       console.log(`Prompt study assignment: ${workflow.measurement.plan.variantId} · ${workflow.measurement.plan.studyRunId}.`);
     }
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
+    if (addressedFindings?.picked.length) console.log(`Findings this Story addresses: ${addressedFindings.picked.map((entry) => entry.id).join(', ')}, each a clause with its proof.`);
+    for (const entry of addressedFindings?.skipped ?? []) console.log(`Not addressed: ${entry.id}, because ${entry.reason}.`);
+    if (findingsMark?.error) console.log(`The register still shows them open (${findingsMark.error}). Mark them with: ${findingsMark.nextAction}`);
     console.log(`Optional AST warm-up: ${astWarm.command}`);
   }
   // Starting a Story is the explicit choice a Copilot conversation's work-item selection asks for.

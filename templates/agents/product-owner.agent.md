@@ -5,8 +5,8 @@ model: [auto]
 tools: [read, search, edit, execute, bash, ask_user]
 metadata:
   sflow-label: "Product owner"
-  sflow-phases: "intake,requirements,specification"
-  sflow-default-for: "intake,requirements,specification"
+  sflow-phases: "intake,requirements,specification,findings-intake"
+  sflow-default-for: "intake,requirements,specification,findings-intake"
   sflow-model-task: "clarify"
 ---
 

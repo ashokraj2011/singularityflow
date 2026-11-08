@@ -26,6 +26,8 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'backup',
   // SF Guard (SPEC-PSS-v1): its --json is its own structured result (sflow-guard).
   'guard', 'git-policy',
+  // Security team and TLM findings (CQF M6): its --json is its own structured result (sflow-findings-*).
+  'findings',
   // Returns another command's kept result as that command returned it, or why there is none.
   'result',
   // Emits the sflow-result v2 envelope the gateway serves, which is a structured result too [INT:IFC-020].

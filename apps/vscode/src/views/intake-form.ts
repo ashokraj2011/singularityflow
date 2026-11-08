@@ -36,6 +36,20 @@ export type Shape = 'initiative' | 'epic' | 'story';
 /** Where the work is tracked. `none` is a first-class answer, not a degraded one. */
 export type Tracker = 'jira' | 'github' | 'none';
 
+/** One open security finding or TLM item the register offers a new Story [CQF:REQ-065]. */
+export interface FindingChoice {
+  id: string;
+  feed: 'security' | 'tlm';
+  label: string;
+  severity: string | null;
+  dueAt: string | null;
+  state: string;
+  /** The Story that already addresses it; such an item is shown and cannot be picked. */
+  story: string | null;
+  file?: string | null;
+  package?: string | null;
+}
+
 export interface ProfileChoice {
   id: string;
   label: string;
@@ -262,6 +276,11 @@ export interface IntakeForm extends TestRecoveryDraft {
   storyAttachments: Array<StoryAttachmentDraft | null>;
   /** Exact browser origin pinned for the POC workflow. */
   targetUrl: string;
+  /** The register's open security findings and TLM items for this repository, and why none show. */
+  findingChoices: FindingChoice[];
+  findingsNote: string | null;
+  /** The ones this Story addresses: ticked by the person, never by default. */
+  addressFindings: string[];
   profile: string | null;
   profiles: ProfileChoice[];
   /** Story workflow selected from workflow.yml. Passed explicitly because VS Code has no TTY. */
@@ -417,7 +436,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   qualityGateMode: 'hard',
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
-  acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
+  acceptanceCriteria: '', targetUrl: '', findingChoices: [], findingsNote: null, addressFindings: [],
+  profile: null, profiles: [], workType: null, storyWorkflows: [],
   availableStoryWorkflows: [],
   referenceRepositories: [],
   storyAttachments: emptyStoryAttachmentSlots(),
@@ -453,6 +473,38 @@ function storyWorkflowProblem(form: IntakeForm): string {
 /** The branch this Story will be created on: the name typed, else the engine's suggestion, else its ID. */
 export function storyBranchName(form: IntakeForm): string {
   return form.storyBranch.trim() || form.suggestedStoryBranch || intakeIdentifier(form);
+}
+
+/** `--address` with the ticked findings, each still offered; nothing when none is ticked. */
+function addressArguments(form: IntakeForm): string[] {
+  const offered = new Set(form.findingChoices.filter((choice) => !choice.story).map((choice) => choice.id));
+  const picked = form.addressFindings.filter((id) => offered.has(id));
+  return picked.length ? ['--address', picked.join(',')] : [];
+}
+
+/**
+ * The register's open items as tick boxes, none ticked by default [CQF:REQ-065]. An item another
+ * Story addresses is shown with that Story and cannot be ticked. Labels are the team's own text,
+ * escaped and shown as data.
+ */
+function findingsPicker(form: IntakeForm): string {
+  if (!form.findingChoices.length) {
+    return form.findingsNote ? `<p class="muted" data-intake-findings-note>${escape(form.findingsNote)}</p>` : '';
+  }
+  const row = (choice: FindingChoice) => {
+    const kind = choice.feed === 'tlm' ? 'TLM' : `${(choice.severity ?? 'info').replace(/^./u, (letter) => letter.toUpperCase())}`;
+    const where = choice.file ? ` · <code>${escape(choice.file)}</code>` : choice.package ? ` · <code>${escape(choice.package)}</code>` : '';
+    const due = choice.dueAt ? ` · due ${escape(choice.dueAt)}` : '';
+    const taken = choice.story ? ` · <span class="sf-tag">in Story ${escape(choice.story)}</span>` : '';
+    return `<label class="intake-finding${choice.story ? ' muted' : ''}"><input type="checkbox" data-address-finding="${escape(choice.id)}"${
+      form.addressFindings.includes(choice.id) && !choice.story ? ' checked' : ''}${choice.story || form.busy ? ' disabled' : ''}>
+      <code>${escape(choice.id)}</code> ${escape(kind)} · ${escape(choice.label)}${where}${due}${taken}</label>`;
+  };
+  return `<fieldset class="intake-findings" data-intake-findings><legend>Security and TLM findings this Story addresses</legend>
+    <p class="muted">Open items from the findings register for this repository. Nothing is picked unless you tick it; each ticked
+      item becomes a clause of the Story, with its proof, and the register shows it in this Story.</p>
+    ${form.findingChoices.map(row).join('')}
+    ${form.findingsNote ? `<p class="muted" data-intake-findings-note>${escape(form.findingsNote)}</p>` : ''}</fieldset>`;
 }
 
 /** `--ref` only for a name the person typed; otherwise the engine names it from the repository pattern. */
@@ -800,14 +852,16 @@ export function intakeCommand(form: IntakeForm): string[] {
   const specifications = form.cloneSpecifications?.length ? [...form.cloneSpecifications.flatMap(spec => ['--spec', spec]),
     ...(form.cloneDependencyReason ? ['--allow-partial-dependency', '--reason', form.cloneDependencyReason] : [])] : [];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
-    ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments, ...specifications];
+    ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments, ...specifications, ...addressArguments(form)];
   if (form.tracker === 'github') {
     return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
-      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments, ...specifications];
+      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments, ...specifications,
+      ...addressArguments(form)];
   }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
+    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments,
+    ...addressArguments(form)];
   if (form.cloneFrom) args.push('--clone-from', form.cloneFrom, '--clone-source-commit', form.cloneSourceCommit!);
   args.push(...specifications);
   if (form.acceptanceCriteria.trim() || form.cloneFrom) {
@@ -1046,6 +1100,7 @@ function fieldsHtml(form: IntakeForm): string {
         <textarea data-field="acceptanceCriteria" rows="3" cols="64" placeholder="One per line">${escape(form.acceptanceCriteria)}</textarea></label>
     </div>
     <p class="muted">Each line becomes an acceptance criterion.</p>
+    ${findingsPicker(form)}
     <details class="sf-setup-detail"><summary>How criteria connect to tests</summary><p class="muted">In code workflows with traceability
       enabled, executable tests later use qualified tags such as <code>@ac:WORK-ID:AC-001</code>;
       planned product source uses <code>@clause:WORK-ID:REQ-001</code> followed by how the change meets it, for source-bound clauses.
@@ -1645,7 +1700,8 @@ function storyReviewHtml(form: IntakeForm): string {
         <dt>Tracker</dt><dd>${escape(form.tracker === 'none' ? 'No tracker' : form.tracker === 'jira' ? 'Jira' : 'GitHub Issue')}${form.tracker !== 'none' ? ` · ${value(form.key)}` : ''}</dd>
         <dt>Title</dt><dd${form.tracker === 'none' ? ' data-intake-review-field="title"' : ''}>${form.tracker === 'none' ? value(form.title) : 'Fetched from the issue on Start'}</dd></dl>
         ${form.tracker === 'none' ? `<h4>Description</h4><p class="intake-review-prose" data-intake-review-field="description">${value(form.description)}</p>
-          <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}${edit('details')}</article>
+          <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}
+        ${addressArguments(form).length ? `<h4>Findings this Story addresses</h4><p data-intake-review-findings>${String(addressArguments(form)[1]).split(',').map((id) => `<code>${escape(id)}</code>`).join(' ')}</p>` : ''}${edit('details')}</article>
       <article><h3>Workflow & branch</h3><dl><dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
         <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>
         ${form.baseRepositories.length > 1 ? `<dt>Base branches</dt><dd data-intake-review-bases><ul class="intake-review-bases">${repositoryBases(form)
@@ -1983,6 +2039,8 @@ document.addEventListener('change', (event) => {
     index: Number(el.dataset.attachmentName), value: el.value });
   if (el.dataset?.attachmentStore !== undefined) return vscode.postMessage({ type: 'attachmentStore',
     index: Number(el.dataset.attachmentStore), value: el.value });
+  if (el.dataset?.addressFinding !== undefined) return vscode.postMessage({ type: 'addressFindings',
+    value: [...document.querySelectorAll('[data-address-finding]')].filter((box) => box.checked).map((box) => box.dataset.addressFinding) });
   if (el.dataset?.attachmentPhase !== undefined) return vscode.postMessage({ type: 'attachmentPhases',
     index: Number(el.dataset.attachmentPhase),
     value: [...document.querySelectorAll('[data-attachment-phase="' + el.dataset.attachmentPhase + '"]')]

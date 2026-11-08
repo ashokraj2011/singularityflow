@@ -235,7 +235,11 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   const planChanges = base.generatesCode && workflow.planAmendments?.length ? await (await import('./plan-amendment-notes.mjs')).planChangeNotes(root, workflow) : [];
   // And its departures: what waits for a person, and what one rejected, which this turn restores [CQF:REQ-026].
   const departures = base.generatesCode && workflow.departures?.length ? await (await import('./departure-records.mjs')).departureSummary(root, workflow, phase) : null;
-  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // And the findings register's items on what the Story touches, the eligible ones this turn fixes on the way [CQF:REQ-066].
+  // From the CLI source, so the VS Code bundles that read an entry do not carry the register.
+  const fixOnTheWay = base.generatesCode ? await measureCommandSpan('phase-entry.findings-on-the-way', async () =>
+    (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'register', 'on-the-way.mjs')).href)).itemsOnTheWay(root, definition, workflow, phase)) : null;
+  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),

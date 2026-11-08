@@ -21,7 +21,8 @@ export const REPORT_COLUMNS = Object.freeze(['SFlow state', 'Story', 'Evidence',
 /** One line of evidence: the latest proof or state change, in SFlow's words. */
 export function evidenceText(item) {
   const proof = item.evidence?.at(-1);
-  if (proof?.kind === 'tlm-pin') {
+  if (proof?.kind === 'finding-run') return `${proof.proven ? 'Proven' : 'Not proven yet'}: ${proof.proven ? `${proof.tool} rerun on the changed code no longer reports it` : proof.reason}.`;
+  if (['tlm-pin', 'manifest-pin'].includes(proof?.kind)) {
     const pins = (proof.pins ?? []).map((pin) => `${pin.file} pins ${pin.version}`).join('; ');
     return `${proof.proven ? 'Proven' : 'Not proven yet'} on ${proof.ref}${pins ? `: ${pins}` : ': no file pins it'}.`;
   }

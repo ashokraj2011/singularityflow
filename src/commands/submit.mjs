@@ -219,6 +219,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     });
   }
   const receiptsLine = phase.status === 'approved' ? await recordRequiredReceiptsAfterTransition(root, workflow) : null;
+  // A step approved by its submission moves the register items it fixed on the way too [CQF:REQ-066].
+  const fixedOnTheWay = phase.status === 'approved' && workflow.departures?.some((entry) => entry.phase === phase.id && entry.findings?.length)
+    ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
+      (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow, phase.id) : null;
   if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
   else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
   else console.log(`\nSubmitted ${phase.id} phase for approval.`);
@@ -228,6 +232,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   if (receiptsLine) console.log(receiptsLine);
+  if (fixedOnTheWay?.moved.length) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
   if (reviewPacket) {
     console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
   }

@@ -9,6 +9,11 @@
  * already exists for that kind (a plan amendment, a plan row correction, a forward amendment or an intent
  * amendment), under its own authority; rejecting is its own record, and the model reverts the change.
  *
+ * A `finding` departure is a fix for findings register items made on the way [CQF:REQ-066]: its files
+ * may be ones the plan already names, so nothing in the plan changes. A person's acceptance is its own
+ * record, beside the rejection, under the plan's authority; a rejected one is reverted once each file
+ * is back to what it held when the generation began, or no longer what it held when it was rejected.
+ *
  * Status is read, never stored: a departure is accepted while a counted record that names it stands and
  * its files still hold what was accepted (a later edit reopens only that row, the plan amendment hash
  * rule), rejected until each file is back to what it held when the generation began, and open otherwise.
@@ -18,10 +23,12 @@ import { departureCandidatePaths } from './plan-amendments.mjs';
 import { countedRecords, isWithdrawn } from './presence/counted.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
-export const DEPARTURE_KINDS = Object.freeze(['path', 'supporting', 'plan-row', 'test', 'wording', 'clause']);
-/** What each kind's acceptance writes, the record that already exists for it [CQF:REQ-025]. */
+export const DEPARTURE_KINDS = Object.freeze(['path', 'supporting', 'plan-row', 'test', 'wording', 'clause', 'finding']);
+/** What each kind's acceptance writes, the record that already exists for it [CQF:REQ-025]; a fix on the way, its own. */
 export const DEPARTURE_RECORDS = Object.freeze({ path: 'plan-amendment', supporting: 'plan-amendment', 'plan-row': 'plan-row-correction',
-  test: 'plan-row-correction', wording: 'forward-amendment', clause: 'intent-amendment' });
+  test: 'plan-row-correction', wording: 'forward-amendment', clause: 'intent-amendment', finding: 'departure-acceptance' });
+export const MAX_DEPARTURE_FINDINGS = 20;
+const FINDING_ID = /^[A-Za-z0-9][A-Za-z0-9._:#/-]{0,79}$/u;
 export const MAX_DEPARTURE_PATHS = 20;
 export const MAX_DEPARTURE_DIFF = 64 * 1024;
 export const DEPARTURE_REASON = Object.freeze({ minimum: 20, maximum: 1000 });
@@ -31,7 +38,7 @@ export const DEPARTURE_ROW_OPERATIONS = Object.freeze({ 'plan-row': ['add-row', 
 // Statuses that hold the code step's approval: undecided, edited since accepted, or rejected and not yet reverted.
 const HOLDING = new Set(['open', 'reopened', 'rejected']);
 // The kinds whose own files the candidate carries, and which a rejection restores.
-const FILE_KINDS = new Set(['path', 'supporting']);
+const FILE_KINDS = new Set(['path', 'supporting', 'finding']);
 
 export function departureRefusal(message, code = 'DEPARTURE_INVALID', details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -52,11 +59,12 @@ export function nextDepartureId(workflow) {
 }
 
 /**
- * "Accept all" covers files, supporting files and wording that touches no clause [owner decision 14].
- * Everything else is decided one by one, each with its own reason.
+ * "Accept all" covers files, supporting files and wording that touches no clause [owner decision 14],
+ * and a fix on the way, which changes files and no clause. Everything else is decided one by one,
+ * each with its own reason.
  */
 export function acceptAllEligible(departure) {
-  return ['path', 'supporting'].includes(departure?.kind) || (departure?.kind === 'wording' && !(departure.clauses ?? []).length);
+  return ['path', 'supporting', 'finding'].includes(departure?.kind) || (departure?.kind === 'wording' && !(departure.clauses ?? []).length);
 }
 
 /**
@@ -73,7 +81,12 @@ export function recordDeparture(workflow, {
   if (!DEPARTURE_KINDS.includes(kind)) departureRefusal(`A departure's kind is one of ${DEPARTURE_KINDS.join(', ')}; got '${String(kind).slice(0, 40)}'.`);
   const files = [...new Set((paths ?? []).map(exactPath))].sort();
   if (files.length > MAX_DEPARTURE_PATHS) departureRefusal(`Name at most ${MAX_DEPARTURE_PATHS} files in one departure; record the rest as their own.`);
-  if (['path', 'supporting'].includes(kind) && !files.length) departureRefusal(`A ${kind} departure names the file it changes with --path.`);
+  if (FILE_KINDS.has(kind) && !files.length) departureRefusal(`A ${kind} departure names the file it changes with --path.`);
+  const fixes = [...new Set((findings ?? []).map((id) => String(id).trim()).filter(Boolean))];
+  if (fixes.some((id) => !FINDING_ID.test(id)) || fixes.length > MAX_DEPARTURE_FINDINGS) {
+    departureRefusal(`Name at most ${MAX_DEPARTURE_FINDINGS} findings register items with --finding, each by its ID.`);
+  }
+  if (kind === 'finding' && !fixes.length) departureRefusal('A finding departure names the findings register item it fixes with --finding.');
   if (['wording', 'clause'].includes(kind) && !target?.phase) departureRefusal(`A ${kind} departure names the earlier step it departs from with --target.`);
   if (['plan-row', 'test'].includes(kind) && !DEPARTURE_ROW_OPERATIONS[kind].includes(change?.op)) {
     departureRefusal(`A ${kind} departure names one plan row change: ${DEPARTURE_ROW_OPERATIONS[kind].join(', ')}.${kind === 'test' ? ' Removing or loosening a planned test is never a departure.' : ''}`,
@@ -93,21 +106,33 @@ export function recordDeparture(workflow, {
     target: target ? { phase: target.phase, generation: Number(target.generation ?? 0), sha256: target.sha256 ?? null, path: target.path ?? null } : null,
     diff: diff == null ? null : String(diff), clauses: [...new Set((clauses ?? []).map((clause) => String(clause).toUpperCase()))].sort(),
     ...(supportingClass ? { class: supportingClass } : {}), ...(change ? { change } : {}), ...(proposal ? { proposal } : {}),
-    reason: text, findings: [...findings], recordedBy, author: { producer: 'governed-agent', actor, agent }, supersedes: supersedes ?? null, at
+    reason: text, findings: fixes, recordedBy, author: { producer: 'governed-agent', actor, agent }, supersedes: supersedes ?? null, at
   };
   workflow.departures.push(record);
   return record;
 }
 
-/** A person's rejection of one or more departures: its own append-only record [CQF:REQ-026]. */
-export function recordDepartureRejection(workflow, { departures, reason, actor, authorityGroup, identityAssurance = null, at }) {
+/**
+ * A person's rejection of one or more departures: its own append-only record [CQF:REQ-026]. `hashes` is
+ * what a fix on the way's files held when it was rejected, so its revert can be seen.
+ */
+export function recordDepartureRejection(workflow, { departures, reason, actor, authorityGroup, identityAssurance = null, hashes = null, at }) {
+  return departureDecision(workflow, 'rejected', { departures, reason, actor, authorityGroup, identityAssurance, hashes, at });
+}
+
+/** A person's acceptance of fixes on the way: their own record, binding what each file holds [CQF:REQ-066, REQ-028]. */
+export function recordDepartureAcceptance(workflow, { departures, reason, actor, authorityGroup, identityAssurance = null, hashes, at }) {
+  return departureDecision(workflow, 'accepted', { departures, reason, actor, authorityGroup, identityAssurance, hashes, at });
+}
+
+function departureDecision(workflow, decision, { departures, reason, actor, authorityGroup, identityAssurance, hashes, at }) {
   const text = String(reason ?? '').trim();
   if (text.length < DEPARTURE_REASON.minimum || text.length > DEPARTURE_REASON.maximum) {
     departureRefusal(`Say why in ${DEPARTURE_REASON.minimum} to ${DEPARTURE_REASON.maximum} characters with --reason.`, 'DEPARTURE_REASON_REQUIRED');
   }
   workflow.departureDecisions ??= [];
-  const record = { id: `DDC-${String(workflow.departureDecisions.length + 1).padStart(3, '0')}`, departures: [...departures].sort(), decision: 'rejected',
-    reason: text, actor, authorityGroup, identityAssurance, at };
+  const record = { id: `DDC-${String(workflow.departureDecisions.length + 1).padStart(3, '0')}`, departures: [...departures].sort(), decision,
+    reason: text, actor, authorityGroup, identityAssurance, ...(hashes ? { hashes } : {}), at };
   workflow.departureDecisions.push(record);
   return record;
 }
@@ -137,6 +162,11 @@ export function departureAcceptance(workflow, departure) {
   if (departure.kind === 'clause') {
     const amendment = (workflow?.intentAmendments ?? []).findLast((entry) => entry.departure === departure.id && entry.status === 'approved');
     return amendment ? { kind: 'intent-amendment', id: amendment.id, at: amendment.decision?.at ?? amendment.at ?? null, hashes: null } : null;
+  }
+  if (departure.kind === 'finding') {
+    const accepted = countedRecords(workflow, workflow?.departureDecisions)
+      .filter((entry) => entry.decision === 'accepted' && (entry.departures ?? []).includes(departure.id)).at(-1);
+    return accepted ? { kind: 'departure-acceptance', id: accepted.id, at: accepted.at, hashes: accepted.hashes ?? {} } : null;
   }
   const correction = countedRecords(workflow, workflow?.planRowCorrections)
     .filter((entry) => String(entry.at) >= String(departure.at) && (entry.operations ?? []).some((operation) => sameOperation(operation, departure.change))).at(-1);
@@ -168,7 +198,9 @@ export function departureStatus(workflow, departure, hashes = {}) {
   if (rejection && (!acceptance || String(rejection.at) >= String(acceptance.at))) {
     // Only a file has bytes to restore; a rejected row, test or wording leaves the approved document as it was.
     if (!FILE_KINDS.has(departure.kind)) return { status: 'declined', acceptance: null, rejection };
-    const back = departure.paths.every((file) => now(file) === undefined ? false : now(file) === (departure.baseHashes?.[file] ?? null));
+    // A fix on the way may share its file with planned work: taking the fix out changes what the file held when it was rejected.
+    const fixOut = (file) => departure.kind === 'finding' && Object.hasOwn(rejection.hashes ?? {}, file) && now(file) !== rejection.hashes[file];
+    const back = departure.paths.every((file) => now(file) === undefined ? false : now(file) === (departure.baseHashes?.[file] ?? null) || fixOut(file));
     return { status: back ? 'reverted' : 'rejected', acceptance: null, rejection };
   }
   if (acceptance) {
@@ -211,5 +243,6 @@ export function departureWords(departure) {
   if (departure.kind === 'test') return `a planned test changes: ${departure.change?.op} ${departure.change?.test ?? departure.change?.to ?? ''}${clauses}`.trim();
   if (departure.kind === 'plan-row') return `a plan row changes: ${departure.change?.op}${departure.change?.clauseId ? ` on ${departure.change.clauseId}` : ''}`;
   if (departure.kind === 'clause') return `the approved clause${(departure.clauses ?? []).length === 1 ? '' : 's'} ${(departure.clauses ?? []).join(', ') || 'of the scope'} change in ${departure.target?.phase}`;
+  if (departure.kind === 'finding') return `${files} ${(departure.paths ?? []).length === 1 ? 'carries' : 'carry'} the fix for ${(departure.findings ?? []).join(', ')} from the findings register`;
   return `${departure.target?.phase}'s approved wording changes${clauses}`;
 }

@@ -10,7 +10,9 @@
  * When a Story that addresses items closes, the items move on (REQ-068). A TLM item closes when the
  * default branch's manifest, lockfile or runtime file shows at least its target version, and is fixed
  * awaiting proof until it does. A security finding is fixed awaiting rescan: only the security team's
- * next list, no longer calling it open, closes it (import does that).
+ * next list, no longer calling it open, closes it (import does that). One a code step fixed on the way
+ * (REQ-066) closes on its own proof: the findings loop's rerun no longer reporting it, or for a
+ * dependency, the default branch pinning its fixed version.
  */
 import { committedFileText, refCommit } from '../../git.mjs';
 import { compareItems, setItemStates } from './model.mjs';
@@ -115,24 +117,32 @@ export function groupDescription(group) {
 }
 
 /** The files that can pin a component's version, read at `ref`; bounded, never executed. */
-const PIN_FILES = Object.freeze(['package.json', '.nvmrc', '.node-version', 'Dockerfile', 'requirements.txt', 'pyproject.toml', 'pom.xml',
+export const PIN_FILES = Object.freeze(['package.json', '.nvmrc', '.node-version', 'Dockerfile', 'requirements.txt', 'pyproject.toml', 'pom.xml',
   'build.gradle', 'build.gradle.kts', 'go.mod', '.python-version', '.java-version', '.tool-versions']);
 
 /** Every version `component` is pinned at in the files at `ref`: `[{ file, version }]`. */
 export function pinnedVersions(root, ref, component, { env = process.env } = {}) {
+  return pinnedIn((file) => {
+    const text = committedFileText(root, ref, file, { env });
+    return text && text.length <= 1024 * 1024 ? text : null;
+  }, component);
+}
+
+/**
+ * Every version `component` is pinned at in one module's pin files, each read with `read(file)` (text or
+ * null). `directory` is the module's folder, '' for the repository root; files are named from the root.
+ */
+export function pinnedIn(read, component, { directory = '' } = {}) {
   const name = String(component ?? '').trim();
   const lower = name.toLowerCase();
   const found = [];
-  const read = (file) => {
-    const text = committedFileText(root, ref, file, { env });
-    return text && text.length <= 1024 * 1024 ? text : null;
-  };
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const runtimes = { node: ['.nvmrc', '.node-version'], nodejs: ['.nvmrc', '.node-version'], python: ['.python-version'], java: ['.java-version'] };
-  for (const file of PIN_FILES) {
-    const text = read(file);
+  for (const base of PIN_FILES) {
+    const file = directory ? `${directory}/${base}` : base;
+    const text = name ? read(file) : null;
     if (!text) continue;
-    if (file === 'package.json') {
+    if (base === 'package.json') {
       try {
         const manifest = JSON.parse(text);
         for (const block of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
@@ -140,26 +150,26 @@ export function pinnedVersions(root, ref, component, { env = process.env } = {})
         }
         if (['node', 'nodejs'].includes(lower) && manifest.engines?.node) found.push({ file, version: String(manifest.engines.node) });
       } catch { /* not JSON: nothing pinned here */ }
-    } else if (runtimes[lower]?.includes(file)) {
+    } else if (runtimes[lower]?.includes(base)) {
       const version = text.trim().split(/\s+/u)[0];
       if (version) found.push({ file, version });
-    } else if (file === 'Dockerfile') {
+    } else if (base === 'Dockerfile') {
       for (const match of text.matchAll(/^\s*FROM\s+(?:--platform=\S+\s+)?(\S+?):(\S+)/gimu)) {
         if (match[1].toLowerCase().split('/').at(-1) === lower) found.push({ file, version: match[2] });
       }
-    } else if (file === '.tool-versions') {
+    } else if (base === '.tool-versions') {
       const match = new RegExp(`^${escaped}(?:js)?\\s+(\\S+)`, 'imu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file === 'requirements.txt' || file === 'pyproject.toml') {
+    } else if (base === 'requirements.txt' || base === 'pyproject.toml') {
       const match = new RegExp(`["']?${escaped}\\s*(?:==|>=|~=)\\s*([0-9][^\\s"',;]*)`, 'imu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file === 'pom.xml') {
+    } else if (base === 'pom.xml') {
       const match = new RegExp(`<artifactId>\\s*${escaped}[^<]*</artifactId>\\s*(?:<[^>]+>[^<]*</[^>]+>\\s*)*?<version>\\s*([^<\\s]+)\\s*</version>`, 'iu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file.startsWith('build.gradle')) {
+    } else if (base.startsWith('build.gradle')) {
       const match = new RegExp(`["'][^"':]+:${escaped}:([^"']+)["']`, 'iu').exec(text);
       if (match) found.push({ file, version: match[1] });
-    } else if (file === 'go.mod') {
+    } else if (base === 'go.mod') {
       const match = new RegExp(`^\\s*(?:require\\s+)?\\S*${escaped}\\s+v?([0-9][^\\s]*)`, 'imu').exec(text);
       if (match) found.push({ file, version: match[1] });
     }
@@ -171,6 +181,13 @@ export function pinnedVersions(root, ref, component, { env = process.env } = {})
 export function tlmProof(root, ref, item, { env = process.env } = {}) {
   const pins = pinnedVersions(root, ref, item.component, { env });
   const proven = pins.length > 0 && pins.every((pin) => versionAtLeast(pin.version.replace(/^[\^~>=v\s]+/u, ''), item.targetVersion));
+  return { proven, pins: pins.slice(0, 10) };
+}
+
+/** A security dependency finding's proof: every file pinning its package shows at least its fixed version. */
+export function dependencyProof(root, ref, item, { env = process.env } = {}) {
+  const pins = pinnedVersions(root, ref, item.package, { env });
+  const proven = pins.length > 0 && pins.every((pin) => versionAtLeast(pin.version.replace(/^[\^~>=v\s]+/u, ''), item.fixedVersion));
   return { proven, pins: pins.slice(0, 10) };
 }
 
@@ -201,22 +218,28 @@ export function reconcileClosedStories(root, register, { defaultBranch = 'main',
   const closed = new Map();
   for (const feed of ['security', 'tlm']) {
     for (const item of next[feed].items) {
-      const waiting = item.state === 'in-story' || (feed === 'tlm' && item.state === 'fixed-awaiting-proof');
+      const onTheWay = Boolean(item.story?.departure);
+      const waiting = item.state === 'in-story' || ((feed === 'tlm' || onTheWay) && item.state === 'fixed-awaiting-proof');
       if (!waiting || !item.story?.workId) continue;
       const key = item.story.workId;
       if (!closed.has(key)) closed.set(key, storyClosed(root, item.story, workItemRoot, { env }));
       if (!closed.get(key)) continue;
-      if (feed === 'security') {
-        next = setItemStates(next, feed, [item.id], 'fixed-awaiting-rescan', { at, reason: `Story ${key} closed; the security team's rescan closes it` }).register;
-        moved.push({ id: item.id, to: 'fixed-awaiting-rescan', story: key });
+      const pinned = onTheWay && item.package && item.fixedVersion;
+      if (feed === 'security' && !pinned) {
+        // A fix on the way the findings loop's own rerun proved closes; any other waits for the security team's rescan.
+        const proven = onTheWay && item.evidence?.at(-1)?.kind === 'finding-run' && item.evidence.at(-1).proven === true;
+        next = setItemStates(next, feed, [item.id], proven ? 'closed' : 'fixed-awaiting-rescan', { at, reason: proven
+          ? `Story ${key} closed; ${item.evidence.at(-1).tool} rerun on the changed code no longer reports it` : `Story ${key} closed; the security team's rescan closes it` }).register;
+        moved.push({ id: item.id, to: proven ? 'closed' : 'fixed-awaiting-rescan', story: key });
         continue;
       }
-      const proof = tlmProof(root, proofRef, item, { env });
+      const proof = pinned ? dependencyProof(root, proofRef, item, { env }) : tlmProof(root, proofRef, item, { env });
+      const target = pinned ? item.fixedVersion : item.targetVersion;
       const state = proof.proven ? 'closed' : 'fixed-awaiting-proof';
       if (state === item.state) continue;
       next = setItemStates(next, feed, [item.id], state, {
-        at, reason: proof.proven ? `${defaultBranch} pins ${item.component} at ${item.targetVersion} or later` : `Story ${key} closed; ${defaultBranch} does not show ${item.targetVersion} yet`,
-        evidence: { at, story: key, kind: 'tlm-pin', ref: defaultBranch, pins: proof.pins, proven: proof.proven }
+        at, reason: proof.proven ? `${defaultBranch} pins ${item.component ?? item.package} at ${target} or later` : `Story ${key} closed; ${defaultBranch} does not show ${target} yet`,
+        evidence: { at, story: key, kind: pinned ? 'manifest-pin' : 'tlm-pin', ref: defaultBranch, pins: proof.pins, proven: proof.proven }
       }).register;
       moved.push({ id: item.id, to: state, story: key });
     }

@@ -151,7 +151,7 @@ export function departureCandidatePaths(workflow, phaseId = null) {
   if (!departures.length) return [];
   const superseded = new Set(departures.map((entry) => entry.supersedes).filter(Boolean));
   const rejected = new Set(countedRecords(workflow, workflow.departureDecisions).filter((entry) => entry.decision === 'rejected').flatMap((entry) => entry.departures ?? []));
-  return [...new Set(departures.filter((entry) => (!phaseId || entry.phase === phaseId) && ['path', 'supporting'].includes(entry.kind)
+  return [...new Set(departures.filter((entry) => (!phaseId || entry.phase === phaseId) && ['path', 'supporting', 'finding'].includes(entry.kind)
     && !superseded.has(entry.id) && !rejected.has(entry.id)).flatMap((entry) => entry.paths ?? []))].sort();
 }
 

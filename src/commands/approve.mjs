@@ -285,6 +285,12 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   if (receiptsLine && !forAgent) console.log(receiptsLine);
   const usageLine = await recordSpecUsageAfterTransition(root, config, workflow, { phase: result.phase.id, ended: !result.next });
   if (usageLine && !forAgent) console.log(usageLine);
+  // The register items this step fixed on the way are fixed, awaiting proof [CQF:REQ-066]; the approval stands whatever the register does.
+  const fixedOnTheWay = result.reached !== false && workflow.departures?.some((entry) => entry.phase === result.phase.id && entry.findings?.length)
+    ? await (await import('../findings/register/on-the-way.mjs')).recordFindingsAfterApproval(root, config,
+      (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow, result.phase.id) : null;
+  if (fixedOnTheWay?.moved.length && !forAgent) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
+  if (fixedOnTheWay?.error) console.warn(`Warning: the approval landed, but the findings register could not be written (${fixedOnTheWay.error}); its items move when the Story closes, at the next findings import or report.`);
   if (!forAgent) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);

@@ -615,7 +615,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,167,700 (measured 4,167,661): the same command-registry.mjs +1,217, util.mjs +70 and command-skills.mjs +29 as root
   // dispatch, and the release registries' findings-remediation entries (+631).
   // 4,178,150 (measured 4,178,141): the security and TLM findings register merged too; its growth is above.
-  assert.ok(current.bytes <= 4_178_150, `session current loads ${current.bytes} source bytes`);
+  // 4,178,200 (measured 4,178,152): a fix on the way's files are a departure's candidate files (plan-amendments.mjs +11) [CQF:REQ-066].
+  assert.ok(current.bytes <= 4_178_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

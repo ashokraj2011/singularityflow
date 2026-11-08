@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   acceptAllEligible, DEPARTURE_RECORDS, departureHolds, departureRefusal, departuresWithStatus, departureWords, nextDepartureId,
-  recordDeparture, recordDepartureRejection
+  recordDeparture, recordDepartureAcceptance, recordDepartureRejection
 } from './departures.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -242,14 +242,14 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
     departureRefusal('--target and --file belong to a wording or clause departure.');
   } else target = planTarget(config, workflow, phase);
   const [contentHashes, baseHashes] = await Promise.all([fileHashes(root, files), baseHashesAt(root, generationBase(workflow, phase), files)]);
-  if (['path', 'supporting'].includes(kind)) {
+  if (['path', 'supporting', 'finding'].includes(kind)) {
     // A file not written yet is no change: say so, and what to do, rather than blame a policy [bin-opr2 #9].
     const missing = files.filter((file) => contentHashes[file] == null && baseHashes[file] == null);
     if (missing.length) departureRefusal(`${missing.join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist yet, so there is no change to record. Create ${missing.length === 1 ? 'it' : 'them'} first, then record the departure.`, 'DEPARTURE_UNCHANGED', { missing });
     const unchanged = files.filter((file) => contentHashes[file] === baseHashes[file]);
     if (unchanged.length) departureRefusal(`${unchanged.join(', ')} ${unchanged.length === 1 ? 'is' : 'are'} unchanged in this generation, so there is no departure to record.`, 'DEPARTURE_UNCHANGED');
   }
-  const [recorded] = await commitDepartures(root, config, workflow, [{ kind, phase: phase.id, generation: Number(phase.generationIntent?.generation ?? 0), paths: ['path', 'supporting'].includes(kind) ? files : [],
+  const [recorded] = await commitDepartures(root, config, workflow, [{ kind, phase: phase.id, generation: Number(phase.generationIntent?.generation ?? 0), paths: ['path', 'supporting', 'finding'].includes(kind) ? files : [],
     contentHashes, baseHashes, target, diff, clauses: request.clauses ?? [], supportingClass, change, proposal, reason: request.reason,
     findings: request.findings ?? [], recordedBy: 'agent', supersedes: request.supersedes ?? null }], { actor, agent, saved });
   // The draft now lives in the Story's record. A copy left in the checkout, never committed, would be a
@@ -363,39 +363,47 @@ function decidable(workflow, readings, id) {
  * plan amendment naming them, under the plan's authority (commitPlanAmendment); accepting wording writes a
  * forward amendment, proposed from the saved draft and approved by the earlier step's approvers. A row, test
  * or clause is accepted through its own record, a person's own step (`decision plan`, `story intent-amendment`),
- * which names the departure by its exact change. Rejecting writes one rejection; the model reverts the files.
+ * which names the departure by its exact change. A fix on the way's acceptance is its own record under the
+ * plan's authority, as a rejection is. Rejecting writes one rejection; the model reverts the files.
  */
 export async function commitDepartureDecision(root, config, workflow, { departures: ids, decision, reason, clause = null, changes: chosenChanges = null }, { actor, agent = null }) {
   if (!['accept', 'reject'].includes(decision)) departureRefusal("A departure is decided with --as accepted or --as rejected.");
   if (!ids?.length) departureRefusal('Name the departure with --departure DEP-NNN.');
   const readings = await departureReadings(root, workflow);
   const chosen = [...new Set(ids)].map((id) => decidable(workflow, readings, id));
-  if (decision === 'reject') {
+  const kinds = new Set(chosen.map((entry) => DEPARTURE_RECORDS[entry.kind]));
+  if (decision === 'accept' && kinds.size > 1) departureRefusal('Accept departures that write the same record together; decide the others on their own.');
+  const [writes] = kinds;
+  if (decision === 'reject' || writes === 'departure-acceptance') {
     const groups = [...new Set((await Promise.all(chosen.map((entry) => departureAuthorities(workflow, entry)))).flat())];
     const [{ requireApprovalAuthority }, { actorKey, assertNoPendingPublication, transactStory }] = await Promise.all([import('./approval-authority.mjs'), import('./state-stores.mjs')]);
     if (!groups.length) departureRefusal('No step names an approval group that may decide this departure.', 'DEPARTURE_AUTHORITY_UNAVAILABLE');
     const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
       { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
     const at = nowIso();
-    const record = (aggregate) => recordDepartureRejection(aggregate, { departures: chosen.map((entry) => entry.id), reason, actor: actorKey(actor),
-      authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at });
+    // What a fix on the way's files hold now: an acceptance binds it, and a rejection's revert is seen against it.
+    const fixes = chosen.filter((entry) => entry.kind === 'finding');
+    const hashes = fixes.length ? await fileHashes(root, fixes.flatMap((entry) => entry.paths)) : null;
+    const accepting = decision === 'accept';
+    const record = (aggregate) => (accepting ? recordDepartureAcceptance : recordDepartureRejection)(aggregate, { departures: chosen.map((entry) => entry.id), reason,
+      actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, hashes, at });
     record(structuredClone(workflow));
     const { value } = await transactStory(root, config, workflow, {
       type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
       actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'departure' }
-    }, `[${workflow.workItem.id}][departure] reject ${chosen.map((entry) => entry.id).join(', ')}`, async (aggregate) => {
+    }, `[${workflow.workItem.id}][departure] ${accepting ? 'accept' : 'reject'} ${chosen.map((entry) => entry.id).join(', ')}`, async (aggregate) => {
       await assertNoPendingPublication(root, config, aggregate, 'decide a departure');
       const recorded = record(aggregate);
       aggregate.history.push({ at, actor: recorded.actor, agent, event: 'departure_decided', phase: aggregate.currentPhase ?? null,
-        detail: `${recorded.departures.join(', ')} rejected: ${recorded.reason}` });
+        detail: `${recorded.departures.join(', ')} ${recorded.decision}: ${recorded.reason}` });
       return recorded;
     }, { exactWorkItemPaths: [], eventFromResult: (recorded) => ({ actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
       payload: { decision: 'departure', departures: recorded.departures, reviewPacketSha256: null } }) });
-    return { decision: 'rejected', record: value, departures: chosen.map((entry) => entry.id) };
+    // A rejected fix on the way's register items are open again [CQF:REQ-066, decision 15]; the rejection stands whatever the register does.
+    const register = !accepting && chosen.some((entry) => entry.findings?.length)
+      ? await (await fromSource('findings/register/on-the-way.mjs')).reopenRejectedFixes(root, config, workflow, chosen, { at }) : null;
+    return { decision: accepting ? 'accepted' : 'rejected', record: value, departures: chosen.map((entry) => entry.id), ...(register ? { register } : {}) };
   }
-  const kinds = new Set(chosen.map((entry) => DEPARTURE_RECORDS[entry.kind]));
-  if (kinds.size > 1) departureRefusal('Accept departures that write the same record together; decide the others on their own.');
-  const [writes] = kinds;
   if (writes === 'plan-amendment') {
     const { commitPlanAmendment } = await import('./commands/decision-plan-amendment.mjs');
     // The rows a person chose on the list, else each departure's own clause or class.
@@ -463,7 +471,8 @@ export async function departureSummary(root, workflow, phase, recordedNow = []) 
   const readings = await departureReadings(root, workflow, phase.id);
   if (!readings.length) return null;
   const pick = (status) => readings.filter((entry) => status.includes(entry.status)).map((entry) => ({ id: entry.departure.id, kind: entry.departure.kind,
-    paths: entry.departure.paths, status: entry.status, words: departureWords(entry.departure) }));
+    paths: entry.departure.paths, status: entry.status, words: departureWords(entry.departure),
+    ...(entry.departure.findings?.length ? { findings: entry.departure.findings } : {}) }));
   const open = pick(['open', 'reopened']);
   const rejected = pick(['rejected']);
   // Decided and done: nothing to say to the step.
@@ -472,7 +481,9 @@ export async function departureSummary(root, workflow, phase, recordedNow = []) 
   const words = [
     recordedNow.length ? `Recorded ${recordedNow.map((entry) => `${entry.id} (${entry.paths.join(', ')})`).join(', ')} as ${recordedNow.length === 1 ? 'a departure' : 'departures'} from the approved plan.` : '',
     open.length ? `${open.map((entry) => entry.id).join(', ')} ${open.length === 1 ? 'waits' : 'wait'} for a person on the decisions table before ${name} is approved; publish goes ahead with ${open.length === 1 ? 'it' : 'them'}, so keep working and do not ask about ${open.length === 1 ? 'it' : 'them'} now.` : '',
-    ...rejected.map((entry) => `${entry.id} was rejected: restore ${entry.paths.join(', ')} to what ${entry.paths.length === 1 ? 'it' : 'they'} held when this generation began (remove a file that is new), then recheck.`)
+    ...rejected.map((entry) => (entry.kind === 'finding'
+      ? `${entry.id} was rejected: take the fix for ${entry.findings.join(', ')} out of ${entry.paths.join(', ')}, keeping the planned work, then recheck.`
+      : `${entry.id} was rejected: restore ${entry.paths.join(', ')} to what ${entry.paths.length === 1 ? 'it' : 'they'} held when this generation began (remove a file that is new), then recheck.`))
   ].filter(Boolean).join(' ');
   return { recorded: recordedNow.map((entry) => entry.id), open, rejected, words, decide: `singularity-flow decisions ${workflow.workItem.id}` };
 }

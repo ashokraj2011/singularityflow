@@ -160,3 +160,69 @@ test('"Accept all" covers file departures, and a row decided one by one keeps it
   assert.match(html, /<summary>The change<\/summary><pre>--- a\/plan\.md/u, 'a departure from a document shows its change');
   assert.match(DECIDE_SCRIPT, /!entry\.dataset\.one/u, '"Apply to all" skips a row decided one by one');
 });
+
+// The step's evidence beside its decisions [CQF:REQ-031, REQ-033, REQ-034, REQ-052, REQ-055].
+const { approvalEvidence, evidenceWords, HOLD_COMMAND } = await import('./helpers/approval-evidence-packet.mjs');
+const { evidenceHtml, evidencePaths } = await import('../apps/vscode/src/views/decide-card-page.ts');
+const pageText = (html) => html.replace(/<[^>]+>/gu, '').replace(/\s+/gu, ' ').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&amp;', '&');
+
+test('beside the departures the card shows coverage, each criterion\'s tests, the findings let through, the hold and the required checks, in the engine\'s words', () => {
+  const evidence = approvalEvidence();
+  const list = packet({ items: [departure('d1', 'src/format.mjs'), packet().items[6]], approvalEvidence: evidence });
+  const html = decideHtml(list);
+  const text = pageText(html);
+  for (const words of evidenceWords(evidence)) assert.ok(text.includes(words.replace(/\s+/gu, ' ')), `missing: ${words}`);
+  // The departure row comes first; the evidence follows the table, before the buttons.
+  assert.ok(html.indexOf('data-item="d1"') < html.indexOf('dc-evidence') && html.indexOf('dc-evidence') < html.indexOf('data-review'));
+  // Each file the evidence names opens beside it, as a row's file does.
+  assert.match(html, /<li><button type="button" class="dc-link" data-open="src\/value\.mjs">src\/value\.mjs<\/button>: 10 of 13 changed lines ran/u);
+  assert.match(html, /'parses an empty list' at <button[^>]*data-open="test\/value\.test\.mjs"/u);
+  assert.deepEqual(evidencePaths(list), ['src/value.mjs', 'test/value.test.mjs']);
+  // A part that warns is marked; required checks that all passed would not be.
+  assert.equal((html.match(/class="dc-ev dc-ev-warn"/gu) ?? []).length, 5);
+  assert.match(html, /<span class="dc-check dc-check-failed">failed<\/span>/u);
+  // Evidence is never a choice: nothing to pick, nothing preselected, nothing added to what is recorded.
+  assert.equal((html.match(/data-choice/gu) ?? []).length, (decideHtml(packet({ items: list.items })).match(/data-choice/gu) ?? []).length);
+  assert.doesNotMatch(evidenceHtml(list), /<select|<input|data-review|data-item=/u);
+  assert.equal(evidenceHtml(packet()), '', 'a list without evidence shows none');
+});
+
+test('a held package shows who may accept it and its own command, which stays in the person\'s terminal; anyone else is told who to share it with', () => {
+  const mine = evidenceHtml(packet({ approvalEvidence: approvalEvidence() }));
+  assert.match(mine, /minimist@1\.2\.5 GHSA-xvch-5gv4-984h \(critical, fixed in 1\.2\.8\)[\s\S]*The security reviewers accept it, or it is upgraded to 1\.2\.8 and submitted again\./u);
+  assert.match(mine, /This one stays in your terminal\.[\s\S]*<code>singularity-flow decision finding-risk PAY-1 --phase implementation --finding F-a4bd3792d14b22d0 [^<]*--reason &quot;&lt;why the step may keep it&gt;&quot; --expires &lt;YYYY-MM-DD&gt;<\/code>/u);
+  assert.match(mine, /data-hold-terminal="0">Put it in a terminal<\/button>[\s\S]*data-hold-copy="0">Copy<\/button>/u);
+  assert.ok(pageText(mine).includes(HOLD_COMMAND));
+  const theirs = evidenceHtml(packet({ approvalEvidence: approvalEvidence({ allowed: false }) }));
+  assert.doesNotMatch(theirs, /data-hold-terminal|data-hold-copy/u, 'no command to run for someone who may not accept it');
+  assert.match(theirs, /Share this with them: <code>\/sf-decide PAY-1<\/code>/u);
+  // The hold's own row already offers its command: the evidence names the package and who, and points there.
+  const holdRow = { id: 'd2', kind: 'approval-hold', title: 'Code waits for a person', why: 'A vulnerable package.', decidedBy: allowed,
+    options: [{ id: 'route', label: 'A person who may decide accepts it, or it is upgraded.', recommended: false, recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command: HOLD_COMMAND } }] };
+  const both = decideHtml(packet({ items: [holdRow], approvalEvidence: approvalEvidence() }));
+  assert.equal((both.match(/singularity-flow decision finding-risk/gu) ?? []).length, 1, 'one command, on its row');
+  assert.match(evidenceHtml(packet({ items: [holdRow], approvalEvidence: approvalEvidence() })), /Its command is on the hold's row above\./u);
+  assert.match(both, /<span>A person who may decide accepts it, or it is upgraded\.<\/span>/u, 'a label that ends a sentence gets no second full stop');
+  // A finding a person accepted says by whom and until when.
+  const accepted = evidenceHtml(packet({ approvalEvidence: approvalEvidence({ accepted: { id: 'FRK-001', by: 'Pat Reviewer', until: '2026-12-01' } }) }));
+  assert.match(accepted, /Accepted by Pat Reviewer until 2026-12-01 \(FRK-001\)\./u);
+  // The page names the held package by its place; the extension reads its command from the list, only for one who may accept it.
+  assert.match(DECIDE_SCRIPT, /hold: held\.dataset\.holdTerminal \?\? held\.dataset\.holdCopy/u);
+  assert.doesNotMatch(DECIDE_SCRIPT, /dataset\.command/u);
+});
+
+test('the extension types a held package\'s command only from the list it read, and only for a person who may accept it', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../apps/vscode/src/views/decide-card.ts', import.meta.url), 'utf8');
+  assert.match(source, /packet\.approvalEvidence\?\.hold\?\.entries\?\.\[Number\(hold\)\]/u);
+  assert.match(source, /entry\?\.allowed === true && typeof entry\.command === 'string' \? entry\.command : null/u);
+  assert.match(source, /'decide\.terminal': \(message\) => \{\n\s+const command = commandOf\(message\);/u);
+  assert.match(source, /evidencePaths\(packet\)\.includes\(file\)/u, 'only files the list names open');
+});
+
+test('without a coverage report the card says coverage was not measured and why', () => {
+  const evidence = { ...approvalEvidence(), coverage: { status: 'not-measured', mode: 'warn', minimum: 80, reasons: ['unit: no report'],
+    words: 'Coverage not measured: no test command of this step wrote a coverage report SFlow reads. It refuses nothing.' } };
+  const html = evidenceHtml(packet({ approvalEvidence: evidence }));
+  assert.match(html, /<section class="dc-ev dc-ev-warn"><h3>Changed-line coverage<\/h3><p>Coverage not measured: no test command of this step wrote a coverage report SFlow reads\. It refuses nothing\.<\/p><\/section>/u);
+});

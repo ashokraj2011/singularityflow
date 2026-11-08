@@ -46,6 +46,25 @@ export interface DecisionItemPacket {
   details?: Record<string, unknown>;
 }
 
+/**
+ * The evidence `decisions --json` carries beside a code step's decisions [CQF:REQ-031, REQ-033, REQ-034,
+ * REQ-052, REQ-055]: shown, never recorded; the engine words every line, so each host shows the same facts.
+ */
+export interface ApprovalEvidencePacket {
+  phase: string; phaseLabel: string; words: string;
+  coverage?: { status: 'measured' | 'not-measured' | string; minimum: number; percent?: number | null; below?: boolean; words: string; reasons?: string[];
+    files?: Array<{ path: string; inReport: boolean; percent: number | null; words: string }>; more?: number };
+  proof?: { criteria: Array<{ clauseId: string; tests: number; asserting: number; silent: number; words: string;
+    assertsNothing: Array<{ test: string; testSource: string; line: number | null }> }>; more?: number;
+    assertionCheck?: { status: string; words: string; tests: Array<{ name: string; path: string; line: number | null }> } };
+  findings?: { letThrough: Array<{ id: string; tool: string; rule: string | null; severity: string; file: string | null; line: number | null;
+    accepted: { id: string; by: string; until: string } | null; words: string }>; more?: number; words: string };
+  hold?: { code: string; words: string; more?: number;
+    entries: Array<{ id: string; package: string; installedVersion: string | null; fixedVersion: string | null; rule: string | null; severity: string;
+      who: string; allowed: boolean; command: string; words: string }> };
+  requiredChecks?: { status: string; words: string | null; checks: Array<{ name: string; status: string }> };
+}
+
 export interface DecisionPacket {
   resultType: 'sflow-decisions';
   workId: string; phase: string; phaseLabel: string;
@@ -60,6 +79,7 @@ export interface DecisionPacket {
   next?: { item: string; kind: string; title: string; command: string; copilotCommand: string | null } | null;
   record?: { form?: string; recommended?: string | null; interactive?: string; share?: string };
   unavailable?: Array<{ phase?: string; reason?: string }>;
+  approvalEvidence?: ApprovalEvidencePacket | null;
 }
 
 /** What a person chose for one item, with the values they see in its fields. */

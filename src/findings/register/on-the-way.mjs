@@ -314,7 +314,15 @@ export async function reopenRejectedFixes(root, config, workflow, departures, { 
   if (!fixes.length) return null;
   const workId = workflow.workItem.id;
   const named = fixes.map((entry) => entry.id).join(', ');
-  return moveItems(root, config, (register) => moveNamed(register, [...new Set(fixes.flatMap((entry) => entry.findings))], (item) => (
+  // An item another fix of this Story still carries stays in the Story.
+  const { departureRejection } = await import('../../departures.mjs');
+  const rejected = new Set(fixes.map((entry) => entry.id));
+  const replaced = new Set((workflow.departures ?? []).map((entry) => entry.supersedes).filter(Boolean));
+  const carried = new Set((workflow.departures ?? []).filter((entry) => !rejected.has(entry.id) && !replaced.has(entry.id) && !departureRejection(workflow, entry))
+    .flatMap((entry) => entry.findings ?? []));
+  const ids = [...new Set(fixes.flatMap((entry) => entry.findings))].filter((id) => !carried.has(id));
+  if (!ids.length) return null;
+  return moveItems(root, config, (register) => moveNamed(register, ids, (item) => (
     item.state === 'in-story' && item.story?.workId === workId
       ? { state: 'open', options: { at, reason: `a person rejected ${named}, the fix on the way in Story ${workId}`, story: null } } : null)),
   (moved) => `Story ${workId}: ${named} rejected, ${moved.join(', ')} open again`, { env, runCommand });

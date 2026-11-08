@@ -100,3 +100,10 @@ test('when the Story closes, a fix on the way closes on its own proof: the loop\
   assert.equal(after.security.items.find((item) => item.id === 'SEC-3').evidence.at(-1).kind, 'manifest-pin');
   assert.equal(moved.length, 4);
 });
+
+test('a rejected fix reopens only the items no other fix of the Story still carries', async () => {
+  const { reopenRejectedFixes } = await import('../src/findings/register/on-the-way.mjs');
+  const fix = (id, findings) => ({ id, kind: 'finding', phase: 'code', paths: ['src/a.mjs'], findings, supersedes: null, at: AT });
+  const workflow = { workItem: { id: 'ORD-9' }, departures: [fix('DEP-001', ['SEC-1']), fix('DEP-002', ['SEC-1'])], departureDecisions: [] };
+  assert.equal(await reopenRejectedFixes('/nonexistent', {}, workflow, [workflow.departures[0]]), null, 'DEP-002 still fixes SEC-1, so nothing is reopened');
+});

@@ -644,7 +644,7 @@ const AGENTS_BEFORE_WORLD_MODEL_REMOVAL = Object.freeze({
 });
 
 // Before each agent named its terminal as VS Code reads it (`execute`), beside Copilot CLI's `bash`.
-const AGENTS_BEFORE_VSCODE_TERMINAL = Object.freeze({
+export const AGENTS_BEFORE_VSCODE_TERMINAL = Object.freeze({
   '.github/agents/architect.agent.md': 'd75713542fb455b2bff883f290f7610bca1895228080ff4e77ce14e3e549be62',
   '.github/agents/careful-change.agent.md': '6a338fe29e85178371e13456a4c6dfe12b9449126f10cc568cf44bfb12cfd672',
   '.github/agents/demo-code-checker.agent.md': '6d1003200dd3f29cd45cc597489a65f99f37ced0582d1de973d9b0561393acf8',

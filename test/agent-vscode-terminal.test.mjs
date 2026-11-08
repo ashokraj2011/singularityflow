@@ -11,7 +11,7 @@ import {
   AGENT_ROLES, agentFilesWithoutVsCodeTerminal, renderAgentFile, splitAgentText, terminalMissingInVsCode, withVsCodeTerminal
 } from '../src/agent-file.mjs';
 import { renderDirectSkill } from '../src/direct-skills.mjs';
-import { isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256 } from '../src/packaged-asset-history.mjs';
+import { AGENTS_BEFORE_VSCODE_TERMINAL, isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256 } from '../src/packaged-asset-history.mjs';
 
 /**
  * VS Code gives an agent a terminal only for `execute` or `shell` (its tool set's own aliases,
@@ -68,7 +68,10 @@ test('an upgrade recognises each packaged agent it replaces, and the new bytes a
     assert.ok(isCurrentPackagedAssetHash(relative, packagedAssetSha256(bytes)), `${relative} current`);
     const earlier = Buffer.from(bytes.toString('utf8').replace('tools: [read, search, edit, execute, bash, ', 'tools: [read, search, edit, bash, '));
     assert.notDeepEqual(earlier, bytes);
-    const digest = packagedAssetSha256(earlier);
+    // Once an agent's own words change after that, the file an upgrade finds is the one recorded then:
+    // these bytes without `execute` never shipped.
+    const digest = isKnownPackagedAssetHash(relative, packagedAssetSha256(earlier))
+      ? packagedAssetSha256(earlier) : AGENTS_BEFORE_VSCODE_TERMINAL[relative];
     assert.ok(isKnownPackagedAssetHash(relative, digest), `${relative}: the file an upgrade finds is a known revision`);
     assert.ok(!isCurrentPackagedAssetHash(relative, digest), `${relative}: and not the current one`);
   }

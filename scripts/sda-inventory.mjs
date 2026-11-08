@@ -106,6 +106,8 @@ const OVERRIDES = {
   // SF Guard's signer writes only key stubs (references, no secret) in a private temporary directory it
   // deletes after each signing (SPEC-PSS-v1 IFC-003): bounded, machine-local run state.
   'presence/signer.mjs': 'local-operational',
+  // A Story's departures (CQF M2): each written in its own Story commit beside the Story's other records.
+  'departure-records.mjs': 'shared-state',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

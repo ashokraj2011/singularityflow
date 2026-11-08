@@ -39,7 +39,8 @@ import { pathToFileURL } from 'node:url';
 import { SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitReadOutput, nowIso, posix, readJson, repoRelative, run, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText } from './util.mjs';
 import { storyTestReadinessDocument } from './story-test-readiness-document.mjs';
 import { detectBaseStory, inheritFromBaseStory } from './story-base-lineage.mjs';
-import { initialTestRecoveryAgreement, normalizeTestRecoveryPolicy, prepareTestRecoveryIntake } from './test-recovery-intake.mjs';
+import { initialTestRecoveryAgreement, prepareTestRecoveryIntake } from './test-recovery-intake.mjs';
+import { normalizeTestRecoveryPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { authorizeTrpIntake, materializeTrpIntake, qualifiedTrpIntakeDecisions } from './test-recovery-admission.mjs';
 import { appendTrpRecord, appendTrpOriginalBaseline, readTrpRecord, readTrpRepairEvidence, readTrpReadinessCheckpoint, readTrpOriginalBaseline } from './test-recovery-store.mjs';
 import { assertTrpFeatureAdmission, completeTrpReadinessRepair } from './test-recovery-repair.mjs';
@@ -83,7 +84,8 @@ import { reopenAuthorityStep } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
-import { ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
+import { loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
+import { ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs";
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { ledgerLog, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
@@ -119,13 +121,14 @@ import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/re
 
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from './candidate-isolation.mjs';
-import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-policy.mjs';
+import { sourcePathPolicy, isSeparatelyHashedTestInput } from "./kernel/configuration-path-policies.mjs";
 import { hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt } from './impact.mjs';
 
 import { applicationChangeSetProjection, applicationPathContext, ensureWorkIntervalBaseline, isApplicationChangePath, isApplicationPath, isGeneratedOutputPath, isTransientTestResultPath } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
-import { evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand, withCommandLiteralEnvironment } from './external-command-policy.mjs';
+import { evaluateExternalCommandForModelMode, externalCommandText, withCommandLiteralEnvironment } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { assertProducerAllowed, normalizeAuthorshipOptions } from './kernel/phase-policy.mjs';
 import { buildGenerationAuthorship } from './kernel/phase-policy.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';

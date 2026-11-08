@@ -29,7 +29,7 @@ import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAt
 import { canonicalJson } from './records.mjs';
 import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { configurationPathKind, isConfigurationPath } from './configuration-paths.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { readRecord } from './schema-migrations.mjs';
 import {
   SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, mergePlannedClaimRecords, predecessorSpecClauses,

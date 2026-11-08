@@ -300,9 +300,13 @@ test('publication validates citations and the packet renders the articles', asyn
   // The consumers exist, because a constitution nothing reads is the shape this whole pack keeps
   // producing — `constitution: { path, mode }` shipped in workflow.yml at P1 with neither.
   const state = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
+  const publication = await readFile(new URL('../src/engine-compatibility/generation-publication.mjs', import.meta.url), 'utf8');
   const review = await readFile(new URL('../src/review.mjs', import.meta.url), 'utf8');
   const config = await readFile(new URL('../src/config.mjs', import.meta.url), 'utf8');
-  assert.match(state, /validateCitations\(/, 'publication does not validate citations');
+  assert.match(state, /import\('\.\/engine-compatibility\/generation-publication\.mjs'\)/, 'publication does not load its native owner');
+  assert.match(state, /return publishNativeGeneration\(root, config, workflow, options,/, 'publication does not delegate to its native owner');
+  assert.match(publication, /validateCitations\(/, 'publication does not validate citations');
+  assert.match(publication, /CONSTITUTION_CITATION_INVALID/, 'publication does not retain the enforced citation refusal');
   assert.match(state, /constitutionPin\(/, 'Story start does not pin the constitution');
   assert.match(review, /constitutionRendering\(/, 'the review packet does not render the constitution');
   // The snapshot is what a Story reads for the rest of its life; a policy resolved and then dropped

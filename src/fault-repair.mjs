@@ -1,3 +1,5 @@
+import { normalizeFaultRepairPolicy, faultRepairENVIRONMENTS as ENVIRONMENTS, faultRepairACTIONCEILINGS as ACTION_CEILINGS, faultRepairNormalizePathPrefix as normalizePathPrefix } from "./engine-compatibility/node-configuration-path.mjs";
+export { normalizeFaultRepairPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 /**
  * Fault intake and the governed local guided-repair control plane.
  * `[FTR:REQ-010]` `[FTR:REQ-020]` `[FTR:REQ-060]` `[FTR:REQ-070]`
@@ -27,15 +29,12 @@ export const REPAIR_RECEIPT_SCHEMA_VERSION = currentSchemaVersion('repair-receip
 const FAULT_OCCURRENCE_GROUP_SCHEMA_VERSION = currentSchemaVersion('fault-occurrence-group');
 const REPAIR_EVENT_SCHEMA_VERSION = currentSchemaVersion('repair-event');
 const REPAIR_ATTEMPT_SCHEMA_VERSION = currentSchemaVersion('repair-attempt');
-
-const ENVIRONMENTS = new Set(['local', 'ide', 'copilot', 'ci', 'integration', 'staging', 'production']);
 const SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
 const FAULT_TYPES = new Set([
   'compile', 'lint', 'unit-test', 'integration-test', 'verification', 'runtime', 'dependency',
   'configuration', 'schema', 'deployment', 'production', 'security', 'policy', 'requirement',
   'architecture', 'unknown'
 ]);
-const ACTION_CEILINGS = Object.freeze(['record', 'diagnose', 'propose', 'guided', 'bounded-auto']);
 const ACTIVE_REPAIR_STATES = new Set([
   'recorded', 'diagnosis-ready', 'planned', 'proposed', 'awaiting-authorization', 'authorizing',
   'awaiting-patch', 'repairing', 'verifying', 'retry-ready', 'needs-human', 'challenge-required'
@@ -47,21 +46,6 @@ const JOINABLE_REPAIR_STATES = new Set([...ACTIVE_REPAIR_STATES, 'challenge-open
 const TERMINAL_REPAIR_STATES = new Set([
   'resolved', 'exhausted', 'cancelled', 'quarantined', 'challenge-opened', 'follow-up-created'
 ]);
-const DEFAULT_POLICY = Object.freeze({
-  enabled: true,
-  maxAttempts: 3,
-  maxMinutes: 20,
-  maxTokens: 30_000,
-  maximumInlineEvidenceBytes: 16 * 1024,
-  maximumEvidenceBytes: 64 * 1024 * 1024,
-  leaseMinutes: 60,
-  boundedAuto: false,
-  environmentCeilings: Object.freeze({
-    local: 'guided', ide: 'guided', copilot: 'guided', ci: 'propose', integration: 'propose',
-    staging: 'propose', production: 'diagnose'
-  }),
-  protectedPaths: Object.freeze(['.git', 'singularity', 'infra/production'])
-});
 
 function sha256(value) {
   return createHash('sha256').update(Buffer.isBuffer(value) ? value : String(value)).digest('hex');
@@ -245,48 +229,6 @@ function sanitizeValue(value, redactions, pathLabel = 'value') {
   return sanitizeStructuredValue(value, redactions, pathLabel).value;
 }
 
-export function normalizeFaultRepairPolicy(value = {}) {
-  if (value == null) value = {};
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('faultRepair must be an object.');
-  const allowed = new Set([
-    'enabled', 'maxAttempts', 'maxMinutes', 'maxTokens', 'maximumInlineEvidenceBytes',
-    'maximumEvidenceBytes', 'leaseMinutes', 'boundedAuto', 'environmentCeilings', 'protectedPaths'
-  ]);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`faultRepair contains unknown field '${key}'.`);
-  if (value.protectedPaths != null && !Array.isArray(value.protectedPaths)) {
-    throw new SingularityFlowError('faultRepair.protectedPaths must be an array.');
-  }
-  if (value.environmentCeilings != null
-    && (!value.environmentCeilings || typeof value.environmentCeilings !== 'object' || Array.isArray(value.environmentCeilings))) {
-    throw new SingularityFlowError('faultRepair.environmentCeilings must be an object.');
-  }
-  const policy = {
-    ...DEFAULT_POLICY,
-    ...value,
-    environmentCeilings: { ...DEFAULT_POLICY.environmentCeilings, ...(value.environmentCeilings ?? {}) },
-    protectedPaths: [...new Set(value.protectedPaths ?? DEFAULT_POLICY.protectedPaths)]
-  };
-  if (typeof policy.enabled !== 'boolean' || typeof policy.boundedAuto !== 'boolean') {
-    throw new SingularityFlowError('faultRepair.enabled and faultRepair.boundedAuto must be boolean.');
-  }
-  for (const [field, minimum, maximum] of [
-    ['maxAttempts', 1, 20], ['maxMinutes', 1, 1440], ['maxTokens', 1, 10_000_000],
-    ['maximumInlineEvidenceBytes', 1, 65_536], ['maximumEvidenceBytes', 1024, 1024 * 1024 * 1024],
-    ['leaseMinutes', 1, 1440]
-  ]) {
-    if (!Number.isInteger(policy[field]) || policy[field] < minimum || policy[field] > maximum) {
-      throw new SingularityFlowError(`faultRepair.${field} must be an integer from ${minimum} through ${maximum}.`);
-    }
-  }
-  for (const [environment, ceiling] of Object.entries(policy.environmentCeilings)) {
-    if (!ENVIRONMENTS.has(environment) || !ACTION_CEILINGS.includes(ceiling)) {
-      throw new SingularityFlowError(`faultRepair.environmentCeilings.${environment} is invalid.`);
-    }
-  }
-  for (const prefix of policy.protectedPaths) normalizePathPrefix(prefix, 'faultRepair.protectedPaths');
-  return Object.freeze({ ...policy, protectedPaths: Object.freeze([...policy.protectedPaths]) });
-}
-
 /** Apply caller limits without allowing them to replace or broaden governed policy. */
 export function restrictFaultRepairPolicy(governed = {}, restriction = {}) {
   const base = normalizeFaultRepairPolicy(governed);
@@ -443,14 +385,6 @@ function nextId(prefix) {
 
 function requireId(value, prefix, label) {
   return requireText(value, label, { maximum: 96, pattern: new RegExp(`^${prefix}-[A-Z0-9][A-Z0-9-]*$`, 'i') }).toUpperCase();
-}
-
-function normalizePathPrefix(value, label = 'path') {
-  const input = String(value ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
-  if (!input || input === '.' || path.posix.isAbsolute(input) || input.split('/').includes('..') || input.includes('\0')) {
-    throw new SingularityFlowError(`${label} must be a bounded repository-relative path, not the repository root, and may not contain '..'.`, { code: 'REPAIR_SCOPE_INVALID' });
-  }
-  return input;
 }
 
 function pathInside(candidate, prefix) {

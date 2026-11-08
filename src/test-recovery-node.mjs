@@ -4,7 +4,7 @@ import { open, lstat, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseNativeNodeJunitReport } from './code-delivery-tests.mjs';
-import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
+import { normalizeTestSelectionPath } from "./engine-compatibility/node-configuration-path.mjs";
 import { trpDigest } from './test-recovery-policy.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 

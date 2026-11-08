@@ -265,6 +265,13 @@ Logging sinks, source-control authority lookup, provider effects and record migr
 their native owners. This removes another prerequisite for portable configuration validation;
 it does not approve configuration or complete a namespace Story runtime.
 
+[Explicit configuration path syntax](ENGINE-SDK-CONFIGURATION-PATHS.md) replaces ten more native
+validators and three primitive callbacks with one frozen string-syntax port, leaving fourteen
+collaborators. Kernel rules share native bindings for source roots, artifact sets, AST, repairs,
+commands, document and test policies. Node supplies string operations only; actual filesystem,
+source-control, provider and execution effects remain outside the kernel. The complete namespace
+configuration and Story runtime still require their remaining admission and execution ports.
+
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first

@@ -1,3 +1,5 @@
+import { ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, environmentDeclarationVARIABLE as VARIABLE, environmentDeclarationRESERVEDVARIABLES as RESERVED_VARIABLES, environmentDeclarationRESERVEDPREFIXES as RESERVED_PREFIXES } from "./kernel/configuration-path-policies.mjs";
+export { ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, looksSecretName, declarableEnvironmentVariable } from "./kernel/configuration-path-policies.mjs";
 /**
  * Public, names-only execution-environment declaration.
  *
@@ -17,30 +19,9 @@ import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
-
-export const ENVIRONMENT_DECLARATION_PATH = 'singularity/environments.yml';
-export const ENVIRONMENT_IDENTIFIER = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/;
 const KINDS = new Set(['secret', 'endpoint', 'flag']);
 const MAXIMUM_DECLARATION_BYTES = 256 * 1024;
 const supportedDeclarationVersions = Object.freeze({ 1: true });
-const RESERVED_VARIABLES = new Set([
-  'PATH', 'NODE_OPTIONS', 'NODE_PATH', 'HOME', 'SHELL', 'COMSPEC', 'PATHEXT',
-  'SYSTEMROOT', 'USERPROFILE', 'TMP', 'TEMP', 'SSH_AUTH_SOCK',
-  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'
-]);
-const RESERVED_PREFIXES = ['GIT_', 'LD_', 'DYLD_', 'NODE_', 'NPM_CONFIG_', 'SINGULARITY_FLOW_'];
-
-/** Whether a variable or option name reads like a secret's (secret-looking.mjs re-exports it). */
-export function looksSecretName(name) {
-  return /pass|secret|token|key|credential|private|auth/iu.test(String(name ?? ''));
-}
-
-/** Whether environments.yml may declare this variable name (UPPER_CASE, not reserved). */
-export function declarableEnvironmentVariable(name) {
-  return typeof name === 'string' && VARIABLE.test(name) && !RESERVED_VARIABLES.has(name)
-    && !RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
-}
 
 function fail(message, details = null) {
   throw new SingularityFlowError(

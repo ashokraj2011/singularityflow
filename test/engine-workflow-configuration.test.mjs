@@ -111,7 +111,10 @@ test('saved reviewer catalogs preserve reviewer availability and independent aut
 
 test('relative path interpretation is an explicit host fact for both platform grammars',()=>{
   for(const [grammar,absolute]of [[path.posix,'/outside'],[path.win32,'C:\\outside']]) {
-    const compiler=createWorkflowConfigurationCompiler({...composition.dependencies,absolutePath:grammar.isAbsolute});
+    const compiler=createWorkflowConfigurationCompiler({...composition.dependencies,
+      pathSyntax:Object.freeze({...composition.dependencies.pathSyntax,grammar:grammar.sep==='\\'?'win32':'posix',
+        isAbsolute:grammar.isAbsolute,normalize:grammar.normalize,parse:grammar.parse,
+        toPosix:value=>value.split(grammar.sep).join('/')})});
     const definition=structuredClone(source);definition.templatesRoot=absolute;
     assert.throws(()=>compiler.validateDefinition(definition),/repository-relative path/);
   }

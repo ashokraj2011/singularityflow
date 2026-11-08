@@ -7,7 +7,7 @@ import { createGitRuntime } from './git-access.mjs';
 import { FosGitObjectService } from './fos-object-service.mjs';
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
-import { normalizeWorkItemRoot } from './work-item-location.mjs';
+import { normalizeWorkItemRoot } from "./engine-compatibility/node-configuration-path.mjs";
 import { validatePortableWorkId } from './work-id.mjs';
 import { removeTemporaryTree, SingularityFlowError } from './util.mjs';
 import { withLocalReadDeadline, assertLocalReadDeadline, localReadDeadlineRemainingMs,

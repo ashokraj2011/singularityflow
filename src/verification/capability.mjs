@@ -14,7 +14,7 @@ import { access, lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { inferModuleTestCommand } from '../code-delivery-tests.mjs';
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { posix } from '../util.mjs';
 import { profileCeiling, profileForCommand, profileIsExact } from './profiles.mjs';
 import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';

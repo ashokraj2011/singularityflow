@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 
 import { readRefTreeResult } from '../git-ref-tree.mjs';
 import { extractClauses } from '../specifications.mjs';
-import { normalizeWorkItemRoot } from '../work-item-location.mjs';
+import { normalizeWorkItemRoot } from "../engine-compatibility/node-configuration-path.mjs";
 import { stemOf } from './render.mjs';
 
 export const REQUIREMENT_SOURCE_LIMITS = Object.freeze({

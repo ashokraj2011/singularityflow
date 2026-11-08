@@ -1,6 +1,6 @@
 /** Guided test-command edits; the existing configuration transaction owns validation and saving. */
 import YAML from 'yaml';
-import { normalizeExternalCommand } from '../../../../src/external-command-policy.mjs';
+import { normalizeExternalCommand } from "../../../../src/engine-compatibility/node-configuration-path.mjs";
 
 export interface TestSetupTarget {
   id: string; label: string; phaseId: string; workType: string | null;

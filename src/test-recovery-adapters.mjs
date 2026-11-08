@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { readTrpNodeCaseInventory, trpNodeExecutionEnvironment } from './test-recovery-node.mjs';
 import { parseNativeNodeJunitReport, parseTrpJunitReport } from './code-delivery-tests.mjs';
-import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
+import { normalizeTestSelectionPath } from "./engine-compatibility/node-configuration-path.mjs";
 import { trpDigest } from './test-recovery-policy.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 

@@ -25,9 +25,8 @@ import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference
 } from './git-remote-diagnostics.mjs';
-import {
-  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
-} from './work-item-location.mjs';
+import { workItemRootFromDefinitionText, workItemWorkflowRelative } from './work-item-location.mjs';
+import { DEFAULT_WORK_ITEM_ROOT } from "./engine-compatibility/node-configuration-path.mjs";
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import {

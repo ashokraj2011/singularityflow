@@ -7,9 +7,8 @@ import path from 'node:path';
 
 import { repositoryGitPath } from './git-directory.mjs';
 import { gitCommonDir } from './git.mjs';
-import {
-  ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclaration
-} from './environment-declaration.mjs';
+import { isExactEnvironmentFilePath, loadEnvironmentDeclaration } from './environment-declaration.mjs';
+import { ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs";
 import {
   readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar
 } from './private-sidecar.mjs';

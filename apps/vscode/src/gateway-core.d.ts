@@ -367,6 +367,11 @@ declare module '*/external-command-policy.mjs' {
   export function normalizeExternalCommand(value: unknown, index?: number): { id: string; [key: string]: unknown };
 }
 
+declare module '*/engine-compatibility/node-configuration-path.mjs' {
+  export const TEST_RESULT_ADAPTERS: readonly string[];
+  export function normalizeExternalCommand(value: unknown, index?: number): { id: string; [key: string]: unknown };
+}
+
 /**
  * The form layer's pure half.
  *

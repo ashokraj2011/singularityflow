@@ -1,4 +1,4 @@
-import { normalizeSourceRoots } from './source-scope.mjs';
+import { normalizeSourceRoots } from "./engine-compatibility/node-configuration-path.mjs";
 import { classifyGitRemoteFailure } from './git-remote-diagnostics.mjs';
 import { SingularityFlowError } from './util.mjs';
 

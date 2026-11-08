@@ -26,7 +26,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
-import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from './external-command-policy.mjs';
+import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from "./engine-compatibility/node-configuration-path.mjs";
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { repoRoot } from './git.mjs';

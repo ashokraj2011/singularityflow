@@ -6,7 +6,8 @@ import { environmentFilesRegistryPolicySync, exactEnvironmentDeclarationAtRef } 
 import {
   gitHeadIsUnborn, gitReadOutput, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot
 } from './util.mjs';
-import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
+import { sourcePathIncluded } from './source-scope.mjs';
+import { worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';

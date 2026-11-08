@@ -1,134 +1,22 @@
+import { normalizeTestRecoveryPolicy, testRecoveryIntakeFail as fail } from "./engine-compatibility/node-configuration-path.mjs";
+export { normalizeTestRecoveryPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 /** TRP intake planning is read-only. Display defaults are never execution consent. */
-import { trpDigest, sealTrpRecord, TRP_RISK_CATEGORIES } from './test-recovery-policy.mjs';
+import { trpDigest, sealTrpRecord } from './test-recovery-policy.mjs';
+
 import { SingularityFlowError } from './util.mjs';
 import { phaseRequiresCodeDelivery, TEST_SCOPES } from './code-delivery-policy.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
-import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
+
 import path from 'node:path';
-import { normalizeDocumentObligations } from './trp-document-policy.mjs';
+
 import { baselineDeferralAllowed, baselineObservationPending } from './intake-baseline.mjs';
 
 const MODES = ['changed-and-affected', 'all-configured'];
-const fail = (message, code = 'TRP_POLICY_INVALID') => { throw new SingularityFlowError(message, { code }); };
 const requiredNonTestPurposes = definition => {
   const policies = [definition?.repositoryReadiness, definition?.initialization?.proof?.preStory].filter(Boolean);
   return [['dependencyHydration', 'dependency'], ['build', 'build'], ['applicationStart', 'start']]
     .filter(([key]) => policies.some(policy => policy[key] === 'required')).map(([, purpose]) => purpose);
 };
-
-/** Independent approved identities, never an inventory inferred from a test report. */
-function normalizeCaseInventory(value) {
-  if (!Array.isArray(value) || !value.length || value.length > 64) fail('testRecovery.caseInventory needs 1–64 phase/command entries.');
-  const entries = new Set();
-  let total = 0;
-  const ordinary = (text, max) => typeof text === 'string' && text.trim().length > 0
-    && text === text.trim() && text.length <= max && !/[\x00-\x1f\x7f]/u.test(text);
-  return value.map(entry => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
-        || Object.keys(entry).some(key => !['phaseId', 'commandId', 'adapter', 'runtime', 'baselineMutableRoots', 'dependencyScope', 'tests'].includes(key))
-        || !ordinary(entry.phaseId, 128) || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(entry.phaseId)
-        || entry.phaseId.includes('..') || !ordinary(entry.commandId, 256)
-        || !Array.isArray(entry.tests) || !entry.tests.length || (total += entry.tests.length) > 10_000) {
-      fail('Invalid or oversized testRecovery.caseInventory entry.');
-    }
-    const adapter = entry.adapter ?? 'node-test-junit-v1';
-    if (!['node-test-junit-v1', 'pytest-junit-v1', 'maven-surefire-junit-v1'].includes(adapter)) fail('Unsupported approved testcase adapter.');
-    const node = adapter === 'node-test-junit-v1';
-    if (entry.dependencyScope !== (node ? 'repository-and-node-builtins-only' : 'repository-and-declared-runtime-only')) fail('Approved testcase dependency scope does not match its runner.');
-    let runtime;
-    if (node) {
-      if (entry.runtime !== undefined) fail('Native Node inventory uses the current qualified Node runtime, not a declared external runtime.');
-    } else {
-      runtime = entry.runtime;
-      if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)
-          || Object.keys(runtime).some(key => !['executableSha256', 'dependencyRoots'].includes(key))
-          || !/^sha256:[a-f0-9]{64}$/u.test(runtime.executableSha256 ?? '')
-          || !Array.isArray(runtime.dependencyRoots) || !runtime.dependencyRoots.length || runtime.dependencyRoots.length > 8
-          || new Set(runtime.dependencyRoots).size !== runtime.dependencyRoots.length
-          || runtime.dependencyRoots.some(root => !ordinary(root, 4096) || !path.isAbsolute(root) || path.normalize(root) !== root || root === path.parse(root).root)) {
-        fail('Declared runtimes need an exact executable SHA-256 and 1–8 canonical, non-root absolute dependency roots.');
-      }
-      runtime = { executableSha256: runtime.executableSha256, dependencyRoots: [...runtime.dependencyRoots] };
-    }
-    const pair = JSON.stringify([entry.phaseId, entry.commandId]);
-    if (entries.has(pair)) fail('Duplicate testRecovery.caseInventory phase/command.');
-    entries.add(pair);
-    const ids = new Set(); const identities = new Set(); const files = new Set();
-    const tests = entry.tests.map(test => {
-      if (!test || typeof test !== 'object' || Array.isArray(test)
-          || Object.keys(test).some(key => !['id', 'path', 'name', 'className'].includes(key))
-          || !ordinary(test.id, 256) || !ordinary(test.name, 4096) || !ordinary(test.path, 1024)
-          || (!node && !ordinary(test.className, 4096)) || (node && test.className !== undefined)) {
-        fail('Each approved test needs an exact ID, repository-relative path and native report name.');
-      }
-      let normalized;
-      try { normalized = normalizeTestSelectionPath(test.path); } catch { fail('Approved test paths must be safe repository-relative paths.'); }
-      if (normalized !== test.path || test.path.includes('\\')) fail('Approved test paths must use canonical forward slashes.');
-      const identity = JSON.stringify([node ? test.path : test.className, test.name]);
-      if (ids.has(test.id) || identities.has(identity)) fail('Approved test IDs and file/name pairs must be unique per command.');
-      ids.add(test.id); identities.add(identity); files.add(test.path);
-      return { id: test.id, path: test.path, name: test.name, ...(!node ? { className: test.className } : {}) };
-    });
-    if (files.size > 256) fail('Approved test inventory exceeds 256 files per command.');
-    let baselineMutableRoots;
-    if (entry.baselineMutableRoots !== undefined) {
-      const roots = entry.baselineMutableRoots;
-      if (!Array.isArray(roots) || !roots.length || roots.length > 16 || new Set(roots).size !== roots.length) fail('Baseline mutable source roots need 1–16 distinct repository directories.');
-      baselineMutableRoots = roots.map(root => {
-        let normalized;
-        try { normalized = normalizeTestSelectionPath(root); } catch { fail('Baseline mutable roots must be canonical repository directories.'); }
-        if (!ordinary(root, 1024) || root !== normalized || root.includes('\\') || root === '.'
-          || /(?:^|\/)(?:\.git|singularity|node_modules|vendor|target|build|dist|tests?|fixtures?|config|configuration|\.venv|venv)(?:\/|$)/iu.test(root)
-          || /\.[a-z0-9]+$/iu.test(root)
-          || tests.some(test => test.path === root || test.path.startsWith(`${root}/`))) fail('Baseline mutable roots must exclude approved tests, fixtures, dependency, configuration and framework paths.');
-        return root;
-      });
-      if (baselineMutableRoots.some((root, index) => baselineMutableRoots.some((other, otherIndex) => index !== otherIndex && root.startsWith(`${other}/`)))) fail('Baseline mutable source roots must not overlap.');
-    }
-    return { phaseId: entry.phaseId, commandId: entry.commandId, ...(entry.adapter ? { adapter } : {}),
-      ...(runtime ? { runtime } : {}), ...(baselineMutableRoots ? { baselineMutableRoots } : {}), dependencyScope: entry.dependencyScope, tests };
-  });
-}
-
-export function normalizeTestRecoveryPolicy(value) {
-  if (value == null) return null;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('testRecovery must be an object.');
-  const allowed = new Set(['enabled', 'riskAuthorities', 'enabledRiskCategories', 'maxRiskDays',
-    'maxDistinctAutomaticAttempts', 'allowEvidenceReuse', 'maxEvidenceAgeSeconds', 'caseInventory', 'documentObligations']);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) fail(`Unknown testRecovery field '${key}'.`);
-  if (typeof value.enabled !== 'boolean') fail('testRecovery.enabled must be explicitly true or false.');
-  const list = (key, fallback) => {
-    const result = value[key] ?? fallback;
-    if (!Array.isArray(result) || result.length > 32 || new Set(result).size !== result.length
-      || result.some(item => typeof item !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(item))) fail(`Invalid testRecovery.${key}.`);
-    return [...result];
-  };
-  const integer = (key, fallback, minimum, maximum) => {
-    const n = value[key] ?? fallback;
-    if (!Number.isSafeInteger(n) || n < minimum || n > maximum) fail(`Invalid testRecovery.${key}.`);
-    return n;
-  };
-  const categories = list('enabledRiskCategories', []);
-  if (categories.some(category => !TRP_RISK_CATEGORIES.includes(category))) fail('Unsupported testRecovery risk category.');
-  const authorities = list('riskAuthorities', []);
-  if (categories.length && !authorities.length) fail('Enabled risks require explicit testRecovery.riskAuthorities.');
-  if (value.allowEvidenceReuse != null && typeof value.allowEvidenceReuse !== 'boolean') fail('testRecovery.allowEvidenceReuse must be boolean.');
-  const caseInventory = value.caseInventory === undefined ? undefined : normalizeCaseInventory(value.caseInventory);
-  const documentObligations = value.documentObligations === undefined ? undefined : normalizeDocumentObligations(value.documentObligations);
-  if (categories.includes('nonessential-document') && !documentObligations?.length) fail('Nonessential-document review requires explicitly declared supplemental document obligations.');
-  if (categories.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category)) && (!caseInventory || value.allowEvidenceReuse !== true)) {
-    fail('Failed-test review requires an independently approved caseInventory and explicit allowEvidenceReuse: true. Observations remain failed; each transition needs its own review.', 'TRP_RISK_ADAPTER_UNAVAILABLE');
-  }
-  if (value.allowEvidenceReuse === true && !categories.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))) fail('Evidence reuse is supported only for explicitly enabled, independently inventoried failed-test or reduced-coverage review.', 'TRP_EVIDENCE_REUSE_UNAVAILABLE');
-  return {
-    enabled: value.enabled, riskAuthorities: authorities, enabledRiskCategories: categories,
-    maxRiskDays: integer('maxRiskDays', 30, 1, 30),
-    maxDistinctAutomaticAttempts: integer('maxDistinctAutomaticAttempts', 3, 0, 3),
-    allowEvidenceReuse: value.allowEvidenceReuse ?? false,
-    maxEvidenceAgeSeconds: integer('maxEvidenceAgeSeconds', 86400, 1, 2592000),
-    ...(caseInventory ? { caseInventory } : {}), ...(documentObligations ? { documentObligations } : {})
-  };
-}
 
 export function testRecoveryChoices(options = {}) {
   const baselineRecords = options['test-baseline-record'];

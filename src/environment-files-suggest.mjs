@@ -13,9 +13,8 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import {
-  captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, matchEnvironmentLocalPath, parseEnvironmentDeclaration
-} from './environment-declaration.mjs';
+import { captureEnvironmentDeclaration, matchEnvironmentLocalPath, parseEnvironmentDeclaration } from './environment-declaration.mjs';
+import { ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs";
 import { declaredEnvironmentFiles, templateCandidates } from './environment-files.mjs';
 import { trackedPaths } from './git.mjs';
 

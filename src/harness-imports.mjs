@@ -7,7 +7,7 @@ import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { repoRoot } from './git.mjs';
 import { nowIso, run, secureRepositoryPath, SingularityFlowError, snapshot, writeText } from './util.mjs';
-import { normalizeWorkItemRoot } from './work-item-location.mjs';
+import { normalizeWorkItemRoot } from "./engine-compatibility/node-configuration-path.mjs";
 
 import { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES, HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_MODES, normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 export { HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES,

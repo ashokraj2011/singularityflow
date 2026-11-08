@@ -24,8 +24,8 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { declaredMavenModules, inferModuleTestCommand, normalizeRequiredTestCommand, resolveAffectedModule } from './code-delivery-tests.mjs';
-import { ENVIRONMENT_DECLARATION_PATH } from './environment-declaration.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { ENVIRONMENT_DECLARATION_PATH } from "./kernel/configuration-path-policies.mjs";
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { classifyCommand, scanGuidanceText } from './guidance-scan.mjs';
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
 import { classifyVariable, looksSecretName, looksSecretValue } from './secret-looking.mjs';

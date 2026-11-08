@@ -1,11 +1,12 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { normalizeAstPolicy } from './ast-policy.mjs';
+import { normalizeAstPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { effectiveAstMode } from './ast-mode.mjs';
 import { buildAstCache } from './ast-intelligence.mjs';
 import { head } from './git.mjs';
-import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
+import { worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import { nowIso } from './util.mjs';
 import { launchDetached } from './ast-warm-launcher.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';

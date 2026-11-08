@@ -14,7 +14,7 @@ import { comprehensionDefinition, comprehensionPathContext, isExplainedPath } fr
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from '../environment-declaration.mjs';
 import { readRefTreeResult } from '../git-ref-tree.mjs';
 import { head, withEnvironmentFilesRegistry } from '../git.mjs';
-import { normalizeSourceRoots } from '../source-scope.mjs';
+import { normalizeSourceRoots } from "../engine-compatibility/node-configuration-path.mjs";
 import { SingularityFlowError } from '../util.mjs';
 import { readApprovedRequirements } from './requirements.mjs';
 import { isRuleFile } from './rule-files.mjs';

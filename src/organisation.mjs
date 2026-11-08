@@ -67,7 +67,7 @@ import {
 } from './configuration-branch.mjs';
 import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
-import { normalizeSourceRoots } from './source-scope.mjs';
+import { normalizeSourceRoots } from "./engine-compatibility/node-configuration-path.mjs";
 import { createAndPushTransportIntent, pendingPublicationNote } from './transport-intents.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,

@@ -1,7 +1,7 @@
+import { injectionConfig } from "./engine-compatibility/node-configuration-path.mjs";
+export { injectionConfig, validateInjectionDefinition } from "./engine-compatibility/node-configuration-path.mjs";
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
-import {
-  mkdir, readFile, rename, writeFile
-} from 'node:fs/promises';
+import { mkdir, readFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -14,9 +14,6 @@ import { tokenEconomyDigest } from './token-economy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';
 import { verifyTokenReductionShadow } from './token-reduction/shadow-record.mjs';
-
-const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
-const MODES = new Set(['replace', 'append', 'off']);
 // Persisted grounding is trusted only after its receipt, path and exact bytes have all been
 // verified. Bound admission before allocation or I/O so a crafted receipt cannot turn replay into
 // an unbounded memory read. Legitimate packets are normally measured in KiB, not MiB.
@@ -32,52 +29,6 @@ async function tokenReductionCompositionRuntime() {
   )).href;
   tokenReductionCompositionRuntimePromise ??= import(runtimeUrl);
   return tokenReductionCompositionRuntimePromise;
-}
-
-function values(value) { return Array.isArray(value) ? value : [value]; }
-
-function assertStringValues(value, label) {
-  if (value == null) return;
-  if (values(value).some((item) => typeof item !== 'string' || !item.trim())) throw new SingularityFlowError(`${label} must contain non-empty strings.`);
-}
-
-export function injectionConfig(definition) {
-  const configured = definition.worldModel?.injection ?? {};
-  const merged = { ...DEFAULT_INJECTION, ...configured };
-  if (!MODES.has(merged.mode)) throw new SingularityFlowError(`worldModel.injection.mode must be replace, append, or off; got '${merged.mode}'.`);
-  if (typeof merged.placeholder !== 'string' || !merged.placeholder) throw new SingularityFlowError('worldModel.injection.placeholder must be a non-empty string.');
-  if (!Number.isInteger(merged.maxBytes) || merged.maxBytes < 1) throw new SingularityFlowError('worldModel.injection.maxBytes must be a positive integer.');
-  if (!Array.isArray(merged.rules)) throw new SingularityFlowError('worldModel.injection.rules must be an array.');
-  return merged;
-}
-
-export function validateInjectionDefinition(definition, { deferAgentReferences = false } = {}) {
-  const injection = injectionConfig(definition);
-  injection.rules.forEach((rule, index) => {
-    const label = `worldModel.injection.rules[${index}]`;
-    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) throw new SingularityFlowError(`${label} must be an object.`);
-    if (!Array.isArray(rule.include) || !rule.include.length) throw new SingularityFlowError(`${label}.include must contain at least one world-model path or glob.`);
-    assertStringValues(rule.include, `${label}.include`);
-    for (const include of rule.include) {
-      if (path.isAbsolute(include) || include.split(/[\\/]/).includes('..')) throw new SingularityFlowError(`${label}.include paths must stay inside the world-model directory.`);
-    }
-    const when = rule.when ?? {};
-    if (typeof when !== 'object' || Array.isArray(when)) throw new SingularityFlowError(`${label}.when must be an object.`);
-    for (const key of Object.keys(when)) if (!['agent', 'phase', 'workType', 'changedPaths', 'labels'].includes(key)) throw new SingularityFlowError(`${label}.when has unsupported signal '${key}'.`);
-    for (const [key, source] of [['agent', definition.agents], ['phase', definition.phases], ['workType', definition.workTypes]]) {
-      assertStringValues(when[key], `${label}.when.${key}`);
-      for (const id of when[key] == null ? [] : values(when[key])) {
-        if (!(deferAgentReferences && key === 'agent') && !source?.[id]) {
-          throw new SingularityFlowError(`${label}.when.${key} references unknown ${key} '${id}'.`);
-        }
-      }
-    }
-    assertStringValues(when.changedPaths, `${label}.when.changedPaths`);
-    assertStringValues(when.labels, `${label}.when.labels`);
-    if (rule.depth != null && !['light', 'quick', 'standard', 'deep'].includes(rule.depth)) throw new SingularityFlowError(`${label}.depth must be light, quick, standard, or deep.`);
-    if (rule.evidence != null && typeof rule.evidence !== 'boolean') throw new SingularityFlowError(`${label}.evidence must be boolean.`);
-  });
-  return injection;
 }
 
 export function globToRegExp(glob) {

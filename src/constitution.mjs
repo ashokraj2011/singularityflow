@@ -1,3 +1,4 @@
+export { CONSTITUTION_MODES, DEFAULT_CONSTITUTION_PATH, constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 /**
  * One constitution. `[SPK:REQ-090]` … `[SPK:REQ-104]` `[SPK:CON-039]` … `[SPK:CON-044]`
  *
@@ -43,11 +44,8 @@ export const CONSTITUTION_SCHEMA_VERSION = currentSchemaVersion('constitution-re
  * renderer rather than looking like a policy change `[SPK:REQ-098]`.
  */
 export const RENDERER_VERSION = 1;
-
-export const CONSTITUTION_MODES = Object.freeze(['off', 'warn', 'enforce']);
 export const ARTICLE_TYPES = Object.freeze(['enforced', 'judged']);
 export const ARTICLE_LEVELS = Object.freeze(['must', 'should']);
-export const DEFAULT_CONSTITUTION_PATH = 'singularity/constitution.md';
 
 /** Where generated prose begins and ends, so `generate` can replace exactly that and nothing else. */
 const GENERATED = (id) => ({
@@ -56,31 +54,6 @@ const GENERATED = (id) => ({
 });
 
 const ANCHOR = /^#{1,6}\s*\[(?<id>[A-Z][A-Z0-9]*-\d{3,})\]\s*(?<title>.+?)\s*$/;
-
-/**
- * Normalize the `constitution:` block a work type declares.
- *
- * Validated at configuration load. The block shipped in `workflow.yml` from P1 with no validator and
- * no reader — a `mode: enfroce` would have resolved cleanly and governed nothing, which is the
- * failure this product keeps producing and the reason every policy now gets a normalizer.
- */
-export function constitutionPolicy(value = {}) {
-  if (value == null) return Object.freeze({ mode: 'off', path: DEFAULT_CONSTITUTION_PATH });
-  if (typeof value === 'string') value = { mode: value };
-  if (typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('constitution must be an object or mode string.');
-  for (const key of Object.keys(value)) {
-    if (!['mode', 'path'].includes(key)) throw new SingularityFlowError(`constitution contains unknown field '${key}'.`);
-  }
-  const mode = value.mode ?? 'off';
-  if (!CONSTITUTION_MODES.includes(mode)) {
-    throw new SingularityFlowError(`constitution.mode must be one of ${CONSTITUTION_MODES.join(', ')}; got '${mode}'.`);
-  }
-  const relative = posix(String(value.path ?? DEFAULT_CONSTITUTION_PATH));
-  if (!relative || path.posix.isAbsolute(relative) || relative.split('/').includes('..')) {
-    throw new SingularityFlowError('constitution.path must be a repository-relative path without "..".');
-  }
-  return Object.freeze({ mode, path: relative });
-}
 
 /** Normalize one declared article. Validation lives here so a malformed one never reaches a reader. */
 export function normalizeArticle(value, index) {

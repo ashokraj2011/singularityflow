@@ -25,7 +25,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
-import { ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { isExactEnvironmentFilePath, loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs";
 import { repositoryGitDirectory } from './git-directory.mjs';
 import { repositoryWorktreeDirectory } from './git-worktree-directory.mjs';
 import { excludeAlwaysLocalNames, gitCommonDir, localConfigNamedPaths, trackedPaths, withEnvironmentFilesRegistry } from './git.mjs';

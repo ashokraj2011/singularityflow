@@ -2,7 +2,8 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { DEFAULT_CONSTITUTION_PATH, constitutionPolicy, generateConstitution, normalizeArticle, parseConstitution, policyValue } from './constitution.mjs';
+import { generateConstitution, normalizeArticle, parseConstitution, policyValue } from './constitution.mjs';
+import { DEFAULT_CONSTITUTION_PATH, constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { resolveWorkType, validateDefinition } from './config.mjs';
 import { configurationAssetPolicy, isConfigurationAssetPath, portableConfigurationPath } from './configuration-assets.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';

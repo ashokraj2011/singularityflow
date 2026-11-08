@@ -21,7 +21,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { ARA_PHASE_SEMANTICS_PROFILE } from './phase-semantics.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { normalizeIntegrations } from "./kernel/step-action-policy.mjs";
 import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
 import {
@@ -50,7 +50,8 @@ import {
 } from './workflow-transfer-resolution.mjs';
 import { bundleContentsLines, planEntriesText } from './workflow-transfer-resolution.mjs';
 import { assertWorkflowReadinessChanges, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { constitutionPolicy, parseConstitution } from './constitution.mjs';
+import { parseConstitution } from './constitution.mjs';
+import { constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { recordSha256 } from './records.mjs';

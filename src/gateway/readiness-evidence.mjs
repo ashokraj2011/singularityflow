@@ -6,7 +6,7 @@ import path from 'node:path';
 import { loadDefinition } from '../config.mjs';
 import { evaluateAstLifecycleGate, verifyAstLifecycleReceipt } from '../ast-lifecycle.mjs';
 import { verifyClarificationRecord } from '../clarifications.mjs';
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { head } from '../git.mjs';
 import { believedProducer } from '../presence/counted.mjs';
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';

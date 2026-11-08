@@ -30,7 +30,8 @@ import { withRegistryFileLease } from './file-lease.mjs';
 import { localRepositoryId } from './repository-local-id.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, run, samePlatformPath, SingularityFlowError, writeAtomic } from './util.mjs';
-import { DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText } from './work-item-location.mjs';
+import { workItemRootFromDefinitionText } from './work-item-location.mjs';
+import { DEFAULT_WORK_ITEM_ROOT } from "./engine-compatibility/node-configuration-path.mjs";
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace-manifest.mjs';
 
 export const STORY_INDEX_FILE = 'story-index.json';

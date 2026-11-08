@@ -7,7 +7,7 @@
  * narrow place where a future independently approved runner may be connected without widening the
  * browser contracts or accepting caller-supplied commands.
  */
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { sgosRevisionCandidateReference } from './candidate-adapter.mjs';

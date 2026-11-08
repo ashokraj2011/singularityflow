@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 
 import { worldModelSourceSnapshot } from './grounding.mjs';
-import { worldModelSourceScope } from './source-scope.mjs';
+import { worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import { run } from './util.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 

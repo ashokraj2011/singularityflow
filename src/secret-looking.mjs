@@ -4,7 +4,7 @@
  * a secret) and a start entry's literal `env` (which refuses one) judge a value the same way.
  * Pure: nothing is read or written.
  */
-import { looksSecretName } from './environment-declaration.mjs';
+import { looksSecretName } from "./kernel/configuration-path-policies.mjs";
 
 export { looksSecretName };
 

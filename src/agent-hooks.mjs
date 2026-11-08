@@ -20,7 +20,8 @@ import {
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phasePublicationAuthorship } from './kernel/phase-policy.mjs';
 import { phasePublicationCommand } from './phase-publication-guidance.mjs';
-import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
+import { workItemWorkflowRelative } from './work-item-location.mjs';
+import { DEFAULT_WORK_ITEM_ROOT } from "./engine-compatibility/node-configuration-path.mjs";
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
 import { pendingContextBoundary } from './context-policy.mjs';

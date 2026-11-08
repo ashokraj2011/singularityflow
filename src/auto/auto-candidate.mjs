@@ -10,7 +10,7 @@ import {
   admitExactProspectiveTree, gitCommonDir, governedCommitIdentity
 } from '../git.mjs';
 import { isAllowedTestAutomationPath, parseTestResult } from '../code-delivery-tests.mjs';
-import { TEST_RESULT_ADAPTERS } from '../external-command-policy.mjs';
+import { TEST_RESULT_ADAPTERS } from "../engine-compatibility/node-configuration-path.mjs";
 import { runRemoteGitAsync } from '../git-execution.mjs';
 import { gitFailureDiagnostic } from '../git-remote-diagnostics.mjs';
 import { canonicalJson } from '../records.mjs';

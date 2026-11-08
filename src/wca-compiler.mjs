@@ -10,7 +10,7 @@ import { captureVerifiedConfigurationAssetBytes, inspectApprovedSkillPackage } f
 import { loadDefinition, validateDefinition, resolveWorkType, assertWorkTypeStartable, applyWorkflowCompatibility } from './config.mjs';
 import { discoverAgents, parseAgentDependencies, validateAgentCatalog } from './agents.mjs';
 import { MODEL_TASKS, assertModelTask } from "./kernel/configuration-policy.mjs";
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { approvalPolicyCapacity, normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { inspectSkillPackageContents, readSealedSkillPackage } from './skp-package.mjs';
@@ -21,8 +21,8 @@ import { openGitDraftStore } from './wca-git-drafts.mjs';
 import { scanEntries } from './secrets.mjs';
 import { SingularityFlowError, isPortableRepositoryPathComponent } from './util.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
-import { captureEnvironmentDeclaration, matchEnvironmentLocalPath, withEnvironmentWorldModelExclusions,
-  ENVIRONMENT_DECLARATION_PATH } from './environment-declaration.mjs';
+import { captureEnvironmentDeclaration, matchEnvironmentLocalPath, withEnvironmentWorldModelExclusions } from './environment-declaration.mjs';
+import { ENVIRONMENT_DECLARATION_PATH } from "./kernel/configuration-path-policies.mjs";
 import { simulateResolvedWorkflowLifecycle, WORKFLOW_LIFECYCLE_SIMULATION_PROFILE } from './workflow-lifecycle-simulation.mjs';
 import { planWorkflowOnlyChanges, workflowDefinitionSha256, planSharedPhaseChanges,
   planSharedAgentChanges, planSharedAgentMetadataChanges, planSharedTemplateChanges, planSharedSkillContractChanges,

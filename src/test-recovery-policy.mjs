@@ -1,3 +1,5 @@
+import { TRP_RISK_CATEGORIES } from "./kernel/configuration-path-policies.mjs";
+export { TRP_RISK_CATEGORIES } from "./kernel/configuration-path-policies.mjs";
 /**
  * TRP v1 pure contracts and gate evaluation. This module performs no I/O and reads no clock.
  *
@@ -9,10 +11,6 @@
 import { recordSha256 } from './records.mjs';
 
 export const TRP_EVALUATOR_VERSION = 'trp/1.0';
-export const TRP_RISK_CATEGORIES = Object.freeze([
-  'known-test-failure', 'reduced-coverage', 'nonessential-document',
-  'new-test-failure', 'validation-unavailable'
-]);
 export const TRP_INTEGRITY_CATEGORIES = Object.freeze([
   'provenance', 'identity', 'protected-path', 'source-safety', 'non-waivable', 'policy-integrity'
 ]);

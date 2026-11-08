@@ -29,10 +29,8 @@ import { freshGitFactsRequired } from './git-fact-cache.mjs';
 import { ALWAYS_LOCAL_EXCLUDE_COMMENT, ALWAYS_LOCAL_EXCLUDES, alwaysLocalName, classifiedShared } from './local-config-policy.mjs';
 import { configValueWarning, scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
 import { extractSourceTextForPath } from './source-text.mjs';
-import {
-  ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclarationSync,
-  matchEnvironmentLocalPath, parseEnvironmentDeclaration
-} from './environment-declaration.mjs';
+import { isExactEnvironmentFilePath, loadEnvironmentDeclarationSync, matchEnvironmentLocalPath, parseEnvironmentDeclaration } from './environment-declaration.mjs';
+import { ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs";
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
 

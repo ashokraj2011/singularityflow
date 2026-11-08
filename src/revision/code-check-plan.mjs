@@ -1,6 +1,6 @@
 /** Read-only, candidate-bound planning for registered Code-phase checks. */
 import { recordSha256 } from '../records.mjs';
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { SingularityFlowError } from '../util.mjs';
 import { verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';
 

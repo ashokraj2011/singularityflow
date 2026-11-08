@@ -8,7 +8,7 @@ import { GitRemoteSession } from '../git-execution.mjs';
 import { fosStoryConfigurationAuthority } from '../onboard.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import { prepareStoryWorktree, preparedStoryWorktreePath, samePlatformPath, storyWorktreePath } from '../story-worktree.mjs';
-import { normalizeTestRecoveryPolicy } from '../test-recovery-intake.mjs';
+import { normalizeTestRecoveryPolicy } from "../engine-compatibility/node-configuration-path.mjs";
 import { trpDigest } from '../test-recovery-policy.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { validatePortableWorkId } from '../work-id.mjs';

@@ -1,0 +1,3905 @@
+{
+  "baseline": "ca749991b",
+  "qualification": "Node path value semantics on Mac, not native Windows execution",
+  "profiles": {
+    "posix": [
+      {
+        "id": 0,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "returned",
+        "input": [],
+        "value": []
+      },
+      {
+        "id": 1,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "returned",
+        "input": [
+          [
+            "src/",
+            "./lib",
+            "src",
+            "shared"
+          ]
+        ],
+        "value": [
+          "lib",
+          "shared",
+          "src"
+        ]
+      },
+      {
+        "id": 2,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "../outside"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry '../outside' must be a repository-relative directory without '..' or glob characters.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 3,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "src\\nested"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry 'src\\nested' must use forward slashes.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 4,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "src/**"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry 'src/**' must be a repository-relative directory without '..' or glob characters.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 5,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "/outside"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry '/outside' must be a repository-relative directory without '..' or glob characters.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 6,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "returned",
+        "input": [
+          [
+            "C:/outside"
+          ]
+        ],
+        "value": [
+          "C:/outside"
+        ]
+      },
+      {
+        "id": 7,
+        "family": "scope",
+        "name": "worldModelSourceScope",
+        "status": "returned",
+        "input": [
+          {
+            "worldModel": {
+              "sourceRoots": [
+                "src"
+              ],
+              "sharedRoots": [
+                "shared"
+              ],
+              "sourceHashExcludedRoots": [
+                "legacy"
+              ],
+              "testConfigurationPaths": [
+                "package.json"
+              ]
+            }
+          }
+        ],
+        "value": {
+          "sourceRoots": [
+            "src"
+          ],
+          "sharedRoots": [
+            "shared"
+          ],
+          "sourceHashExcludedRoots": [
+            "legacy"
+          ],
+          "testConfigurationPaths": [
+            "package.json"
+          ],
+          "paths": [
+            "shared",
+            "src"
+          ],
+          "all": false
+        }
+      },
+      {
+        "id": 8,
+        "family": "scope",
+        "name": "worldModelSourceScope",
+        "status": "returned",
+        "input": [
+          {}
+        ],
+        "value": {
+          "sourceRoots": [],
+          "sharedRoots": [],
+          "sourceHashExcludedRoots": [],
+          "testConfigurationPaths": [],
+          "paths": [],
+          "all": true
+        }
+      },
+      {
+        "id": 9,
+        "family": "scope",
+        "name": "worldModelSourceScope",
+        "status": "refused",
+        "input": [
+          {
+            "sourceRoots": [
+              "src"
+            ],
+            "sourceHashExcludedRoots": [
+              ".git"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "sourceHashExcludedRoots cannot include Git or Singularity Flow paths.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 10,
+        "family": "sourcePaths",
+        "name": "sourcePathPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "sourceHashExcludedRoots": [
+              "vendor",
+              "legacy"
+            ],
+            "testConfigurationPaths": [
+              "build/test-config.json"
+            ]
+          }
+        ],
+        "value": {
+          "sourceHashExcludedRoots": [
+            "legacy",
+            "vendor"
+          ],
+          "testConfigurationPaths": [
+            "build/test-config.json"
+          ]
+        }
+      },
+      {
+        "id": 11,
+        "family": "sourcePaths",
+        "name": "normalizeSourceHashExcludedRoots",
+        "status": "refused",
+        "input": [
+          [
+            "src",
+            "SRC"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "sourceHashExcludedRoots contains paths that collide on a case-insensitive filesystem.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 12,
+        "family": "sourcePaths",
+        "name": "normalizeTestConfigurationPaths",
+        "status": "refused",
+        "input": [
+          [
+            "./config.json"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "testConfigurationPaths entries must be canonical repository-relative paths without globs or '..'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 13,
+        "family": "sourcePaths",
+        "name": "normalizeTestConfigurationPaths",
+        "status": "refused",
+        "input": [
+          [
+            "config/CON.json"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "testConfigurationPaths entries must be canonical repository-relative paths without globs or '..'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 14,
+        "family": "sourcePaths",
+        "name": "normalizeTestConfigurationPaths",
+        "status": "refused",
+        "input": [
+          [
+            "singularity/workflow.yml"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "testConfigurationPaths cannot include Git or Singularity Flow paths.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 15,
+        "family": "sourcePaths",
+        "name": "isSeparatelyHashedTestInput",
+        "status": "returned",
+        "input": [
+          "legacy/item.js",
+          {
+            "sourceHashExcludedRoots": [
+              "legacy"
+            ]
+          }
+        ],
+        "value": true
+      },
+      {
+        "id": 16,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "returned",
+        "input": [],
+        "value": "singularity/work-items"
+      },
+      {
+        "id": 17,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "returned",
+        "input": [
+          "./team/work/"
+        ],
+        "value": "team/work"
+      },
+      {
+        "id": 18,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "returned",
+        "input": [
+          "team//work"
+        ],
+        "value": "team/work"
+      },
+      {
+        "id": 19,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "refused",
+        "input": [
+          "C:\\outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "workItemRoot must be a normalized repository-relative path.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 20,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "refused",
+        "input": [
+          "../outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "workItemRoot must be a normalized repository-relative path.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 21,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "refused",
+        "input": [
+          "/outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "workItemRoot must be a normalized repository-relative path.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 22,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "returned",
+        "input": [],
+        "value": {}
+      },
+      {
+        "id": 23,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "returned",
+        "input": [
+          {
+            "report": {
+              "primary": "report.md",
+              "members": [
+                {
+                  "path": "report.md",
+                  "role": "report",
+                  "required": true
+                }
+              ]
+            }
+          }
+        ],
+        "value": {
+          "report": {
+            "id": "report",
+            "primary": "report.md",
+            "members": [
+              {
+                "path": "report.md",
+                "role": "report",
+                "required": true,
+                "authority": "governed"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 24,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "refused",
+        "input": [
+          {
+            "report": {
+              "primary": "report.md",
+              "members": [
+                {
+                  "path": "../outside",
+                  "role": "report"
+                }
+              ]
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Artifact set 'report' member '../outside' must stay inside the phase artifact directory.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 25,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "refused",
+        "input": [
+          {
+            "report": {
+              "primary": "report.md",
+              "members": [
+                {
+                  "path": "report.md",
+                  "role": "report",
+                  "authority": "advisory",
+                  "required": true
+                }
+              ]
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Artifact set 'report' member 'report.md' is advisory, so it cannot be required.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 26,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "refused",
+        "input": [
+          {
+            "report": {
+              "primary": "missing.md",
+              "members": [
+                {
+                  "path": "report.md",
+                  "role": "report",
+                  "required": true
+                }
+              ]
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Artifact set 'report' primary 'missing.md' is not among its members.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 27,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "returned",
+        "input": [],
+        "value": {
+          "mode": "auto",
+          "fallback": "host-and-text",
+          "languages": {},
+          "generatedRoots": [],
+          "budgets": {
+            "maxFiles": 500,
+            "maxBytes": 20971520,
+            "maxFileBytes": 2097152
+          },
+          "predicates": [],
+          "evidence": {
+            "mode": "identified",
+            "store": "local-directory"
+          },
+          "warmOnStoryStart": {
+            "mode": "background",
+            "scope": "configured-roots"
+          }
+        }
+      },
+      {
+        "id": 28,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          null
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast must be an object.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 29,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": false
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'enabled'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 30,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "sourceRoots": [
+              "src",
+              "shared"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'enabled'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 31,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "unknown": true
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'unknown'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 32,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "sourceRoots": [
+              "../outside"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'sourceRoots'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 33,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "returned",
+        "input": [],
+        "value": {
+          "enabled": true,
+          "maxAttempts": 3,
+          "maxMinutes": 20,
+          "maxTokens": 30000,
+          "maximumInlineEvidenceBytes": 16384,
+          "maximumEvidenceBytes": 67108864,
+          "leaseMinutes": 60,
+          "boundedAuto": false,
+          "environmentCeilings": {
+            "local": "guided",
+            "ide": "guided",
+            "copilot": "guided",
+            "ci": "propose",
+            "integration": "propose",
+            "staging": "propose",
+            "production": "diagnose"
+          },
+          "protectedPaths": [
+            ".git",
+            "singularity",
+            "infra/production"
+          ]
+        }
+      },
+      {
+        "id": 34,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "maxAttempts": 2,
+            "protectedPaths": [
+              "src/protected"
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "maxAttempts": 2,
+          "maxMinutes": 20,
+          "maxTokens": 30000,
+          "maximumInlineEvidenceBytes": 16384,
+          "maximumEvidenceBytes": 67108864,
+          "leaseMinutes": 60,
+          "boundedAuto": false,
+          "environmentCeilings": {
+            "local": "guided",
+            "ide": "guided",
+            "copilot": "guided",
+            "ci": "propose",
+            "integration": "propose",
+            "staging": "propose",
+            "production": "diagnose"
+          },
+          "protectedPaths": [
+            "src/protected"
+          ]
+        }
+      },
+      {
+        "id": 35,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "maxAttempts": 0
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "faultRepair.maxAttempts must be an integer from 1 through 20.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 36,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "protectedPaths": [
+              "../outside"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "faultRepair.protectedPaths must be a bounded repository-relative path, not the repository root, and may not contain '..'.",
+          "code": "REPAIR_SCOPE_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 37,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "protectedPaths": [
+              "/outside"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "faultRepair.protectedPaths must be a bounded repository-relative path, not the repository root, and may not contain '..'.",
+          "code": "REPAIR_SCOPE_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 38,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [],
+        "value": {
+          "mode": "off",
+          "path": "singularity/constitution.md"
+        }
+      },
+      {
+        "id": 39,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [
+          "enforce"
+        ],
+        "value": {
+          "mode": "enforce",
+          "path": "singularity/constitution.md"
+        }
+      },
+      {
+        "id": 40,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "mode": "enforce",
+            "path": "docs/constitution.md"
+          }
+        ],
+        "value": {
+          "mode": "enforce",
+          "path": "docs/constitution.md"
+        }
+      },
+      {
+        "id": 41,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "mode": "enforce",
+            "path": "../outside"
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "constitution.path must be a repository-relative path without \"..\".",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 42,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "mode": "unknown"
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "constitution.mode must be one of off, warn, enforce; got 'unknown'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 43,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "mode": "enforce",
+            "path": "docs\\constitution.md"
+          }
+        ],
+        "value": {
+          "mode": "enforce",
+          "path": "docs\\constitution.md"
+        }
+      },
+      {
+        "id": 44,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "returned",
+        "input": [
+          {}
+        ],
+        "value": {
+          "placeholder": "{{WORLD_MODEL}}",
+          "mode": "append",
+          "maxBytes": 32768,
+          "rules": []
+        }
+      },
+      {
+        "id": 45,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "returned",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "facts/*.json"
+                    ],
+                    "when": {
+                      "phase": [
+                        "draft"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "phases": {
+              "draft": {}
+            }
+          }
+        ],
+        "value": {
+          "placeholder": "{{WORLD_MODEL}}",
+          "mode": "append",
+          "maxBytes": 32768,
+          "rules": [
+            {
+              "include": [
+                "facts/*.json"
+              ],
+              "when": {
+                "phase": [
+                  "draft"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": 46,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "refused",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "../outside"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "worldModel.injection.rules[0].include paths must stay inside the world-model directory.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 47,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "returned",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "C:\\outside"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "value": {
+          "placeholder": "{{WORLD_MODEL}}",
+          "mode": "append",
+          "maxBytes": 32768,
+          "rules": [
+            {
+              "include": [
+                "C:\\outside"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 48,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "refused",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "facts/*.json"
+                    ],
+                    "when": {
+                      "phase": [
+                        "missing"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "worldModel.injection.rules[0].when.phase references unknown phase 'missing'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 49,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "npm",
+              "test"
+            ]
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 50,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "node",
+              "scripts/test.mjs"
+            ],
+            "cwd": "./tools/../project"
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "node",
+            "scripts/test.mjs"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 51,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "npm",
+              "test"
+            ],
+            "cwd": "../outside"
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 52,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "refused",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "npm",
+              "test"
+            ],
+            "env": {
+              "TOKEN": "literal"
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "qualityCommands[0].env.TOKEN names a secret: declare it in singularity/environments.yml, never in workflow.yml.",
+          "code": "QUALITY_COMMAND_ENV_SECRET",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 53,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "node",
+              "--eval",
+              "console.log(1)"
+            ]
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "node",
+            "--eval",
+            "console.log(1)"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 54,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          "npm test"
+        ],
+        "value": {
+          "id": "npm test",
+          "command": "npm test",
+          "argv": null,
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 55,
+        "family": "environment",
+        "name": "looksSecretName",
+        "status": "returned",
+        "input": [
+          "SFLOW_SECRET_SERVICE_KEY"
+        ],
+        "value": true
+      },
+      {
+        "id": 56,
+        "family": "environment",
+        "name": "looksSecretName",
+        "status": "returned",
+        "input": [
+          "APPLICATION_MODE"
+        ],
+        "value": false
+      },
+      {
+        "id": 57,
+        "family": "environment",
+        "name": "declarableEnvironmentVariable",
+        "status": "returned",
+        "input": [
+          "APPLICATION_MODE"
+        ],
+        "value": true
+      },
+      {
+        "id": 58,
+        "family": "environment",
+        "name": "declarableEnvironmentVariable",
+        "status": "returned",
+        "input": [
+          "PATH"
+        ],
+        "value": false
+      },
+      {
+        "id": 59,
+        "family": "environment",
+        "name": "declarableEnvironmentVariable",
+        "status": "returned",
+        "input": [
+          "SINGULARITY_FLOW_TEST"
+        ],
+        "value": false
+      },
+      {
+        "id": 60,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [],
+        "value": null
+      },
+      {
+        "id": 61,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [],
+          "enabledRiskCategories": [],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": false,
+          "maxEvidenceAgeSeconds": 86400
+        }
+      },
+      {
+        "id": 62,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "maxDistinctAutomaticAttempts": 4
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Invalid testRecovery.maxDistinctAutomaticAttempts.",
+          "code": "TRP_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 63,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "allowEvidenceReuse": true
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence reuse is supported only for explicitly enabled, independently inventoried failed-test or reduced-coverage review.",
+          "code": "TRP_EVIDENCE_REUSE_UNAVAILABLE",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 64,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true,
+            "enabledRiskCategories": [
+              "nonessential-document"
+            ],
+            "riskAuthorities": [
+              "reviewers"
+            ],
+            "documentObligations": [
+              {
+                "id": "notes",
+                "phaseId": "draft",
+                "path": "docs/notes.md",
+                "requiredSections": [
+                  "Overview"
+                ]
+              }
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [
+            "reviewers"
+          ],
+          "enabledRiskCategories": [
+            "nonessential-document"
+          ],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": false,
+          "maxEvidenceAgeSeconds": 86400,
+          "documentObligations": [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "docs/notes.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 65,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true,
+            "enabledRiskCategories": [
+              "new-test-failure"
+            ],
+            "riskAuthorities": [
+              "reviewers"
+            ],
+            "allowEvidenceReuse": true,
+            "caseInventory": [
+              {
+                "phaseId": "implementation",
+                "commandId": "tests",
+                "dependencyScope": "repository-and-node-builtins-only",
+                "tests": [
+                  {
+                    "id": "test-1",
+                    "path": "test/example.test.mjs",
+                    "name": "approved behavior"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [
+            "reviewers"
+          ],
+          "enabledRiskCategories": [
+            "new-test-failure"
+          ],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": true,
+          "maxEvidenceAgeSeconds": 86400,
+          "caseInventory": [
+            {
+              "phaseId": "implementation",
+              "commandId": "tests",
+              "dependencyScope": "repository-and-node-builtins-only",
+              "tests": [
+                {
+                  "id": "test-1",
+                  "path": "test/example.test.mjs",
+                  "name": "approved behavior"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 66,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true,
+            "caseInventory": [
+              {
+                "phaseId": "implementation",
+                "commandId": "tests",
+                "dependencyScope": "repository-and-declared-runtime-only",
+                "tests": [
+                  {
+                    "id": "test-1",
+                    "path": "test/ExampleTest.java",
+                    "name": "approvedBehavior",
+                    "className": "example.ExampleTest"
+                  }
+                ],
+                "adapter": "maven-surefire-junit-v1",
+                "runtime": {
+                  "executableSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "dependencyRoots": [
+                    "/runtime/dependencies"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [],
+          "enabledRiskCategories": [],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": false,
+          "maxEvidenceAgeSeconds": 86400,
+          "caseInventory": [
+            {
+              "phaseId": "implementation",
+              "commandId": "tests",
+              "adapter": "maven-surefire-junit-v1",
+              "runtime": {
+                "executableSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "dependencyRoots": [
+                  "/runtime/dependencies"
+                ]
+              },
+              "dependencyScope": "repository-and-declared-runtime-only",
+              "tests": [
+                {
+                  "id": "test-1",
+                  "path": "test/ExampleTest.java",
+                  "name": "approvedBehavior",
+                  "className": "example.ExampleTest"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 67,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "caseInventory": [
+              {
+                "phaseId": "implementation",
+                "commandId": "tests",
+                "dependencyScope": "repository-and-node-builtins-only",
+                "tests": [
+                  {
+                    "id": "test-1",
+                    "path": "test/example.test.mjs",
+                    "name": "approved behavior"
+                  }
+                ],
+                "baselineMutableRoots": [
+                  "src",
+                  "src/nested"
+                ]
+              }
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Baseline mutable source roots must not overlap.",
+          "code": "TRP_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 68,
+        "family": "documents",
+        "name": "normalizeDocumentObligations",
+        "status": "returned",
+        "input": [
+          [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "docs/notes.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        ],
+        "value": [
+          {
+            "id": "notes",
+            "phaseId": "draft",
+            "path": "docs/notes.md",
+            "requiredSections": [
+              "Overview"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 69,
+        "family": "documents",
+        "name": "normalizeDocumentObligations",
+        "status": "refused",
+        "input": [
+          [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "AGENTS.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Only ordinary supplemental Markdown paths outside authority, Story and agent instructions may be declared nonessential.",
+          "code": "TRP_DOCUMENT_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 70,
+        "family": "documents",
+        "name": "normalizeDocumentObligations",
+        "status": "refused",
+        "input": [
+          [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "docs/../notes.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "A supplemental document needs a safe repository-relative path.",
+          "code": "TRP_DOCUMENT_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 71,
+        "family": "selection",
+        "name": "normalizeTestSelectionPath",
+        "status": "returned",
+        "input": [
+          "./test/example.test.mjs"
+        ],
+        "value": "test/example.test.mjs"
+      },
+      {
+        "id": 72,
+        "family": "selection",
+        "name": "normalizeTestSelectionPath",
+        "status": "returned",
+        "input": [
+          "test\\example.test.mjs"
+        ],
+        "value": "test/example.test.mjs"
+      },
+      {
+        "id": 73,
+        "family": "selection",
+        "name": "normalizeTestSelectionPath",
+        "status": "refused",
+        "input": [
+          "../outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Test-selection path '../outside' is outside the repository.",
+          "code": "TEST_SELECTION_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 74,
+        "family": "util",
+        "name": "posix",
+        "status": "returned",
+        "input": [
+          "src/nested/file.mjs"
+        ],
+        "value": "src/nested/file.mjs"
+      },
+      {
+        "id": 75,
+        "family": "util",
+        "name": "posix",
+        "status": "returned",
+        "input": [
+          "src\\nested\\file.mjs"
+        ],
+        "value": "src\\nested\\file.mjs"
+      }
+    ],
+    "win32": [
+      {
+        "id": 0,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "returned",
+        "input": [],
+        "value": []
+      },
+      {
+        "id": 1,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "returned",
+        "input": [
+          [
+            "src/",
+            "./lib",
+            "src",
+            "shared"
+          ]
+        ],
+        "value": [
+          "lib",
+          "shared",
+          "src"
+        ]
+      },
+      {
+        "id": 2,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "../outside"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry '../outside' must be a repository-relative directory without '..' or glob characters.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 3,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "src\\nested"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry 'src\\nested' must use forward slashes.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 4,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "src/**"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry 'src/**' must be a repository-relative directory without '..' or glob characters.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 5,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "refused",
+        "input": [
+          [
+            "/outside"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source roots entry '/outside' must be a repository-relative directory without '..' or glob characters.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 6,
+        "family": "scope",
+        "name": "normalizeSourceRoots",
+        "status": "returned",
+        "input": [
+          [
+            "C:/outside"
+          ]
+        ],
+        "value": [
+          "C:/outside"
+        ]
+      },
+      {
+        "id": 7,
+        "family": "scope",
+        "name": "worldModelSourceScope",
+        "status": "returned",
+        "input": [
+          {
+            "worldModel": {
+              "sourceRoots": [
+                "src"
+              ],
+              "sharedRoots": [
+                "shared"
+              ],
+              "sourceHashExcludedRoots": [
+                "legacy"
+              ],
+              "testConfigurationPaths": [
+                "package.json"
+              ]
+            }
+          }
+        ],
+        "value": {
+          "sourceRoots": [
+            "src"
+          ],
+          "sharedRoots": [
+            "shared"
+          ],
+          "sourceHashExcludedRoots": [
+            "legacy"
+          ],
+          "testConfigurationPaths": [
+            "package.json"
+          ],
+          "paths": [
+            "shared",
+            "src"
+          ],
+          "all": false
+        }
+      },
+      {
+        "id": 8,
+        "family": "scope",
+        "name": "worldModelSourceScope",
+        "status": "returned",
+        "input": [
+          {}
+        ],
+        "value": {
+          "sourceRoots": [],
+          "sharedRoots": [],
+          "sourceHashExcludedRoots": [],
+          "testConfigurationPaths": [],
+          "paths": [],
+          "all": true
+        }
+      },
+      {
+        "id": 9,
+        "family": "scope",
+        "name": "worldModelSourceScope",
+        "status": "refused",
+        "input": [
+          {
+            "sourceRoots": [
+              "src"
+            ],
+            "sourceHashExcludedRoots": [
+              ".git"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "sourceHashExcludedRoots cannot include Git or Singularity Flow paths.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 10,
+        "family": "sourcePaths",
+        "name": "sourcePathPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "sourceHashExcludedRoots": [
+              "vendor",
+              "legacy"
+            ],
+            "testConfigurationPaths": [
+              "build/test-config.json"
+            ]
+          }
+        ],
+        "value": {
+          "sourceHashExcludedRoots": [
+            "legacy",
+            "vendor"
+          ],
+          "testConfigurationPaths": [
+            "build/test-config.json"
+          ]
+        }
+      },
+      {
+        "id": 11,
+        "family": "sourcePaths",
+        "name": "normalizeSourceHashExcludedRoots",
+        "status": "refused",
+        "input": [
+          [
+            "src",
+            "SRC"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "sourceHashExcludedRoots contains paths that collide on a case-insensitive filesystem.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 12,
+        "family": "sourcePaths",
+        "name": "normalizeTestConfigurationPaths",
+        "status": "refused",
+        "input": [
+          [
+            "./config.json"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "testConfigurationPaths entries must be canonical repository-relative paths without globs or '..'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 13,
+        "family": "sourcePaths",
+        "name": "normalizeTestConfigurationPaths",
+        "status": "refused",
+        "input": [
+          [
+            "config/CON.json"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "testConfigurationPaths entries must be canonical repository-relative paths without globs or '..'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 14,
+        "family": "sourcePaths",
+        "name": "normalizeTestConfigurationPaths",
+        "status": "refused",
+        "input": [
+          [
+            "singularity/workflow.yml"
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "testConfigurationPaths cannot include Git or Singularity Flow paths.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 15,
+        "family": "sourcePaths",
+        "name": "isSeparatelyHashedTestInput",
+        "status": "returned",
+        "input": [
+          "legacy/item.js",
+          {
+            "sourceHashExcludedRoots": [
+              "legacy"
+            ]
+          }
+        ],
+        "value": true
+      },
+      {
+        "id": 16,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "returned",
+        "input": [],
+        "value": "singularity/work-items"
+      },
+      {
+        "id": 17,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "returned",
+        "input": [
+          "./team/work/"
+        ],
+        "value": "team/work"
+      },
+      {
+        "id": 18,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "returned",
+        "input": [
+          "team//work"
+        ],
+        "value": "team/work"
+      },
+      {
+        "id": 19,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "refused",
+        "input": [
+          "C:\\outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "workItemRoot must be a normalized repository-relative path.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 20,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "refused",
+        "input": [
+          "../outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "workItemRoot must be a normalized repository-relative path.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 21,
+        "family": "location",
+        "name": "normalizeWorkItemRoot",
+        "status": "refused",
+        "input": [
+          "/outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "workItemRoot must be a normalized repository-relative path.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 22,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "returned",
+        "input": [],
+        "value": {}
+      },
+      {
+        "id": 23,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "returned",
+        "input": [
+          {
+            "report": {
+              "primary": "report.md",
+              "members": [
+                {
+                  "path": "report.md",
+                  "role": "report",
+                  "required": true
+                }
+              ]
+            }
+          }
+        ],
+        "value": {
+          "report": {
+            "id": "report",
+            "primary": "report.md",
+            "members": [
+              {
+                "path": "report.md",
+                "role": "report",
+                "required": true,
+                "authority": "governed"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 24,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "refused",
+        "input": [
+          {
+            "report": {
+              "primary": "report.md",
+              "members": [
+                {
+                  "path": "../outside",
+                  "role": "report"
+                }
+              ]
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Artifact set 'report' member '../outside' must stay inside the phase artifact directory.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 25,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "refused",
+        "input": [
+          {
+            "report": {
+              "primary": "report.md",
+              "members": [
+                {
+                  "path": "report.md",
+                  "role": "report",
+                  "authority": "advisory",
+                  "required": true
+                }
+              ]
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Artifact set 'report' member 'report.md' is advisory, so it cannot be required.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 26,
+        "family": "sets",
+        "name": "normalizeArtifactSets",
+        "status": "refused",
+        "input": [
+          {
+            "report": {
+              "primary": "missing.md",
+              "members": [
+                {
+                  "path": "report.md",
+                  "role": "report",
+                  "required": true
+                }
+              ]
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Artifact set 'report' primary 'missing.md' is not among its members.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 27,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "returned",
+        "input": [],
+        "value": {
+          "mode": "auto",
+          "fallback": "host-and-text",
+          "languages": {},
+          "generatedRoots": [],
+          "budgets": {
+            "maxFiles": 500,
+            "maxBytes": 20971520,
+            "maxFileBytes": 2097152
+          },
+          "predicates": [],
+          "evidence": {
+            "mode": "identified",
+            "store": "local-directory"
+          },
+          "warmOnStoryStart": {
+            "mode": "background",
+            "scope": "configured-roots"
+          }
+        }
+      },
+      {
+        "id": 28,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          null
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast must be an object.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 29,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": false
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'enabled'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 30,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "sourceRoots": [
+              "src",
+              "shared"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'enabled'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 31,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "unknown": true
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'unknown'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 32,
+        "family": "ast",
+        "name": "normalizeAstPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "sourceRoots": [
+              "../outside"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "ast contains unknown field 'sourceRoots'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 33,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "returned",
+        "input": [],
+        "value": {
+          "enabled": true,
+          "maxAttempts": 3,
+          "maxMinutes": 20,
+          "maxTokens": 30000,
+          "maximumInlineEvidenceBytes": 16384,
+          "maximumEvidenceBytes": 67108864,
+          "leaseMinutes": 60,
+          "boundedAuto": false,
+          "environmentCeilings": {
+            "local": "guided",
+            "ide": "guided",
+            "copilot": "guided",
+            "ci": "propose",
+            "integration": "propose",
+            "staging": "propose",
+            "production": "diagnose"
+          },
+          "protectedPaths": [
+            ".git",
+            "singularity",
+            "infra/production"
+          ]
+        }
+      },
+      {
+        "id": 34,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "maxAttempts": 2,
+            "protectedPaths": [
+              "src/protected"
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "maxAttempts": 2,
+          "maxMinutes": 20,
+          "maxTokens": 30000,
+          "maximumInlineEvidenceBytes": 16384,
+          "maximumEvidenceBytes": 67108864,
+          "leaseMinutes": 60,
+          "boundedAuto": false,
+          "environmentCeilings": {
+            "local": "guided",
+            "ide": "guided",
+            "copilot": "guided",
+            "ci": "propose",
+            "integration": "propose",
+            "staging": "propose",
+            "production": "diagnose"
+          },
+          "protectedPaths": [
+            "src/protected"
+          ]
+        }
+      },
+      {
+        "id": 35,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "maxAttempts": 0
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "faultRepair.maxAttempts must be an integer from 1 through 20.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 36,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "protectedPaths": [
+              "../outside"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "faultRepair.protectedPaths must be a bounded repository-relative path, not the repository root, and may not contain '..'.",
+          "code": "REPAIR_SCOPE_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 37,
+        "family": "faults",
+        "name": "normalizeFaultRepairPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "protectedPaths": [
+              "/outside"
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "faultRepair.protectedPaths must be a bounded repository-relative path, not the repository root, and may not contain '..'.",
+          "code": "REPAIR_SCOPE_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 38,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [],
+        "value": {
+          "mode": "off",
+          "path": "singularity/constitution.md"
+        }
+      },
+      {
+        "id": 39,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [
+          "enforce"
+        ],
+        "value": {
+          "mode": "enforce",
+          "path": "singularity/constitution.md"
+        }
+      },
+      {
+        "id": 40,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "mode": "enforce",
+            "path": "docs/constitution.md"
+          }
+        ],
+        "value": {
+          "mode": "enforce",
+          "path": "docs/constitution.md"
+        }
+      },
+      {
+        "id": 41,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "mode": "enforce",
+            "path": "../outside"
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "constitution.path must be a repository-relative path without \"..\".",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 42,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "mode": "unknown"
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "constitution.mode must be one of off, warn, enforce; got 'unknown'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 43,
+        "family": "constitution",
+        "name": "constitutionPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "mode": "enforce",
+            "path": "docs\\constitution.md"
+          }
+        ],
+        "value": {
+          "mode": "enforce",
+          "path": "docs/constitution.md"
+        }
+      },
+      {
+        "id": 44,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "returned",
+        "input": [
+          {}
+        ],
+        "value": {
+          "placeholder": "{{WORLD_MODEL}}",
+          "mode": "append",
+          "maxBytes": 32768,
+          "rules": []
+        }
+      },
+      {
+        "id": 45,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "returned",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "facts/*.json"
+                    ],
+                    "when": {
+                      "phase": [
+                        "draft"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "phases": {
+              "draft": {}
+            }
+          }
+        ],
+        "value": {
+          "placeholder": "{{WORLD_MODEL}}",
+          "mode": "append",
+          "maxBytes": 32768,
+          "rules": [
+            {
+              "include": [
+                "facts/*.json"
+              ],
+              "when": {
+                "phase": [
+                  "draft"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": 46,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "refused",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "../outside"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "worldModel.injection.rules[0].include paths must stay inside the world-model directory.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 47,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "refused",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "C:\\outside"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "worldModel.injection.rules[0].include paths must stay inside the world-model directory.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 48,
+        "family": "injection",
+        "name": "validateInjectionDefinition",
+        "status": "refused",
+        "input": [
+          {
+            "worldModel": {
+              "injection": {
+                "rules": [
+                  {
+                    "include": [
+                      "facts/*.json"
+                    ],
+                    "when": {
+                      "phase": [
+                        "missing"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "worldModel.injection.rules[0].when.phase references unknown phase 'missing'.",
+          "code": null,
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 49,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "npm",
+              "test"
+            ]
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 50,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "node",
+              "scripts/test.mjs"
+            ],
+            "cwd": "./tools/../project"
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "node",
+            "scripts/test.mjs"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 51,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "npm",
+              "test"
+            ],
+            "cwd": "../outside"
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 52,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "refused",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "npm",
+              "test"
+            ],
+            "env": {
+              "TOKEN": "literal"
+            }
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "qualityCommands[0].env.TOKEN names a secret: declare it in singularity/environments.yml, never in workflow.yml.",
+          "code": "QUALITY_COMMAND_ENV_SECRET",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 53,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          {
+            "id": "tests",
+            "argv": [
+              "node",
+              "--eval",
+              "console.log(1)"
+            ]
+          }
+        ],
+        "value": {
+          "id": "tests",
+          "command": null,
+          "argv": [
+            "node",
+            "--eval",
+            "console.log(1)"
+          ],
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 54,
+        "family": "commands",
+        "name": "normalizeExternalCommand",
+        "status": "returned",
+        "input": [
+          "npm test"
+        ],
+        "value": {
+          "id": "npm test",
+          "command": "npm test",
+          "argv": null,
+          "modelPolicy": "unknown",
+          "requirement": "required",
+          "timeoutMs": null
+        }
+      },
+      {
+        "id": 55,
+        "family": "environment",
+        "name": "looksSecretName",
+        "status": "returned",
+        "input": [
+          "SFLOW_SECRET_SERVICE_KEY"
+        ],
+        "value": true
+      },
+      {
+        "id": 56,
+        "family": "environment",
+        "name": "looksSecretName",
+        "status": "returned",
+        "input": [
+          "APPLICATION_MODE"
+        ],
+        "value": false
+      },
+      {
+        "id": 57,
+        "family": "environment",
+        "name": "declarableEnvironmentVariable",
+        "status": "returned",
+        "input": [
+          "APPLICATION_MODE"
+        ],
+        "value": true
+      },
+      {
+        "id": 58,
+        "family": "environment",
+        "name": "declarableEnvironmentVariable",
+        "status": "returned",
+        "input": [
+          "PATH"
+        ],
+        "value": false
+      },
+      {
+        "id": 59,
+        "family": "environment",
+        "name": "declarableEnvironmentVariable",
+        "status": "returned",
+        "input": [
+          "SINGULARITY_FLOW_TEST"
+        ],
+        "value": false
+      },
+      {
+        "id": 60,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [],
+        "value": null
+      },
+      {
+        "id": 61,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [],
+          "enabledRiskCategories": [],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": false,
+          "maxEvidenceAgeSeconds": 86400
+        }
+      },
+      {
+        "id": 62,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "maxDistinctAutomaticAttempts": 4
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Invalid testRecovery.maxDistinctAutomaticAttempts.",
+          "code": "TRP_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 63,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "allowEvidenceReuse": true
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence reuse is supported only for explicitly enabled, independently inventoried failed-test or reduced-coverage review.",
+          "code": "TRP_EVIDENCE_REUSE_UNAVAILABLE",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 64,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true,
+            "enabledRiskCategories": [
+              "nonessential-document"
+            ],
+            "riskAuthorities": [
+              "reviewers"
+            ],
+            "documentObligations": [
+              {
+                "id": "notes",
+                "phaseId": "draft",
+                "path": "docs/notes.md",
+                "requiredSections": [
+                  "Overview"
+                ]
+              }
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [
+            "reviewers"
+          ],
+          "enabledRiskCategories": [
+            "nonessential-document"
+          ],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": false,
+          "maxEvidenceAgeSeconds": 86400,
+          "documentObligations": [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "docs/notes.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 65,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "returned",
+        "input": [
+          {
+            "enabled": true,
+            "enabledRiskCategories": [
+              "new-test-failure"
+            ],
+            "riskAuthorities": [
+              "reviewers"
+            ],
+            "allowEvidenceReuse": true,
+            "caseInventory": [
+              {
+                "phaseId": "implementation",
+                "commandId": "tests",
+                "dependencyScope": "repository-and-node-builtins-only",
+                "tests": [
+                  {
+                    "id": "test-1",
+                    "path": "test/example.test.mjs",
+                    "name": "approved behavior"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "value": {
+          "enabled": true,
+          "riskAuthorities": [
+            "reviewers"
+          ],
+          "enabledRiskCategories": [
+            "new-test-failure"
+          ],
+          "maxRiskDays": 30,
+          "maxDistinctAutomaticAttempts": 3,
+          "allowEvidenceReuse": true,
+          "maxEvidenceAgeSeconds": 86400,
+          "caseInventory": [
+            {
+              "phaseId": "implementation",
+              "commandId": "tests",
+              "dependencyScope": "repository-and-node-builtins-only",
+              "tests": [
+                {
+                  "id": "test-1",
+                  "path": "test/example.test.mjs",
+                  "name": "approved behavior"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 66,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "caseInventory": [
+              {
+                "phaseId": "implementation",
+                "commandId": "tests",
+                "dependencyScope": "repository-and-declared-runtime-only",
+                "tests": [
+                  {
+                    "id": "test-1",
+                    "path": "test/ExampleTest.java",
+                    "name": "approvedBehavior",
+                    "className": "example.ExampleTest"
+                  }
+                ],
+                "adapter": "maven-surefire-junit-v1",
+                "runtime": {
+                  "executableSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "dependencyRoots": [
+                    "/runtime/dependencies"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Declared runtimes need an exact executable SHA-256 and 1–8 canonical, non-root absolute dependency roots.",
+          "code": "TRP_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 67,
+        "family": "recovery",
+        "name": "normalizeTestRecoveryPolicy",
+        "status": "refused",
+        "input": [
+          {
+            "enabled": true,
+            "caseInventory": [
+              {
+                "phaseId": "implementation",
+                "commandId": "tests",
+                "dependencyScope": "repository-and-node-builtins-only",
+                "tests": [
+                  {
+                    "id": "test-1",
+                    "path": "test/example.test.mjs",
+                    "name": "approved behavior"
+                  }
+                ],
+                "baselineMutableRoots": [
+                  "src",
+                  "src/nested"
+                ]
+              }
+            ]
+          }
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Baseline mutable source roots must not overlap.",
+          "code": "TRP_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 68,
+        "family": "documents",
+        "name": "normalizeDocumentObligations",
+        "status": "returned",
+        "input": [
+          [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "docs/notes.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        ],
+        "value": [
+          {
+            "id": "notes",
+            "phaseId": "draft",
+            "path": "docs/notes.md",
+            "requiredSections": [
+              "Overview"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 69,
+        "family": "documents",
+        "name": "normalizeDocumentObligations",
+        "status": "refused",
+        "input": [
+          [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "AGENTS.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Only ordinary supplemental Markdown paths outside authority, Story and agent instructions may be declared nonessential.",
+          "code": "TRP_DOCUMENT_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 70,
+        "family": "documents",
+        "name": "normalizeDocumentObligations",
+        "status": "refused",
+        "input": [
+          [
+            {
+              "id": "notes",
+              "phaseId": "draft",
+              "path": "docs/../notes.md",
+              "requiredSections": [
+                "Overview"
+              ]
+            }
+          ]
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "A supplemental document needs a safe repository-relative path.",
+          "code": "TRP_DOCUMENT_POLICY_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 71,
+        "family": "selection",
+        "name": "normalizeTestSelectionPath",
+        "status": "returned",
+        "input": [
+          "./test/example.test.mjs"
+        ],
+        "value": "test/example.test.mjs"
+      },
+      {
+        "id": 72,
+        "family": "selection",
+        "name": "normalizeTestSelectionPath",
+        "status": "returned",
+        "input": [
+          "test\\example.test.mjs"
+        ],
+        "value": "test/example.test.mjs"
+      },
+      {
+        "id": 73,
+        "family": "selection",
+        "name": "normalizeTestSelectionPath",
+        "status": "refused",
+        "input": [
+          "../outside"
+        ],
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Test-selection path '../outside' is outside the repository.",
+          "code": "TEST_SELECTION_INVALID",
+          "exitCode": 1,
+          "details": null
+        }
+      },
+      {
+        "id": 74,
+        "family": "util",
+        "name": "posix",
+        "status": "returned",
+        "input": [
+          "src/nested/file.mjs"
+        ],
+        "value": "src/nested/file.mjs"
+      },
+      {
+        "id": 75,
+        "family": "util",
+        "name": "posix",
+        "status": "returned",
+        "input": [
+          "src\\nested\\file.mjs"
+        ],
+        "value": "src/nested/file.mjs"
+      }
+    ]
+  },
+  "exports": {
+    "scope": [
+      "normalizeSourceRoots",
+      "sourcePathIncluded",
+      "withWorldModelSourceScope",
+      "worldModelSourceScope"
+    ],
+    "sourcePaths": [
+      "isSeparatelyHashedTestInput",
+      "normalizeSourceHashExcludedRoots",
+      "normalizeTestConfigurationPaths",
+      "sourcePathPolicy"
+    ],
+    "location": [
+      "DEFAULT_WORK_ITEM_ROOT",
+      "normalizeWorkItemRoot",
+      "workItemRootFromDefinitionText",
+      "workItemWorkflowRelative"
+    ],
+    "sets": [
+      "ARTIFACT_SET_SCHEMA_VERSION",
+      "MEMBER_AUTHORITIES",
+      "artifactSetDiff",
+      "assertSkillArtifactSetEvidence",
+      "catalogArtifactSet",
+      "disclosureLines",
+      "memberRoot",
+      "normalizeArtifactSet",
+      "normalizeArtifactSets",
+      "resolvedArtifactSet",
+      "unpublishableRequiredArtifactSetMembers"
+    ],
+    "ast": [
+      "AST_ASSURANCE",
+      "AST_EVIDENCE_MODES",
+      "AST_FALLBACKS",
+      "AST_MODES",
+      "AST_PREDICATE_TYPES",
+      "AST_STORY_START_WARM_MODES",
+      "AST_STORY_START_WARM_SCOPES",
+      "assuranceSatisfies",
+      "normalizeAstPolicy"
+    ],
+    "faults": [
+      "FAULT_DIAGNOSIS_SCHEMA_VERSION",
+      "FAULT_ENVELOPE_SCHEMA_VERSION",
+      "REPAIR_PLAN_SCHEMA_VERSION",
+      "REPAIR_RECEIPT_SCHEMA_VERSION",
+      "REPAIR_STATE_SCHEMA_VERSION",
+      "attemptRepair",
+      "authorizeRepair",
+      "cancelRepair",
+      "createFaultRepairApi",
+      "diagnoseFault",
+      "effectiveRepairPolicy",
+      "faultRepairStateRoot",
+      "faultSignature",
+      "governedFaultRepairPolicy",
+      "listFaults",
+      "listRepairs",
+      "normalizeFaultRepairPolicy",
+      "parseVerificationArgv",
+      "parseVerificationCommand",
+      "readFault",
+      "readRepair",
+      "repairNextActions",
+      "reportFault",
+      "requestRepair",
+      "restrictFaultRepairPolicy",
+      "sanitizeFaultText",
+      "verificationSandboxKind",
+      "wrapCommandWithFaultRepair"
+    ],
+    "constitution": [
+      "ARTICLE_LEVELS",
+      "ARTICLE_TYPES",
+      "CONSTITUTION_MODES",
+      "CONSTITUTION_SCHEMA_VERSION",
+      "DEFAULT_CONSTITUTION_PATH",
+      "RENDERER_VERSION",
+      "articleHash",
+      "articleSections",
+      "buildConstitutionException",
+      "citedArticleIds",
+      "constitutionIndex",
+      "constitutionPin",
+      "constitutionPolicy",
+      "expiredExceptions",
+      "generateConstitution",
+      "generatedProse",
+      "loadConstitution",
+      "normalizeArticle",
+      "parseConstitution",
+      "policyValue",
+      "renderEnforcedArticle",
+      "requiredArticles",
+      "validateCitations"
+    ],
+    "injection": [
+      "globToRegExp",
+      "injectAgentPrompt",
+      "injectionConfig",
+      "readPromptGeneration",
+      "recordInjection",
+      "supersedePromptGeneration",
+      "validateInjectionDefinition"
+    ],
+    "commands": [
+      "ENVIRONMENT_ID_PATTERN",
+      "EXTERNAL_MODEL_POLICIES",
+      "QUALITY_COMMAND_KINDS",
+      "QUALITY_COMMAND_REQUIREMENTS",
+      "TEST_COMMAND_ECOSYSTEMS",
+      "TEST_RESULT_ADAPTERS",
+      "evaluateExternalCommandForModelMode",
+      "externalCommandText",
+      "normalizeExternalCommand",
+      "withCommandLiteralEnvironment"
+    ],
+    "environment": [
+      "ENVIRONMENT_DECLARATION_PATH",
+      "ENVIRONMENT_IDENTIFIER",
+      "canonicalEnvironmentDeclaration",
+      "captureEnvironmentDeclaration",
+      "declarableEnvironmentVariable",
+      "environmentWorldModelExcludedRoots",
+      "isExactEnvironmentFilePath",
+      "loadEnvironmentDeclaration",
+      "loadEnvironmentDeclarationSync",
+      "looksSecretName",
+      "matchEnvironmentLocalPath",
+      "parseEnvironmentDeclaration",
+      "validateEnvironmentCheckMappings",
+      "validateEnvironmentQualityCommandCatalog",
+      "withEnvironmentWorldModelExclusions"
+    ],
+    "recovery": [
+      "applyTestRecoveryAdmission",
+      "confirmTestRecoveryIntake",
+      "initialTestRecoveryAgreement",
+      "normalizeTestRecoveryPolicy",
+      "prepareTestRecoveryIntake",
+      "previewTestRecoveryIntake",
+      "testRecoveryChoices"
+    ],
+    "documents": [
+      "documentObligationsForPhase",
+      "normalizeDocumentObligations"
+    ],
+    "selection": [
+      "assessTestBaselineCoverage",
+      "compareSelectedTestObservations",
+      "evaluateReadinessRepairAdmission",
+      "normalizeTestSelectionPath",
+      "planTestSelection",
+      "selectTestCommandFiles",
+      "testSelectorCapabilities"
+    ],
+    "util": [
+      "BOOLEAN_OPTIONS",
+      "FREE_TEXT_OPTIONS",
+      "GIT_INDEX_LOCK_WAIT_MS",
+      "NETWORK_TIMEOUT_MS",
+      "SUBPROCESS_MAX_BUFFER_BYTES",
+      "SingularityFlowError",
+      "YAML_OUTPUT",
+      "assertCommitGitAdmission",
+      "bindRepositoryCommitPolicyProjection",
+      "canonicalPathSync",
+      "commandExists",
+      "commandLineFile",
+      "commitGitRequestDigest",
+      "commitPolicyEnforcedHint",
+      "commitPolicyGitVerb",
+      "defaultTimeoutFor",
+      "didYouMean",
+      "displayWidth",
+      "ensureDir",
+      "ensureSecureRepositoryDirectory",
+      "exists",
+      "gitHeadIsUnborn",
+      "gitOutsideRepository",
+      "gitReadOutput",
+      "gitWorkerCount",
+      "installCommitPolicyHintParser",
+      "invariant",
+      "invocationDirectory",
+      "isGitRefName",
+      "isPortableRepositoryPathComponent",
+      "isTransportIntentId",
+      "mapLimit",
+      "nearestNames",
+      "networkDisabled",
+      "nowIso",
+      "optionBoolean",
+      "optionNumber",
+      "optionString",
+      "optionStrings",
+      "padDisplay",
+      "parseArgs",
+      "platformPathWithin",
+      "platformShell",
+      "portableIdentifier",
+      "posix",
+      "readJson",
+      "recordSubprocessTiming",
+      "refuseUnreadableRepository",
+      "registerCommitPolicyMode",
+      "removeTemporaryTree",
+      "replaceWithSharingRetry",
+      "repoRelative",
+      "repositoryCommitPolicyModule",
+      "repositoryCommitPolicyProjection",
+      "requirePositional",
+      "retainedRepositoryCommitPolicy",
+      "run",
+      "samePlatformPath",
+      "secureRepositoryPath",
+      "sentenceList",
+      "signalProcessTree",
+      "snapshot",
+      "stateFingerprint",
+      "table",
+      "terminalWidth",
+      "truncate",
+      "truncateDisplay",
+      "withAdmittedCommitGit",
+      "writeAtomic",
+      "writeAtomicExclusive",
+      "writeBytes",
+      "writeJson",
+      "writeText"
+    ]
+  },
+  "functions": {
+    "source-path-policy.mjs:normalizePaths": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "c2c226ab13cf4aa8bda25181424a829834fb798b15e7ff111cc3ffd55c35a2b7"
+    },
+    "source-path-policy.mjs:normalizeSourceHashExcludedRoots": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "25d57204b736860c672e70dd69c00f22e194ef60b94e000f5ae9e1a261897e99"
+    },
+    "source-path-policy.mjs:normalizeTestConfigurationPaths": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "e3df43f9e98ad58e4da14be427b3273f7c7977b36d5e470b3044617a1e3e5d39"
+    },
+    "source-path-policy.mjs:sourcePathPolicy": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "3a1cbc6c7f2d4e9b464d3f429a1cd6d9c9d44d8766f79137b9585743fb811794"
+    },
+    "source-path-policy.mjs:isSeparatelyHashedTestInput": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "1f8af1d1b4114dc1229d9bd67830f747f4564d6f651d11f3ad5726ae8cf3b655"
+    },
+    "environment-declaration.mjs:looksSecretName": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "c3cab6a1d5335777e71e9e55da9d583eace5477ff3084f34feeac5b942d7c73c"
+    },
+    "environment-declaration.mjs:declarableEnvironmentVariable": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "6a77c592af3398a2b0c2687ddd30809b417fa023e87512c783e6afe07694b9ec"
+    },
+    "source-scope.mjs:normalizeSourceRoots": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "sourceScopePolicies",
+      "sha256": "b05ae1d7d722f1633e6d7d9a82c71c056c84d425b57aaff25344e5d52bbc39f0"
+    },
+    "source-scope.mjs:worldModelSourceScope": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "sourceScopePolicies",
+      "sha256": "a216b2c8d777ebbdcaf5ed99511b9464348263609564383d441bcd85d9f69faf"
+    },
+    "work-item-location.mjs:normalizeWorkItemRoot": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "workItemLocationPolicies",
+      "sha256": "a569b371af250ab66fdd24f240f13d345c5a4002479f52097e669049e08d1a35"
+    },
+    "artifact-sets.mjs:normalizeArtifactSet": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "artifactSetPolicies",
+      "sha256": "635343654836b51079d641e950670754ada2a443046cfaa41803a2188f75c988"
+    },
+    "artifact-sets.mjs:normalizeArtifactSets": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "artifactSetPolicies",
+      "sha256": "e5a66c470299c393bbcea17503b5d15bbb6a882789872285f290aaff75e156d5"
+    },
+    "ast-policy.mjs:positiveInteger": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "2916e98676b2085d8d07941813e58d0cf29133bf092570b7693c219e06a48ded"
+    },
+    "ast-policy.mjs:normalizeAstPolicy": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "cf7b6c22aa3cf52b6244af3966c39dc81389fdf43a1f6a7b0e649947a69b32d4"
+    },
+    "fault-repair.mjs:normalizeFaultRepairPolicy": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "faultRepairConfigurationPolicies",
+      "sha256": "8e990e829365c98ebad2bd5272e109a0287426c16e3bf6a498ecc3d3e370c203"
+    },
+    "fault-repair.mjs:normalizePathPrefix": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "faultRepairConfigurationPolicies",
+      "sha256": "6453dce67cad2caef8e483764eaee54918e29223706a6133257b41e32a33afb8"
+    },
+    "constitution.mjs:constitutionPolicy": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "constitutionConfigurationPolicies",
+      "sha256": "2ed055a60fdfcfa3c71064042f8186f1be92eaede481916ff9e73efadc955eba"
+    },
+    "inject.mjs:values": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "sha256": "380e24223c06b1e561cd1e739c49a92bd978d4d8f25638c3ba71b6b1d6814f73"
+    },
+    "inject.mjs:assertStringValues": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "sha256": "52a9d3001627c292f569c447fe85acd45209936c2dd941287a84b95dd8d9b133"
+    },
+    "inject.mjs:injectionConfig": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "sha256": "b0fae392336be97844dc97f2850e9adfd5123df34ed4bfc32dd3c443574ba580"
+    },
+    "inject.mjs:validateInjectionDefinition": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "sha256": "3a07a865e7f3107ea3f4dbb832029ee769121040063a3df9a7bdba1898b6319c"
+    },
+    "external-command-policy.mjs:normalizeCommandEnv": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "048e2b6c4e0ba5b72c241e8f08f03163384a879881afbf32474376ec67f9674e"
+    },
+    "external-command-policy.mjs:relativePath": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "a9b5e37855d7e09b4fecdccb5089cb578780d748a1e669574a15dcf97c46d268"
+    },
+    "external-command-policy.mjs:normalizeExternalCommand": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "a73cbb93b10fd276b4a1f48f0c1be6cadaa4a69e0ba5b0afddcda5a0f0b4c3a5"
+    },
+    "test-selection-policy.mjs:refuse": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testSelectionPolicies",
+      "sha256": "5837229087df068baf92a126ed3ec7ad76ec95b454684a3618389ba01e4bea3e"
+    },
+    "test-selection-policy.mjs:normalizeTestSelectionPath": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testSelectionPolicies",
+      "sha256": "2cadd970b0a9fe3ae0b6dac311b24c37a35896d16384ece4a5383e010a19b0ef"
+    },
+    "trp-document-policy.mjs:normalizeDocumentObligations": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "trpDocumentPolicies",
+      "sha256": "79ae91b54cf148217665e15ca9d7a5ebe187236141cd64659db65774ca6dab7c"
+    },
+    "test-recovery-intake.mjs:normalizeCaseInventory": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testRecoveryConfigurationPolicies",
+      "sha256": "9ed93b836e900208969635d105bf60a7e4d1b19903d9c608e0c502e80eb524b8"
+    },
+    "test-recovery-intake.mjs:normalizeTestRecoveryPolicy": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testRecoveryConfigurationPolicies",
+      "sha256": "fcf7eef30b2941a3a8957233ae9f2229daf2cf9e88492e32236914b31f2c97a8"
+    },
+    "util.mjs:posix": {
+      "owner": "src/util.mjs",
+      "factory": null,
+      "sha256": "53c35214f3cf81282298abb6fd548669123298653fd6bbd1d9b9b801f2ea1172"
+    }
+  },
+  "constants": {
+    "environment-declaration.mjs:ENVIRONMENT_DECLARATION_PATH": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "ffd16a3a452ffa7ef5299b03ed1fd070efcf62c4a371d6baf19882d76ce20966"
+    },
+    "environment-declaration.mjs:ENVIRONMENT_IDENTIFIER": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "288305af95bbe29fd58eab24cad429697f3c2c2d9087425a4fca5d6ab8879704"
+    },
+    "environment-declaration.mjs:VARIABLE": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "3557e66c4f05fee3d8ccad9d912480b7ad96d2f68d64964a98d7ed388e46441d"
+    },
+    "environment-declaration.mjs:RESERVED_VARIABLES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "b00e828b3a3dfbe5314b6cba1f821d7e2a3f1533dbc44ca99d337602411a8309"
+    },
+    "environment-declaration.mjs:RESERVED_PREFIXES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "589e7b10b21f54548ff797f3ab9be1f8e2ac82f807f8223217f82fc24b278a21"
+    },
+    "test-recovery-policy.mjs:TRP_RISK_CATEGORIES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "sha256": "0e9664dce278f3720af0dea3e5ee2b1b6860852c7ebd4083816ef179707d7045"
+    },
+    "work-item-location.mjs:DEFAULT_WORK_ITEM_ROOT": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "workItemLocationPolicies",
+      "sha256": "3328b36993e1904cc3cf85e3de15f1d8fdca4c82286a538596ec296d9992a412"
+    },
+    "artifact-sets.mjs:MEMBER_AUTHORITIES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "artifactSetPolicies",
+      "sha256": "97b949f097a451bdffa7f5cabd9c21c13be0a18831fa9a71a27f47cfc1b82366"
+    },
+    "ast-policy.mjs:AST_MODES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "e3541ecd21e9927635ccb6a950f21872493304f9a546fc43a223bfc2983b4a77"
+    },
+    "ast-policy.mjs:AST_FALLBACKS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "122dbef65fe79405cabf3ec70024340c2d8bb1a94049dab6ce348ee207152aaa"
+    },
+    "ast-policy.mjs:AST_ASSURANCE": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "0d3609b230f5bc3d1d7c94b0e729da3cd21a1d9648e002d370f9c5116de02983"
+    },
+    "ast-policy.mjs:AST_EVIDENCE_MODES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "ac027ea555981b8e2241b5913ed22a3e26a12e1e676501e7afaddbe2ad14e921"
+    },
+    "ast-policy.mjs:AST_STORY_START_WARM_MODES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "90b9cf822e46bda25f03efb13b0fc93f246548c109bc3320dbf0efe006291970"
+    },
+    "ast-policy.mjs:AST_STORY_START_WARM_SCOPES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "7776a645fd1ea6e3fbc2dd9e254176b7051deb68b3d46e73b63e05d638eba9fe"
+    },
+    "ast-policy.mjs:AST_PREDICATE_TYPES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "3ee7a056403e8c776c0a238208c7ba5dde97f79408146034d9ccabb4a1662c88"
+    },
+    "ast-policy.mjs:PREDICATE_FIELDS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "sha256": "b562274f6c399b06b0d7e5974b0271c8d73367921addb342c56ce2088fd91af1"
+    },
+    "fault-repair.mjs:ENVIRONMENTS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "faultRepairConfigurationPolicies",
+      "sha256": "db81ea0ffdd89ea28a077c96e9ff46fe671c8a6a8b33da2ff58e1b7fc535c7cf"
+    },
+    "fault-repair.mjs:ACTION_CEILINGS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "faultRepairConfigurationPolicies",
+      "sha256": "4b41766a34d8517bcc4508e3b76215dcbcad9c3b550d1cba1cda5805d2c9d570"
+    },
+    "fault-repair.mjs:DEFAULT_POLICY": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "faultRepairConfigurationPolicies",
+      "sha256": "3467da8fac26c1dd5f9f770602ecdbe9637756e0d917d2a175f4268c580b5c88"
+    },
+    "constitution.mjs:CONSTITUTION_MODES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "constitutionConfigurationPolicies",
+      "sha256": "bec22e804ee435a7c7808f7ff57a334e4101c421fe900c05094903947edbb404"
+    },
+    "constitution.mjs:DEFAULT_CONSTITUTION_PATH": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "constitutionConfigurationPolicies",
+      "sha256": "92acf60aca5dec169a63ad74f94ac1f6110ab9623ccb8cea928058639642dcf3"
+    },
+    "inject.mjs:DEFAULT_INJECTION": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "sha256": "91d304497c5bd0400c62ef0c25b67269f62009c4f32a61d8ca013fd663eb8f58"
+    },
+    "inject.mjs:MODES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "sha256": "35ce243dd48cbefbac552ecc54113e135fb4a7cfcaeb5cbb898c34276423df7c"
+    },
+    "external-command-policy.mjs:EXTERNAL_MODEL_POLICIES": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "2da99610a0b6549dd2dbaa2fe5e801630e47da1a669f5e9367c6ad20e109eb17"
+    },
+    "external-command-policy.mjs:QUALITY_COMMAND_KINDS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "5b02558ffa215ad7c1445ce63ecfb2de63ded40cec00e4e075405177cb1f21d1"
+    },
+    "external-command-policy.mjs:QUALITY_COMMAND_REQUIREMENTS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "8cab28abe9c9a3bb08af16c2c25ec4f05e697f047030c7024d74a7932153ffdf"
+    },
+    "external-command-policy.mjs:ENVIRONMENT_ID_PATTERN": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "1513fefe43eda2daeab95ebc6d0b01fae74e6930376162de45b95c227da5e7a8"
+    },
+    "external-command-policy.mjs:TEST_RESULT_ADAPTERS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "b30d9fb0e91dd91584fd8937d639cca04e5f79aabeef68f287038fdbe61e6a73"
+    },
+    "external-command-policy.mjs:TEST_COMMAND_ECOSYSTEMS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "sha256": "5d5a066f37c3f8791ffb292f06896d3bd0b042b051e295d8b61cd5230243f9d9"
+    },
+    "trp-document-policy.mjs:fail": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "trpDocumentPolicies",
+      "sha256": "ffab7c5820f1db0f7c2675773957d16b388bb6585a9e4ae2ecf34d21525aae0f"
+    },
+    "test-recovery-intake.mjs:fail": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testRecoveryConfigurationPolicies",
+      "sha256": "194373ef8426dc3ce4704b8a2b667302dd4e1cc6e2923cc3244a3bc6ff0ff7c0"
+    }
+  },
+  "owners": {
+    "src/source-path-policy.mjs": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "exports": [
+        "normalizeSourceHashExcludedRoots",
+        "normalizeTestConfigurationPaths",
+        "sourcePathPolicy",
+        "isSeparatelyHashedTestInput"
+      ]
+    },
+    "src/environment-declaration.mjs": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "exports": [
+        "ENVIRONMENT_DECLARATION_PATH",
+        "ENVIRONMENT_IDENTIFIER",
+        "looksSecretName",
+        "declarableEnvironmentVariable"
+      ]
+    },
+    "src/test-recovery-policy.mjs": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": null,
+      "exports": [
+        "TRP_RISK_CATEGORIES"
+      ]
+    },
+    "src/source-scope.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "sourceScopePolicies",
+      "exports": [
+        "normalizeSourceRoots",
+        "worldModelSourceScope"
+      ]
+    },
+    "src/work-item-location.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "workItemLocationPolicies",
+      "exports": [
+        "DEFAULT_WORK_ITEM_ROOT",
+        "normalizeWorkItemRoot"
+      ]
+    },
+    "src/artifact-sets.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "artifactSetPolicies",
+      "exports": [
+        "MEMBER_AUTHORITIES",
+        "normalizeArtifactSet",
+        "normalizeArtifactSets"
+      ]
+    },
+    "src/ast-policy.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "astConfigurationPolicies",
+      "exports": [
+        "AST_MODES",
+        "AST_FALLBACKS",
+        "AST_ASSURANCE",
+        "AST_EVIDENCE_MODES",
+        "AST_STORY_START_WARM_MODES",
+        "AST_STORY_START_WARM_SCOPES",
+        "AST_PREDICATE_TYPES",
+        "normalizeAstPolicy"
+      ]
+    },
+    "src/fault-repair.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "faultRepairConfigurationPolicies",
+      "exports": [
+        "normalizeFaultRepairPolicy"
+      ]
+    },
+    "src/constitution.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "constitutionConfigurationPolicies",
+      "exports": [
+        "CONSTITUTION_MODES",
+        "DEFAULT_CONSTITUTION_PATH",
+        "constitutionPolicy"
+      ]
+    },
+    "src/inject.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "injectionConfigurationPolicies",
+      "exports": [
+        "injectionConfig",
+        "validateInjectionDefinition"
+      ]
+    },
+    "src/external-command-policy.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "externalCommandConfigurationPolicies",
+      "exports": [
+        "EXTERNAL_MODEL_POLICIES",
+        "QUALITY_COMMAND_KINDS",
+        "QUALITY_COMMAND_REQUIREMENTS",
+        "ENVIRONMENT_ID_PATTERN",
+        "TEST_RESULT_ADAPTERS",
+        "TEST_COMMAND_ECOSYSTEMS",
+        "normalizeExternalCommand"
+      ]
+    },
+    "src/test-selection-policy.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testSelectionPolicies",
+      "exports": [
+        "normalizeTestSelectionPath"
+      ]
+    },
+    "src/trp-document-policy.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "trpDocumentPolicies",
+      "exports": [
+        "normalizeDocumentObligations"
+      ]
+    },
+    "src/test-recovery-intake.mjs": {
+      "owner": "src/engine-compatibility/node-configuration-path.mjs",
+      "definitionOwner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "testRecoveryConfigurationPolicies",
+      "exports": [
+        "normalizeTestRecoveryPolicy"
+      ]
+    }
+  },
+  "compilerDependencies": [
+    "constitutionPolicy",
+    "normalizeArtifactSets",
+    "normalizeAstPolicy",
+    "normalizeExternalCommand",
+    "normalizeFaultRepairPolicy",
+    "normalizeSourceRoots",
+    "normalizeTestRecoveryPolicy",
+    "normalizeWorkItemRoot",
+    "validateInjectionDefinition",
+    "worldModelSourceScope"
+  ],
+  "primitiveDependencies": [
+    "absolutePath",
+    "pathBasename",
+    "posix"
+  ]
+}

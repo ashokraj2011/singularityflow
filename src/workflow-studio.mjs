@@ -27,7 +27,8 @@ import {
 } from './skill-library.mjs';
 import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
 import { skillUses, projectSkills, projectInstructions } from './asset-catalog-projection.mjs';
-import { constitutionPolicy, parseConstitution } from './constitution.mjs';
+import { parseConstitution } from './constitution.mjs';
+import { constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { constitutionStudioView, renderStudioConstitution, studioConstitutions } from './studio-constitution.mjs';
 import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
 
@@ -46,7 +47,7 @@ import { DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES } from './remote-fetch.
 import { importsStatus } from './asset-import.mjs';
 import { importableMcpServers } from './mcp-import.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, templateReferences } from "./kernel/configuration-policy.mjs";
-import { normalizeArtifactSet } from './artifact-sets.mjs';
+import { normalizeArtifactSet } from "./engine-compatibility/node-configuration-path.mjs";
 import { normalizeApprovalSecurity } from './kernel/approval-policy.mjs';
 import { authoringRoute, deterministicOnlyGeneration, legacyAuthoringSkill, workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { compiledSkillStep, stepOutputKind } from "./kernel/configuration-declarations.mjs";
@@ -56,7 +57,7 @@ import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/rende
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';

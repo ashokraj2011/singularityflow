@@ -14,7 +14,8 @@ import path from 'node:path';
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { readFile } from 'node:fs/promises';
 
-import { normalizeExternalCommand, withCommandLiteralEnvironment } from '../external-command-policy.mjs';
+import { withCommandLiteralEnvironment } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { head } from '../git.mjs';
 import { runQualityCommand } from '../quality-command-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';

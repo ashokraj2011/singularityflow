@@ -33,7 +33,7 @@ import { resolveDebugLaunch } from './application-debug.mjs';
 import {
   applicationArguments, applicationDebug, applicationStartArgv, applicationStartCommandSha256, debuggerListeners, normalizeCapabilityApplication, normalizeCapabilityApplicationEntry
 } from './capabilities.mjs';
-import { declarableEnvironmentVariable } from './environment-declaration.mjs';
+import { declarableEnvironmentVariable } from "./kernel/configuration-path-policies.mjs";
 import { recordSha256 } from './records.mjs';
 import { classifyVariable, looksSecretValue } from './secret-looking.mjs';
 import { SingularityFlowError } from './util.mjs';

@@ -1,7 +1,8 @@
+import { normalizeTestSelectionPath, testSelectionPolicyRefuse as refuse } from "./engine-compatibility/node-configuration-path.mjs";
+export { normalizeTestSelectionPath } from "./engine-compatibility/node-configuration-path.mjs";
 /** Pure TRP selection and readiness-repair planning. This module never executes a runner. */
 import path from 'node:path';
 import { recordSha256 } from './records.mjs';
-import { SingularityFlowError } from './util.mjs';
 
 const sha = (value) => `sha256:${recordSha256(value)}`;
 const sorted = (values) => [...new Set(values)].sort();
@@ -11,24 +12,6 @@ const BASELINE_BINDINGS = [
   'commandInventorySha256', 'dependencyManifestSha256', 'environmentSha256',
   'runnerSha256', 'adapterSha256'
 ];
-
-function refuse(message, code = 'TEST_SELECTION_INVALID') {
-  throw new SingularityFlowError(message, { code });
-}
-
-/** Normalize repository-relative paths independently of the machine running the preview. */
-export function normalizeTestSelectionPath(value, { allowRoot = false } = {}) {
-  if (typeof value !== 'string' || !value || /[\x00-\x1f\x7f]/u.test(value)) {
-    refuse('Test-selection paths must be nonempty repository-relative paths.');
-  }
-  const candidate = value.replaceAll('\\', '/');
-  if (/^(?:\/|[a-z]:)/iu.test(candidate) || candidate.split('/').includes('..')) {
-    refuse(`Test-selection path '${value}' is outside the repository.`);
-  }
-  const normalized = path.posix.normalize(candidate).replace(/^\.\//u, '').replace(/\/$/u, '');
-  if (!normalized || (normalized === '.' && !allowRoot)) refuse(`Invalid test-selection path '${value}'.`);
-  return normalized || '.';
-}
 
 function covers(root, value) { return root === '.' || value === root || value.startsWith(`${root}/`); }
 function launcher(value) { return path.posix.basename(String(value).replaceAll('\\', '/')).replace(/\.(?:exe|cmd|bat)$/iu, '').toLowerCase(); }

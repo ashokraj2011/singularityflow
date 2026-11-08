@@ -1,6 +1,6 @@
 /** Reconstruct the bounded replacement catalog from exact raw approved policy, without I/O. */
 import { validateDefinition } from './config.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';

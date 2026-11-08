@@ -1,3 +1,4 @@
+import { NODE_CONFIGURATION_PATH_SYNTAX } from './engine-compatibility/node-configuration-path.mjs';
 import { normalizeApplicationReview } from './code-delivery-policy.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
@@ -19,7 +20,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   ensureSecureRepositoryDirectory, mapLimit, repoRelative, secureRepositoryPath, SingularityFlowError, posix, run, snapshot, writeBytes
 } from './util.mjs';
-import { validateInjectionDefinition } from './inject.mjs';
+
 import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot, configurationReadDefinition } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
@@ -32,27 +33,22 @@ import { normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 
 import { specificationQualityPolicy } from './specification-quality.mjs';
-import { normalizeArtifactSets } from './artifact-sets.mjs';
+import { normalizeArtifactSets } from "./engine-compatibility/node-configuration-path.mjs";
 
 import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { VERSION } from './version.mjs';
-import { constitutionPolicy } from './constitution.mjs';
+import { constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 
 import { normalizeMarketplaces } from './marketplace.mjs';
 import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specifications.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 import { loadImpactDefinition } from './impact-config.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
 
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 
-import { normalizeWorkItemRoot } from './work-item-location.mjs';
-import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
-import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
-
-import { normalizeAstPolicy } from './ast-policy.mjs';
+import { normalizeFaultRepairPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
@@ -60,7 +56,7 @@ import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mj
 import { normalizeWorkTypeIntelligence } from "./kernel/configuration-policy.mjs";
 import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 
-import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
+import { worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { disabledArchitectureIntent } from "./kernel/configuration-declarations.mjs";
 import { worldModelStateAuthority } from './state-authority.mjs';
@@ -103,29 +99,17 @@ const {
   ARA_PHASE_SEMANTICS_PROFILE,
   AUTHORING_SKILL_ID,
   PHASE_SEMANTICS_PROFILE,
-  absolutePath: path.isAbsolute,
   authoringSkillCatalog,
   compileObligationGraph,
-  constitutionPolicy,
   isSpecificationDefinitionPhase,
   normalizeApplicationReview,
-  normalizeArtifactSets,
-  normalizeAstPolicy,
   normalizeCommitPolicyRuntime,
-  normalizeExternalCommand,
-  normalizeFaultRepairPolicy,
   normalizeMarketplaces,
-  normalizeSourceRoots,
-  normalizeTestRecoveryPolicy,
-  normalizeWorkItemRoot,
-  pathBasename: path.posix.basename,
-  posix,
   skillPhasePrimaryOutputRole,
   specificationQualityPolicy,
   validateConfiguredSkillPhase,
-  validateInjectionDefinition,
-  worldModelSourceScope,
-  worldModelStateAuthority
+  worldModelStateAuthority,
+  pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX
 });
 export {
   normalizeReferenceRepositoryPolicy,

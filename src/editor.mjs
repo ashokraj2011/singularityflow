@@ -104,8 +104,9 @@ import { readObjectsBatch } from './git-ref-tree.mjs';
 import { isConfigurationReadCopy } from './configuration-read-scope.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 import { workflowCodeGeneration, codeOutcomeReviewOffer } from './code-delivery-policy.mjs';
-import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { captureEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
+import { ENVIRONMENT_DECLARATION_PATH } from "./kernel/configuration-path-policies.mjs";
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';

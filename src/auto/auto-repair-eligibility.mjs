@@ -1,6 +1,6 @@
 /** Deterministic AUT v2 machine-actionable repair classification. */
 import { globToRegExp } from '../inject.mjs';
-import { TEST_RESULT_ADAPTERS } from '../external-command-policy.mjs';
+import { TEST_RESULT_ADAPTERS } from "../engine-compatibility/node-configuration-path.mjs";
 
 const SAFE_AUTOMATIC_CODE = 'AUTO_CANDIDATE_VERIFICATION_FAILED';
 const HASH = /^sha256:[a-f0-9]{64}$/;

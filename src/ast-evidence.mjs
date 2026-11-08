@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { bundledAstAdapters, discoverAstAdapters } from './ast-adapter-contract.mjs';
 import { BUILTIN_AST_EXTRACTOR } from './ast-builtin-extractor.mjs';
-import { normalizeAstPolicy } from './ast-policy.mjs';
+import { normalizeAstPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { validateProjectBinding } from './ast-project-binding.mjs';
 import { retainAstEvidenceBundle } from './ast-evidence-store.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';

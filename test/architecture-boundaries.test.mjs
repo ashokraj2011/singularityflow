@@ -164,6 +164,25 @@ test('configuration declarations have one pure owner and native effects remain o
   }
 });
 
+test('configuration path rules depend on a string-syntax contract and native binding owns no business rule', async () => {
+  const source = await readFile(path.join(packageRoot,'src/kernel/configuration-path-policies.mjs'),'utf8');
+  assert.doesNotMatch(source,/node:|process\.|console\.|readFile|safeCommandGuidance/);
+  for (const [file,allowed] of [
+    ['src/engine-compatibility/node-configuration-path.mjs',new Set(['node:path','../kernel/configuration-path-policies.mjs'])]
+  ]) {
+    const ast = ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    for (const node of ast.statements.filter(ts.isImportDeclaration)) assert.ok(allowed.has(node.moduleSpecifier.text),file+':'+node.moduleSpecifier.text);
+    const visit = node => {
+      assert.equal(ts.isCallExpression(node)&&(node.expression.kind===ts.SyntaxKind.ImportKeyword
+        ||ts.isIdentifier(node.expression)&&['require','eval','Function'].includes(node.expression.text)),false,file);
+      if (ts.isIdentifier(node)&&node.text==='process') assert.fail(file+' must not discover ambient context.');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+  const adapter = ts.createSourceFile('adapter',await readFile(path.join(packageRoot,'src/engine-compatibility/node-configuration-path.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  assert.equal(adapter.statements.some(ts.isFunctionDeclaration),false);
+});
+
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',

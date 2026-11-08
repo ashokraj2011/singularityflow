@@ -23,9 +23,8 @@ import { nowIso, run, samePlatformPath, SingularityFlowError } from './util.mjs'
 import { validatePortableWorkId } from './work-id.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
-import {
-  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
-} from './work-item-location.mjs';
+import { workItemRootFromDefinitionText, workItemWorkflowRelative } from './work-item-location.mjs';
+import { DEFAULT_WORK_ITEM_ROOT } from "./engine-compatibility/node-configuration-path.mjs";
 
 function digest(value) {
   return createHash('sha256').update(String(value)).digest('hex');

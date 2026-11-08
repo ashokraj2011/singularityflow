@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
-import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
+import { assuranceSatisfies } from './ast-policy.mjs';
+import { normalizeAstPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import {
   BUNDLED_AST_ADAPTER_IDS, adapterDerivationKey, astAdapterManifestSha256, astAdapterRequest, discoverAstAdapters,
@@ -33,7 +34,8 @@ import { applySelectionPriority, FACT_PRIORITIES } from './ast-fact-order.mjs';
 import { gitCommonDir } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { normalizeSourceRoots, withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
+import { normalizeSourceRoots, worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import {
   gitHeadIsUnborn, gitReadOutput, optionBoolean, optionNumber, optionString, optionStrings, posix, run,
   SingularityFlowError, writeJson

@@ -1,6 +1,6 @@
 import { commandExists } from './util.mjs';
 import { operationCatalog } from './command-registry.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 
 function producerSummary(phase) {
   const policy = phase?.generationPolicy ?? { requirement: 'required', allowedProducers: ['governed-agent', 'human'], defaultProducer: 'governed-agent' };

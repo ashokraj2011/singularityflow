@@ -1,3 +1,4 @@
+import { configurationPathSyntax, constitutionConfigurationPolicies, artifactSetPolicies, astConfigurationPolicies, externalCommandConfigurationPolicies, faultRepairConfigurationPolicies, sourceScopePolicies, testRecoveryConfigurationPolicies, workItemLocationPolicies, injectionConfigurationPolicies } from './configuration-path-policies.mjs';
 import { analysisLimits, assertCodeDeliveryConfiguration, assertNoAutonomousConvergence, assertStoryBranchNaming, compiledSkillStep, disabledArchitectureIntent, dropRemovedSettings, isAgentTemplateReference, normalizeLedgerConfig, normalizeLogging, normalizeSourceBoundary, normalizeStorage, parseAgentTemplateReference, pinCodeDeliveryTask, stepOutputKind, validateTokenReportingPolicy } from './configuration-declarations.mjs';
 import { normalizeAdhocPolicy } from './adhoc-policy.mjs';
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto-policy.mjs';
@@ -88,29 +89,17 @@ const CONFIGURATION_COLLABORATORS = Object.freeze([
     "ARA_PHASE_SEMANTICS_PROFILE",
     "AUTHORING_SKILL_ID",
     "PHASE_SEMANTICS_PROFILE",
-    "absolutePath",
     "authoringSkillCatalog",
     "compileObligationGraph",
-    "constitutionPolicy",
     "isSpecificationDefinitionPhase",
     "normalizeApplicationReview",
-    "normalizeArtifactSets",
-    "normalizeAstPolicy",
     "normalizeCommitPolicyRuntime",
-    "normalizeExternalCommand",
-    "normalizeFaultRepairPolicy",
     "normalizeMarketplaces",
-    "normalizeSourceRoots",
-    "normalizeTestRecoveryPolicy",
-    "normalizeWorkItemRoot",
-    "pathBasename",
-    "posix",
     "skillPhasePrimaryOutputRole",
     "specificationQualityPolicy",
     "validateConfiguredSkillPhase",
-    "validateInjectionDefinition",
-    "worldModelSourceScope",
-    "worldModelStateAuthority"
+    "worldModelStateAuthority",
+    "pathSyntax"
   ]);
 
 /** Internal composition, never operation inputs or an approval/configuration authority. */
@@ -134,58 +123,42 @@ export function createWorkflowConfigurationCompiler(dependencies) {
     ARA_PHASE_SEMANTICS_PROFILE,
     AUTHORING_SKILL_ID,
     PHASE_SEMANTICS_PROFILE,
-    absolutePath,
     authoringSkillCatalog,
     compileObligationGraph,
-    constitutionPolicy,
     isSpecificationDefinitionPhase,
     normalizeApplicationReview,
-    normalizeArtifactSets,
-    normalizeAstPolicy,
     normalizeCommitPolicyRuntime,
-    normalizeExternalCommand,
-    normalizeFaultRepairPolicy,
     normalizeMarketplaces,
-    normalizeSourceRoots,
-    normalizeTestRecoveryPolicy,
-    normalizeWorkItemRoot,
-    pathBasename,
-    posix,
     skillPhasePrimaryOutputRole,
     specificationQualityPolicy,
     validateConfiguredSkillPhase,
-    validateInjectionDefinition,
-    worldModelSourceScope,
-    worldModelStateAuthority
+    worldModelStateAuthority,
+    pathSyntax
   } = dependencies;
   if ([
-    absolutePath,
     authoringSkillCatalog,
     compileObligationGraph,
-    constitutionPolicy,
     isSpecificationDefinitionPhase,
     normalizeApplicationReview,
-    normalizeArtifactSets,
-    normalizeAstPolicy,
     normalizeCommitPolicyRuntime,
-    normalizeExternalCommand,
-    normalizeFaultRepairPolicy,
     normalizeMarketplaces,
-    normalizeSourceRoots,
-    normalizeTestRecoveryPolicy,
-    normalizeWorkItemRoot,
-    pathBasename,
-    posix,
     skillPhasePrimaryOutputRole,
     specificationQualityPolicy,
     validateConfiguredSkillPhase,
-    validateInjectionDefinition,
-    worldModelSourceScope,
     worldModelStateAuthority
   ].some(value => typeof value !== 'function') || !(AUTHORING_SKILL_ID instanceof RegExp) || typeof PHASE_SEMANTICS_PROFILE !== 'string' || typeof ARA_PHASE_SEMANTICS_PROFILE !== 'string') {
     throw new SingularityFlowError('Configuration compilation requires every packaged policy collaborator.', { code: 'ENGINE_CONFIGURATION_COMPILER_INVALID' });
   }
-  const path = Object.freeze({ isAbsolute: absolutePath, posix: Object.freeze({ basename: pathBasename }) });
+  const { path, posix } = configurationPathSyntax(pathSyntax);
+  const { constitutionPolicy } = constitutionConfigurationPolicies(pathSyntax);
+  const { normalizeArtifactSets } = artifactSetPolicies(pathSyntax);
+  const { normalizeAstPolicy } = astConfigurationPolicies(pathSyntax);
+  const { normalizeExternalCommand } = externalCommandConfigurationPolicies(pathSyntax);
+  const { normalizeFaultRepairPolicy } = faultRepairConfigurationPolicies(pathSyntax);
+  const { normalizeSourceRoots, worldModelSourceScope } = sourceScopePolicies(pathSyntax);
+  const { normalizeTestRecoveryPolicy } = testRecoveryConfigurationPolicies(pathSyntax);
+  const { normalizeWorkItemRoot } = workItemLocationPolicies(pathSyntax);
+  const { validateInjectionDefinition } = injectionConfigurationPolicies(pathSyntax);
 
   function assertSupportedPhaseProducer(value, label) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return;

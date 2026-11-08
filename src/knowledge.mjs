@@ -14,7 +14,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { initiativeRelative } from './state-stores.mjs';
-import { normalizeWorkItemRoot } from './work-item-location.mjs';
+import { normalizeWorkItemRoot } from "./engine-compatibility/node-configuration-path.mjs";
 
 export const KNOWLEDGE_ROOT = 'singularity/knowledge';
 export const KNOWLEDGE_TYPES = new Set(['insight', 'decision', 'gotcha', 'constraint', 'uncertainty']);

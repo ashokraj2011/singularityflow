@@ -1,49 +1,9 @@
+import { worldModelSourceScope, normalizeSourceRoots } from "./engine-compatibility/node-configuration-path.mjs";
+export { normalizeSourceRoots, worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import path from 'node:path';
 
-import { posix, SingularityFlowError } from './util.mjs';
-import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-policy.mjs';
-
-/**
- * A source scope is deliberately a set of directory prefixes, not glob expressions.
- *
- * Prefixes give Git, sparse checkout, the world-model scanner, and the deterministic facts builder
- * one meaning to share. Supporting a different pattern language at each layer would make a file
- * visible to one of them and invisible to another, which is exactly the kind of partial world model
- * that is dangerous in a monorepo.
- */
-export function normalizeSourceRoots(value, label = 'Source roots') {
-  if (value == null) return [];
-  if (!Array.isArray(value)) throw new SingularityFlowError(`${label} must be an array of repository-relative directories.`);
-  const roots = [];
-  for (const raw of value) {
-    if (typeof raw !== 'string' || !raw.trim()) throw new SingularityFlowError(`${label} must contain non-empty paths.`);
-    if (raw.includes('\\')) throw new SingularityFlowError(`${label} entry '${raw}' must use forward slashes.`);
-    const normalized = posix(raw.trim()).replace(/^\.\//, '').replace(/\/$/, '');
-    if (!normalized || normalized === '.' || path.posix.isAbsolute(normalized)
-      || normalized.split('/').includes('..') || /[*?\[\]{}]/.test(normalized)) {
-      throw new SingularityFlowError(`${label} entry '${raw}' must be a repository-relative directory without '..' or glob characters.`);
-    }
-    if (!roots.includes(normalized)) roots.push(normalized);
-  }
-  return roots.sort();
-}
-
-/** The normalized scope declared by either a workflow definition or a worldModel object. */
-export function worldModelSourceScope(definition = {}) {
-  const configured = definition.worldModel ?? definition;
-  const sourceRoots = normalizeSourceRoots(configured?.sourceRoots, 'worldModel.sourceRoots');
-  const sharedRoots = normalizeSourceRoots(configured?.sharedRoots, 'worldModel.sharedRoots');
-  const { sourceHashExcludedRoots, testConfigurationPaths } = sourcePathPolicy(configured);
-  const paths = [...new Set([...sourceRoots, ...sharedRoots])].sort();
-  return Object.freeze({
-    sourceRoots: Object.freeze(sourceRoots),
-    sharedRoots: Object.freeze(sharedRoots),
-    sourceHashExcludedRoots: Object.freeze(sourceHashExcludedRoots),
-    testConfigurationPaths: Object.freeze(testConfigurationPaths),
-    paths: Object.freeze(paths),
-    all: paths.length === 0
-  });
-}
+import { posix } from './util.mjs';
+import { sourcePathPolicy, isSeparatelyHashedTestInput } from "./kernel/configuration-path-policies.mjs";
 
 /** True when a repository-relative path belongs to the configured world-model source scope. */
 export function sourcePathIncluded(file, definition = {}) {

@@ -20,7 +20,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { APPLICATION_DEBUG_DEFAULT_PORTS, normalizeCapabilityApplication } from './capabilities.mjs';
-import { declarableEnvironmentVariable, ENVIRONMENT_IDENTIFIER } from './environment-declaration.mjs';
+import { declarableEnvironmentVariable, ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs";
 import { insideRoot, parseJsonc, posixRelative, readRunConfigurationSources, splitCommandLine } from './app-suggestion-sources.mjs';
 import {
   PRIVATE_DIRECTORY_PLACEHOLDER, resolveStartCommand, runConfigurationErrors, RUN_CONFIGURATION_TYPES, typedStartEntry

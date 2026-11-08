@@ -174,7 +174,8 @@ import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetS
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
 import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, reusableAssistedRecord, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
-import { buildConstitutionException, constitutionIndex, constitutionPolicy, generateConstitution, loadConstitution } from './constitution.mjs';
+import { buildConstitutionException, constitutionIndex, generateConstitution, loadConstitution } from './constitution.mjs';
+import { constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { VERSION } from './version.mjs';
 import { HELP } from './help-text.mjs';
 

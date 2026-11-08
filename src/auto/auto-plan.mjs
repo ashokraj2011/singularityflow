@@ -20,7 +20,7 @@ import { generationTaskForPhase } from "../kernel/configuration-policy.mjs";
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { loadEnvironmentDeclaration } from '../environment-declaration.mjs';
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';

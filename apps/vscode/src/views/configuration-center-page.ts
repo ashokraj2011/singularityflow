@@ -4,7 +4,7 @@ import {
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 import { PROFILE_PERSONAS } from './profile-personas.ts';
-import { TEST_RESULT_ADAPTERS } from '../../../../src/external-command-policy.mjs';
+import { TEST_RESULT_ADAPTERS } from "../../../../src/engine-compatibility/node-configuration-path.mjs";
 import type { TestSetupView } from './test-setup-model.ts';
 
 // A command's `env` is literal and never secret-like (external-command-policy.mjs): shown, and kept on save.

@@ -14,10 +14,10 @@
 import path from 'node:path';
 
 import { normalizeApprovalPolicy } from './kernel/approval-policy.mjs';
-import { normalizeArtifactSet } from './artifact-sets.mjs';
+import { normalizeArtifactSet } from "./engine-compatibility/node-configuration-path.mjs";
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { assertModelTask } from "./kernel/configuration-policy.mjs";
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SKP_PARSER_PROFILE } from './skp-package.mjs';

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { normalizeSourceRoots } from './source-scope.mjs';
-import { sourcePathPolicy } from './source-path-policy.mjs';
+import { normalizeSourceRoots } from "./engine-compatibility/node-configuration-path.mjs";
+import { sourcePathPolicy } from "./kernel/configuration-path-policies.mjs";
 import {
   exists, portableIdentifier, secureRepositoryPath, SingularityFlowError
 } from './util.mjs';

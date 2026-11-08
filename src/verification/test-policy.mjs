@@ -21,7 +21,7 @@ import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { resolveDeliveryQualityCommands, testCommandProvenance } from '../delivery-evidence.mjs';
 import { ASSURANCE } from '../evidence/vocabulary.mjs';
-import { normalizeExternalCommand } from '../external-command-policy.mjs';
+import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { commandCovering } from './adapters.mjs';
 import { capabilityLines, launcherPresent, repositoryTestCapability } from './capability.mjs';
 import { effectiveContract } from './contracts.mjs';

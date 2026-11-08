@@ -1,6 +1,6 @@
 /** Repository inspection and literal safeguards shared by Story and configuration requests. No CLI grammar. */
 import {SingularityFlowError} from './foundation/failures.mjs';
-import {TEST_COMMAND_ECOSYSTEMS} from './external-command-policy.mjs';
+import { TEST_COMMAND_ECOSYSTEMS } from "./engine-compatibility/node-configuration-path.mjs";
 
 const usage=message=>new SingularityFlowError(message,{code:'TEST_SETUP_PROPOSAL_USAGE',details:{subjectKind:'configuration'}});
 

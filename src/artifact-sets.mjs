@@ -1,3 +1,5 @@
+import { normalizeArtifactSet } from "./engine-compatibility/node-configuration-path.mjs";
+export { MEMBER_AUTHORITIES, normalizeArtifactSet, normalizeArtifactSets } from "./engine-compatibility/node-configuration-path.mjs";
 /**
  * Typed artifact sets. `[SPK:REQ-110]` `[SPK:REQ-111]` `[SPK:CON-045]`
  *
@@ -27,63 +29,8 @@ import { untrackedFiles } from './git.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-/** How much a member's absence or change is allowed to mean. */
-export const MEMBER_AUTHORITIES = Object.freeze(['governed', 'advisory']);
-
 /** The catalogue shape `catalogArtifactSet` writes and `artifactSetDiff` reads. `[SPK:REQ-124]` */
 export const ARTIFACT_SET_SCHEMA_VERSION = currentSchemaVersion('artifact-set');
-
-/**
- * Normalize one declared set.
- *
- * Validated at configuration load rather than at first use. The set shipped in `workflow.yml` had no
- * reader at all until this module existed; a declaration nothing validates and nothing consumes is
- * indistinguishable from one that works.
- */
-export function normalizeArtifactSet(value, id) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError(`Artifact set '${id}' must be an object.`);
-  }
-  const primary = String(value.primary ?? '').trim();
-  if (!primary) throw new SingularityFlowError(`Artifact set '${id}' must name its primary member.`);
-  const members = value.members ?? [];
-  if (!Array.isArray(members) || !members.length) {
-    throw new SingularityFlowError(`Artifact set '${id}' must list at least one member.`);
-  }
-  const seen = new Set();
-  const normalized = members.map((member, index) => {
-    if (!member || typeof member !== 'object') throw new SingularityFlowError(`Artifact set '${id}' member ${index + 1} must be an object.`);
-    const memberPath = posix(String(member.path ?? '').trim());
-    if (!memberPath) throw new SingularityFlowError(`Artifact set '${id}' member ${index + 1} needs a path.`);
-    if (memberPath.startsWith('/') || memberPath.split('/').includes('..')) {
-      throw new SingularityFlowError(`Artifact set '${id}' member '${memberPath}' must stay inside the phase artifact directory.`);
-    }
-    if (seen.has(memberPath)) throw new SingularityFlowError(`Artifact set '${id}' lists '${memberPath}' twice.`);
-    seen.add(memberPath);
-    const role = String(member.role ?? '').trim();
-    if (!role) throw new SingularityFlowError(`Artifact set '${id}' member '${memberPath}' needs a role.`);
-    const authority = member.authority ?? 'governed';
-    if (!MEMBER_AUTHORITIES.includes(authority)) {
-      throw new SingularityFlowError(`Artifact set '${id}' member '${memberPath}' authority must be one of ${MEMBER_AUTHORITIES.join(', ')}.`);
-    }
-    // An advisory member is a planning aid, never evidence `[SPK:CON-046]`. Requiring one would make
-    // it evidence by the back door, so the two cannot be combined.
-    if (authority === 'advisory' && member.required === true) {
-      throw new SingularityFlowError(`Artifact set '${id}' member '${memberPath}' is advisory, so it cannot be required.`);
-    }
-    return { path: memberPath, role, required: member.required === true, authority };
-  });
-  if (!normalized.some((member) => member.path === posix(primary))) {
-    throw new SingularityFlowError(`Artifact set '${id}' primary '${primary}' is not among its members.`);
-  }
-  return Object.freeze({ id, primary: posix(primary), members: Object.freeze(normalized) });
-}
-
-export function normalizeArtifactSets(value = {}) {
-  if (value == null) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('artifactSets must be an object.');
-  return Object.fromEntries(Object.entries(value).map(([id, set]) => [id, normalizeArtifactSet(set, id)]));
-}
 
 /** The directory members are named relative to: the one holding the phase's required artifact. */
 export function memberRoot(phase) {

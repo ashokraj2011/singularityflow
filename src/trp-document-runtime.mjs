@@ -10,7 +10,8 @@ import { canonicalJson } from './records.mjs';
 import { evaluateProtectedPaths } from './repository-change-set.mjs';
 import { appendTrpRecord, loadTrpAuthorityVerifier, loadTrpRecords } from './test-recovery-store.mjs';
 import { evaluateTestRecoveryGate, sealTrpRecord, trpDigest, validateTrpRecord } from './test-recovery-policy.mjs';
-import { documentObligationsForPhase, normalizeDocumentObligations } from './trp-document-policy.mjs';
+import { documentObligationsForPhase } from './trp-document-policy.mjs';
+import { normalizeDocumentObligations } from "./engine-compatibility/node-configuration-path.mjs";
 import { ensureSecureRepositoryDirectory, nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const LIMIT = 1024 * 1024;

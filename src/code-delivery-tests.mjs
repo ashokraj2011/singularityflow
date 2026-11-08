@@ -4,7 +4,7 @@ import { access, lstat, open, readFile, readdir, realpath, stat, writeFile } fro
 import path from 'node:path';
 import { nodeTestObservation } from './verification/node-test-observation.mjs';
 
-import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from './external-command-policy.mjs';
+import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from "./engine-compatibility/node-configuration-path.mjs";
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';

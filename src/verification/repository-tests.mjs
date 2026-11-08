@@ -159,7 +159,7 @@ export async function preflightRepositoryTests(root, config, workflow, phase, ke
   });
   try {
     const runs = await bindRepositoryTestRuns(root, itemRelative, { commands: added.commands, checks, workflow, phase, ...fields });
-    const failed = runs.filter((run) => run.status !== 'passed').map((run) => run.commandId);
+    const failed = runs.filter((run) => run.status !== 'passed').map((run) => `${run.commandId}${Number(run.counts?.discovered) === 0 ? ' (no tests ran)' : ''}`);
     if (failed.length) console.warn(`Warning: the repository's tests did not pass here: ${failed.join(', ')}. ${phase.id} still publishes; submission runs them again.`);
     await admitTestAttempts(root, itemRelative, workflow.workItem.id, phase.id);
     return runs;

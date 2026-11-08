@@ -46,7 +46,7 @@
   "sflow-code": [
     "unavailable: `/sf-session` or `/sf-workspaces`, stop.",
     "Inspect `recovery`, `intent`, test handoff and exact diffs/untracked bytes including `workflow.json`.",
-    "Stop on protected/unrelated/unowned changes or lifecycle/authority holds.",
+    "Stop on protected changes or lifecycle/authority holds.",
     "Otherwise unchanged publication: relay `next`, stop.",
     "`not-admitted`: relay blockers/next, stop.",
     "ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop;",

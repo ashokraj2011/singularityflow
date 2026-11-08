@@ -448,9 +448,13 @@ test('code skill reads readiness and task policy from their real structured sour
 test('code skill treats a prepared draft as authoring work without bypassing genuine recovery', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   assert.match(content, /Inspect `recovery`, `intent`, test handoff and exact diffs\/untracked bytes including `workflow.json`/);
-  assert.match(content, /Repair admitted draft\/test\/runtime causes; pin\/scope changes need humans/);
+  // What the approved documents lack is a departure the code step records, never a stop [CQF:REQ-020].
+  assert.match(content, /Repair admitted draft\/test\/runtime causes\. What the approved documents lack \(file, row, test, wording, clause\) is a departure: `singularity-flow departure record --kind <kind> --reason <why>`/);
+  assert.match(content, /then keep coding; never edit an earlier document/);
+  assert.doesNotMatch(content, /pin\/scope changes need humans/);
   assert.match(content, /Require open intent\.[^\n]*Absent: `singularity-flow phase begin <phase> --json` with adoption\/confirmation/);
-  assert.match(content, /stop on protected\/unrelated\/unowned changes or lifecycle\/authority holds/i);
+  assert.match(content, /stop on protected changes or lifecycle\/authority holds/i);
+  assert.doesNotMatch(content, /unrelated\/unowned/);
   assert.match(content, /Consumed intent requires `\/sf-recover` and reviewed rollover/);
   assert.match(content, /unchanged publication: relay `next`, stop/);
   assert.match(content, /Follow `repairContinuation`\/`repairLoop\.protocol`; no unchanged retries or resets; same findings after a change: correct differently/i);

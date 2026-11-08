@@ -41,7 +41,9 @@ const CODE_SECTIONS = new Map(Object.entries({
   'Generation intent findings': ['generation_intent_required', 'phase.generation-intent.required',
     'generation_intent_already_consumed', 'generation.intent.consumed-changed'],
   'Grounding findings': ['phase.grounding.required', 'phase.grounding.not-ready'],
-  'Files outside the step': ['phase_artifact_only_changes', 'phase_source_change_ungoverned']
+  'Files outside the step': ['phase_artifact_only_changes', 'phase_source_change_ungoverned'],
+  // A code step's lint, static-analysis and security findings on changed lines, and its scanners [CQF M4].
+  'Code quality findings': ['code_quality_findings', 'code_quality_findings_held', 'code_quality_scanner_unavailable']
 }).flatMap(([section, codes]) => codes.map((code) => [code, section])));
 
 // Code families the recovery routes match by prefix or pattern.

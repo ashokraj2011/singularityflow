@@ -8,14 +8,15 @@ import assert from 'node:assert/strict';
 import { PassThrough, Readable } from 'node:stream';
 import test from 'node:test';
 
-import { decideHtml, decideSummary, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
+import { decideHtml, decideRows, decideSummary, sharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionAnswersFromChoices } from '../apps/vscode/src/views/decision-list-model.ts';
-import { confirmForm, detailForm, rowForms, sharedAnswers as cardShared } from '../plugin/extensions/decisions/card.mjs';
+import { cardRows, confirmForm, detailForm, rowForms, sharedAnswers as cardShared } from '../plugin/extensions/decisions/card.mjs';
 import { promptDecisionAnswers } from '../src/commands/decisions.mjs';
 import { DISPOSITIONS } from '../src/convergence.mjs';
 import { DISPOSITION_WORDS } from '../src/convergence-adjudications.mjs';
-import { DECISION_LIST_CHAT_OPTIONS } from '../src/copilot-mutation-guard.mjs';
-import { decisionChatSteps, decisionPacket, decisionRecordPlan, effectWords, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, PENDING_CONCEPTS, PENDING_ITEM_KINDS, runDecisionPlan } from '../src/decision-list.mjs';
+import { argvAllowed, DECISION_LIST_CHAT_OPTIONS } from '../src/copilot-mutation-guard.mjs';
+import { decisionChatSteps, decisionPacket, decisionRecordPlan, effectWords, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, pendingSummary, PENDING_CONCEPTS, PENDING_ITEM_KINDS,
+  runDecisionPlan } from '../src/decision-list.mjs';
 import { upstreamIssueStates } from '../src/upstream-routes.mjs';
 
 const AT = '2026-11-08T10:00:00.000Z';
@@ -42,6 +43,8 @@ function story({ anyone = true } = {}) {
   };
 }
 
+const DECIDED = { disposition: 'deferred', reason: 'Later.', clauseIds: [], actor: 'lead@example.invalid', at: '2026-11-07T09:00:00.000Z',
+  replaced: [{ disposition: 'accepted-deviation', reason: 'Fine for now.', actor: 'architect@example.invalid', at: '2026-11-06T09:00:00.000Z' }] };
 const item = (id, kind, fields = {}) => ({ id, kind, paths: [], clauseIds: [], detail: `${kind} detail for ${id}`, plan: null, acceptAll: false, decision: null, ...fields });
 function table(items = null) {
   return { status: 'open', workId: 'SDS-1', phase: 'convergence', digest: DIGEST, clauses: ['SDS-1:REQ-001', 'SDS-1:REQ-002'],
@@ -56,8 +59,8 @@ function table(items = null) {
       item('CF-eeeeeeeeeeee', 'unclaimed-changed-path', { paths: ['vitest.config.ts'], acceptAll: true, group: 'test-setup' }),
       item('CF-ffffffffffff', 'unclaimed-changed-path', { paths: ['test/setup.ts'], acceptAll: true, group: 'test-setup' }),
       item('CF-111111111111', 'failing-bound-test', { detail: "bound acceptance command 'unit' did not pass" }),
-      // Already decided: not a question on the list.
-      item('CF-999999999999', 'missing-bound-test', { decision: { disposition: 'deferred', reason: 'Later.', clauseIds: [] } })
+      // Already decided: not a question on the list, but offered beside it to change [SCS:REQ-034].
+      item('CF-999999999999', 'missing-bound-test', { detail: "no bound test result for 'unit'", decision: DECIDED })
     ] };
 }
 
@@ -231,7 +234,8 @@ test('the Copilot CLI forms ask the same: each disposition by its words, then wh
 
 test('the terminal asks the same, with the same words, and confirms before anything is written', async () => {
   const packet = packetOf();
-  const input = Readable.from(['5\n', 'REQ-002\n', 'The specification is wrong about retries.\n', '6\n', '6\n', '6\n', '6\n', 'y\n']);
+  // The answer offered beside the list is asked last, and passed over like any other.
+  const input = Readable.from(['5\n', 'REQ-002\n', 'The specification is wrong about retries.\n', '6\n', '6\n', '6\n', '6\n', '6\n', 'y\n']);
   input.isTTY = true;
   const output = new PassThrough();
   output.isTTY = true;
@@ -249,4 +253,143 @@ test('the terminal asks the same, with the same words, and confirms before anyth
 
 test('away from an open convergence step there is nothing of convergence on the list', () => {
   assert.deepEqual(rows(packetOf(story(), null)), []);
+});
+
+// [SCS:REQ-034] A decided convergence answer is offered beside the list while the step is open, and its approvers may change it.
+const answers = (packet) => (packet.offered ?? []).filter((entry) => entry.kind === 'convergence-answer');
+
+test('a decided answer is offered beside the list: it holds nothing, is never counted, and says whose it is and what it replaced', () => {
+  const packet = packetOf();
+  const [answer, ...more] = answers(packet);
+  assert.equal(more.length, 0);
+  assert.equal(answer.id, 'd6', 'an offered row is numbered after everything the step waits on');
+  assert.deepEqual(answer.details.convergence, ['CF-999999999999']);
+  assert.equal(packet.items.some((entry) => entry.details?.convergence?.includes('CF-999999999999')), false, 'a decided answer was asked again as open');
+  assert.equal(answer.holdsApproval, false);
+  assert.equal(packet.open, 5);
+  assert.match(packet.headline, /^Convergence needs 5 decisions/u);
+  assert.equal(pendingSummary(packet).items.some((entry) => entry.kind === 'convergence-answer'), false, 'a counting surface sees the answer as pending');
+  assert.equal(PENDING_ITEM_KINDS.includes('convergence-answer'), false);
+  assert.equal(Object.values(PENDING_CONCEPTS).some((entry) => entry.kinds.includes('convergence-answer')), false);
+  assert.equal(answer.title, "Convergence: no bound test result (CF-999999999999), answered Decide later");
+  assert.match(answer.why, /^Decided: Decide later, by lead@example\.invalid on 2026-11-07 \("Later\."\)\. Earlier: Accept as is, by architect@example\.invalid on 2026-11-06 \("Fine for now\."\)\./u);
+  assert.match(answer.why, /Convergence found that no bound test result for 'unit'\./u);
+  assert.match(answer.why, /the record keeps this one and whose it was\. Nothing waits on it: Convergence's approvers may change it until the step is published\.$/u);
+  // The five dispositions, under the convergence approvers, each changed on its own row and always with a reason.
+  assert.deepEqual(answer.options.map((entry) => entry.id), [...DISPOSITIONS]);
+  assert.deepEqual(answer.decidedBy.groups, ['architecture-reviewers']);
+  for (const entry of answer.options) {
+    assert.equal(entry.recommended, false);
+    assert.equal(entry.oneByOne, true, `${entry.id} could change someone's answer through one answer for all`);
+    assert.deepEqual(entry.needs.reason, { default: '', minimum: 1, maximum: 1000 }, `${entry.id} could change an answer without a reason`);
+    assert.deepEqual(entry.effects, [{ kind: 'convergence-adjudication', phase: 'convergence', items: ['CF-999999999999'], disposition: entry.id, expect: DIGEST,
+      replaces: { disposition: 'deferred', actor: 'lead@example.invalid' } }]);
+  }
+  assert.deepEqual(answer.options.find((entry) => entry.id === 'update-intent').needs.clause.known, ['SDS-1:REQ-001', 'SDS-1:REQ-002']);
+  // What the person saw is what they confirm: whose answer it is is bound too, beside the table's own digest.
+  const someoneElse = table(table().items.map((entry) => (entry.decision ? { ...entry, decision: { ...entry.decision, actor: 'other@example.invalid' } } : entry)));
+  assert.notEqual(packetOf(story(), someoneElse).packetSha256, packet.packetSha256);
+  // One answer for all never reaches an answer someone gave.
+  assert.deepEqual(sharedAnswers({ ...packet, repositoryPath: '/repo' }).map((entry) => [entry.id, entry.rows]), [['accepted-deviation', 3]]);
+  assert.deepEqual(cardShared(packet).map((entry) => [entry.id, entry.items.length]), [['accepted-deviation', 3]]);
+});
+
+test('decided items are one row only while they carry the same answer', () => {
+  const decided = (fields) => ({ ...DECIDED, replaced: [], ...fields });
+  const alike = table([item('CF-aaaaaaaaaaaa', 'absent-observed-claim', { clauseIds: ['SDS-1:REQ-002'], decision: decided({ clauseIds: ['SDS-1:REQ-002'] }) }),
+    item('CC-bbbbbbbbbbbb', 'item', { clauseIds: ['SDS-1:REQ-002'], classification: 'missing', text: 'Missing.', factIds: ['CF-aaaaaaaaaaaa'], decision: decided({ clauseIds: ['SDS-1:REQ-002'] }) })]);
+  const [both] = answers(packetOf(story(), alike));
+  assert.deepEqual(both.details.convergence, ['CF-aaaaaaaaaaaa', 'CC-bbbbbbbbbbbb']);
+  assert.match(both.title, /^REQ-002: no recorded trace that it is delivered and proposed as missing \(CF-aaaaaaaaaaaa and 1 more\), answered Decide later$/u);
+  assert.match(both.why, /A change records each of CF-aaaaaaaaaaaa and CC-bbbbbbbbbbbb by name\./u);
+  const apart = table([alike.items[0], { ...alike.items[1], decision: decided({ disposition: 'dismissed', reason: 'Not missing.', clauseIds: ['SDS-1:REQ-002'] }) }]);
+  assert.deepEqual(answers(packetOf(story(), apart)).map((row) => [row.details.convergence, row.details.answer.disposition]),
+    [[['CF-aaaaaaaaaaaa'], 'deferred'], [['CC-bbbbbbbbbbbb'], 'dismissed']], 'two answers were shown, and would be changed, as one');
+  // An answer that changes the spec says which clauses.
+  const intent = table([item('CF-aaaaaaaaaaaa', 'absent-observed-claim', { clauseIds: ['SDS-1:REQ-002'], decision: decided({ disposition: 'update-intent', reason: 'The spec is wrong.', clauseIds: ['SDS-1:REQ-001', 'SDS-1:REQ-002'] }) })]);
+  assert.match(answers(packetOf(story(), intent))[0].why, /^Decided: The spec should change, by lead@example\.invalid on 2026-11-07 \("The spec is wrong\."\)\. Clauses to change: REQ-001 and REQ-002\./u);
+});
+
+test('changing an answer on the list is the one adjudication write, names the answer it replaces, and always states a reason', async () => {
+  const packet = packetOf();
+  const plan = (choose, reason = {}, clause = {}) => decisionRecordPlan(packet, parseDecisionAnswers({ choose, reason, clause }), { at: AT });
+  assert.throws(() => plan({ d6: 'rework' }), /The reason for d6 must be 1 to 1000 characters/u, 'a change went unexplained');
+  assert.throws(() => plan({ d6: 'update-intent' }, { d6: 'The spec is wrong.' }), /Name the clauses that carry d6/u);
+  // Changed beside an open item: still one write of the table both were read from.
+  const chosen = plan({ d5: 'deferred', d6: 'accepted-deviation' }, { d5: 'Waits for the test environment.', d6: 'The unit command is not bound on purpose.' });
+  const writes = [];
+  const outcome = await runDecisionPlan(chosen, async (effect) => { writes.push(effect); return { recorded: effect.answers.map((entry) => entry.itemId), unchanged: [] }; });
+  assert.equal(outcome.failed, null);
+  assert.deepEqual(writes, [{ kind: 'convergence-adjudication', phase: 'convergence', expect: DIGEST, answers: [
+    { itemId: 'CF-111111111111', disposition: 'deferred', reason: 'Waits for the test environment.', clauseIds: [] },
+    { itemId: 'CF-999999999999', disposition: 'accepted-deviation', reason: 'The unit command is not bound on purpose.', clauseIds: [] }] }]);
+  const [, change] = chosen.steps;
+  assert.equal(effectWords(story(), change.effects[0], change.values),
+    'accept it as is (CF-999999999999), in place of decide it later from lead@example.invalid, which the record keeps (convergence adjudication, as story adjudicate --answers records it)');
+  // Each host confirms it in the same words as any other choice.
+  const card = { ...packet, repositoryPath: '/repo' };
+  assert.match(decideSummary(card, [{ item: 'd6', option: 'accepted-deviation', reason: 'The unit command is not bound on purpose.' }]),
+    /^Convergence: no bound test result \(CF-999999999999\), answered Decide later: Accept as is\. Reason: The unit command is not bound on purpose\./u);
+  assert.match(confirmForm(packet, [{ item: 'd6', option: 'accepted-deviation', reason: 'The unit command is not bound on purpose.' }]).message,
+    /answered Decide later: Accept as is\. Reason: The unit command is not bound on purpose\./u);
+  assert.doesNotMatch(decideSummary(card, []), /CF-999999999999/u, 'an answer given was listed as still undecided');
+});
+
+test('nobody but the convergence approvers may change an answer', () => {
+  const packet = packetOf(story({ anyone: false }));
+  const [answer] = answers(packet);
+  assert.equal(answer.decidedBy.allowed, false);
+  assert.equal(answer.decidedBy.words, 'The Architecture reviewers decide this.');
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: { d6: 'dismissed' }, reason: { d6: 'Not a real finding.' } }), { at: AT });
+  assert.deepEqual(plan.steps, []);
+  assert.deepEqual(plan.refused.map((entry) => entry.item), ['d6']);
+  assert.doesNotMatch(decideHtml({ ...packet, repositoryPath: '/repo' }), /<tr data-item="d6"/u, 'the card offered someone else\'s choice as theirs');
+});
+
+test('once the convergence step is published, or away from it, no answer is offered', () => {
+  const published = story();
+  published.phases.convergence.status = 'awaiting_approval';
+  assert.deepEqual(answers(packetOf(published)), []);
+  assert.deepEqual(answers(packetOf(story(), null)), []);
+  assert.deepEqual(answers(packetOf(story(), { ...table(), status: 'not-open' })), []);
+});
+
+test('no chat turn changes an answer: no chat command, no chat option, and the /sf-decide guard refuses each one', () => {
+  const packet = packetOf();
+  const [answer] = answers(packet);
+  for (const entry of answer.options) {
+    assert.equal(DECISION_LIST_CHAT_OPTIONS.includes(entry.id), false);
+    assert.equal(entry.chat, undefined);
+  }
+  assert.deepEqual(decisionChatSteps(packet, [{ item: 'd6', option: 'dismissed', values: { reason: 'Not real.' } }]), []);
+  const turn = { contract: { workId: 'SDS-1' } };
+  const record = (choice) => ['decisions', 'record', 'SDS-1', '--choose', choice, '--reason', `${choice.split('=')[0]}=Not real.`, '--confirm', `sha256:${'e'.repeat(64)}`];
+  for (const id of DISPOSITIONS) assert.equal(argvAllowed(record(`d6=${id}`), 'decision-only', turn), false, `a /sf-decide turn may record ${id}`);
+  assert.equal(argvAllowed(record('d6=accept-risk'), 'decision-only', turn), true, 'the guard refuses even what a /sf-decide turn may record');
+  assert.equal(argvAllowed(['story', 'adjudicate', '--work-id', 'SDS-1', '--answers', 'answers.json', '--expect', DIGEST], 'decision-only', turn), false);
+});
+
+test('every host shows the offered answer and asks what a change needs', async () => {
+  const packet = { ...packetOf(), repositoryPath: '/repo' };
+  assert.equal(decideRows(packet).at(-1).id, 'd6');
+  const html = decideHtml(packet);
+  const row = html.slice(html.indexOf('<tr data-item="d6"'));
+  assert.match(row, /Decided: Decide later, by lead@example\.invalid on 2026-11-07/u);
+  for (const id of DISPOSITIONS) assert.match(row, new RegExp(`<option value="${id}" data-needs="[a-z ]*reason" data-one="1">`, 'u'));
+  assert.match(row, /Reason \(1 to 1000 characters\)/u);
+  assert.equal(cardRows(packet).at(-1).id, 'd6');
+  const [, second] = rowForms(cardRows(packet).filter((entry) => entry.decidedBy.allowed));
+  assert.match(second.form.requestedSchema.properties.decision0.title, /^Convergence: no bound test result \(CF-999999999999\), answered Decide later: Decided: Decide later, by lead@example\.invalid/u);
+  assert.match(detailForm(answers(packet)[0], answers(packet)[0].options[0]).requestedSchema.properties.reason.title, /1 to 1000 characters/u);
+  // The terminal asks it last, and records it like any other choice.
+  const input = Readable.from(['6\n', '6\n', '6\n', '6\n', '6\n', '2\n', 'The unit command is not bound on purpose.\n', 'y\n']);
+  input.isTTY = true;
+  const output = new PassThrough();
+  output.isTTY = true;
+  let shown = '';
+  output.on('data', (chunk) => { shown += chunk; });
+  const prompt = await promptDecisionAnswers(packet, { input, output });
+  assert.deepEqual(Object.fromEntries(prompt.answers.choose), { d6: 'accepted-deviation' });
+  assert.match(shown, /6\. Convergence: no bound test result \(CF-999999999999\), answered Decide later\n {3}Decided: Decide later, by lead@example\.invalid/u);
+  prompt.close();
 });

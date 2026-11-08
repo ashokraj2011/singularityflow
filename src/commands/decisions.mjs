@@ -509,7 +509,11 @@ async function record(root, options, workId, io) {
     const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
     const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent }));
     const isDraft = (entry) => entry.kind === 'intent-amendment-draft';
-    const recorded = outcome.recorded.filter((entry) => !isDraft(entry)).map((entry) => ({ item: entry.item, kind: entry.kind, record: recordId(entry.kind, entry.record), value: entry.record }));
+    // The same convergence answer again records nothing [SCS:REQ-034]: said so, never counted as recorded.
+    const stepOf = (item) => plan.steps.find((step) => step.item === item);
+    const same = (entry) => entry.kind === 'convergence-adjudication' && !(stepOf(entry.item)?.effects[0]?.items ?? []).some((id) => (entry.record?.recorded ?? []).includes(id));
+    const unchanged = outcome.recorded.filter(same).map((entry) => ({ item: entry.item, words: `${stepOf(entry.item).label}: that answer, with that reason, is already recorded` }));
+    const recorded = outcome.recorded.filter((entry) => !isDraft(entry) && !same(entry)).map((entry) => ({ item: entry.item, kind: entry.kind, record: recordId(entry.kind, entry.record), value: entry.record }));
     // What was drafted, where, and what is next: a file, not a record [SCS:REQ-020, REQ-021].
     const drafted = outcome.recorded.filter(isDraft).map((entry) => ({ item: entry.item, path: entry.record.path, clauses: entry.record.clauses ?? [],
       slots: (entry.record.slots ?? []).length, next: { command: entry.record.next.command, copilotCommand: '/sf-reject intent-amendment propose',
@@ -530,12 +534,13 @@ async function record(root, options, workId, io) {
     }
     const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
-    const draftedItems = new Set(drafted.map((entry) => entry.item));
+    const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
     const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
       .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}` }));
     if (!optionBoolean(options, 'json')) {
       for (const entry of plan.refused) console.log(`Not recorded: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
       for (const entry of decided) console.log(`Recorded ${entry.item}, ${entry.words}.`);
+      for (const entry of unchanged) console.log(`Nothing changed for ${entry.item}, ${entry.words}.`);
       for (const entry of drafted) console.log(`Drafted ${entry.item} at ${entry.path}; nothing was recorded. ${entry.next.words}\n  ${entry.next.command}`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
     }
@@ -544,11 +549,11 @@ async function record(root, options, workId, io) {
     emitCommandResult(commandResult({
       operation: { id: 'decisions.record', classification: 'mutation' },
       subject: { kind: 'story', id: workflow.workItem.id },
-      outcome: succeeded('decisions.record.succeeded', { count: String(plan.steps.length - drafted.length), records: String(recorded.length),
+      outcome: succeeded('decisions.record.succeeded', { count: String(plan.steps.length - drafted.length - unchanged.length), records: String(recorded.length),
         refused: String(plan.refused.length), ...(drafted.length ? { drafted: String(drafted.length) } : {}) }),
       effects: effects({ stateChanged: recorded.length > 0, filesChanged: true, publicationCreated: recorded.length > 0 }),
       next: next.map((entry) => action(entry)),
-      data: { recorded, decided, ...(drafted.length ? { drafted } : {}), refused: plan.refused,
+      data: { recorded, decided, ...(drafted.length ? { drafted } : {}), ...(unchanged.length ? { unchanged } : {}), refused: plan.refused,
         remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {

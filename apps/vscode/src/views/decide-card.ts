@@ -77,7 +77,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       : drafted.length ? { status: 'drafted', recorded, drafted, message: `No decision was recorded. ${drafted.join(' ')}` }
         : { status: 'cancelled', message: 'No decision was recorded.' });
     const reread = async () => { packet = await readList(client, workId).catch(() => packet); };
-    const optionOf = (message: InboundMessage) => packet.items.find((item) => item.id === stringField(message, 'item'))
+    const optionOf = (message: InboundMessage) => decideRows(packet).find((item) => item.id === stringField(message, 'item'))
       ?.options.find((option) => option.id === stringField(message, 'option'));
     // A row's own step, or a held package's accept command for a person who may accept it [CQF:REQ-052]: always from the list as read.
     const commandOf = (message: InboundMessage) => {
@@ -90,7 +90,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
       'decide.cancel': () => finish(notNow()),
       'decide.open': async (message) => {
         const file = stringField(message, 'path');
-        if (!file || !packet.repositoryPath || !(packet.items.some((item) => item.details?.path === file) || evidencePaths(packet).includes(file))) return;
+        // A row offered beside the list opens its file too: a convergence answer someone may change names the file it is about [SCS:REQ-034].
+        if (!file || !packet.repositoryPath || !(decideRows(packet).some((item) => item.details?.path === file) || evidencePaths(packet).includes(file))) return;
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(packet.repositoryPath, file)), { viewColumn: vscode.ViewColumn.Beside, preview: true })
           .then(undefined, () => vscode.window.showInformationMessage(`${file} is not in this checkout now; it may have been removed.`));
       },
@@ -163,7 +164,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
             return render(null, `${outcome.message} ${outcome.drafted.join(' ')}`);
           }
           finish({ status: 'recorded', recorded: all, decided, remaining: outcome.remaining,
-            message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : `${all.length} recorded.`}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}` });
+            message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : all.length ? `${all.length} recorded.` : outcome.message}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}` });
         } catch (error) {
           const failure = error as Error & { result?: unknown };
           const { outcome, packet: fresh } = decisionRecordOutcome(null, { message: failure.message, result: failure.result });

@@ -583,6 +583,30 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.deepEqual(traced.replaced.map((answer) => [answer.disposition, answer.reason]),
     [['deferred', 'One answer, its own reason.'], ['rework', null], ['deferred', 'Looking at this later.']]);
   assert.match(sflow(root, ['story', 'adjudications']).stdout, /rework · Changed from deferred by .* · Changed from rework by .* · Changed from deferred by /u);
+  // The one decisions list offers that answer beside what waits, and changes it through the same write [SCS:REQ-034].
+  const answerOn = (packet) => (packet.offered ?? []).find((entry) => entry.kind === 'convergence-answer' && entry.details.convergence.includes(absent.id));
+  const changeOnList = (packet, disposition, reason) => sflow(root, ['decisions', 'record', WORK, '--choose', `${answerOn(packet).id}=${disposition}`,
+    '--reason', `${answerOn(packet).id}=${reason}`, '--confirm', packet.packetSha256, '--json'], { allowFailure: true });
+  const offeredList = decisionList();
+  assert.ok(answerOn(offeredList), 'a decided answer was not offered beside the list');
+  assert.equal(offeredList.items.some((entry) => entry.details?.convergence?.includes(absent.id)), false, 'a decided answer was asked again as open');
+  assert.equal(offeredList.open, offeredList.items.length, 'an offered answer was counted');
+  const changedOnList = changeOnList(offeredList, 'deferred', 'Changed on the decisions list.');
+  assert.equal(changedOnList.status, 0, changedOnList.output);
+  assert.equal(JSON.parse(changedOnList.stdout).data.recorded.length, 1);
+  const onRecord = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).items.find((entry) => entry.id === absent.id).decision;
+  assert.deepEqual([onRecord.disposition, onRecord.reason], ['deferred', 'Changed on the decisions list.']);
+  assert.equal(onRecord.replaced.at(-1).disposition, 'rework', 'the answer it replaced is gone from the record');
+  assert.equal(onRecord.replaced.length, traced.replaced.length + 1);
+  // A list that moved records nothing; the same answer again records nothing, and says so.
+  const moved = changeOnList(offeredList, 'dismissed', 'A change on a list that has moved.');
+  assert.notEqual(moved.status, 0, 'a change was recorded against a list that had moved');
+  assert.match(moved.output, /changed since it was reviewed/u);
+  const again = JSON.parse(changeOnList(decisionList(), 'deferred', 'Changed on the decisions list.').stdout).data;
+  assert.deepEqual(again.recorded, [], 'the same answer was recorded twice');
+  assert.equal(again.unchanged.length, 1);
+  // Back to rework, which the rest of this journey goes on from.
+  assert.equal(changeOnList(decisionList(), 'rework', 'Back to rework on the decisions list.').status, 0);
   let lastAnswer = firstAnswer;
   for (const fact of others) {
     lastAnswer = sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'dismissed', '--reason', 'Refactor noise; no requirement claims it.']).stdout;

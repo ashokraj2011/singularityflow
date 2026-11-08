@@ -577,12 +577,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(NAMESPACE_SUBMISSION_DECISION_PROFILE,'sflow-primary-document-submission/v2');
         const result=await engine.run('phase.submit',{phaseId:'intake',decisionValues:{channel:fresh?' web ':'Mobile'}});
         assert.equal(result.status,fresh?'awaiting-approval':'retained');
-        const packet=JSON.parse((await engine.run('document.read',{reference:{kind:'story-document',id:'REVIEW-intake-GEN-1',workId}})).document.content.text);
+        const resources=await engine.run('phase.review.resources',{phaseId:'intake'});
+        const packet=JSON.parse((await engine.run('document.read',{reference:resources.manifest.resources[0].reference})).document.content.text);
         assert.equal(packet.schemaVersion,2);assert.equal(packet.profile,NAMESPACE_SUBMISSION_DECISION_PROFILE);
         assert.deepEqual(packet.routing.record.values,{channel:'Web'});assert.deepEqual(packet.routing.reused,[]);
         assert.equal(packet.routing.record.recordedAt,packet.submittedAt);
         const review=await engine.run('phase.review',{phaseId:'intake'});
         assert.equal(review.manifest.reviewBinding.packetSha256,result.submission.reviewPacket);
+        assert.deepEqual(resources.manifest.reviewBinding,review.manifest.reviewBinding);
         process.stdout.write(JSON.stringify(result));
       }finally{database.close();privateDatabase?.close();}
     `;

@@ -70,6 +70,10 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     return proof;
   }
   async function inspect(snapshot,phaseId,{signal}={}) {return inspectCached(snapshot,phaseId,signal,new Map());}
+  async function context(snapshot,phaseId,{signal}={}) {
+    const cache=new Map(),proof=await inspectCached(snapshot,phaseId,signal,cache);
+    return {proof,sources:proof?(await Promise.all([...cache.values()])).filter(item=>item&&item!==proof):[]};
+  }
   async function inspectApprovedMany(snapshot,phaseIds,{signal}={}) {
     const cache=new Map(),result=[];
     for(const phaseId of phaseIds)result.push(await approved(snapshot,phaseId,signal,cache));
@@ -83,5 +87,5 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
     return (await inspect(snapshot,phaseId,options))?.review??null;
   }
-  return Object.freeze({decode,publication,inspect,inspectApprovedMany,verifyRouting,review});
+  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review});
 }

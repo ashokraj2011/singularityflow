@@ -465,6 +465,43 @@ export function phaseReviewManifest(binding,facts) {
     reviewBinding:integrity==='matched'?candidate:null,humanReviewRecorded:false,approvalRecorded:false};
 }
 
+/** Exact shared resource references for a retained review; no paths, prose or human decisions. */
+export function phaseReviewResourcesManifest(binding,facts) {
+  const bad=()=>{throw new SingularityFlowError('The review resources port returned another retained review.',{code:'ENGINE_PORT_RESULT_INVALID'});};
+  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)
+    &&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+  const text=value=>typeof value==='string'&&value.length>0&&value.length<=2048;
+  const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
+  if(!exact(facts,['workId','phase','generation','revision','submission','resources','reviewBinding'])
+    ||facts.workId!==binding.workId||facts.phase!==binding.phase||facts.generation!==binding.generation||!text(facts.revision)
+    ||!exact(facts.submission,['packetSha256','sourceRevision'])||!digest(facts.submission.packetSha256)||!text(facts.submission.sourceRevision)
+    ||!Array.isArray(facts.resources)||!facts.resources.length)bad();
+  const ids=new Set(),references=new Set();
+  for(const item of facts.resources) {
+    if(!exact(item,['id','reference','phase','generation','kind','mimeType','expected'])||!text(item.id)||ids.has(item.id)
+      ||!text(item.phase)||!Number.isSafeInteger(item.generation)||item.generation<1||!text(item.kind)||!text(item.mimeType)
+      ||!exact(item.expected,['sha256','bytes'])||!digest(item.expected.sha256)||!Number.isSafeInteger(item.expected.bytes)||item.expected.bytes<0)bad();
+    const ref=item.reference;
+    if(ref?.kind==='story-document') {
+      if(!exact(ref,['kind','id','workId'])||ref.id!==item.id||ref.workId!==binding.workId)bad();
+    }else if(ref?.kind==='phase-document') {
+      if(!exact(ref,['kind','id','workId','phase','generation'])||!text(ref.id)||ref.workId!==binding.workId||ref.phase!==item.phase||ref.generation!==item.generation)bad();
+    }else bad();
+    const key=JSON.stringify(ref);if(references.has(key))bad();ids.add(item.id);references.add(key);
+  }
+  const primary=facts.resources[0];
+  if(primary.kind!=='review-packet'||primary.phase!==binding.phase||primary.generation!==binding.generation
+    ||primary.expected.sha256!==facts.submission.packetSha256||primary.expected.bytes<1)bad();
+  const review=facts.reviewBinding;
+  if(review!==null&&(!exact(review,['workId','phase','generation','packetSha256','sourceRevision','observedRevision'])
+    ||review.workId!==binding.workId||review.phase!==binding.phase||review.generation!==binding.generation
+    ||review.packetSha256!==facts.submission.packetSha256||review.sourceRevision!==facts.submission.sourceRevision
+    ||review.observedRevision!==facts.revision||!binding.current||binding.status!=='awaiting_approval'))bad();
+  return {schemaVersion:1,contract:'sflow-phase-review-resources/v1',purpose:'phase-review-resources',workId:binding.workId,phase:binding.phase,
+    generation:binding.generation,observedRevision:facts.revision,submission:facts.submission,resources:facts.resources,
+    reviewBinding:review,humanReviewRecorded:false,approvalRecorded:false};
+}
+
 /**
  * What a workflow step is for, read from its structure and never from its name [E2G-001].
  *

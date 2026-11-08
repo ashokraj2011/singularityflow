@@ -111,8 +111,10 @@ the registered operations separately enforce lifecycle, source, tests and human 
 `docs/ENGINE-SDK-ARTIFACT-INSPECTION.md` for the exact boundary and host example.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
-saved read head. It implements `phase.review` and `document.read`; its other operation ports remain
-unavailable. It has no Git or provider fallback and never supplies a fresh approval binding. The
+saved read head. It implements `phase.review`, `phase.review.resources` and `document.read`; its
+other operation ports remain unavailable. A saved projection cannot establish an approval
+binding. A canonical lifecycle head supplies the shared submission proof before returning one;
+the final observed head and authority are checked after those reads. It has no Git or provider fallback. The
 repository guide `docs/NAMESPACE-CONTENT-AND-READ-HOST.md` describes host binding and qualification.
 
 ```js
@@ -122,6 +124,13 @@ import { createNamespaceReadEngine } from '@singularity-flow/engine-sdk/hosts/na
 const reader = createNamespaceReadEngine({ records, content, scope: { projectId }, workId });
 const review = await reader.run('phase.review', { phaseId });
 const document = await reader.run('document.read', { reference: review.manifest.items[0].reference });
+
+// A submitted canonical lifecycle also issues the exact packet/artifact references.
+const context = await reader.run('phase.review.resources', { phaseId });
+for (const resource of context.manifest.resources) {
+  const retained = await reader.run('document.read', { reference: resource.reference });
+  // Present verified bytes; reading does not record a human decision.
+}
 ```
 
 The content connection needs durable SQLite journaling and FULL/EXTRA synchronous writes. The

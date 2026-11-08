@@ -9,7 +9,7 @@ import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejecti
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
   upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
-import {phaseReviewSelection,phaseReviewManifest,phaseBeginSelection,phaseBeginResult,
+import {phaseReviewSelection,phaseReviewManifest,phaseReviewResourcesManifest,phaseBeginSelection,phaseBeginResult,
   phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
   storyStatusSelection,storyStatusManifest,workflowGuidePlan} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
@@ -121,6 +121,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'workflowAssetsInput',execute:'inspectWorkflowAssets'},
   {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectPhaseReview'},
+  {id:'phase.review.resources',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReviewResources',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectPhaseReviewResources'},
   {id:'document.read',version:1,effect:'read',humanDecision:false,
     inputFields:Object.freeze(['workId','reference','includeDetached','maximumBytes']),port:'documentRead',
     stages:Object.freeze(['load','resolve','read']),validate:'documentReadInput',execute:'readDocument'},
@@ -730,6 +732,20 @@ async function inspectPhaseReview(port,inputs,signal) {
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.review',status:'inspected',
     subject:{kind:'story',id:binding.workId},phase:binding.phase,generation:binding.generation,
     revision:facts.revision,effects:{committed:false,pushed:false,humanReviewRecorded:false,approvalRecorded:false},manifest});
+}
+
+async function inspectPhaseReviewResources(port,inputs,signal) {
+  notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||!context.subject.id||context.subject.id!==context.workflow?.workItem?.id)throw new SingularityFlowError(
+    'The review resources port did not bind a Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  if(inputs.workId!=null&&inputs.workId!==context.subject.id)throw new SingularityFlowError(
+    'The requested Story does not match the retained review.',{code:'ACTIVE_SUBJECT_MISMATCH'});
+  const binding=data(phaseReviewSelection(context.workflow,inputs.phaseId));
+  const observed=await port.read(context,binding,{signal});notCancelled(signal);let facts;
+  try{facts=data(observed);}catch(cause){throw new SingularityFlowError('The review resources port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.review.resources',status:'inspected',subject:{kind:'story',id:binding.workId},
+    phase:binding.phase,generation:binding.generation,revision:facts.revision,
+    effects:{committed:false,pushed:false,humanReviewRecorded:false,approvalRecorded:false},manifest:phaseReviewResourcesManifest(binding,facts)});
 }
 
 /** Copy JSON data without executing accessors/toJSON or retaining caller-owned mutable values. */
@@ -1423,7 +1439,7 @@ export function createEngine(options = {}) {
     sourceBindingInput,bindSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
-    documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
+    documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
     recordSingleDecision, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,

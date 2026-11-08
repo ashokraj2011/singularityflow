@@ -86,6 +86,11 @@ Shared proof readers verify source packets and actual human approval thresholds.
 input provenance; branch/ask/loop execution and routed historical receipt semantics still require
 their Phase 7 owner. Phases 5, 7, 8 and 9 remain open.
 
+The [review-resource query](ENGINE-SDK-REVIEW-RESOURCES.md) issues exact readable references to the
+retained packet, artifact and reused routing sources through a separate registry operation. Its
+proof traversal and final head/authority check do not change existing `phase.review` outputs or
+record a human review. Routed execution and historical approval receipt semantics remain open.
+
 The [namespace Story creation delivery](ENGINE-SDK-STORY-CREATION.md) connects actual enrollment,
 configuration approval, source retention and lifecycle genesis through the registry. The read
 locator follows canonical lifecycle state; it does not introduce another authority or claim

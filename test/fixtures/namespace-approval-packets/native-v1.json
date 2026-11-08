@@ -1,0 +1,107 @@
+{
+  "baseline": "0edf0e0bb",
+  "cases": [
+    {
+      "backend": "filesystem",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "phaseId": "intake",
+      "wire": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"reviewer@example.test\",\n      \"login\": null,\n      \"name\": \"Example reviewer\"\n    },\n    \"principalId\": \"application-owner\"\n  },\n  \"agentId\": \"analyst\",\n  \"artifactSet\": {\n    \"bytes\": 613,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"d4590c97a956288ce5185ea1df88d5e45ab329ded7f027d7f92fd8fd4cbadc27\"\n  },\n  \"authorityGroup\": \"reviewers\",\n  \"baseRevision\": \"fs:56fa9864-383f-4f1e-be08-dea765913490/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 16127,\n      \"namespace\": \"config\",\n      \"sha256\": \"99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n    },\n    \"key\": \"configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n  },\n  \"currentPhase\": null,\n  \"format\": \"sflow-namespace-phase-approval-vote/v1\",\n  \"generation\": 1,\n  \"operationId\": \"approve-72163a31f61925eedb8ddc1c05808688d33783214877fe614cc0a05ef8ffa437\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-approval/v1\",\n  \"projectId\": \"new-project\",\n  \"recordedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"requestSha256\": \"c462db2ac70f33afb04761f5826e33dcfbbfe3909c0aa41dc52547f155dbdd06\",\n  \"reviewPacket\": {\n    \"bytes\": 1308,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"e0ccff266818f8423d2c9fee932d8248ea6cc64e028c250324e810d383be2c58\"\n  },\n  \"schemaVersion\": 1,\n  \"selfApproval\": true,\n  \"thresholdReached\": true,\n  \"workId\": \"story-1\"\n}\n",
+      "sha256": "3bf81b34a829c6777fb17b07b2e0e37d86c408e22599f6e07b8a460773e23f12",
+      "result": {
+        "schemaVersion": 1,
+        "contract": "sflow-engine/v1",
+        "operation": "phase.approve",
+        "status": "recorded",
+        "subject": {
+          "kind": "story",
+          "id": "story-1"
+        },
+        "phase": "intake",
+        "generation": 1,
+        "revision": "fs:85b9dccf-f478-4413-bc0d-150f104cca4b/record-2",
+        "effects": {
+          "committed": true,
+          "pushed": false
+        },
+        "approval": {
+          "actorId": "application-owner",
+          "authorityGroup": "reviewers",
+          "selfApproval": true,
+          "thresholdReached": true,
+          "reviewPacket": "e0ccff266818f8423d2c9fee932d8248ea6cc64e028c250324e810d383be2c58",
+          "artifactSet": "d4590c97a956288ce5185ea1df88d5e45ab329ded7f027d7f92fd8fd4cbadc27"
+        },
+        "currentPhase": null
+      }
+    },
+    {
+      "backend": "sqlite",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "phaseId": "intake",
+      "wire": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"reviewer@example.test\",\n      \"login\": null,\n      \"name\": \"Example reviewer\"\n    },\n    \"principalId\": \"application-owner\"\n  },\n  \"agentId\": \"analyst\",\n  \"artifactSet\": {\n    \"bytes\": 613,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"fb83c20061b7a4bd7e5de5bf5ee356db69c327a5d00a7abaefa71b30fd40c40f\"\n  },\n  \"authorityGroup\": \"reviewers\",\n  \"baseRevision\": \"sql:1f5076bd-3d45-40c2-9b9e-f3a9d3070585/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 16127,\n      \"namespace\": \"config\",\n      \"sha256\": \"99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n    },\n    \"key\": \"configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n  },\n  \"currentPhase\": null,\n  \"format\": \"sflow-namespace-phase-approval-vote/v1\",\n  \"generation\": 1,\n  \"operationId\": \"approve-9e5b7b89dc65bb5b57b95b8a09854f1eb054e4fec5cfbc5bfcf2e1ba470a94f3\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-approval/v1\",\n  \"projectId\": \"new-project\",\n  \"recordedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"requestSha256\": \"e2a31760abebba1963b9c38e88b68b55d5f8a88c26cbf533db309a15be4b1d6c\",\n  \"reviewPacket\": {\n    \"bytes\": 1309,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"d8dd430ae11f425e59735aa6e373090f6fc8dad8af1843008d7341c6a54ec638\"\n  },\n  \"schemaVersion\": 1,\n  \"selfApproval\": true,\n  \"thresholdReached\": true,\n  \"workId\": \"story-1\"\n}\n",
+      "sha256": "7d486646f60cde35800bb2a1e42da8ae8c1fde3006619f481714064b0db811bb",
+      "result": {
+        "schemaVersion": 1,
+        "contract": "sflow-engine/v1",
+        "operation": "phase.approve",
+        "status": "recorded",
+        "subject": {
+          "kind": "story",
+          "id": "story-1"
+        },
+        "phase": "intake",
+        "generation": 1,
+        "revision": "sql:60a07d47-a5cf-4cae-989a-5a8e08ab37b5/record-2",
+        "effects": {
+          "committed": true,
+          "pushed": false
+        },
+        "approval": {
+          "actorId": "application-owner",
+          "authorityGroup": "reviewers",
+          "selfApproval": true,
+          "thresholdReached": true,
+          "reviewPacket": "d8dd430ae11f425e59735aa6e373090f6fc8dad8af1843008d7341c6a54ec638",
+          "artifactSet": "fb83c20061b7a4bd7e5de5bf5ee356db69c327a5d00a7abaefa71b30fd40c40f"
+        },
+        "currentPhase": null
+      }
+    },
+    {
+      "backend": "application",
+      "projectId": "new-project",
+      "workId": "story-1",
+      "phaseId": "intake",
+      "wire": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"reviewer@example.test\",\n      \"login\": null,\n      \"name\": \"Example reviewer\"\n    },\n    \"principalId\": \"application-owner\"\n  },\n  \"agentId\": \"analyst\",\n  \"artifactSet\": {\n    \"bytes\": 613,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"fd2c460c540f298d84bc18a8ee0473a8e538aecf33c13bbec9d2bf4ecba70963\"\n  },\n  \"authorityGroup\": \"reviewers\",\n  \"baseRevision\": \"sql:6e9be46b-343a-443d-8bb6-11e24860349d/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 16127,\n      \"namespace\": \"config\",\n      \"sha256\": \"99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n    },\n    \"key\": \"configuration/versions/99f354bd1de8ac7b0d9d62b7491214c2e5a092ad532f9eb95995bab3d9cf880a\"\n  },\n  \"currentPhase\": null,\n  \"format\": \"sflow-namespace-phase-approval-vote/v1\",\n  \"generation\": 1,\n  \"operationId\": \"approve-b2ff87405ac5cf6df91be0d51b5ea3a57fe3c3243dffef2855481bbd419d6c46\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-approval/v1\",\n  \"projectId\": \"new-project\",\n  \"recordedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"requestSha256\": \"b04c5d5d83e3b739ab7121de1a12192f646ea2a84d28972c93750a29a814762a\",\n  \"reviewPacket\": {\n    \"bytes\": 1309,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"f83d4c8726eae9da28a3c816657be3a8325f89df071af748a42ae11358135a1d\"\n  },\n  \"schemaVersion\": 1,\n  \"selfApproval\": true,\n  \"thresholdReached\": true,\n  \"workId\": \"story-1\"\n}\n",
+      "sha256": "d4465a8fb101b0de207b5305e9ddf1e599e0242f568e7741d1d86892575b2f1f",
+      "result": {
+        "schemaVersion": 1,
+        "contract": "sflow-engine/v1",
+        "operation": "phase.approve",
+        "status": "recorded",
+        "subject": {
+          "kind": "story",
+          "id": "story-1"
+        },
+        "phase": "intake",
+        "generation": 1,
+        "revision": "sql:61068814-cefc-4b62-9174-90eca4f73776/record-2",
+        "effects": {
+          "committed": true,
+          "pushed": false
+        },
+        "approval": {
+          "actorId": "application-owner",
+          "authorityGroup": "reviewers",
+          "selfApproval": true,
+          "thresholdReached": true,
+          "reviewPacket": "f83d4c8726eae9da28a3c816657be3a8325f89df071af748a42ae11358135a1d",
+          "artifactSet": "fd2c460c540f298d84bc18a8ee0473a8e538aecf33c13bbec9d2bf4ecba70963"
+        },
+        "currentPhase": null
+      }
+    }
+  ]
+}

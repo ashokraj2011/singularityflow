@@ -5,7 +5,7 @@ import { createEngine } from '../engine-sdk/index.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { recordSha256 } from '../records.mjs';
 import { resolveDocumentRecord } from '../document-identity.mjs';
-import { phaseReviewSelection,assertHistoricalReviewPhase } from '../kernel/phase-policy.mjs';
+import { phaseReviewSelection,assertHistoricalReviewPhase,hasPublishedPhaseGeneration,phaseNeedsGeneration } from '../kernel/phase-policy.mjs';
 import { validateNamespaceStore,NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
 import { namespaceScope, namespaceRevision } from '../sda/namespace/values.mjs';
 import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
@@ -182,6 +182,39 @@ export function createNamespaceReadPorts({ records, content, localContent = null
       budgets: { previewBytes: context.workflow.resolution.documents.maxPreviewBytes ?? context.policy.maximumPreviewBytes,
         sourcePreviewBytes: display.previewBytes, sourceFullBytes: display.fullDocumentMaximumBytes }, documents, reviewBinding };
   } };
+  const phaseReviewResources={load:phaseReview.load,async read(context,selected,{signal}={}) {
+    if(!context.submissionReader)throw unavailable('Retained review resources need the canonical submission owner.','ENGINE_PORT_UNAVAILABLE',{
+      required:['namespace-submission-context']});
+    const {proof,sources}=await context.submissionReader.context(context.lifecycleSnapshot,selected.phase,{signal});
+    if(!proof) {
+      const phase=context.lifecycleSnapshot.workflow.phases[selected.phase],generationRequired=!hasPublishedPhaseGeneration(phase)
+        ||phaseNeedsGeneration(context.lifecycleSnapshot.workflow,phase);
+      throw unavailable(generationRequired?'Prepare and publish the current generation before reviewing its retained resources.'
+        :'Submit the published generation before requesting its exact review resources.',generationRequired?'PHASE_GENERATION_REQUIRED':'PHASE_SUBMISSION_REQUIRED',{
+          workId,phase:selected.phase,actions:[{operation:generationRequired?'phase.prepare':'phase.submit',inputs:{workId,phaseId:selected.phase}}]});
+    }
+    const resources=[];
+    function issued(record) {
+      const phase=context.workflow.phases[record.phase],reference=record.role==='file'?{kind:'story-document',id:record.id,workId}:bodyReference(workId,phase,record);
+      return {id:record.id,reference,phase:record.phase,generation:record.generation,kind:record.kind,mimeType:record.mimeType,
+        expected:{sha256:record.content.sha256,bytes:record.content.bytes}};
+    }
+    for(const member of [proof,...sources]) {
+      for(const [kind,reference,sourceKey] of [['review-packet',member.binding.record,null],
+        ['artifact',member.published.artifact.content,member.published.artifact.sourceKey]]) {
+        const candidates=context.documents.filter(record=>record.phase===member.value.phase&&record.generation===member.value.generation
+          &&record.status!=='detached'&&record.locality==='project'&&record.content&&sameRef(record.content,reference)
+          &&(kind==='review-packet'?record.role==='file'&&record.kind==='review-packet':record.role==='artifact'&&record.sourceKey===sourceKey));
+        if(candidates.length!==1)throw unavailable('The retained review has no unique readable resource reference.','ENGINE_STORAGE_CORRUPT',{
+          workId,phase:member.value.phase,generation:member.value.generation,kind,expected:reference});
+        resources.push(issued(candidates[0]));
+      }
+    }
+    await unchanged(context,signal);
+    return {workId,phase:selected.phase,generation:selected.generation,revision:context.revision,
+      submission:{packetSha256:proof.binding.record.sha256,sourceRevision:proof.value.baseRevision},resources,
+      reviewBinding:selected.current&&selected.status==='awaiting_approval'?proof.review:null};
+  }};
   const documentRead = { load, async resolve(context, selected) {
     const candidates = [...selected.phases.flatMap(phase => inventory(context, phase)),
       ...context.documents.filter(document => document.role === 'file' && (selected.includeDetached || document.status !== 'detached')).map(document => ({ ...document, retained: null,
@@ -216,5 +249,5 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     await unchanged(context, signal);
     return { id: record.id, revision: context.revision, observed: { sha256: record.content.sha256, bytes: record.content.bytes, binary: record.encoding === 'binary' }, content, extractionFailure: null };
   } };
-  return { phaseReview, documentRead };
+  return { phaseReview, phaseReviewResources, documentRead };
 }

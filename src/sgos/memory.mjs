@@ -7,7 +7,7 @@
  */
 import { Buffer } from 'node:buffer';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { SHA256_PATTERN, sha256 } from './contracts.mjs';

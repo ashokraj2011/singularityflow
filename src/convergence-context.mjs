@@ -11,7 +11,8 @@ import { convergencePhaseOf, isConvergencePhase, latestStepBefore, stepResponsib
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { authoredArtifactFingerprint, authoredArtifactText, requiredArtifactRepoPath } from './publication-preflight.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
   evaluateSpecAcceptance, loadBoundActiveSpecRecords

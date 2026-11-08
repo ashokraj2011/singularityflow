@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { addCandidateWorktree, gitCommonDir, removeCandidateWorktree } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 
 const MAX_NAMES = 20;
 /** The failed tests' names a report or an attempt holds. */

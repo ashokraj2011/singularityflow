@@ -9,7 +9,7 @@ import {
 import {
   materializeStateBranchPublicationAuthority, publishToStateBranch
 } from '../ledger.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   configuredRemoteIdentity, frozenRemoteTransport
 } from '../git-remote-diagnostics.mjs';

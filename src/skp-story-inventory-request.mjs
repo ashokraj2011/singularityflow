@@ -1,5 +1,5 @@
 /** Pure bounded local Story-inventory preflight; imports no Git/object/retained readers. */
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { scanEntries } from './secrets.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { SingularityFlowError } from './util.mjs';

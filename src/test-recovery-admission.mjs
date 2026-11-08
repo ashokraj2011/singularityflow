@@ -4,7 +4,7 @@ import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { exactFileAtObject, head, identity } from './git.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import path from 'node:path';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { storyTestRiskAuthorityContext } from './story-test-risk.mjs';
 import { sealTrpRecord, trpDigest, trpEnvironmentDigest, trpIssueIdentity } from './test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTrpAuthorityVerifier,

@@ -1,7 +1,7 @@
 /** Canonical story policy anchor; legacy state exports delegate here. */
 import { DEFAULT_APPROVAL_AUTHORITY } from "./kernel/approval-policy.mjs";
 import { SingularityFlowError, gitHeadIsUnborn, gitReadOutput, run } from "./util.mjs";
-import { canonicalJson } from "./records.mjs";
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { createHash } from "node:crypto";
 import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { readRecord } from "./schema-migrations.mjs";

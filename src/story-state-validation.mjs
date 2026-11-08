@@ -1,7 +1,7 @@
 /** Canonical story state validation; legacy state exports delegate here. */
 import { PROSPECTIVE_SKILL_AMENDMENT, committedResolutionPolicySha256, currentPhasePolicy, initialWorkflowRecord, resolutionPolicySha256, resolvedPhasePolicy } from "./story-policy-anchor.mjs";
 import { branch } from "./git.mjs";
-import { canonicalJson } from "./records.mjs";
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentPhase } from './kernel/phase-policy.mjs';
 import { exists } from "./util.mjs";
 import { isConvergencePhase } from "./kernel/phase-policy.mjs";

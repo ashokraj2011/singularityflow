@@ -37,7 +37,8 @@ import path from 'node:path';
 import { committedFilesAtRevisions, pathRevisions } from './git.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { pinDiffWords, storyTestCommandState } from './story-test-commands.mjs';
 import {

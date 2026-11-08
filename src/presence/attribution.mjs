@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 
 export const SF_GUARD_ATTRIBUTION_SCHEMA = 'sfg-attribution/1';
 const CLASSES = Object.freeze(['declared', 'outside-workflow', 'unknown-agent', 'shell', 'unattributed', 'pre-guard']);

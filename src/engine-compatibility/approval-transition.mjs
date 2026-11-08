@@ -24,7 +24,7 @@ import { verifyTestCommandEpochValidation } from '../test-command-epoch.mjs';
 import { verifySkillPhaseApproval } from '../skp-phase-evidence.mjs';
 import { assertStoryTestRiskGate } from '../test-recovery-runtime.mjs';
 import { head, actionActor } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { createHash } from 'node:crypto';
 import { qualityValidationVerdict } from '../lifecycle-evidence-policy.mjs';
 import { readRecord, phaseApprovalSummaryVersion } from '../schema-migrations.mjs';

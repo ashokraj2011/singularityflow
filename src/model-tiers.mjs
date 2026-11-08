@@ -19,7 +19,7 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import { assertModelTask, MODEL_TASKS } from "./kernel/configuration-policy.mjs";
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const MODEL_TIERS_PATH = 'singularity/modelTiers.yml';

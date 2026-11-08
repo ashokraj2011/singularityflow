@@ -6,7 +6,7 @@ import path from 'node:path';
 import { exactFileAtObject } from './git.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 export { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection, phaseInspectionGeneration } from './kernel/phase-policy.mjs';

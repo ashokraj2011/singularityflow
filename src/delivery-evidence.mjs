@@ -26,7 +26,7 @@ import {
 } from './auto/auto-candidate.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor, prefetchExactObjectFiles } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { configurationPathKind, isConfigurationPath } from './configuration-paths.mjs';
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";

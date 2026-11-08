@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { branch, gitDir, head } from './git.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError, ensureDir, nowIso, readJson, run, writeAtomic } from './util.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';

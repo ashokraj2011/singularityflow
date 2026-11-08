@@ -7,7 +7,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const RELEASE_ARTIFACT_RECEIPT_VERSION = 1;

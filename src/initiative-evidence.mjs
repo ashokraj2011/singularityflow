@@ -25,7 +25,8 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 // Imported for use here and re-exported so every existing caller keeps importing them from this
 // module. The definitions moved to records.mjs so knowledge.mjs can hash a record without importing
 // this one — that cycle is what stopped the approval path from harvesting knowledge. See records.mjs.
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 import {

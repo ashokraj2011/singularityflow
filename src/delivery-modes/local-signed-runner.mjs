@@ -18,7 +18,8 @@ import { withCommandLiteralEnvironment } from '../external-command-policy.mjs';
 import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { head } from '../git.mjs';
 import { runQualityCommand } from '../quality-command-runner.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { gateTestEnvironmentModule } from '../test-runtime.mjs';
 import {

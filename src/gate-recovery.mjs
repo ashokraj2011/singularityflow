@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { completionPhaseOf } from './kernel/lifecycle-transitions.mjs';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { raiseUpstreamIssueRoute, reopenAuthorityStep } from './upstream-routes.mjs';
 import { run } from './util.mjs';
 

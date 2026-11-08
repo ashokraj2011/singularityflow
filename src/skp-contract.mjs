@@ -21,7 +21,8 @@ import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
 import {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { assertModelTask } from "./kernel/configuration-policy.mjs";
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
 const PHASE_POLICY_FIELDS = [
   'label', 'artifact', 'inputs', 'qualityCommands', 'approval', 'writeScope',

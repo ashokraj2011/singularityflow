@@ -1,11 +1,12 @@
 /** Closed, immutable records for bounded test-command adoption and validation epochs. */
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
-import { pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
+import { pinnedObligationGraph } from './kernel/workflow-obligations.mjs';
 
 /** One prospective aggregate token shared by amendment validation and its locked writer. */
 export const prospectiveTestCommandAmendments = new WeakMap();

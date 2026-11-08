@@ -24,7 +24,7 @@ import { approvedStoryApprovalAuthorities } from './configuration-branch.mjs';
 import { workDirRelative } from './story-paths.mjs';
 import { head, identity } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { actorKey, transactStory } from './state-stores.mjs';

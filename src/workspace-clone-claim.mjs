@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { run, SingularityFlowError } from './util.mjs';

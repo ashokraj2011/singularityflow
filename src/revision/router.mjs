@@ -1,6 +1,7 @@
 /** Deterministic REV phase-and-intent routing. No model, file write, or provider call. */
 import { createHash } from 'node:crypto';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 

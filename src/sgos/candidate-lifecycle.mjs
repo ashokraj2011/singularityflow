@@ -23,7 +23,7 @@ import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import {
   sealMachineLocalPublicationReceipt, verifyMachineLocalPublicationReceipt
 } from '../publication-machine-integrity.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { run, SingularityFlowError, nowIso } from '../util.mjs';
 import { readLocalGitBlobs } from '../git-blob-batch.mjs';

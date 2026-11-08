@@ -278,6 +278,12 @@ entries remain. Native APIs preserve function identities, profile values, legacy
 checklist content and policy hashes. Header admission does not replace complete compilation,
 package retention or human authority. Prompt/checklist questions stay outside the kernel.
 
+[Shared workflow obligations](ENGINE-SDK-WORKFLOW-OBLIGATIONS.md) move graph guarantees and phase
+responsibilities into the kernel. Canonical record formatting joins the shared record foundation;
+an explicit UTF-8 SHA-256 capability replaces the native graph-validator callback. Pinned graph
+identities, omission findings, record bytes and legacy exceptions retain their original values.
+The remaining native admission and complete namespace runtime gates are still required.
+
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first

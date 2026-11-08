@@ -8,7 +8,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, writeAtomicExclusive, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';

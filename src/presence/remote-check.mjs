@@ -24,7 +24,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { githubListsKey, githubSigningKeys } from './anchor.mjs';
 import {

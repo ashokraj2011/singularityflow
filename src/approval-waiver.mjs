@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
 import { assertWorkReconciliationIntegrity } from './work-intervals.mjs';

@@ -11,7 +11,7 @@
  * which only makes the Story stricter, but it may never disappear, and a withdrawal or invalidation
  * may never be taken back. Neither carries a signature of its own, so only history can show it.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { familyRecords, isPersonStepRecord, PERSON_STEP_FAMILIES } from './person-steps.mjs';
 import { loadPresenceContext, personRecordVerdict } from './person-records.mjs';
 

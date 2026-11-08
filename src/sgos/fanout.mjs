@@ -1,5 +1,6 @@
 import { SingularityFlowError } from '../util.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 

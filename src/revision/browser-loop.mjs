@@ -10,7 +10,8 @@
 import { createHash } from 'node:crypto';
 
 import { createGitRuntime } from '../git-access.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from '../util.mjs';
 import { verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';

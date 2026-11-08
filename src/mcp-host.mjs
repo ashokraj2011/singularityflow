@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';

@@ -3,7 +3,7 @@ import {
   createHash, createPrivateKey, createPublicKey, sign as signBytes, verify as verifyBytes
 } from 'node:crypto';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from './mcp-host.mjs';
 import {

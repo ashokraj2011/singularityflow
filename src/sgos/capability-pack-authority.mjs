@@ -17,7 +17,7 @@ import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { gitCommonDir } from '../git.mjs';
 import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { normalizeLedgerConfig } from "../kernel/configuration-declarations.mjs";
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import {

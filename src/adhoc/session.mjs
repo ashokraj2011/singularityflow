@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   branch, changes, gitCommitIdentity, gitCommonDir, head
 } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { validateOutcomeSelectionBundle } from '../delivery-modes/delivery-kernel.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { nowIso, run } from '../util.mjs';

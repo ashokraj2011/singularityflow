@@ -19,7 +19,8 @@ import {
 import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { resolveGitCommitIdentity } from './git.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';

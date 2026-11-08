@@ -14,7 +14,7 @@ import {
 
 import { isConfigurationReadPath } from '../../configuration-read-scope.mjs';
 import { proposeConfigurationChange } from '../../configuration-proposal.mjs';
-import { canonicalJson } from '../../records.mjs';
+import { canonicalJson } from '../../foundation/record-schema.mjs';
 import {
   approveSgosProgramAuthority,
   createSgosIntentConfirmationPacket,

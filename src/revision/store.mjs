@@ -14,7 +14,7 @@ import { gitCommonDir } from '../git.mjs';
 import {
   readPrivateSidecar, writeImmutablePrivateSidecar
 } from '../private-sidecar.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {

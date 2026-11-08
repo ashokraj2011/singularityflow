@@ -10,7 +10,7 @@
  * This is an integrity/completeness format, not a signature or Authority Store attestation.  Its
  * assurance block says that explicitly and the verifier never upgrades that claim.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {

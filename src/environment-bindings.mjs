@@ -12,7 +12,8 @@ import { ENVIRONMENT_IDENTIFIER } from "./kernel/configuration-path-policies.mjs
 import {
   readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar
 } from './private-sidecar.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const MAXIMUM_BINDING_BYTES = 256 * 1024;

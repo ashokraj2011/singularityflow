@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';

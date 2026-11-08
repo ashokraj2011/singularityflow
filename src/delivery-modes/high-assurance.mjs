@@ -1,5 +1,6 @@
 /** GDP-M9 local hermetic proof evaluator. It evaluates digest-only evidence and executes no product code. */
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;

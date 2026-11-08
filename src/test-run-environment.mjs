@@ -24,7 +24,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 
 /** [name or pattern, why a gate run loses it]. Matched without regard to case, as Windows does. */
 export const SELECTION_VARIABLES = Object.freeze([

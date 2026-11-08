@@ -15,7 +15,7 @@ import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, write
 import os from 'node:os';
 import path from 'node:path';
 import { changedFiles, gitCommonDir, head } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';

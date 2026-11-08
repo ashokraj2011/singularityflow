@@ -1,7 +1,7 @@
 /** Strict, content-free evidence contract for the WEL release benchmark. */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const WEL_BENCHMARK_SCHEMA = 'sflow-wel-benchmark/v5';

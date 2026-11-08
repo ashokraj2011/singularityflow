@@ -5,7 +5,7 @@ import path from 'node:path';
 import { nodeTestObservation } from './verification/node-test-observation.mjs';
 
 import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from "./engine-compatibility/node-configuration-path.mjs";
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';

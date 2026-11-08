@@ -1,6 +1,6 @@
 /** Closed, bounded AGENT/DEVICE bridge for the installed GVM profile. */
 import { createHash } from 'node:crypto';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { assertModelInvocationAllowed } from '../operation-context.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, sha256 } from './contracts.mjs';

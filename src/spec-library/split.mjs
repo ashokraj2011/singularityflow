@@ -22,7 +22,7 @@ import YAML from 'yaml';
 
 import { committedFileBytes, committedTreePaths } from '../git.mjs';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from '../publication-storage.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { SingularityFlowError, writeAtomic, writeAtomicExclusive } from '../util.mjs';

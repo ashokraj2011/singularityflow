@@ -25,7 +25,8 @@
  */
 import path from 'node:path';
 
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 

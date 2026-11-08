@@ -6,7 +6,7 @@
  * evidence, upgrade assurance, or participate in a lifecycle gate. External authority is required
  * before any of those capabilities can exist.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 const PROVIDER_ID = /^cabp_[a-f0-9]{64}$/u;

@@ -1,3 +1,4 @@
+import { NODE_TEXT_DIGESTS } from './records.mjs';
 import { NODE_CONFIGURATION_PATH_SYNTAX } from './engine-compatibility/node-configuration-path.mjs';
 import { normalizeApplicationReview } from './code-delivery-policy.mjs';
 import { createRequire } from 'node:module';
@@ -44,7 +45,7 @@ import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 import { loadImpactDefinition } from './impact-config.mjs';
 
-import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
+import { pinnedObligationGraph } from './kernel/workflow-obligations.mjs';
 
 import { normalizeFaultRepairPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 
@@ -96,13 +97,13 @@ const {
 } = createWorkflowConfigurationCompiler({
   AUTHORING_SKILL_ID,
   authoringSkillCatalog,
-  compileObligationGraph,
   normalizeApplicationReview,
   normalizeCommitPolicyRuntime,
   normalizeMarketplaces,
   validateConfiguredSkillPhase,
   worldModelStateAuthority,
-  pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX
+  pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX,
+  textDigests: NODE_TEXT_DIGESTS
 });
 export {
   normalizeReferenceRepositoryPolicy,

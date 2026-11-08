@@ -18,7 +18,7 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs
 import path from 'node:path';
 
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from '../publication-storage.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, writeAtomic } from '../util.mjs';
 import { requireSpecId, validSpecId } from './ids.mjs';

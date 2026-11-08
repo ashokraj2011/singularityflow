@@ -5,7 +5,8 @@ import readline from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 import { isatty } from 'node:tty';
 import { gitDir, identity } from './git.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 

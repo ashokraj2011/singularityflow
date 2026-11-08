@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   TKR_COMPOSER_LIMITS,
   TKR_ERROR_CODES,

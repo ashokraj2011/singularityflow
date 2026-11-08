@@ -1,6 +1,6 @@
 /** Domain identities and shared transaction receipts. Git transports these records; a cache cannot. */
 import { createHash } from 'node:crypto';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { portableConfigurationPath, portableFilesystemPathIdentity } from './configuration-assets.mjs';
 import { SingularityFlowError } from './util.mjs';
 

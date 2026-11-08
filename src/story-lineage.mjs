@@ -22,7 +22,7 @@ import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { validateTrpRecord } from './test-recovery-policy.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
 } from './canonical-json.mjs';

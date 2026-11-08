@@ -3,7 +3,8 @@
  * callbacks; a receipt object, self-hash, or model assertion alone is never execution evidence.
  * This module runs no project command and never changes Code, Testing, or Verification state.
  */
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
 

@@ -1,5 +1,5 @@
 /** Lightweight unavailable lifecycle projection embedded in test-execution v4 receipts. */
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { WEL_EXTERNAL_ENFORCEMENT_GAPS } from './wel-readiness-foundation.mjs';
 
 function exactKeys(value, fields) {

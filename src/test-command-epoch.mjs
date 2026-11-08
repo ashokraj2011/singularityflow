@@ -7,7 +7,7 @@ import { normalizeRequiredTestCommand, testReceiptPassing } from './code-deliver
 import { resolveDeliveryQualityCommands } from './delivery-evidence.mjs';
 import { commitIsAncestor, exactFileAtObject } from './git.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { validateTestCommandEpochValidation } from './test-command-amendment-contracts.mjs';
 import { resolveTrpDeliverySelection } from './trp-delivery-selection.mjs';

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { types } from 'node:util';
 import YAML from 'yaml';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKP_PACKAGE_FORMAT = 'sflow-skill-package/v1';

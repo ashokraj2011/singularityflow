@@ -2,7 +2,7 @@ import path from 'node:path';
 import { gitCommonDir } from '../git-execution.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar, writeMutablePrivateSidecar } from '../private-sidecar.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { sealMachineLocalPublicationReceipt, verifyMachineLocalPublicationReceipt } from '../publication-machine-integrity.mjs';
 import { rcpDigest, rcpFailure, strictObject } from './policy.mjs';
 

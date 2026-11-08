@@ -19,7 +19,8 @@
  */
 import path from 'node:path';
 
-import { compactCanonicalJson, recordSha256 } from '../../records.mjs';
+import { recordSha256 } from '../../records.mjs';
+import { compactCanonicalJson } from '../../foundation/record-schema.mjs';
 import { looksSecretValue } from '../../secret-looking.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { displayText } from './templates.mjs';

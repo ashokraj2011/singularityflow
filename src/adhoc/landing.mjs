@@ -13,7 +13,7 @@ import { lifecycleAuthority } from '../sda/story-branch-authority.mjs';
 import {
   buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths
 } from '../repository-change-set.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { validateDeliveryRecord } from '../delivery-modes/delivery-kernel.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import {

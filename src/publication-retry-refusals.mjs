@@ -14,7 +14,7 @@ import { remoteNames } from './git.mjs';
 import {
   classifyGitRemoteFailure, configuredRemoteAuthority, redactDiagnosticText, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 // What a person resolves before the same commit can be sent again, by remote classification.

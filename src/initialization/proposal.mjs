@@ -5,7 +5,8 @@ import YAML from 'yaml';
 
 import { SMART_INITIALIZATION_ASSETS } from '../initialization-assets.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { detectorRegistrySha256 } from './detectors.mjs';

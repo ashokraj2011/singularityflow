@@ -8,7 +8,7 @@ import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
 import { safePrivateSidecarDirectory } from '../private-sidecar.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { scanText } from '../secrets.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import {

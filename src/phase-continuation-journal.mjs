@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { gitCommonDir } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { listPrivateSidecar, readPrivateSidecar, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
 import { currentSubjectLockOwner } from './subject-lock.mjs';
 import { repairDigest } from './phase-repair-journal.mjs';

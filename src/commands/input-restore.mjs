@@ -23,7 +23,7 @@ import {
   committedFileBytes, committedFilesAtRevisions, head, recentCommitFileSets, worktreeStatusDetail
 } from '../git.mjs';
 import { createPhaseCheckpoint } from '../phase-checkpoint.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import {

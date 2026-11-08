@@ -13,7 +13,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { branch, gitCommonDir, gitDir, head, repoRoot } from '../git.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   currentSchemaVersion, familyForStoredPath, readRecord
 } from '../schema-migrations.mjs';

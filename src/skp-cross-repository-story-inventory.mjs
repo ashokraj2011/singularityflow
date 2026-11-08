@@ -1,6 +1,7 @@
 /** Explicit cross-repository Story usage over already readable local Git repositories. */
 import path from 'node:path';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { scanEntries } from './secrets.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { withLocalReadDeadline, assertLocalReadDeadline } from './local-read-deadline.mjs';

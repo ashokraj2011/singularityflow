@@ -4,7 +4,7 @@
  * This module does not read or write Git/files, invoke a model, execute a Process, rank people, or
  * infer missing evidence. It compares only caller-supplied, content-addressed outcome evidence.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {

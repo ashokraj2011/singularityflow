@@ -8,7 +8,8 @@
  */
 import { assertWorkTypeStartable, resolveWorkType, validateDefinition } from './config.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './kernel/specification-policy.mjs';
 import { SingularityFlowError } from './util.mjs';

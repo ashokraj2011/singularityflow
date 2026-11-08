@@ -52,7 +52,8 @@ import { BUILD_INFO } from './build-info.mjs';
 import {
   forgetLeadRepository, listLeadRepositoryRegistryRecords, rememberLeadRepository
 } from './lead-repositories.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   drainRepositoryOnboardingCleanup, enqueueRepositoryOnboardingCleanup,
   repositoryOnboardingCleanupContention, repositoryOnboardingCleanupQueueRoot

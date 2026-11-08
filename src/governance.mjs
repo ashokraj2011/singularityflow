@@ -38,7 +38,8 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { obligationsDroppedBySkips } from './workflow-decisions.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { exactFileAtObject, firstParentCommitsMentioning, governedCommitIdentity, head, isAncestor } from './git.mjs';
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';

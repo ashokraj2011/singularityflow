@@ -28,7 +28,8 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { exists, posix, SingularityFlowError } from './util.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 

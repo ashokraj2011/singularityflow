@@ -144,7 +144,8 @@ import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 
 import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import { captureWorkflowSnapshot, captureWorkflowSnapshotAmendment, verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyReferenceRepositories, writeReferenceRepositoryManifest } from './reference-repositories.mjs';

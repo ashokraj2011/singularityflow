@@ -24,7 +24,7 @@ import { assertWithinLimit, capWithDisclosure } from './analysis-limits.mjs';
 import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { extractMarkers, evaluateMarkerPolicy, markerPolicy, reconcileMarkers } from './clarification-markers.mjs';
 import { extractClauses, ignoredRanges, isIgnored } from './specifications.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectSpecificationScenarios } from './specification-scenarios.mjs';
 export const WITNESS_TYPES = Object.freeze(['test', 'inspection', 'metric', 'runtime', 'manual']);

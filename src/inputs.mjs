@@ -10,7 +10,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { acceptedRevalidationBindings, pendingAmendmentRevalidations, revalidateCommand } from './forward-amendments.mjs';
 import {
   resolveSkillPhaseEvidenceBinding, verifyApprovedSkillOutputContinuity,

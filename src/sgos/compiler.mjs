@@ -5,7 +5,8 @@
  * environment dependency. A Program is a function only of a confirmed Intent IR,
  * a ratified Workflow IR, and the exact policy/registry/storage snapshot digests.
  */
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   GVM_OPCODES as CONTRACT_GVM_OPCODES,
   createGvmProgram,

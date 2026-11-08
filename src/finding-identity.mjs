@@ -5,7 +5,7 @@
  * is one sorted set.
  */
 import { createHash } from 'node:crypto';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 
 export const CANONICAL_FINDING_ID = /^FND-[a-f0-9]{24}$/u;
 

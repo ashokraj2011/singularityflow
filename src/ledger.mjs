@@ -25,7 +25,7 @@ import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
-import { compactCanonicalJson } from './records.mjs';
+import { compactCanonicalJson } from './foundation/record-schema.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { sourceRevision } from './source-inspection.mjs';

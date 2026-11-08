@@ -5,7 +5,8 @@ import { chmod, lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/pr
 import path from 'node:path';
 import { gitCommonDir } from '../git.mjs';
 import { secureWindowsAuthAcl } from '../mcp-auth-profile.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError, portableIdentifier, writeAtomicExclusive } from '../util.mjs';

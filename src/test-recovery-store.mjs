@@ -12,7 +12,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import path from 'node:path';
 import { consumeActionAuthorization } from './action-authorization.mjs';
 import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { exactFileAtObject, gitDir } from './git.mjs';
 import { gitIsAncestor } from './git-ancestry.mjs';

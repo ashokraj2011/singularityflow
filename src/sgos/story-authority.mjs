@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 
 import { readRefTreeResult } from '../git-ref-tree.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
 import {

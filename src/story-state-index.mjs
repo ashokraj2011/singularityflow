@@ -2,7 +2,7 @@ import { storyCreatorName } from './story-presentation.mjs';
 /** Story locations come from the reachable state ledger, never an application branch inventory. */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { compactCanonicalJson } from './records.mjs';
+import { compactCanonicalJson } from './foundation/record-schema.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 

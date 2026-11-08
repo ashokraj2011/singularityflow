@@ -34,7 +34,8 @@ import {
   resolveImplicitCapability
 } from './capabilities.mjs';
 import { atomicJson, workspaceRepositoryPath } from './workspace.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,

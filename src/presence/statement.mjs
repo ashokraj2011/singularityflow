@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { compactCanonicalJson } from '../records.mjs';
+import { compactCanonicalJson } from '../foundation/record-schema.mjs';
 
 export const PRESENCE_STATEMENT_SCHEMA = 'pss-statement/1';
 const FIELDS = ['schema', 'repository', 'subject', 'step', 'generation', 'action', 'decision', 'reviewed', 'actor', 'authorityGroup', 'at', 'nonce', 'keyId'];

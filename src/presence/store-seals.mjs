@@ -22,7 +22,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { parseSeal, repositorySeal, repositorySealPolicy, repositorySealVerdict, sealBytes, sealedRecord } from './repository-seals.mjs';
 
 export const SEAL_SUFFIX = '.presence.json';

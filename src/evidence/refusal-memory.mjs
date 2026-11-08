@@ -10,7 +10,7 @@ import path from 'node:path';
 import { BUILD_INFO } from '../build-info.mjs';
 import { changedFiles, head } from '../git.mjs';
 import { repositoryGitPath } from '../git-directory.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { projectGateRefusal } from './gate-refusal.mjs';
 

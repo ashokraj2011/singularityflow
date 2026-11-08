@@ -19,7 +19,7 @@ import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import path from 'node:path';
 import { repositoryGitDirectory } from '../git-directory.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { posix } from '../util.mjs';
 
 export const VERIFICATION_GRAPH_CACHE_VERSION = 1;

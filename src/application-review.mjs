@@ -4,7 +4,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { identity } from './git.mjs';
 import { workDirRelative } from './story-paths.mjs';
 import { writeAtomicExclusive } from './util.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { requireApprovalAuthority } from './kernel/approval-policy.mjs';

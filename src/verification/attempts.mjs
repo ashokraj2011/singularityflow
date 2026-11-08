@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { buildTestExecutionReceipt, parseTestResult } from '../code-delivery-tests.mjs';
 import { commitIsAncestor, gitDir } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { posix, secureRepositoryPath, writeAtomicExclusive } from '../util.mjs';
 import { classifyTestCommand } from './adapters.mjs';

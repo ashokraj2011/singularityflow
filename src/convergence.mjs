@@ -26,7 +26,8 @@ export {advancementBlocked};
  */
 import { capWithDisclosure } from './analysis-limits.mjs';
 import { analysisLimits } from "./kernel/configuration-declarations.mjs";
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, testOnlyClaimEvidence } from './specifications.mjs';
 

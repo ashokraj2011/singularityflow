@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { exactFileAtObject, exactTreePathsAtObject, gitDir, head } from './git.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { evaluateProtectedPaths } from './repository-change-set.mjs';
 import { appendTrpRecord, loadTrpAuthorityVerifier, loadTrpRecords } from './test-recovery-store.mjs';
 import { evaluateTestRecoveryGate, sealTrpRecord, trpDigest, validateTrpRecord } from './test-recovery-policy.mjs';

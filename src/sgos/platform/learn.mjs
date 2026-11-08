@@ -1,4 +1,4 @@
-import { canonicalJson } from '../../records.mjs';
+import { canonicalJson } from '../../foundation/record-schema.mjs';
 import { scanText } from '../../secrets.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { clonePlatformJson, isPlainPlatformObject, platformSha256 } from './contracts.mjs';

@@ -5,7 +5,8 @@
  * filesystem, a model, AST, the World Model, a clock, or lifecycle state. Operational evaluation
  * receipts are deliberately separate and require the caller to supply their clock observations.
  */
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
 

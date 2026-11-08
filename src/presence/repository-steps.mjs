@@ -15,7 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException } from './chain.mjs';
 import { actorApproverId, personTerminal, PRESENCE_RECORD_SCHEMA } from './person-records.mjs';

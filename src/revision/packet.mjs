@@ -1,6 +1,7 @@
 /** Bounded, deterministic REV execution input. Building a packet has no effects. */
 import { createHash } from 'node:crypto';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { validateRevisionRecord } from './contracts.mjs';
 import { assertCurrentRevisionRoute, revisionTextSha256, verifyRevisionAttachmentSet } from './router.mjs';

@@ -2,7 +2,8 @@
 import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';

@@ -1,5 +1,31 @@
-/** Pure version admission for durable records. */
+/** Pure durable-record format, identity capabilities and version admission. */
 import { SingularityFlowError } from './failures.mjs';
+
+export const TEXT_DIGEST_PROFILE = 'sflow-text-digests/sha256-utf8-v1';
+const TEXT_DIGEST_CAPABILITIES = new WeakMap();
+
+/** Capture a synchronous text primitive without invoking it or evaluating an accessor. */
+export function textDigestCapability(port) {
+  const invalid = () => { throw new SingularityFlowError('Record identity requires one frozen, explicit UTF-8 SHA-256 capability.', {
+    code: 'ENGINE_TEXT_DIGEST_PORT_INVALID'
+  }); };
+  if (!port || typeof port !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(port)) || !Object.isFrozen(port)) invalid();
+  const fields = Object.getOwnPropertyDescriptors(port), keys = Reflect.ownKeys(fields);
+  if (keys.length !== 2 || keys.some(key => !['profile', 'sha256Utf8'].includes(key))
+    || !fields.profile?.enumerable || !Object.hasOwn(fields.profile, 'value') || fields.profile.value !== TEXT_DIGEST_PROFILE
+    || !fields.sha256Utf8?.enumerable || !Object.hasOwn(fields.sha256Utf8, 'value') || typeof fields.sha256Utf8.value !== 'function') invalid();
+  if (TEXT_DIGEST_CAPABILITIES.has(port)) return TEXT_DIGEST_CAPABILITIES.get(port);
+  const method = fields.sha256Utf8.value;
+  const capability = Object.freeze({ sha256Utf8(value) {
+    if (typeof value !== 'string') throw new SingularityFlowError('The text digest capability requires a string.', { code: 'ENGINE_TEXT_DIGEST_INPUT_INVALID' });
+    const digest = Reflect.apply(method, port, [value]);
+    if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/u.test(digest)) throw new SingularityFlowError(
+      'The text digest capability did not return an exact lowercase SHA-256 digest.', { code: 'ENGINE_TEXT_DIGEST_RESULT_INVALID' });
+    return digest;
+  } });
+  TEXT_DIGEST_CAPABILITIES.set(port, capability);
+  return capability;
+}
 
 // Shared immutable format metadata, not backend selection or model/World Model behavior.
 const frozenFamily = id => Object.freeze({ id, currentVersion: 1, minimumReadableVersion: 1,
@@ -71,4 +97,23 @@ export function admitRecordSchemaVersion(entry, input) {
     );
   }
   return { record, storedVersion };
+}
+
+
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  return value;
+}
+
+
+export function canonicalJson(value) {
+  return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
+}
+
+
+/** The ledger's historical compact identity uses the same key ordering, without display spaces. */
+export function compactCanonicalJson(value) {
+  return `${JSON.stringify(canonicalize(value))}\n`;
 }

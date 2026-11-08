@@ -5,7 +5,7 @@ import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import { cloneSgosValue, sha256 } from './contracts.mjs';

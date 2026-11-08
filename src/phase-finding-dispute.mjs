@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { humanReviewOriginPresent } from './human-review-origin.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';

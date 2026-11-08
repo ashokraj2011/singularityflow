@@ -6,7 +6,8 @@
  * missing joins. The installed CAB foundation accepts no authenticated evidence family, so this
  * build can never turn the projection into an enforcement decision.
  */
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { authenticatedRunnerReadiness } from './delivery-modes/authenticated-runner-provider.mjs';
 import { WEL_EXTERNAL_ENFORCEMENT_GAPS } from './wel-readiness-foundation.mjs';

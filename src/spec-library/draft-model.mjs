@@ -10,7 +10,7 @@
  * Nothing here reads files, Git or a model.
  */
 import { CHECKLIST_DECISIONS, STARTER_CHECKLIST } from '../specification-quality.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { formatGapId, GAP_ID, nextNumber } from './ids.mjs';
 

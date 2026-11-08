@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson, compactCanonicalJson } from '../records.mjs';
+import { canonicalJson, compactCanonicalJson } from '../foundation/record-schema.mjs';
 import { presenceStatement, statementText } from './statement.mjs';
 import { parsePresencePublicKey, verifyPresenceSignature } from './sshsig.mjs';
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { describeLeaseOwner, leaseOwnerAssessment, leaseOwnerIdentity } from '../../lease-liveness.mjs';
-import { canonicalJson } from '../../records.mjs';
+import { canonicalJson } from '../../foundation/record-schema.mjs';
 import { scanText } from '../../secrets.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import {

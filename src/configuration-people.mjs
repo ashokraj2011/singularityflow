@@ -19,7 +19,7 @@ import { assertCredentialFreeRemote, sanitizeRemote, frozenRemoteTransport, fail
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { GitRemoteSession, gitCommonDir } from './git-execution.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 

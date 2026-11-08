@@ -1,6 +1,6 @@
 /** Read-only execution facts for every phase; never a new receipt, verdict or waiver. */
 import { createHash } from 'node:crypto';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { commitIsAncestor, exactFileAtObject } from './git.mjs';

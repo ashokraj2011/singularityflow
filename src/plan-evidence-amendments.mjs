@@ -1,6 +1,7 @@
 /** Append-only correction of evidence typing, never an edit to an approved claim map. */
 import { z } from 'zod';
-import { recordSha256, canonicalJson } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { exactFileAtObject, head } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';

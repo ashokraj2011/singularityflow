@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 
 export const SF_GUARD_AGENT_DRIFT = Object.freeze(['stamp-removed', 'stamp-edited', 'file-removed']);
 const STAMP = 'singularity-flow hook agent-stamp ';

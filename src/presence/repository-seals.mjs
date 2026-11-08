@@ -10,7 +10,7 @@
  * with no seal counts only when SF Guard was off when it was recorded (`pre-signing`); the time it
  * claims is the writer's, so the remote check (state-check.mjs) is what catches a back-dated one.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { exceptionLabel } from './chain.mjs';
 import { PRESENCE_RECORD_SCHEMA } from './person-records.mjs';
 import { repositoryRecordSha256, repositoryStepStatement } from './repository-steps.mjs';

@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto';
 
 import { committedFileBytes, committedTreePaths } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { extractClauses } from '../specifications.mjs';
 import { SingularityFlowError } from '../util.mjs';

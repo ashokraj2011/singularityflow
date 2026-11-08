@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { EXPLANATION_LIMITS } from './implementation-bindings.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';

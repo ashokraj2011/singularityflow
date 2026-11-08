@@ -2,7 +2,8 @@ import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { listMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readDesignInventory } from './design-inventory.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {

@@ -6,7 +6,7 @@ import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { exactTreePathsAtObject, head } from './git.mjs';
 import { runRemoteGit } from './git-execution.mjs';

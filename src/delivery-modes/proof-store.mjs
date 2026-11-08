@@ -11,7 +11,8 @@ import path from 'node:path';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import { branch, gitCommonDir, head } from '../git.mjs';
 import { writeImmutablePrivateSidecar } from '../private-sidecar.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import {
   ensureSecureRepositoryDirectory, secureRepositoryPath, SingularityFlowError,

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath } from './util.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';

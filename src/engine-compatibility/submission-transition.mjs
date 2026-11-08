@@ -36,7 +36,7 @@ import { retainedStoryTestRisk, beginStoryTestRiskRun, captureStoryTestRiskObser
 import { recordRunsBeforeRefusal, recordTestAttempt, admitTestAttempts } from '../verification/attempts.mjs';
 import { externalCommandText } from '../external-command-policy.mjs';
 import { createHash } from 'node:crypto';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { assertVisualCoverage } from '../visual-coverage.mjs';
 import { qualityValidationVerdict } from '../lifecycle-evidence-policy.mjs';
 import path from 'node:path';

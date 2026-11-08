@@ -32,7 +32,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { prepareSharedPublicationStorage, sharedPublicationStorageDirectory } from './publication-storage.mjs';
-import { compactCanonicalJson } from './records.mjs';
+import { compactCanonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /** What `readDrafts` returns: every waiting draft in order, and the last proposal. */

@@ -21,7 +21,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 

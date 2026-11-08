@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 
 import { PERSON_STEP_FAMILIES } from '../person-step-catalog.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException } from './chain.mjs';
 import {

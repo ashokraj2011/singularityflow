@@ -16,7 +16,7 @@ import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
 import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { measurePerformance } from './dx-timing-context.mjs';
 import { assessTokenAdmission } from './token-admission.mjs';
 import {

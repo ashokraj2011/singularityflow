@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, link, unlink, readdir } from 'node:fs/promises';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { gitDir } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { consumeActionAuthorization } from './action-authorization.mjs';
 

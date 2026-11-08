@@ -11,7 +11,7 @@ import path from 'node:path';
 import { realpathSync } from 'node:fs';
 
 import { repoRoot } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {
   SHA256_PATTERN,

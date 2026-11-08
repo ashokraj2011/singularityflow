@@ -12,7 +12,7 @@ import path from 'node:path';
 
 import { gitCommonDir, identity, repoRoot } from '../git.mjs';
 import { safePrivateSidecarDirectory } from '../private-sidecar.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   candidateDiffArguments, freezeSgosCandidate, listSgosCandidates,
   planSgosCandidatePublication, publishSgosCandidate, readSgosRetainedCandidate,

@@ -1,6 +1,6 @@
 /** Portable facts are projected beside the existing Flow Ledger, outside their own source commit. */
 import {readRecord} from '../schema-migrations.mjs';
-import {canonicalJson} from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {operationForCommit,readCommitPolicyRecord} from './records.mjs';
 import {rcpDigest,rcpFailure,strictObject} from './policy.mjs';
 const valid=value=>/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value??'');

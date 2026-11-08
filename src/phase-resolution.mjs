@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { submitRoute } from './submit-route.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';

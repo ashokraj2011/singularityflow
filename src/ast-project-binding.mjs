@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { executeGitQuery } from './git-query.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 

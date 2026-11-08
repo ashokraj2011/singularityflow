@@ -20,7 +20,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { itemId } from './convergence.mjs';
-import { canonicalJson, recordSha256 as hashRecord } from './records.mjs';
+import { recordSha256 as hashRecord } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 

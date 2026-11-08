@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { branch, head, identity, repoRoot } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   cloneSgosValue, createIntentEnvelope, sha256, validateGvmProgram, validateSgosRecord
 } from '../sgos/contracts.mjs';

@@ -12,7 +12,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 export const SGOS_OPERATIONAL_STORE_SPI_VERSION = 1;

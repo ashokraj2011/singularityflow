@@ -12,7 +12,8 @@
  * step carries its accepted commands as `storyTestCommands`, which the gates check against them.
  * A `repin` request adds no command: it admits a pinned command's changed form (test-command-pins.mjs). Pure.
  */
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 

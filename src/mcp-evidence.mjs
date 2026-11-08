@@ -5,7 +5,8 @@ import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { withSubjectLock } from './subject-lock.mjs';
 import { authorizedMcpOrigins, safeMcpTargetUrl } from './mcp-target.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot,
   writeAtomic, writeJson

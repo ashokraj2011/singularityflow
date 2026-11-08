@@ -17,7 +17,8 @@ import { gitCommonDir } from '../git.mjs';
 import {
   readPrivateSidecar, writeImmutablePrivateSidecar
 } from '../private-sidecar.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import { clonePlatformJson, platformSha256 } from '../sgos/platform/contracts.mjs';
 import { SingularityFlowError } from '../util.mjs';

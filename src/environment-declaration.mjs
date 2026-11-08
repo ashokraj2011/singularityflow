@@ -17,7 +17,8 @@ import YAML from 'yaml';
 
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 const KINDS = new Set(['secret', 'endpoint', 'flag']);
 const MAXIMUM_DECLARATION_BYTES = 256 * 1024;

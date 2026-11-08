@@ -13,7 +13,7 @@ import { isAllowedTestAutomationPath, parseTestResult } from '../code-delivery-t
 import { TEST_RESULT_ADAPTERS } from "../engine-compatibility/node-configuration-path.mjs";
 import { runRemoteGitAsync } from '../git-execution.mjs';
 import { gitFailureDiagnostic } from '../git-remote-diagnostics.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   buildRepositoryTreeChangeSet, compareRepositoryIdentity
 } from '../repository-change-set.mjs';

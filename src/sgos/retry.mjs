@@ -15,7 +15,8 @@ import path from 'node:path';
 import { types as utilTypes } from 'node:util';
 
 import { gitCommonDir } from '../git.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
   createCandidateSnapshot, createEffectRetryReceipt, sha256

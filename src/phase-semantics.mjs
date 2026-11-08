@@ -4,7 +4,7 @@ export { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './kernel/p
 import { bindAcceptedPhaseInterpretation, artifactKindOf, isConvergencePhase,
   isConformancePhase, isVisualVerificationPhase } from './kernel/phase-policy.mjs';
 import { phaseRequiresCodeDelivery } from './kernel/phase-policy.mjs';
-import { phaseResponsibilities } from './evidence/responsibilities.mjs';
+import { phaseResponsibilities } from './kernel/phase-responsibilities.mjs';
 import { isKnownPackagedAssetHash } from './packaged-asset-history.mjs';
 import { SingularityFlowError } from './util.mjs';
 const SUPPORTED_PHASE_PROFILES = new Set([PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE]);

@@ -14,7 +14,7 @@ import path from 'node:path';
 import {
   configurationReadRoot, isConfigurationReadPath
 } from '../configuration-read-scope.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   compileSgosProgram, recompileSgosProgramWithVerifiedCapabilityPack,
   registrySnapshotDigest, SGOS_COMPILER_ID, SGOS_COMPILER_VERSION

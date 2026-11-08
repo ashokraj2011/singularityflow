@@ -1,7 +1,8 @@
 /** Pure bounded change planning. This is impact data, never a writer or an authority capability. */
 import { createHash } from 'node:crypto';
 import { types } from 'node:util';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
 import {
   resolveWorkType, validateDefinition, validateArtifactTemplateText, validateCapturedAgentBriefHeadingContracts

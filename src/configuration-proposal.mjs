@@ -47,7 +47,7 @@ import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot,
 import { isConfigurationStatePath, configurationDigest } from './configuration-state-contract.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
 

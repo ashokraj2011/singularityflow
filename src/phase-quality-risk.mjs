@@ -1,7 +1,7 @@
 /** Pilot exceptions carry unmet quality obligations; they never manufacture passing evidence. */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { exactFileAtObject, exactFirstParentFileChanges, head, identity } from './git.mjs';
 import { requireApprovalAuthority } from './kernel/approval-policy.mjs';

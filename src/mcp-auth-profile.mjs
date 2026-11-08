@@ -6,7 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { gitCommonDir } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { resolveWindowsSystemTool } from './platform-process.mjs';

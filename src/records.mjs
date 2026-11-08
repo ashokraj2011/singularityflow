@@ -1,3 +1,5 @@
+import { canonicalJson, TEXT_DIGEST_PROFILE } from './foundation/record-schema.mjs';
+export { canonicalJson, compactCanonicalJson } from './foundation/record-schema.mjs';
 /**
  * Content addressing for append-only records.
  *
@@ -19,21 +21,12 @@ export function discrepancyItemSha256(phaseId, itemText) {
   return createHash('sha256').update(`${phaseId}\n${String(itemText).replace(/\s+/gu, ' ').trim()}`).digest('hex');
 }
 
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
-  return value;
-}
-
-export function canonicalJson(value) {
-  return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
-}
-
-/** The ledger's historical compact identity uses the same key ordering, without display spaces. */
-export function compactCanonicalJson(value) {
-  return `${JSON.stringify(canonicalize(value))}\n`;
-}
-
 export function recordSha256(value) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
+
+/** Native primitive capability; canonical record formatting is shared with the kernel. */
+export const NODE_TEXT_DIGESTS = /* @__PURE__ */ Object.freeze({
+  profile: TEXT_DIGEST_PROFILE,
+  sha256Utf8(value) { return createHash('sha256').update(value).digest('hex'); }
+});

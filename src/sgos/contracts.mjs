@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from '../../records.mjs';
+import { canonicalJson } from '../../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 
 export const SGOS_PLATFORM_FORMAT = 'sflow.sgos.platform-envelope';

@@ -14,7 +14,7 @@ export {
   decisionValues, reopenableSteps, assertChoiceKeepsDependencies
 } from './kernel/workflow-decisions.mjs';
 import { createHash } from 'node:crypto';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 

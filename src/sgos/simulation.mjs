@@ -5,7 +5,7 @@
  * calls. It can describe only what is encoded in an immutable GVM Program. Runtime availability,
  * cost, elapsed time, and recovery success therefore remain explicit unknowns.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   cloneSgosValue, sha256, validateGvmProgram
 } from './contracts.mjs';

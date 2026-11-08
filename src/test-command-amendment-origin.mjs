@@ -5,7 +5,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import path from 'node:path';
 import { consumeActionAuthorization } from './action-authorization.mjs';
 import { gitDir } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { testCommandAmendmentDigest, validateTestCommandAmendmentRecord } from './test-command-amendment-contracts.mjs';
 

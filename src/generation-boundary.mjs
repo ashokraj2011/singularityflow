@@ -7,7 +7,7 @@ import {
   buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths, evaluateSourceBoundary
 } from './repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   persistGenerationPublicationRecord, publishedGenerationCommit
 } from './generation-publication-store.mjs';

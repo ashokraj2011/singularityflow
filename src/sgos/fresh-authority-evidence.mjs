@@ -6,7 +6,7 @@
  * then creates a separate deterministic report which compares that trace with the currently
  * approved Program, Capability Pack, Story, and policy authority.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { sgosCapabilityPackAuthoritiesSha256 } from './capability-pack-authority.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';

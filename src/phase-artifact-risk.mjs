@@ -1,5 +1,6 @@
 /** Review-document exceptions apply by responsibility, never by a built-in phase name. */
-import { recordSha256, canonicalJson } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { phaseAuthoredReviewArtifacts, inspectPhaseAuthoredReviewContent, artifactFindingMessage } from './publication-preflight.mjs';
 import { isArtifactQualityFinding, phaseFindingIdentity } from './phase-finding-policy.mjs';
 import { phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';

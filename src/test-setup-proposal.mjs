@@ -32,7 +32,7 @@ import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { repoRoot } from './git.mjs';
 import { action, commandResult, effects, noEffects, succeeded } from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 

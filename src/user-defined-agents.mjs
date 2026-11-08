@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { scanText } from './secrets.mjs';
 import { agentFrontMatter, blockedPath, EXCLUDED_DIRECTORIES, fileMedia, kebab, splitFrontMatter } from './team-import/formats.mjs';
 import { SingularityFlowError } from './util.mjs';

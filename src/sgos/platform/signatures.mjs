@@ -2,7 +2,7 @@ import {
   createPrivateKey, createPublicKey, sign as signBytes, timingSafeEqual, verify as verifyBytes
 } from 'node:crypto';
 
-import { canonicalJson } from '../../records.mjs';
+import { canonicalJson } from '../../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import {
   PLATFORM_DIGEST_PATTERN, clonePlatformJson, platformSha256, validatePlatformRecord

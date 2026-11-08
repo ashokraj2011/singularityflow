@@ -5,7 +5,7 @@ import { mkdir, open, readdir, lstat, realpath, stat } from 'node:fs/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { countedRecords, presenceRequires } from './presence/counted.mjs';
 import { projectedLedgerIntentFile } from './lifecycle-event.mjs';
 import { assertClean, exactChangedPathsBetweenObjects, exactFileAtObject, gitDir, governedCommitIdentity, head } from './git.mjs';

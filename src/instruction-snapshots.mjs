@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { parseLibrarySkill, librarySkillReference } from './skill-library.mjs';
 import { parseInstruction, instructionUtf8 } from './instruction-library.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 
 export const INSTRUCTION_COMPOSER = 'story-snapshot-agent-v3';
 export const PLACED_INSTRUCTION_COMPOSER = 'story-snapshot-agent-v4';

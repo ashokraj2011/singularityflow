@@ -9,7 +9,7 @@ import YAML from 'yaml';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 
 /** Empty when there are none or the authority cannot be read. */
 export async function activatedTestCommandsFor(root, workflow, phaseId) {

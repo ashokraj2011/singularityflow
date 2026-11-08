@@ -9,7 +9,7 @@ import { runCopilotHookBenchmark } from './copilot-hook-benchmark.mjs';
 import { summarizeSamples } from './dx-performance.mjs';
 import { withCommandTiming } from './dx-timing-context.mjs';
 import { instructionText, loadInstructionLibrary } from './instruction-library.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { withReadScope, withoutReadScope } from './read-scope.mjs';
 import { librarySkillText, loadSkillLibrary } from './skill-library.mjs';
 

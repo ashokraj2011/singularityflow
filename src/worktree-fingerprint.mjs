@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { checkoutLineEndings, sourceCheckoutForm, withCheckoutLineEndings } from './source-inspection.mjs';
 import { run, SingularityFlowError } from './util.mjs';

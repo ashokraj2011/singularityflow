@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { activeException, approverId, exceptionLabel, foldPresenceChain, presenceEventDigest } from './chain.mjs';
 import { forgetPersonCounts, presencePinKey, registerPersonCounts } from './counted.mjs';

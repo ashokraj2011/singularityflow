@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 
 import { recallKnowledge } from './knowledge.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const KNOWLEDGE_GUIDANCE_BEGIN = '<<<BEGIN SINGULARITY FLOW UNTRUSTED KNOWLEDGE GUIDANCE V1>>>';

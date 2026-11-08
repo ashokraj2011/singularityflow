@@ -2,7 +2,7 @@
 import { validateDefinition } from './config.mjs';
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export function sharedSkillContractCatalog(rawDefinition, phaseId) {

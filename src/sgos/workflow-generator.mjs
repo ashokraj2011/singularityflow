@@ -6,7 +6,7 @@
  * graphs remain ordinary reviewed declarations. No model, clock, filesystem, identity, approval,
  * compilation, or execution dependency belongs in this module.
  */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {
   cloneSgosValue, sha256, validateIntentIr, validatePolicySnapshot

@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { head } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { assertRejectionComment, rejectionTarget } from '../kernel/approval-policy.mjs';
 

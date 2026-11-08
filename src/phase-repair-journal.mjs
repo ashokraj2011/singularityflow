@@ -5,7 +5,7 @@ import { lstat, open, readdir, realpath, rename } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { gitCommonDir } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { listPrivateSidecar, readPrivateSidecar, safeSidecarTreeDirectory, writeImmutablePrivateSidecar } from './private-sidecar.mjs';

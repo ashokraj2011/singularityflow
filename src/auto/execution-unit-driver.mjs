@@ -4,7 +4,8 @@ import { generationTaskForPhase } from "../kernel/configuration-policy.mjs";
 import { loadModelTiers, tierLadder } from '../model-tiers.mjs';
 import { resolveModelProvider } from '../model-runner.mjs';
 import { modelProviderIds } from '../model-provider-registry.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { commandExists, run } from '../util.mjs';
 import { AUTO_AUTHORING_TOOLS } from '../kernel/auto-policy.mjs';
 

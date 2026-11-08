@@ -10,7 +10,7 @@ import { gitCommonDir, gitDir } from './git.mjs';
 import { acquireFileLeaseWithin, heldFileLeaseRoute } from './file-lease.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { normalizePromptExecutionContext } from './prompt-execution-context.mjs';
 

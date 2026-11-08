@@ -16,7 +16,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { gitCommonDir } from '../git.mjs';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import {
   readRecord, stampCurrentRecord
 } from '../schema-migrations.mjs';

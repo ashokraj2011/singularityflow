@@ -9,7 +9,8 @@ import { StringDecoder } from 'node:string_decoder';
 import os from 'node:os';
 import path from 'node:path';
 import { gitCommonDir, identity } from './git.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import {
   MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, PLAYWRIGHT_MCP_HOST_ARGUMENTS
 } from './mcp-host.mjs';

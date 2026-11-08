@@ -10,7 +10,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { verifyRepositoryChangeSetIntegrity } from './repository-change-set.mjs';
-import { canonicalJson, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { canonicalJson } from './foundation/record-schema.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {

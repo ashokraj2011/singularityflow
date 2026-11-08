@@ -1,5 +1,5 @@
 /** Optional, citation-checked prose over the deterministic code-explanation projection. */
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { SingularityFlowError } from '../util.mjs';
 

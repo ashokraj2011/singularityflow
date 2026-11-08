@@ -1,5 +1,6 @@
 /** Deterministic Program-to-Process task materialization shared by runtime and durable upgrades. */
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { sgosSha256 } from './evidence.mjs';
 import { compareSgosCodePoints } from './order.mjs';

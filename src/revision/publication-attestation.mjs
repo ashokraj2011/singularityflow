@@ -14,7 +14,8 @@ import {
   readPendingPublication, verifyPendingPublicationCandidateAuthority,
   verifyPendingPublicationCommit
 } from '../publication-pending.mjs';
-import { canonicalJson, recordSha256 } from '../records.mjs';
+import { recordSha256 } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import {
   readPrivateSidecar, safePrivateSidecarDirectory, writeImmutablePrivateSidecar

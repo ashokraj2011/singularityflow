@@ -6,7 +6,7 @@
  * test-body/adapter bindings, and a durable verified receipt store before activation is possible.
  */
 import { createHash } from 'node:crypto';
-import { canonicalJson } from '../records.mjs';
+import { canonicalJson } from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { planRevisionCodeChecks } from './code-check-plan.mjs';
 

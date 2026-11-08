@@ -33,8 +33,9 @@ const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-chec
 const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import', 'list', 'link', 'plan', 'start', 'report']);
 const FINDINGS_READS = Object.freeze(['list', 'plan']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
-// A code step's departures [CQF:REQ-021]: the model records one, anyone reads them.
-const DEPARTURE_SUBCOMMANDS = Object.freeze(['record', 'list', 'show']);
+// A code step's departures [CQF:REQ-021]: the model records one and accounts for what the person typed [SCS:REQ-042], anyone reads them.
+const DEPARTURE_SUBCOMMANDS = Object.freeze(['record', 'account', 'list', 'show']);
+const DEPARTURE_WRITES = Object.freeze(['record', 'account']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts'
@@ -1700,7 +1701,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'departure') {
     const action = positionals[1] ?? 'list';
     if (!DEPARTURE_SUBCOMMANDS.includes(action)) return unknownSubcommand('departure', action, DEPARTURE_SUBCOMMANDS);
-    return never(`departure.${action}`, definition, action === 'record' ? 'mutation' : 'read');
+    return never(`departure.${action}`, definition, DEPARTURE_WRITES.includes(action) ? 'mutation' : 'read');
   }
   if (definition.name === 'findings') {
     const action = positionals[1];
@@ -1971,7 +1972,7 @@ export function operationCatalog() {
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
     ...['list', 'show'].map(name => never(`instruction.${name}`, commandDefinition('instruction'), 'read')),
     ...UPSTREAM_ISSUE_SUBCOMMANDS.map(name => never(`upstream-issue.${name}`, commandDefinition('upstream-issue'), name === 'list' ? 'read' : 'mutation')),
-    ...DEPARTURE_SUBCOMMANDS.map(name => never(`departure.${name}`, commandDefinition('departure'), name === 'record' ? 'mutation' : 'read')),
+    ...DEPARTURE_SUBCOMMANDS.map(name => never(`departure.${name}`, commandDefinition('departure'), DEPARTURE_WRITES.includes(name) ? 'mutation' : 'read')),
     never('decisions.show', commandDefinition('decisions'), 'read'),
     never('decisions.record', commandDefinition('decisions'), 'mutation'),
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),

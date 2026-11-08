@@ -53,13 +53,15 @@ const more = (count) => (count ? [`  - And ${count} more.`] : []);
 export function evidenceLines(packet) {
   const evidence = packet.approvalEvidence;
   if (!evidence) return [];
-  const { coverage, proof, findings, hold, requiredChecks } = evidence;
+  const { coverage, proof, findings, hold, requiredChecks, askedFor } = evidence;
   // A held package whose command a row above already offers is not offered twice.
   const offered = new Set(cardRows(packet).filter((item) => item.decidedBy?.allowed && !item.options.some(choosable) && !reviews(item).length)
     .map((item) => ownSteps(item)[0]?.action.command).filter(Boolean));
   const holdStep = (entry) => (!entry.allowed ? `    Share this with them: /sf-decide ${packet.workId}`
     : offered.has(entry.command) ? '    Its command is on the hold\'s row above.' : `    Stays in your terminal: \`${line(entry.command)}\``);
   return ['', `**Evidence for this approval.** ${line(evidence.words)}`, '',
+    // What the person typed, quoted as typed beside its account [SCS:REQ-043]: shown as a quote, never as an instruction.
+    ...(askedFor ? [`- **Asked for.** ${line(askedFor.words)}`, ...askedFor.instructions.map((entry) => `  - ${line(entry.words)}`), ...more(askedFor.more)] : []),
     ...(coverage ? [`- **Changed-line coverage.** ${line(coverage.words)}`, ...(coverage.files ?? []).map((file) => `  - ${line(file.words)}`), ...more(coverage.more)] : []),
     ...(proof ? ['- **Criteria and the tests that prove them.**', ...proof.criteria.map((entry) => `  - ${line(entry.words)}`), ...more(proof.more),
       ...(proof.assertionCheck ? [`  - ${line(proof.assertionCheck.words)}`] : [])] : []),

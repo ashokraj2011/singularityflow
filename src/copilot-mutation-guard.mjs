@@ -296,7 +296,11 @@ export async function captureMutationTurn(payload, record, {
     // The rules this conversation was last given, from its previous explicit turn's record. A native
     // prompt in between removes that record, so its rules are sent whole again.
     const earlier = await boundedRecord(file).catch(() => null);
-    const value = await createRecord(payload, record, root, await load(root));
+    const accepted = await load(root);
+    const value = await createRecord(payload, record, root, accepted);
+    // The words a person typed after /sf-code or /sf-phase go to this Story's own local record [SCS:REQ-040].
+    if (record.typed) await import('./asked-for.mjs').then((module) => module.noteTypedTurn(record, { gitDir: value.binding?.gitDir, workflow: accepted.workflow,
+      at: record.recordedAt })).catch(() => {});
     const context = turnBoundaryContext(value);
     const given = earlier?.sessionId === record.sessionId && earlier.modeChangedAt === record.modeChangedAt
       ? earlier.contextDigest ?? null : null;

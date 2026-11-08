@@ -322,11 +322,19 @@ export const PLAIN_CHAT_SECRETS_VALUES = Object.freeze(['refuse', 'allow']);
  */
 export const STATIC_ANALYSIS_POLICY_VALUES = Object.freeze(['enforce', 'warn']);
 
+/**
+ * Whether the words a person types after /sf-code or /sf-phase are kept in the Story as "Asked for"
+ * [SCS:REQ-041]. `on` is the default. `off` is the tighter here, so any capability may turn it off and a
+ * child cannot turn it on under a parent that says off.
+ */
+export const TYPED_FOCUS_VALUES = Object.freeze(['off', 'on']);
+
 // Each field's values, the tighter first. A child may always choose the tighter.
 const ONE_WAY_POLICY = Object.freeze({
   localIntegrationEvidence: LOCAL_INTEGRATION_EVIDENCE_VALUES,
   plainChatSecrets: PLAIN_CHAT_SECRETS_VALUES,
-  staticAnalysis: STATIC_ANALYSIS_POLICY_VALUES
+  staticAnalysis: STATIC_ANALYSIS_POLICY_VALUES,
+  typedFocus: TYPED_FOCUS_VALUES
 });
 
 function foldOneWayPolicy(field, parent, child) {
@@ -359,7 +367,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     'allowedPhases', 'requiredChecks', 'requiredAuthorityGroups', 'jiraProjects', 'jiraHosts', 'jiraOperations', 'jiraFields',
     'protectedPaths', 'worldModelGrounding', 'worldModelStaleness', 'requiredWorldModelViews',
     'writeScopes', 'qualityCommands', 'storageProviders', 'allowedMimeTypes', 'tokenBudget',
-    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatSecrets', 'staticAnalysis'
+    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatSecrets', 'staticAnalysis', 'typedFocus'
   ]);
   for (const key of Object.keys(child)) if (!allowed.has(key)) throw new SingularityFlowError(`Capability policy contains unknown key '${key}'.`);
   const array = (key) => uniqueStrings(child[key], `Capability policy.${key}`);
@@ -405,7 +413,8 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     auto: foldCapabilityAutoPolicy(parentAuto, childAuto),
     localIntegrationEvidence: foldOneWayPolicy('localIntegrationEvidence', parent.localIntegrationEvidence, child.localIntegrationEvidence),
     plainChatSecrets: foldOneWayPolicy('plainChatSecrets', parent.plainChatSecrets, child.plainChatSecrets),
-    staticAnalysis: foldOneWayPolicy('staticAnalysis', parent.staticAnalysis, child.staticAnalysis)
+    staticAnalysis: foldOneWayPolicy('staticAnalysis', parent.staticAnalysis, child.staticAnalysis),
+    typedFocus: foldOneWayPolicy('typedFocus', parent.typedFocus, child.typedFocus)
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }

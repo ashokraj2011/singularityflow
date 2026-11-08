@@ -24,7 +24,9 @@ const FAMILIES = Object.freeze([
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs', 'copilot-answer-binding.mjs',
     // Unclaimed, a denied edit's failure note (copilot-repository-boundary.mjs) loads the compatibility chunk.
-    'copilot-environment-files-guard.mjs', 'copilot-search-exposure.mjs', 'local-config-policy.mjs', 'copilot-review-completion.mjs']],
+    'copilot-environment-files-guard.mjs', 'copilot-search-exposure.mjs', 'local-config-policy.mjs', 'copilot-review-completion.mjs',
+    // What a person typed after /sf-code or /sf-phase, kept by the prompt hook for its Story [SCS:REQ-040].
+    'asked-for.mjs']],
   // Small worker/presentation helper closures share a slot without increasing deployment files.
   // Claim output before policy reads: otherwise even status pays to load the policy chunk when
   // rendering --for-agent. Entry programs remain private; helper imports never start a worker.
@@ -91,6 +93,8 @@ const FAMILIES = Object.freeze([
     'convergence-adjudications.mjs',
     // A code step's departures: recorded at prepublish and publication, read by the list and the approval [CQF M2].
     'departures.mjs', 'departure-records.mjs', 'commands/departure.mjs',
+    // What the person asked for, copied into the Story at prepublish and accounted for in the code step [SCS:REQ-041, REQ-042].
+    'asked-for-records.mjs',
     // A gate's test run environment and toolchain record, loaded by publication and submission; test command
     // pins and narrowed runs, read at every gate run, receipt replay and decision list [TCE:REQ-010, REQ-020, REQ-030].
     'test-run-environment.mjs', 'test-toolchain.mjs', 'project-node-version.mjs', 'node-pin.mjs', 'node-pin-names.mjs', 'phase-publication-unchanged.mjs', 'plan-amendment-notes.mjs', 'evidence/clause-outlook.mjs', 'test-command-pins.mjs', 'test-narrowing.mjs', 'test-collection-limits.mjs', 'test-runners.mjs',

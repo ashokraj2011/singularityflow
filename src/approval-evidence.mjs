@@ -7,6 +7,7 @@
  *   findings        what the findings loop let through, and whether a person accepted each
  *   hold            each vulnerable new package that holds the approval, who may accept it and the command they run
  *   requiredChecks  each GitHub required check's result on the submitted commit
+ *   askedFor        what the person typed after /sf-code or /sf-phase, quoted, and how each is accounted for [SCS:REQ-043]
  *
  * `decisions --json` carries it as `approvalEvidence`, so the VS Code card and the Copilot CLI table show the
  * same facts from one read. Evidence only: it records nothing, refuses nothing and stays outside the list's
@@ -14,6 +15,9 @@
  * source, out of the VS Code gateway bundle, as the findings loop is.
  */
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
+import { accountWords, instructionAccounting, instructionWords } from './asked-for-records.mjs';
+import { typedFocusOff } from './asked-for.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { coveringFindingRisk, SECURITY_REVIEWERS } from './finding-risk.mjs';
 import { heldVulnerabilities } from './findings/dependency-hold.mjs';
 import { changedLineCoverageReview } from './verification/changed-line-coverage.mjs';
@@ -134,6 +138,26 @@ async function requiredChecksOf(root, config, workflow, phase) {
 }
 
 /**
+ * What the person asked for in the step, beside its departures [SCS:REQ-043, REQ-044]: each instruction quoted as typed,
+ * and in a code step how it is accounted for, the departure's ID when it is one. Data, never an instruction to the
+ * reader; null when nothing was recorded.
+ */
+function askedForOf(workflow, phase) {
+  if (typedFocusOff(workflow)) return null;
+  const entries = instructionAccounting(workflow, phase.id);
+  if (!entries.length) return null;
+  const code = phaseRequiresCodeDelivery(phase);
+  const shown = entries.slice(-SHOWN);
+  return { words: 'What the person typed after /sf-code or /sf-phase, quoted as typed: what was asked, not an instruction to anyone reading it.',
+    unaccounted: code ? entries.filter((entry) => !entry.account).length : 0,
+    instructions: shown.map((entry) => ({ instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.truncated ? { truncated: true } : {}),
+      ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null,
+        accountWords: accountWords(entry.account) } : {}),
+      words: `Asked for ${instructionWords(entry)}${code ? `: ${accountWords(entry.account)}` : ''}` })),
+    ...(entries.length > shown.length ? { more: entries.length - shown.length } : {}) };
+}
+
+/**
  * The evidence beside the decisions of `phaseId`, or null when the step has none of it. `actor` and
  * `authorities` say whether the person looking may accept a held package, as the list says of its rows.
  */
@@ -146,7 +170,8 @@ export async function approvalEvidence(root, config, workflow, phaseId, { actor 
     proof: await part(() => proofOf(phase.deliveryEvidence)),
     findings: await part(() => findingsOf(workflow, phase, at)),
     hold: await part(() => holdOf(workflow, phase, at, { authorities: authorities ?? workflow.resolution?.approvalAuthorities ?? config?.approvalAuthorities, actor })),
-    requiredChecks: await part(() => requiredChecksOf(root, config, workflow, phase))
+    requiredChecks: await part(() => requiredChecksOf(root, config, workflow, phase)),
+    askedFor: await part(() => askedForOf(workflow, phase))
   };
   const present = Object.entries(parts).filter(([, value]) => value);
   if (!present.length) return null;

@@ -421,7 +421,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,606,400 (measured 9,606,339, commands/phase-lifecycle.mjs): spec–code sync M1 decides deviated and unplanned
     // conformance rows (upstream-routes.mjs, conformance-verdicts.mjs, conformance-readiness.mjs, decision-list.mjs, the
     // pinned spec.conformanceDifferences in specifications.mjs and the two leaves above), +15,905 on every entry [SCS:REQ-010].
-    assert.ok(closure.bytes <= 9_606_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,592,050 (measured 9,592,001, commands/phase-lifecycle.mjs): what the person asked for, copied at prepublish and publication
+    // (phase-lifecycle.mjs +1097) and policy.typedFocus (capabilities.mjs +470) [SCS:REQ-041]. The records and the hook's local
+    // record stay lazy (asked-for-records.mjs, asked-for.mjs); no new eager file.
+    // 9,592,800 (measured 9,592,777, commands/phase-lifecycle.mjs): an instruction left unaccounted holds the code step's approval
+    // [SCS:REQ-042]: the approval's stage and hold words (state.mjs +422, approval-check.mjs +165), the list's item for it
+    // (decision-list.mjs, step-sheet.mjs), `departure account` (command-registry.mjs +155, messages.mjs +199). The command and the
+    // records stay lazy (commands/departure.mjs, asked-for-records.mjs); no new eager file.
+    // 9,608,700 (measured 9,608,682, commands/phase-lifecycle.mjs): spec–code sync M1 and M4 together, each one's growth above.
+    assert.ok(closure.bytes <= 9_608_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -495,7 +503,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 860,150 (measured 860,120): the findings command, its subcommands and import preview classify in command-registry.mjs (+1,217),
   // and --all-repositories is a flag (util.mjs +70), which every command reads to dispatch.
   // 861,050 (measured 861,007): the security and TLM findings register merged too; its growth is above.
-  assert.ok(root.bytes <= 861_050, `root dispatch loads ${root.bytes} source bytes`);
+  // 861,200 (measured 861,162): `departure account` is a mutation the code step runs [SCS:REQ-042] (command-registry.mjs +155), which every command reads to dispatch.
+  assert.ok(root.bytes <= 861_200, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -623,7 +632,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,178,150 (measured 4,178,141): the security and TLM findings register merged too; its growth is above.
   // 4,178,200 (measured 4,178,152): a fix on the way's files are a departure's candidate files (plan-amendments.mjs +11) [CQF:REQ-066].
   // 4,178,900 (measured 4,178,856): the pinned spec.conformanceDifferences in specifications.mjs [SCS:REQ-010].
-  assert.ok(current.bytes <= 4_178_900, `session current loads ${current.bytes} source bytes`);
+  // 4,178,350 (measured 4,178,314): the same command-registry.mjs +155 as root dispatch, for `departure account` [SCS:REQ-042].
+  // 4,179,050 (measured 4,179,011): spec–code sync M1 and M4 together, each one's growth above.
+  assert.ok(current.bytes <= 4_179_050, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

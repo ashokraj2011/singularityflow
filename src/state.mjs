@@ -6583,6 +6583,12 @@ export async function evaluateApproval(root, config, workflow, {
       const { assertDeparturesDecided } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departure-records.mjs')).href);
       await assertDeparturesDecided(root, config, workflow, phase);
     });
+    await stage('asked-for', async () => {
+      // Every instruction the person typed is accounted for before the code step is approved [SCS:REQ-042].
+      if (!(workflow.askedFor ?? []).length) return;
+      const { assertInstructionsAccounted } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href);
+      await assertInstructionsAccounted(root, config, workflow, phase);
+    });
     await stage('document-risks', async () => {
       const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
       documentRisks = await assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve');

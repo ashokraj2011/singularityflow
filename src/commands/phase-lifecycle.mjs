@@ -207,6 +207,10 @@ export async function phaseCommand(positionals, options) {
     const departureRecords = subcommand === 'prepublish' && phaseRequiresCodeDelivery(phase) ? await import('../departure-records.mjs') : null;
     const recordedNow = departureRecords && optionBoolean(options, 'for-agent') ? await departureRecords.recordPathDepartures(root, config, workflow, phase,
       { actor: actionActor(root), agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null }) : [];
+    // What the person typed into this generation's turns goes into the Story first, committed with it [SCS:REQ-041].
+    const askedForRecords = subcommand === 'prepublish' ? await import('../asked-for-records.mjs') : null;
+    if (askedForRecords) await askedForRecords.copyAskedFor(root, config, workflow, phase,
+      { actor: actionActor(root), agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null });
     const check = subcommand === 'prepublish' ? phasePrepublish : phaseDraftCheck;
     // An agent's read names its own authorship, never a person's: see agentPublicationProducer.
     const checked = await check(root, config, workflow, phase, {
@@ -214,7 +218,8 @@ export async function phaseCommand(positionals, options) {
       requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
     });
     const departures = departureRecords ? await departureRecords.departureSummary(root, workflow, phase, recordedNow) : null;
-    const result = departures ? { ...checked, departures } : checked;
+    const askedFor = askedForRecords ? await askedForRecords.askedForSummary(root, workflow, phase) : null;
+    const result = { ...checked, ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}) };
     const { observeWorkflowTaskCheck, readWorkflowTaskResume } = await import('../workflow-task-store.mjs');
     if (subcommand === 'draft-check') await observeWorkflowTaskCheck(root, workflow, phase, result);
     const taskResume = await readWorkflowTaskResume(root, workflow, phase, { generation: result.generation,
@@ -231,6 +236,7 @@ export async function phaseCommand(positionals, options) {
     console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
     if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
     if (departures) console.log(departures.words);
+    if (askedFor) console.log(askedFor.words);
     if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
     if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
@@ -337,6 +343,12 @@ export async function phaseCommand(positionals, options) {
   if (phaseRequiresCodeDelivery(requestedPhase) && authorshipOptions.producer === 'governed-agent') {
     const recordedBy = await loadSession(root, { required: false });
     await (await import('../departure-records.mjs')).recordPathDepartures(root, config, workflow, requestedPhase,
+      { actor: actionActor(root), agent: recordedBy?.workId === workflow.workItem.id ? recordedBy.agent ?? null : null });
+  }
+  // An agent's publication carries what the person asked for even when no prepublish copied it [SCS:REQ-041].
+  if (authorshipOptions.producer === 'governed-agent') {
+    const recordedBy = await loadSession(root, { required: false });
+    await (await import('../asked-for-records.mjs')).copyAskedFor(root, config, workflow, requestedPhase,
       { actor: actionActor(root), agent: recordedBy?.workId === workflow.workItem.id ? recordedBy.agent ?? null : null });
   }
   // Ask for the remote tip now; it arrives while publication checks run.

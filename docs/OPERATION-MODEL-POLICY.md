@@ -273,6 +273,7 @@ Every public operation is classified before its implementation module is importe
 | delivery.select | mutation | never | — | — |
 | delivery.wel-readiness | read | never | — | — |
 | delivery.workflow-status | read | never | — | — |
+| departure.account | mutation | never | — | — |
 | departure.list | read | never | — | — |
 | departure.record | mutation | never | — | — |
 | departure.show | read | never | — | — |

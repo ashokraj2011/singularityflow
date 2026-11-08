@@ -161,6 +161,10 @@
               "staticAnalysis": {
                 "description": "enforce holds a code step for a person while lint, static-analysis or security findings on new code remain; warn leaves the workflow's codeDelivery.staticAnalysis as it is. A child may enforce under a warn parent, never warn under an enforce one [CQF decision 6].",
                 "enum": ["enforce", "warn"]
+              },
+              "typedFocus": {
+                "description": "Whether the words a person types after /sf-code or /sf-phase are kept in the Story as Asked for, redacted and bounded; on when unset. Any capability may turn it off; a child cannot turn it on under an off parent [SCS:REQ-041].",
+                "enum": ["off", "on"]
               }
             },
             "additionalProperties": false

@@ -4017,6 +4017,7 @@ singularity-flow upstream-issue decide-amendment FAM-ID --decision approve|rejec
 singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT
 # A code step's departures from the approved documents: recorded by the step without asking, decided once on the decision list before its approval.
 singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause --reason TEXT [--path FILE] [--clause CLAUSE] [--target STEP --file DRAFT] [--json]
+singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-NNN) [--json]
 singularity-flow departure list [--phase PHASE] [--open] [--json]
 singularity-flow departure show DEP-NNN [--json]
 singularity-flow decision departure [WORK-ID] --departure DEP-NNN --as accepted|rejected --reason TEXT [--clause CLAUSE]

@@ -10,9 +10,11 @@ import { commandResult, effects, noEffects, succeeded } from '../narration/comma
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-export const DEPARTURE_ACTIONS = Object.freeze(['record', 'list', 'show']);
+export const DEPARTURE_ACTIONS = Object.freeze(['record', 'account', 'list', 'show']);
 const ALLOWED = Object.freeze({
   record: ['kind', 'path', 'clause', 'reason', 'target', 'file', 'row-op', 'fulfillment', 'test', 'from', 'to', 'finding', 'supersedes'],
+  // How the model accounts for an instruction the person typed [SCS:REQ-042].
+  account: ['instruction', 'clauses', 'departure'],
   list: ['phase', 'open'],
   show: []
 });
@@ -30,6 +32,7 @@ const USAGE = [
   '         wording, clause: --target EARLIER-STEP --file DRAFT-COPY [--clause CLAUSE]',
   '         finding (a findings register item fixed on the way): --path FILE [--path FILE] --finding ID',
   '         [--finding ID] [--supersedes DEP-NNN]',
+  '       singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-NNN) [--work-id WORK-ID] [--json]',
   '       singularity-flow departure list [--phase PHASE] [--open] [--json]',
   '       singularity-flow departure show DEP-NNN [--json]',
   'Records what a code step\'s change departs from in the approved documents, without asking anyone. Publish goes',
@@ -78,6 +81,24 @@ async function record(options) {
     operation: { id: 'departure.record', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded('departure.record.succeeded', { departure: recorded.id, kind: recorded.kind }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { departure: recorded, ...(register ? { register } : {}) }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+/** `departure account`: how the code step accounts for one instruction the person typed [SCS:REQ-042]. */
+async function account(options) {
+  const { root, config, workflow } = await story(options);
+  if (workflow.status !== 'in_progress') refused(`Story ${workflow.workItem.id} is ${workflow.status}; instructions are accounted for while it is in progress.`, 'DEPARTURE_LIFECYCLE');
+  const [{ actionActor }, { loadSession }, { accountForInstruction, accountWords }] = await Promise.all([
+    import('../git.mjs'), import('../session.mjs'), import('../asked-for-records.mjs')]);
+  const session = await loadSession(root, { required: false });
+  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  const recorded = await accountForInstruction(root, config, workflow, { instruction: optionString(options, 'instruction'),
+    clauses: optionStrings(options, 'clauses'), departure: optionString(options, 'departure') }, { actor: actionActor(root), agent });
+  if (!optionBoolean(options, 'json')) console.log(`Instruction ${recorded.instruction} is ${accountWords(recorded)}. Keep working: the approver reads it beside the departures.`);
+  emitCommandResult(commandResult({
+    operation: { id: 'departure.account', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('departure.account.succeeded', { instruction: String(recorded.instruction), as: recorded.as }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: { account: recorded }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
@@ -130,6 +151,7 @@ export async function run(argv, { positionals = argv, options = {} } = {}) {
   for (const key of Object.keys(options)) if (!allowed.has(key)) refused(`Unsupported departure ${action} option --${key}.`);
   if (positionals.length > (action === 'show' ? 3 : 2)) refused('Unexpected departure arguments. Use --work-id for the Story.');
   if (action === 'record') return record(options);
+  if (action === 'account') return account(options);
   if (action === 'show') return show(positionals[2], options);
   return list(options);
 }

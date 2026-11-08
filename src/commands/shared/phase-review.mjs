@@ -203,6 +203,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     ...await reusedTestEvidence(root, config, workflow, phase),
     // Runs that stood because the code had not changed, and which tests the Story runs at all [TCE:REQ-083, REQ-094].
     ...testRunsReview(workflow, phase),
+    // Commands whose runs on the same code and environment disagree [CQF:REQ-013].
+    ...await (await import('../../verification/flaky-runs.mjs')).flakyTestReview(root, config, workflow, phase),
     evidenceConsistency,
     witnessReview,
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).

@@ -463,6 +463,12 @@ function testRunNote(attempt, workflow, phaseId, narrowed = null) {
   return [reused, scoped, paths].filter(Boolean).join(' ') || null;
 }
 
+/** `{ flaky }` when this run, or the run it reused, is one of a flaky command's disagreeing runs; else {}. */
+function flakyFor(flaky, attempt) {
+  const found = flaky.find((entry) => entry.attemptIds.includes(attempt.reusedFrom?.attemptId ?? attempt.attemptId));
+  return found ? { flaky: { words: found.words, failed: found.failed, passed: found.passed } } : {};
+}
+
 async function storySummary(root, options, { localRunId = null } = {}) {
   const [{ loadAcceptedStoryExecution }, { stepAttempts }, { workDirRelative }, summary, { loadEnvironmentDeclaration }] = await Promise.all([
     import('../accepted-story-execution.mjs'), import('../verification/attempts.mjs'), import('../story-paths.mjs'),
@@ -493,6 +499,8 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   if (!group) return summary.buildTestSummary({ scope, run: null, entries: [], history });
   const entries = [];
   const narrowed = group.members.some((attempt) => attempt.narrowing?.reasons?.length || attempt.narrowing?.paths?.length) ? await import('../test-narrowing.mjs') : null;
+  // A command whose runs on this code and environment disagree, in any step, is marked flaky [CQF:REQ-013].
+  const flaky = await (await import('../verification/flaky-runs.mjs')).storyFlakyTestRuns(root, itemRelative, workflow);
   for (const attempt of group.members) {
     const contents = await rawReportContents(root, attempt, workflow.workItem.id);
     const locations = await rawReportLocations(attempt, contents);
@@ -502,6 +510,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
     entries.push({
       receipt: attempt, kind: 'test', locations, ...(messages ? { messages } : {}), ...await attemptMeaning(attempt, declaration),
       ...(testRunNote(attempt, workflow, phaseId, narrowed) ? { note: testRunNote(attempt, workflow, phaseId, narrowed) } : {}),
+      ...flakyFor(flaky, attempt),
       ...(narrowed && attempt.narrowing?.reasons?.length ? { narrowing: { reasons: attempt.narrowing.reasons, words: narrowed.narrowingWords(attempt.narrowing),
         accepted: accepted ? { id: accepted.id, reason: accepted.reason, actor: accepted.actor } : null } } : {}),
       clauses: await summary.occurrenceClauses(root, { occurrences: attempt.occurrences ?? [], profile: attempt.profile, locations })

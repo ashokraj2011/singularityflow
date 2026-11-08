@@ -41,7 +41,8 @@ function summary(overrides = {}) {
       startedAt: '2026-10-19T10:00:00Z', commit: 'abc1234def5678', uncommittedChanges: true, ranBy: 'ranner@example.com' },
     totals: { discovered: 4, passed: 2, failed: 1, skipped: 1, flaky: 0, durationMs: 1234 },
     commands: [
-      { id: 'module-tests', kind: 'test', adapter: 'junit-xml', status: 'failed', exitCode: 1, tests: {}, perCase: true, note: null },
+      { id: 'module-tests', kind: 'test', adapter: 'junit-xml', status: 'failed', exitCode: 1, tests: {}, perCase: true, note: null,
+        flaky: { words: 'module-tests is flaky: on the same code and environment TA-1 failed and TA-2 passed', failed: ['TA-1'], passed: ['TA-2'] } },
       { id: 'lint', kind: 'test', adapter: 'exit-code', status: 'passed', exitCode: 0, tests: {}, perCase: false,
         note: 'This report gives totals only. A junit-xml, node-tap, jest-json or vitest-json report would list each test case.' }
     ],
@@ -316,6 +317,9 @@ test('the test summary page shows totals, each command\'s cases, file links, tag
   assert.match(html, /<td class="ts-message"><pre data-ts-message>Expected: 1 &lt;item&gt;\nReceived: 2<\/pre><\/td>/);
   assert.equal(html.match(/data-ts-message/g).length, 1);
   assert.equal(view.commands[0].rows.find((entry) => entry.outcome === 'passed').message, null);
+  // A command whose runs disagree is marked flaky, in the engine's words [CQF:REQ-013].
+  assert.match(html, /data-ts-command="module-tests"[\s\S]*<span class="pill wait" data-ts-flaky>flaky<\/span>[\s\S]*data-ts-flaky-note="module-tests">module-tests is flaky: on the same code and environment TA-1 failed and TA-2 passed\. It refuses nothing\./);
+  assert.equal(html.match(/data-ts-flaky>/g).length, 1, 'only that command');
   assert.match(html, /data-ts-command="lint" data-per-case="false">[\s\S]*A junit-xml, node-tap, jest-json or vitest-json report would list each test case\./);
   assert.match(html, /The list stops at 5,000 test cases/);
   assert.match(html, /<option value="RUN-2" selected title="Local preview, not evidence">Local preview · environment dev · 2026-10-19T10:00:00Z · 2 passed, 1 failed, 1 skipped of 4<\/option>/);

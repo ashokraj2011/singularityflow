@@ -21,6 +21,7 @@ import YAML from 'yaml';
 import { storyTestScope, TEST_SCOPES } from '../src/code-delivery-policy.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { unchangedTestRun } from '../src/verification/attempts.mjs';
+import { flakyTestRuns } from '../src/verification/flaky-runs.mjs';
 import { newAndChangedTestCommands } from '../src/verification/test-scope-selection.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -248,6 +249,30 @@ test('a recorded tests run on the same code counts for publish', slowLane({ time
   f.sflow('approve', 'implementation', '--yes');
 });
 
+test('a fail then a pass on the same code and environment marks the command flaky, and refuses nothing [CQF:REQ-013]', slowLane({ timeout: 600_000 }), async (t) => {
+  const f = await storyAtCode(t);
+  const flag = path.join(path.dirname(f.root), 'busy.flag');
+  await writeFile(flag, 'busy\n');
+  await f.write('test/value.test.mjs', f.check(2).replace('{ appendFileSync }', '{ appendFileSync, existsSync }')
+    .replace("test('value', () => {", `test('value', () => { if (existsSync(${JSON.stringify(flag)})) throw new Error('the shared fixture was busy');`));
+  const local = f.run(process.execPath, [f.cli, '--no-model', 'tests', 'run', '--work-id', W, '--phase', 'implementation', '--json']);
+  assert.equal(local.status, 1, 'the first run fails');
+  await rm(flag);
+  const published = f.publish();
+  assert.match(published.stderr, /Running \.-node-tests again: its last run on this code failed/u);
+  const review = JSON.parse(f.sflow('phase', 'show', 'implementation', '--json').stdout);
+  const [flaky] = review.flakyTestRuns;
+  assert.equal(flaky.failed.length, 1);
+  assert.deepEqual(flaky.passed, [(await f.workflow()).phases.implementation.deliveryEvidence.preflightAttempts[0].attemptId]);
+  assert.match(flaky.words, /^\.-node-tests is flaky: on the same code and environment TA-[a-f0-9]{20} failed and TA-[a-f0-9]{20} passed$/u);
+  const summary = JSON.parse(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'implementation', '--json').stdout);
+  assert.equal(summary.commands[0].flaky.words, flaky.words);
+  assert.match(f.sflow('tests', 'summary', '--work-id', W, '--phase', 'implementation').stdout, /\.-node-tests is flaky: .*; it refuses nothing\./u);
+  f.sflow('submit', 'implementation');
+  f.sflow('approve', 'implementation', '--yes');
+  assert.equal((await f.workflow()).phases.implementation.status, 'approved', 'it refuses nothing');
+});
+
 test('anyone may move a Story to only its new tests in the code step; its existing tests never run and the review says so', slowLane({ timeout: 600_000 }), async (t) => {
   const f = await storyAtCode(t);
   const before = await f.existingRuns();
@@ -428,6 +453,21 @@ test('a run stands only while everything it ran on is the same', async (t) => {
   assert.match((await standing()).moved, /outside this branch's history/u);
   await attempt({ rawReports: [{ path: 'work/raw/gone.bin', sha256: 'f'.repeat(64), bytes: 1 }] });
   assert.match((await standing()).moved, /report of .* is not available/u);
+});
+
+test('runs disagree only on the same program, code, test inputs and environment; a copy or an environment\'s run never counts [CQF:REQ-013]', () => {
+  const run = (attemptId, status, fields = {}) => ({ attemptId, commandId: 'unit', status, argvSha256: 'argv', workingDirectory: '.', adapter: 'node-tap',
+    environmentSha256: 'sha256:env', candidate: { treeSha256: 'sha256:tree', testInputSha256: 'sha256:inputs' }, ...fields });
+  assert.deepEqual(flakyTestRuns([run('TA-1', 'passed'), run('TA-2', 'passed')]), [], 'agreeing runs');
+  const [flaky] = flakyTestRuns([run('TA-1', 'failed'), run('TA-2', 'passed', { commandId: 'node-tests' })]);
+  assert.deepEqual([flaky.commandId, flaky.failed, flaky.passed], ['node-tests', ['TA-1'], ['TA-2']], 'the same command under another ID in a later step');
+  assert.equal(flaky.words, 'node-tests is flaky: on the same code and environment TA-1 failed and TA-2 passed');
+  for (const [why, other] of [['other code', { candidate: { treeSha256: 'sha256:other', testInputSha256: 'sha256:inputs' } }],
+    ['other test inputs', { candidate: { treeSha256: 'sha256:tree', testInputSha256: 'sha256:other' } }], ['another environment', { environmentSha256: 'sha256:other' }],
+    ['another program', { argvSha256: 'other' }], ['a copy of a run', { reusedFrom: { attemptId: 'TA-1' } }], ['an environment\'s values', { evidenceClass: 'local-integration' }]]) {
+    assert.deepEqual(flakyTestRuns([run('TA-1', 'failed'), run('TA-2', 'passed', other)]), [], why);
+  }
+  assert.deepEqual(flakyTestRuns([run('TA-1', 'blocked'), run('TA-2', 'passed')]), [], 'a run that could not run is no disagreement');
 });
 
 const inferred = (command) => ({ kind: 'test', modelPolicy: 'never', provenance: 'inferred', workingDirectory: '.', affectedRoots: ['.'], ...command });

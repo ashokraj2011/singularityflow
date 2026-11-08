@@ -1,2 +1,3 @@
 export { ARTIFACT_TEMPLATE_TOKENS, normalizeArtifactTemplateCompatibility, validateArtifactTemplateText,
-  renderArtifactTemplateText } from '../../../src/kernel/artifact-content.mjs';
+  renderArtifactTemplateText, artifactBytesAreText, artifactContentObservation,
+  inspectRequiredArtifactObservation, inspectBinaryArtifactSize } from '../../../src/kernel/artifact-content.mjs';

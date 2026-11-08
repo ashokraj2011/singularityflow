@@ -55,7 +55,8 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `storage/journal`: versioned journal-port constant and shared pure transaction reducer.
 - `errors`: the same error constructor used by the engine and every bundled storage entry.
 - `content`: draft immutable byte/reference contract, separate from metadata transaction limits.
-- `artifacts`: pure artifact token validation, legacy compatibility and template text rendering.
+- `artifacts`: pure artifact token validation, template rendering, UTF-8/binary classification
+  and required-content observations with explicit host-computed fingerprints.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-project`: explicitly enroll a new namespace project through `project.enroll`.
@@ -93,6 +94,12 @@ preparation preserves authored bytes; accepted retries acknowledge their origina
 basis changes require an explicit digest-confirmed rebind. Binary bodies remain bytes, while text
 previews obey the requested budget. No source files, shared generation, tests or approval are
 changed. See `docs/ENGINE-SDK-PRIVATE-PREPARATION.md` for binding, recovery and remaining policy scope.
+
+The artifact observations check authored bytes, metadata, headings, placeholders, template
+baselines and binary bounds under a pinned phase contract. They preserve native findings while
+keeping byte reads and SHA-256 computation in the host. Their results establish content findings;
+the registered operations separately enforce lifecycle, source, tests and human authority. See
+`docs/ENGINE-SDK-ARTIFACT-INSPECTION.md` for the exact boundary and host example.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
 saved read head. It implements `phase.review` and `document.read`; its other operation ports remain

@@ -109,6 +109,12 @@ empty-PATH Node process; canonical generations remain unchanged. Source validati
 checks, and typechecking, Git ownership and all 13 existing bundle budgets passed. No Windows,
 live provider, installed-authority cutover, merge or push was performed.
 
+The [required-artifact inspection boundary](ENGINE-SDK-ARTIFACT-INSPECTION.md) shares complete
+text/metadata and binary-content rules between native publication and explicit SDK hosts. It
+keeps existing artifact findings and byte-classifier identity while exposing pure observations.
+Full namespace publication still needs its lifecycle and dependency readers, conditional writer
+and recovery coordination; content findings alone never establish publication admission.
+
 The [upstream operation boundary](ENGINE-SDK-UPSTREAM-OPERATIONS.md) covers author-raised issues,
 owner decisions, forward proposals and decisions, downstream revalidation and the read-only list.
 These routes keep their existing CLI output and native Git authority.

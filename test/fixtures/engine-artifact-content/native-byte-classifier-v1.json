@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "capturedFrom": "b3e757269",
+  "bodySha256": "dfd688a168b7b8395098d5d134742f12e84a258dd4d6f44fa3be14983dab6e78",
+  "samples": [
+    {"id":"empty","bytes":[],"text":true},
+    {"id":"ascii","bytes":[97,10],"text":true},
+    {"id":"utf8-bom","bytes":[239,187,191,97],"text":true},
+    {"id":"utf16-like","bytes":[97,0],"text":false},
+    {"id":"invalid-utf8","bytes":[255],"text":false},
+    {"id":"overlong-utf8","bytes":[192,175],"text":false},
+    {"id":"truncated-utf8","bytes":[226,130],"text":false},
+    {"id":"encoded-surrogate","bytes":[237,160,128],"text":false},
+    {"id":"emoji","bytes":[240,159,167,174],"text":true},
+    {"id":"png-header","bytes":[137,80,78,71,13,10,26,10],"text":false}
+  ]
+}

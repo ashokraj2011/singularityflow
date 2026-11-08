@@ -6,7 +6,7 @@ import path from 'node:path';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { authoredArtifactFingerprintText } from './kernel/artifact-content.mjs';
-export { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, maskBlock, authoredArtifactText, artifactTextCheckoutMatches, inspectManagedArtifactMetadata } from './kernel/artifact-content.mjs';
+export { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, maskBlock, authoredArtifactText, artifactTextCheckoutMatches, inspectManagedArtifactMetadata, artifactBytesAreText } from './kernel/artifact-content.mjs';
 
 export function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -282,7 +282,3 @@ export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase
  * publish (2026-10-29). Its step record in workflow.json already holds the same metadata, and its
  * exact bytes stay bound by the registration, review and approval digests. Pure.
  */
-export function artifactBytesAreText(bytes) {
-  if (bytes.includes(0)) return false;
-  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); return true; } catch { return false; }
-}

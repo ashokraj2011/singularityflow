@@ -24,7 +24,7 @@ test('26 original parser/grammar/rule bodies and all unchanged public aliases re
   for (const [name, value] of Object.entries(compatibilityIds)) assert.equal(value, identities[name], name);
   for (const [name, value] of Object.entries(compatibilityMarkdown)) assert.equal(value, core[name], name);
   for (const name of ['authoredArtifactText', 'inspectManagedArtifactMetadata', 'maskBlock', 'artifactTextCheckoutMatches',
-    'MANAGED_INPUTS', 'MANAGED_METADATA', 'MANAGED_METADATA_MARKER']) assert.equal(reader[name], core[name], name);
+    'MANAGED_INPUTS', 'MANAGED_METADATA', 'MANAGED_METADATA_MARKER', 'artifactBytesAreText']) assert.equal(reader[name], core[name], name);
   for (const name of ['artifactPlaceholderFindings', 'repairPreparedArtifactMetadata']) assert.equal(native[name], core[name], name);
 });
 
@@ -50,7 +50,21 @@ test('portable structural observations and explicit hash facts inspect each cust
     const findings = core.requiredArtifactContentFindings(inspected, { path: phase.requiredArtifact.path, metadata,
       rawBytes: core.artifactMetadataInvalid(metadata) ? Buffer.byteLength(entry.text) : null, placeholders: entry.options.placeholders ?? true });
     assert.deepEqual(findings, native.inspectRequiredArtifactText(entry.text, phase, { path: phase.requiredArtifact.path, ...entry.options }));
+    assert.deepEqual(core.inspectRequiredArtifactObservation(observation,phase,{path:phase.requiredArtifact.path,...entry.options,fingerprint}),findings);
     assert.deepEqual(entry, before);
+  }
+});
+
+test('the shared byte classifier preserves its captured native body and UTF-8/binary decisions',async()=>{
+  const baseline=JSON.parse(await readFile(new URL('./fixtures/engine-artifact-content/native-byte-classifier-v1.json',import.meta.url),'utf8'));
+  const source=await readFile(new URL('../src/kernel/artifact-content.mjs',import.meta.url),'utf8'),ast=ts.createSourceFile('artifact-content.mjs',source,ts.ScriptTarget.Latest,true);
+  const fn=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='artifactBytesAreText');
+  assert.equal(hash(fn.body.getText(ast)),baseline.bodySha256);
+  for(const sample of baseline.samples) {
+    const bytes=Uint8Array.from(sample.bytes),before=bytes.slice();
+    assert.equal(core.artifactBytesAreText(bytes),sample.text,sample.id);
+    assert.equal(reader.artifactBytesAreText(Buffer.from(bytes)),sample.text,sample.id);
+    assert.deepEqual(bytes,before);
   }
 });
 

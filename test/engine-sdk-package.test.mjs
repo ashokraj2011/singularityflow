@@ -68,6 +68,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     await run('pure.mjs', `
       import assert from 'node:assert/strict';
       import { registerHooks } from 'node:module';
+      import { createHash } from 'node:crypto';
       const blocked = [];
       const hooks = registerHooks({ resolve(specifier, context, next) {
         if (specifier.startsWith('node:')) { blocked.push(specifier); throw new Error('infrastructure import: ' + specifier); }
@@ -80,6 +81,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         {id:'team-review',label:'Team review'},{id:'T-1'}),'T-1 Team review');
       assert.equal(artifacts.normalizeArtifactTemplateCompatibility('{{WORK_ID}}',{id:'T-1'}),'T-1');
       assert.throws(()=>artifacts.validateArtifactTemplateText('{{unsupported}}'),error=>error instanceof sdk.SingularityFlowError);
+      const complete='# Result\\n\\n## Evidence\\nAn actual retained observation.\\n';
+      const contentObservation=artifacts.artifactContentObservation(complete);
+      const contentPhase={id:'custom-review',status:'in_progress',generation:0,requiredArtifact:{minimumBytes:20,
+        validation:{requiredHeadings:['Evidence']}}};
+      const fingerprint='sha256:'+createHash('sha256').update(contentObservation.fingerprintText).digest('hex');
+      assert.deepEqual(artifacts.inspectRequiredArtifactObservation(contentObservation,contentPhase,{fingerprint}),[]);
+      const unchanged=artifacts.inspectRequiredArtifactObservation(contentObservation,{...contentPhase,authoringBaseline:{generation:1,fingerprint}},{fingerprint});
+      assert.equal(unchanged[0].code,'artifact.template.unchanged');
+      assert.equal(artifacts.artifactBytesAreText(new TextEncoder().encode(complete)),true);
+      assert.equal(artifacts.artifactBytesAreText(Uint8Array.from([0,255])),false);
+      assert.ok(artifacts.inspectBinaryArtifactSize(2,contentPhase).some(row=>row.code==='artifact.binary.text-contract'));
       let calls = 0;
       const original = Object.freeze(new Error('trusted host unavailable'));
       const engine = sdk.createEngine({ ports: { publication: Object.fromEntries(
@@ -414,7 +426,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
       import type { EngineInputs, EngineOperation, EngineResult } from '${packageName}';
-      import { ARTIFACT_TEMPLATE_TOKENS, renderArtifactTemplateText, validateArtifactTemplateText } from '${packageName}/artifacts';
+      import { ARTIFACT_TEMPLATE_TOKENS, renderArtifactTemplateText, validateArtifactTemplateText,
+        artifactBytesAreText, artifactContentObservation, inspectRequiredArtifactObservation, inspectBinaryArtifactSize } from '${packageName}/artifacts';
+      import type { ArtifactContentPhase, ArtifactContentFinding } from '${packageName}/artifacts';
       import { createFilesystemNamespaceStore } from '${packageName}/storage/filesystem';
       import { createSqliteNamespaceStore } from '${packageName}/storage/sqlite';
       import { createApplicationNamespaceStore } from '${packageName}/storage/application';
@@ -434,6 +448,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         prepare:async()=>null,commit:async()=>null,finish:async()=>null}}});
       const artifact:string=renderArtifactTemplateText(ARTIFACT_TEMPLATE_TOKENS.workId,{id:'scope'},{id:'example'});
       validateArtifactTemplateText(artifact);
+      const contentPhase:ArtifactContentPhase={id:'review',status:'in_progress',generation:0,requiredArtifact:{minimumBytes:20,
+        validation:{requiredHeadings:['Evidence']}}};
+      const observation=artifactContentObservation('# Result\\n\\n## Evidence\\nActual content.');
+      const contentFindings:ArtifactContentFinding[]=inspectRequiredArtifactObservation(observation,contentPhase,{fingerprint:'sha256:actual-host-digest'});
+      artifactBytesAreText(new Uint8Array([0,255]));inspectBinaryArtifactSize(2,contentPhase);
+      // @ts-expect-error Artifact classification consumes actual bytes, never a path.
+      artifactBytesAreText('/another/artifact.pdf');
+      // @ts-expect-error An observation requires an explicit adapter-computed normalized digest.
+      inspectRequiredArtifactObservation(observation,contentPhase,{});
+      // @ts-expect-error A normalized fingerprint carries its hash algorithm tag.
+      inspectRequiredArtifactObservation(observation,contentPhase,{fingerprint:'unbound'});
       // @ts-expect-error A phase needs an explicit logical identifier, never a physical root.
       renderArtifactTemplateText('',{root:'/another/checkout'},{});
       // @ts-expect-error Artifact token values are text, not claimed readiness objects.
@@ -545,7 +570,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         createNamespacePreparationEngine({records,content,scope:options.scope,workId:options.workId,authority:options.authority,access:options.access,clock:options.clock});
         return createNamespacePreparationEngine(options);
       }
-      void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
+      void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT,contentFindings];
       void [head,readHost,projectHost,configurationHost,storyHost,sourceHost,preparationHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);

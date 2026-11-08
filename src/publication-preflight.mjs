@@ -5,8 +5,8 @@ import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 export { inspectManagedArtifactMetadata };
 
 import { sha256 } from './artifact-review-read.mjs';
-import { artifactContentObservation, inspectArtifactContentObservation, requiredArtifactContentContract,
-  requiredArtifactContentFindings, artifactMetadataInvalid, inspectBinaryArtifactSize, parseMarkdownStructure,
+import { artifactContentObservation, inspectArtifactContentObservation, inspectRequiredArtifactObservation,
+  inspectBinaryArtifactSize, parseMarkdownStructure,
   artifactPlaceholderFindings, sortArtifactFindings } from './kernel/artifact-content.mjs';
 export { repairPreparedArtifactMetadata, artifactPlaceholderFindings } from './kernel/artifact-content.mjs';
 
@@ -36,11 +36,8 @@ export function inspectArtifactContent(text, {
 export function inspectRequiredArtifactText(text, phase, {
   path: required = 'artifact', generation = null, placeholders = true, minimumBytes = true
 } = {}) {
-  const contract = requiredArtifactContentContract(phase, { generation, placeholders, minimumBytes });
-  const inspected = inspectArtifactContent(text, { path: required, contract, baseline: phase.authoringBaseline ?? null });
-  const metadata = phase.authoringBaseline == null ? null : inspectManagedArtifactMetadata(text);
-  return requiredArtifactContentFindings(inspected, { path: required, metadata, placeholders,
-    rawBytes: artifactMetadataInvalid(metadata) ? Buffer.byteLength(text) : null });
+  const observation = artifactContentObservation(text), fingerprint = sha256(observation.fingerprintText);
+  return inspectRequiredArtifactObservation(observation, phase, { path: required, generation, placeholders, minimumBytes, fingerprint });
 }
 
 /** Complete artifact authoring preflight used by publish, recover, and host guidance. */
@@ -61,17 +58,7 @@ export async function inspectRequiredArtifactContent(root, config, workflow, pha
  * a 73-byte PDF as 5 authored bytes and refused it (2026-10-29).
  */
 function binaryArtifactFindings(bytes, phase, { path: required, minimumBytes = true } = {}) {
-  const contract = phase.requiredArtifact ?? {};
-  const minimum = minimumBytes ? (contract.minimumBytes ?? 1) : 0;
-  const maximum = contract.maximumBytes ?? Number.MAX_SAFE_INTEGER;
-  const base = { category: 'authoring', path: required, line: null, value: null, bytes: bytes.length };
-  const findings = [];
-  if (bytes.length < minimum) findings.push({ ...base, code: 'artifact.required.too-short', minimumBytes: minimum });
-  if (bytes.length > maximum) findings.push({ ...base, code: 'artifact.required.too-large', maximumBytes: maximum });
-  if (contract.validation?.requiredHeadings?.length || contract.validation?.forbiddenPlaceholders?.length) {
-    findings.push({ ...base, code: 'artifact.binary.text-contract', minimumBytes: null });
-  }
-  return findings;
+  return inspectBinaryArtifactSize(bytes.length, phase, { path: required, minimumBytes });
 }
 
 /**

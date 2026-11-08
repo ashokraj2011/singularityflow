@@ -587,6 +587,24 @@ export function requiredArtifactContentFindings(inspected, {
   return placeholders ? findings : findings.filter(finding => finding.code !== 'artifact.placeholder.unresolved');
 }
 
+/** Complete required-text rules over actual parsed content and an explicit host-computed digest. */
+export function inspectRequiredArtifactObservation(observation, phase, {
+  path: required = 'artifact', generation = null, placeholders = true, minimumBytes = true, fingerprint
+} = {}) {
+  const contract = requiredArtifactContentContract(phase, { generation, placeholders, minimumBytes });
+  const inspected = inspectArtifactContentObservation(observation, { path: required, contract,
+    baseline: phase.authoringBaseline ?? null, fingerprint });
+  const metadata = phase.authoringBaseline == null ? null : inspectManagedArtifactMetadata(observation.source);
+  return requiredArtifactContentFindings(inspected, { path: required, metadata, placeholders,
+    rawBytes: artifactMetadataInvalid(metadata) ? utf8Bytes(observation.source) : null });
+}
+
+/** The same byte-classification rule used by native artifact readers and metadata writers. */
+export function artifactBytesAreText(bytes) {
+  if (bytes.includes(0)) return false;
+  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); return true; } catch { return false; }
+}
+
 export function inspectBinaryArtifactSize(byteCount, phase, { path: required, minimumBytes = true } = {}) {
   if (!Number.isSafeInteger(byteCount) || byteCount < 0) throw new SingularityFlowError(
     'Binary artifact inspection requires a finite non-negative byte count.', { code: 'ARTIFACT_OBSERVATION_INVALID' });

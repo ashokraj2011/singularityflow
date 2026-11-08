@@ -97,6 +97,21 @@ export function resolveGitHubSshHost(root, remote, target, { runCommand = run } 
   return real && real.toLowerCase() !== target.host.toLowerCase() ? { ...target, host: real, alias: target.host } : target;
 }
 
+/**
+ * Whether a GitHub repository is public, private or internal, read-only through gh's own sign-in
+ * [CQF:REQ-063]. Never thrown: `{ visibility: null, reason }` when it cannot be told.
+ */
+export function githubRepositoryVisibility(root, remote, { runCommand = run } = {}) {
+  let target;
+  try { target = resolveGitHubSshHost(root, remote, parseGitHubRemote(remote), { runCommand }); }
+  catch { return { visibility: null, reason: 'its URL is not owner/repository' }; }
+  const answer = runCommand('gh', ['api', '--hostname', target.host, `repos/${target.slug}`, '--jq', '.visibility'], { cwd: root, allowFailure: true });
+  const said = String(answer?.stdout ?? '').trim().toLowerCase();
+  if (answer?.status === 0 && ['public', 'private', 'internal'].includes(said)) return { visibility: said, repository: target.slug };
+  return { visibility: null, reason: answer?.error?.code === 'ENOENT' ? 'gh is not installed'
+    : String(answer?.stderr || answer?.stdout || 'gh gave no answer').trim().split(/\r?\n/u)[0].slice(0, 200) };
+}
+
 export function githubAuthStatus(root, remote, { runCommand = run } = {}) {
   if (runCommand === run && !commandExists('gh')) throw new SingularityFlowError('GitHub review requires the GitHub CLI. Install gh and run gh auth login.');
   const target = resolveGitHubSshHost(root, remote, parseGitHubRemote(remote), { runCommand });

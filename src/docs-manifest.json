@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9f43f137e9b19dc517e0501f5828b1be1b175d00",
+  "sourceCommit": "4032c02e0bcc6632ea1406f0862dc260c7f30080",
   "topicCount": 91,
-  "contentSha256": "aee8ed8928ac213721ebe727aa5dfb122edf8e59ef622e5e11a12bf9b020db39",
+  "contentSha256": "91a72aaf781cde5ac79827a78ac358e633bec1b08f77742020e4799f545924a3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -552,9 +552,9 @@
     {
       "id": "security-and-tlm-findings",
       "title": "Security and TLM findings",
-      "version": 1,
-      "sha256": "6110e9c82921e073f863b2457542482a803d743711af1a327caf76c56b30fce2",
-      "routingSha256": "67f91767ad06a728a019023c885f6f3772b6f713309d765addab569466f991b5",
+      "version": 2,
+      "sha256": "8ec7e20a93f44332967be7f8bae0275a5f64ebfa67cdb88a687868fc3acdc6be",
+      "routingSha256": "4ab3345f046adbf9fe1c9f95017689db68e1a1370ef93709807ba7025294c17d",
       "file": "security-and-tlm-findings.md"
     },
     {

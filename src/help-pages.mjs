@@ -1502,14 +1502,26 @@ const PAGES = Object.freeze({
       'headers and one made-up example row on each sheet. The first row holds the headers, matched by name without',
       'regard to case, spaces or punctuation; a team whose sheet uses other headers maps them in',
       'singularity/findings.yml (columns:), so no code changes. Cell text is data: it is bounded, quoted where it is',
-      'shown and never read as an instruction. template never overwrites a file.'
+      'shown and never read as an instruction. template never overwrites a file.',
+      'findings import reads a workbook or CSV file into the register: findings/security.json, findings/tlm.json and',
+      'findings/imports.json on the SFlow state branch, so every developer and Story reads one list. A row that fails',
+      'validation is reported with its sheet, row and reason, and the rest import. A later import from the same source',
+      'replaces that source\'s rows: an item it no longer lists is marked "not in the latest import", never deleted. The',
+      'history records who imported, when, the file\'s SHA-256 and every rejected row; the file itself is never committed.',
+      'On a public repository, or when that cannot be checked, the register stays in this clone\'s private local store,',
+      'and the import says why.'
     ],
     options: [
       ['--out FILE', 'template only: where to write the workbook (.xlsx). The default is sflow-findings-template.xlsx here.'],
-      ['--json', 'Machine-readable output (sflow-findings-template).']
+      ['--feed security|tlm', 'import only: the list a CSV file or a single sheet holds.'],
+      ['--source NAME', 'import only: where the rows came from (lower-kebab, such as security-team); its columns: map applies.'],
+      ['--dry-run', 'import only: read and check the file, show what would change, write nothing.'],
+      ['--json', 'Machine-readable output (sflow-findings-template, sflow-findings-import).']
     ],
     examples: [
-      ['singularity-flow findings template --out ~/Desktop/findings.xlsx', 'Write an empty workbook for the security team and the TLM owners to fill in.']
+      ['singularity-flow findings template --out ~/Desktop/findings.xlsx', 'Write an empty workbook for the security team and the TLM owners to fill in.'],
+      ['singularity-flow findings import ~/Downloads/findings.xlsx --dry-run', 'See what an import would add, change and reject.'],
+      ['singularity-flow findings import tlm.csv --feed tlm --source tlm-owners', 'Import the TLM list from a CSV export.']
     ],
     seeAlso: ['start', 'tests', 'decision']
   },

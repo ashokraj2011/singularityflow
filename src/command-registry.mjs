@@ -28,8 +28,9 @@ const BACKUP_SUBCOMMANDS = Object.freeze(['create', 'inspect', 'restore']);
 // SF Guard (SPEC-PSS-v1): status reads; every other action is the person's own presence-signed step.
 const GUARD_SUBCOMMANDS = Object.freeze(['status', 'reconcile', 'report', 'remote-check', 'register', 'rotate', 'recover', 'revoke', 'enable', 'disable', 'exception', 'stamp-agents']);
 const GUARD_READS = Object.freeze(['status', 'reconcile', 'report', 'remote-check']);
-// Security team and TLM findings [CQF:REQ-070]: template writes a new local file.
-const FINDINGS_SUBCOMMANDS = Object.freeze(['template']);
+// Security team and TLM findings [CQF:REQ-070]: template writes a new local file; import writes the
+// register on the state branch, and its --dry-run is a read.
+const FINDINGS_SUBCOMMANDS = Object.freeze(['template', 'import']);
 const FINDINGS_READS = Object.freeze([]);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
@@ -1695,6 +1696,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'findings') {
     const action = positionals[1];
     if (!FINDINGS_SUBCOMMANDS.includes(action)) return unknownSubcommand('findings', action, FINDINGS_SUBCOMMANDS);
+    if (action === 'import' && optionBoolean(options, 'dry-run')) return never('findings.import.preview', definition, 'read');
     return never(`findings.${action}`, definition, FINDINGS_READS.includes(action) ? 'read' : 'mutation');
   }
   if (definition.name === 'upstream-issue') {
@@ -1975,6 +1977,7 @@ export function operationCatalog() {
     ...BACKUP_SUBCOMMANDS.map(name => never(`backup.${name}`, commandDefinition('backup'), name === 'inspect' ? 'read' : 'mutation')),
     ...GUARD_SUBCOMMANDS.map(name => never(`guard.${name}`, commandDefinition('guard'), GUARD_READS.includes(name) ? 'read' : 'mutation')),
     ...FINDINGS_SUBCOMMANDS.map(name => never(`findings.${name}`, commandDefinition('findings'), FINDINGS_READS.includes(name) ? 'read' : 'mutation')),
+    never('findings.import.preview', commandDefinition('findings'), 'read'),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

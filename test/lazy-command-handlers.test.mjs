@@ -367,9 +367,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,560,700 (measured 9,560,664, commands/phase-lifecycle.mjs): a later step reads CodeQL's alerts too (state.mjs +359). The read stays lazy.
     // 9,560,850 (measured 9,560,832, commands/phase-lifecycle.mjs): the findings loop loads from the CLI source, out of the VS Code
     // gateway bundle, which it had grown by 28 modules (state.mjs +168).
-    // 9,561,750 (measured 9,561,726, commands/phase-lifecycle.mjs): the findings command classifies in command-registry.mjs (+865)
-    // and maps to /sf-findings (command-skills.mjs +29). The command, its workbook reader and its register stay lazy.
-    assert.ok(closure.bytes <= 9_561_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,562,050 (measured 9,562,020, commands/phase-lifecycle.mjs): the findings command and its import preview classify in
+    // command-registry.mjs (+1,159) and map to /sf-findings (command-skills.mjs +29). The command, its workbook reader and its
+    // register stay lazy.
+    assert.ok(closure.bytes <= 9_562_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -437,8 +438,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,810 (measured 858,804): `tests node` classifies in command-registry.mjs (+8), which every command reads to dispatch.
   // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
   // 858,850 (measured 858,833): decision finding-risk classifies as a person's mutation (command-registry.mjs +16).
-  // 859,720 (measured 859,698): the findings command and its subcommands classify in command-registry.mjs (+865), which every command reads to dispatch.
-  assert.ok(root.bytes <= 859_720, `root dispatch loads ${root.bytes} source bytes`);
+  // 860,000 (measured 859,992): the findings command, its subcommands and import preview classify in command-registry.mjs (+1,159),
+  // which every command reads to dispatch.
+  assert.ok(root.bytes <= 860_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -549,8 +551,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,165,000 (measured 4,164,950): the same external-command-policy.mjs +5270 and code-delivery-policy.mjs +1205 as start.
   // 4,165,450 (measured 4,165,420): the same person-step-catalog.mjs +454 and command-registry.mjs +16 as start.
   // 4,165,750 (measured 4,165,714): the same code-delivery-policy.mjs +294 as start.
-  // 4,166,650 (measured 4,166,608): the same command-registry.mjs +865 and command-skills.mjs +29 as root dispatch.
-  assert.ok(current.bytes <= 4_166_650, `session current loads ${current.bytes} source bytes`);
+  // 4,166,950 (measured 4,166,902): the same command-registry.mjs +1,159 and command-skills.mjs +29 as root dispatch.
+  assert.ok(current.bytes <= 4_166_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

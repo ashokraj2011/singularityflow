@@ -15,15 +15,20 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   acceptAllEligible, DEPARTURE_RECORDS, departureHolds, departureRefusal, departuresWithStatus, departureWords, nextDepartureId,
   recordDeparture, recordDepartureRejection
 } from './departures.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { posix, SingularityFlowError, nowIso } from './util.mjs';
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
+// Read only when a wording departure is recorded or accepted: loaded from the CLI source, so the long-lived
+// VS Code bundles that read departures do not carry the workflow studio and the upstream-issue command.
+const fromSource = (relative) => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', relative)).href);
 
 /** What each file holds now, by the hash reconciliation and plan amendments read it with; null when absent. */
 export async function fileHashes(root, paths) {
@@ -225,7 +230,7 @@ export async function recordDepartureRequest(root, config, workflow, request, { 
     if (extractInputsBlock(bytes.toString('utf8')) !== extractInputsBlock(document.bytes.toString('utf8'))) {
       departureRefusal(`Keep ${request.target}'s managed input block as it is; a departure changes only authored text.`, 'DEPARTURE_NOT_ALLOWED');
     }
-    const { unifiedDiff } = await import('./workflow-studio.mjs');
+    const { unifiedDiff } = await fromSource('workflow-studio.mjs');
     diff = unifiedDiff(document.bytes.toString('utf8'), bytes.toString('utf8'), document.relative);
     const { workDirRelative } = await import('./story-paths.mjs');
     const id = nextDepartureId(workflow);
@@ -406,7 +411,7 @@ export async function commitDepartureDecision(root, config, workflow, { departur
   if (writes === 'forward-amendment') {
     if (chosen.length > 1) departureRefusal('Accept one wording departure at a time: each is its own forward amendment.');
     const [departure] = chosen;
-    const { acceptWordingDeparture } = await import('./commands/upstream-issue.mjs');
+    const { acceptWordingDeparture } = await fromSource('commands/upstream-issue.mjs');
     const decided = await acceptWordingDeparture(root, config, workflow, { departure, reason, actor, agent });
     return { decision: 'accepted', record: decided, departures: [departure.id] };
   }

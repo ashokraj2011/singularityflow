@@ -354,7 +354,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (plan-amendments.mjs, candidate-scope.mjs, specifications.mjs), a rejected one's refusal (delivery-evidence.mjs), the approval's stage and hold
     // words (state.mjs, approval-check.mjs, decision-list.mjs), prepublish and publication recording them (phase-lifecycle.mjs), the catalog row and the
     // command (person-step-catalog.mjs, command-registry.mjs, command-skills.mjs, messages.mjs). The records and their reads stay lazy (departures.mjs, departure-records.mjs).
-    assert.ok(closure.bytes <= 9_556_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,556,350 (measured 9,556,345): the departure reads load from the CLI source, outside the VS Code gateway bundle (state.mjs, delivery-evidence.mjs).
+    assert.ok(closure.bytes <= 9_556_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -531,7 +532,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,142,200 (measured 4,142,112): the same runner table and decisions.
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
   // 4,163,200 (measured 4,163,160): the same departures as start; no new file.
-  assert.ok(current.bytes <= 4_163_200, `session current loads ${current.bytes} source bytes`);
+  // 4,163,250 (measured 4,163,210): their reads load from the CLI source, outside the VS Code gateway bundle (delivery-evidence.mjs).
+  assert.ok(current.bytes <= 4_163_250, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -1,10 +1,10 @@
 # Immutable content and the namespace read host
 
 The Engine SDK preview can now inspect retained phase documents and read their bodies from
-explicit namespace/content ports. Filesystem and SQLite metadata backends use the same registered
+explicit namespace/content ports. Filesystem, SQLite and application metadata backends use the same registered
 `phase.review` and `document.read` coordinators and kernel selection rules as the native Git host.
-This is a read projection. It does not provide lifecycle writers, accept the source of a projection,
-produce an approval packet, or migrate an installed Git project.
+These are read operations. They do not provide lifecycle writers, accept the source of a
+projection, record review or approval, or migrate an installed Git project.
 
 ## Content boundary
 
@@ -63,10 +63,24 @@ fail with `ENGINE_PORT_UNAVAILABLE`. It performs no provider, process or source-
 
 The namespace metadata contains a conditional `state` head under the stable key returned by
 `namespaceStoryReadKey(workId)`. It points to three immutable content records: the Story read view,
-document read policy and document index. These records use their own frozen v1 schema families.
-They do not relabel or replace native `workflow.json` records. `projectNamespaceReadState` derives
-the fields required by the existing phase/document queries from an already accepted native source;
-it does not save, approve or migrate that source. The host still owns binding and provenance.
+document read policy and document index. The compatibility builder `namespaceReadRecord` and
+`projectNamespaceReadState` retain their original v1 shapes and bytes. The v1 state has an active
+phase pointer and no Story status field. These projections do not relabel or replace native
+`workflow.json` records, save that source, or establish its acceptance or approval.
+
+`projectNamespaceLifecycleReadState` explicitly creates `sflow-namespace-read-state/v2`. It adds
+the source's Story status and admits a null current-phase pointer only for explicitly closed or
+cancelled Stories. An active historical source without status retains `status: null`; the reader
+does not invent an in-progress claim. Both stored versions remain readable at their original
+version. Generic schema reads preserve their bytes and never synthesize a migration or restamp
+a v1 record as v2. Head, policy and document-index profiles retain their existing v1 identities.
+
+A canonical lifecycle locator instead follows the conditional lifecycle head and approved
+configuration directly, deriving its v2 read view from that captured state. It does not retain
+a second writable Story copy. A completed or cancelled Story still permits explicit historical
+phase and document reads. Omitting `phaseId` on a Story without an active phase returns
+`ENGINE_PHASE_SELECTION_REQUIRED`, with the actual retained phase IDs and semantic `phase.review`
+actions. It does not invent a current phase or reopen the Story.
 
 The reader captures one head revision and loads its three exact references. After checking the
 requested retained files it rereads that head. A changed revision returns `ENGINE_CONTEXT_CHANGED`,
@@ -79,7 +93,12 @@ phase/generation members and classifies matched, changed and unavailable content
 members remain in the inventory. The existing catalog resolver retains names, aliases, detached
 documents and ambiguity rules. Budgets truncate valid text at code-point boundaries after its
 entire digest and encoding are checked. Binary content is integrity-checked without invented text.
-Every review manifest has `reviewBinding: null`; this read projection is never fresh approval proof.
+Projection-only reviews have `reviewBinding: null`; their metadata never becomes approval proof.
+For an actual canonical submission, the shared proof reader verifies the retained packet,
+publication and artifact, then checks the current head and authority before returning its exact
+review binding. This is the same proof owner used by the publication and submission hosts.
+The query still records neither human review nor approval. A historical terminal read does not
+manufacture a new submitted packet or an active approval opportunity.
 
 Local attachments have shared metadata/digests and machine-local bytes. A second laptop without
 matching local bytes receives `DOCUMENT_REUPLOAD_REQUIRED`. Uploading the exact bytes into its
@@ -87,6 +106,13 @@ own device-bound content store makes that document readable; no shared-content f
 or leaks those bytes.
 
 ## Qualification and remaining work
+
+Terminal-read qualification passed 163 distinct Mac checks across 12 files. It includes all three
+metadata backends, explicit historical phase selection, frozen v1 byte captures, both schema
+versions in the durable corpus, pure kernel/import guards, native Git read parity and packed-consumer reads in separate
+empty-PATH processes. The terminal projection fixtures exercise reading; they do not stand in for
+an accepted human approval or a completed portable Story journey. Source validation passed 3,816
+checks across 191 skills; typechecking, Git ownership and all 13 unchanged bundle budgets passed.
 
 Native Mac tests compare whole manifests and document results from a genuinely published Planning
 Story against both metadata backends. A second process reopens the persisted read view with an empty

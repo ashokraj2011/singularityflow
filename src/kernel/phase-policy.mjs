@@ -380,6 +380,15 @@ export function assertPhaseRolloverConfirmation(plan,confirm) {
     {code:'GENERATION_ROLLOVER_STALE',details:plan});
 }
 
+/** Terminal-capable read hosts require an explicit historical target, never an invented phase. */
+export function assertHistoricalReviewPhase(workflow,requested) {
+  if(workflow.currentPhase!==null||requested!=null)return;
+  const workId=workflow.workItem.id,phases=Object.keys(workflow.phases);
+  throw new SingularityFlowError('This Story has no active phase. Select a retained phase to review.',{
+    code:'ENGINE_PHASE_SELECTION_REQUIRED',details:{workId,status:workflow.status,phases,
+      actions:phases.map(phaseId=>({operation:'phase.review',inputs:{workId,phaseId}}))}});
+}
+
 /** Historical review is allowed; phase authoring admission is a separate operation. */
 export function phaseReviewSelection(workflow, requested=null) {
   const id=requested??workflow.currentPhase;

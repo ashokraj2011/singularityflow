@@ -120,10 +120,32 @@ export const SQLITE_NAMESPACE_SCHEMAS = Object.freeze({
 });
 export const CONTENT_STORAGE_SCHEMA = frozenFamily('content-sqlite-manifest');
 export const NAMESPACE_READER_SCHEMAS = Object.freeze({
-  head: frozenFamily('namespace-story-read-head'), state: frozenFamily('namespace-story-read-state'),
+  head: frozenFamily('namespace-story-read-head'),
+  state: Object.freeze({id:'namespace-story-read-state',currentVersion:2,minimumReadableVersion:1,
+    maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   policy: frozenFamily('namespace-story-read-policy'), documents: frozenFamily('namespace-story-document-index'),
   'lifecycle-head': frozenFamily('namespace-story-lifecycle-read-head')
 });
+const NAMESPACE_READ_STATE_PROFILES=Object.freeze({
+  1:Object.freeze({status:false,terminalStatuses:Object.freeze([])}),
+  2:Object.freeze({status:true,terminalStatuses:Object.freeze(['closed','cancelled'])})
+});
+export function namespaceReaderRecordProfile(kind,input) {
+  if(!Object.hasOwn(NAMESPACE_READER_SCHEMAS,kind))throw new SingularityFlowError('Unknown namespace read record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_READER_SCHEMAS[kind],input);
+  return Object.freeze({version:storedVersion,format:`sflow-namespace-read-${kind}/v${storedVersion}`,
+    state:kind==='state'?NAMESPACE_READ_STATE_PROFILES[storedVersion]:null});
+}
+/** Preserved immutable records are read at their stored version; no synthetic migration step. */
+export function recordReadTargetVersion(entry,storedVersion) {
+  return entry.migrationPolicy==='preserve-versions'?storedVersion:entry.currentVersion;
+}
+export function assertRecordRestampAllowed(entry,value) {
+  if(entry.migrationPolicy==='preserve-versions'&&value.schemaVersion!=null&&value.schemaVersion!==entry.currentVersion) {
+    throw new SingularityFlowError('Preserve the stored record version; create a new explicitly versioned record instead.',{
+      code:'SCHEMA_VERSION_RESTAMP_PROHIBITED',details:{family:entry.id,stored:value.schemaVersion,current:entry.currentVersion}});
+  }
+}
 export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
   authority: frozenFamily('namespace-lifecycle-authority'), configuration: frozenFamily('namespace-lifecycle-configuration'),
   head: frozenFamily('namespace-lifecycle-head'),

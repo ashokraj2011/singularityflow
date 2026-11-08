@@ -16,7 +16,7 @@ const autoContractFamilies = new Set([
   'auto-execution-selection', 'auto-execution-event'
 ]);
 
-test('all-goldens-read-to-current', async () => {
+test('all goldens follow their declared migration or preserved-version contract', async () => {
   const bytes = await readFile(fixtureFile);
   const before = Buffer.from(bytes);
   const fixtures = JSON.parse(bytes);
@@ -31,7 +31,12 @@ test('all-goldens-read-to-current', async () => {
     for (const record of records) {
       const source = JSON.stringify(record);
       const migrated = readRecord(family.id, source);
-      assert.equal(migrated.record.schemaVersion, family.currentVersion, family.id);
+      const preserved = family.migrationPolicy === 'preserve-versions';
+      assert.equal(migrated.record.schemaVersion, preserved ? record.schemaVersion : family.currentVersion, family.id);
+      if (preserved) {
+        assert.equal(JSON.stringify(migrated.record), source, `${family.id} preserved bytes changed`);
+        assert.deepEqual(migrated.migratedThrough, [], `${family.id} acquired a synthetic migration`);
+      }
       if (autoContractFamilies.has(family.id)) {
         assert.deepEqual(
           validateAutoContractRecord(family.id, source), migrated.record, family.id
@@ -48,7 +53,8 @@ test('previous-release durable corpus remains completely readable', async () => 
   for (const family of migrationRegistrySnapshot()) {
     const oldest = fixtures[family.id].find((record) => record.schemaVersion === family.minimumReadableVersion);
     assert.ok(oldest, family.id);
-    assert.equal(readRecord(family.id, oldest).record.schemaVersion, family.currentVersion);
+    assert.equal(readRecord(family.id, oldest).record.schemaVersion,
+      family.migrationPolicy === 'preserve-versions' ? oldest.schemaVersion : family.currentVersion);
   }
 });
 

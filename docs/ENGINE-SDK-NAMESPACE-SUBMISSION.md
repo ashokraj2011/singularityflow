@@ -94,9 +94,12 @@ empty Story. The new host does not perform automatic migration, dual writes or G
 ## Remaining scope
 
 This advances Phase 7 with actual shared submission and review proof. Full portable publication
-policies, approval/decision/advancement owners, execution, terminal read views and complete
+policies, approval/decision/advancement owners, execution and complete
 cross-agent Story journeys remain required. Existing-project migration, fencing, final cleanup
 and distribution/performance qualification retain their separate Phase 8–9 scope.
+
+The shared reader now supports explicit versioned terminal views without changing stored v1
+projections. Historical reads remain distinct from accepting an approval or completing a Story.
 
 ## Mac qualification
 

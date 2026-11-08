@@ -6,4 +6,6 @@ export declare function createNamespaceReadEngine(options: { records: NamespaceS
   localContent?: ContentStore | null; scope: NamespaceScope; workId: string }): Engine;
 export declare function namespaceStoryReadKey(workId: string): string;
 export declare function projectNamespaceReadState(workflow: unknown): Readonly<Record<string, JsonValue>>;
+/** Explicit v2 view of active or terminal lifecycle state; does not accept that source. */
+export declare function projectNamespaceLifecycleReadState(workflow: unknown): Readonly<Record<string, JsonValue>>;
 export declare function namespaceReadRecord(kind: 'head' | 'state' | 'policy' | 'documents', value: Readonly<Record<string, JsonValue>>): Readonly<Record<string, JsonValue>>;

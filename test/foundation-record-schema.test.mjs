@@ -39,12 +39,14 @@ test('filesystem durable families have one frozen registry owner and never migra
   }
 });
 
-test('content and namespace read projections share frozen schema metadata without changing legacy workflow readers', () => {
+test('content and namespace read projections share registered schema metadata without changing stored versions', () => {
   for (const entry of [CONTENT_STORAGE_SCHEMA, ...Object.values(NAMESPACE_READER_SCHEMAS)]) {
     const registered = schemaFamily(entry.id);
     for (const key of ['currentVersion','minimumReadableVersion','maximumReadableVersion','migrationPolicy','immutable']) assert.equal(registered[key], entry[key]);
     const value = { schemaVersion: entry.currentVersion };
-    assert.deepEqual(readRecord(entry.id, value), { record: value, storedVersion: 1, migratedThrough: [] });
-    assert.throws(() => admitRecordSchemaVersion(entry, { schemaVersion: 2 }), { code: 'SCHEMA_VERSION_FUTURE' });
+    assert.deepEqual(readRecord(entry.id, value), { record: value, storedVersion: entry.currentVersion, migratedThrough: [] });
+    assert.throws(() => admitRecordSchemaVersion(entry, { schemaVersion: entry.maximumReadableVersion+1 }), { code: 'SCHEMA_VERSION_FUTURE' });
+    const original={schemaVersion:1,format:'original',data:'unchanged'};
+    assert.deepEqual(readRecord(entry.id,original),{record:original,storedVersion:1,migratedThrough:[]});
   }
 });

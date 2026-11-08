@@ -1,6 +1,6 @@
 /** Read projections have their own frozen meaning. They are not lifecycle or approval authority. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { NAMESPACE_READER_SCHEMAS, admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
+import { NAMESPACE_READER_SCHEMAS,namespaceReaderRecordProfile } from '../foundation/record-schema.mjs';
 import { contentReference } from '../sda/content/contract.mjs';
 import { exactObject, namespaceScope } from '../sda/namespace/values.mjs';
 
@@ -14,12 +14,13 @@ function validateBrief(value) {
   exactObject(value, ['generation','renderedPath','renderedSha256']);
   if (value.generation !== null && !count(value.generation) || !nullableText(value.renderedPath) || value.renderedSha256 !== null && !digest(value.renderedSha256)) bad('Invalid retained brief.');
 }
-const format = kind => `sflow-namespace-read-${kind}/v1`;
 function admit(kind, value) {
-  try { admitRecordSchemaVersion(NAMESPACE_READER_SCHEMAS[kind], value); }
+  let profile;
+  try { profile=namespaceReaderRecordProfile(kind,value); }
   catch (cause) { throw new SingularityFlowError(cause.message, { cause,
     code: ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code) ? 'ENGINE_STORAGE_UNSUPPORTED' : 'ENGINE_STORAGE_CORRUPT', details: cause.details }); }
-  if (value.format !== format(kind)) bad('The namespace read record has another format.');
+  if (value.format !== profile.format) bad('The namespace read record has another format.');
+  return profile;
 }
 export function namespaceReadHead(value, scope, workId) {
   namespaceScope(scope); admit('head', value);
@@ -49,9 +50,8 @@ function brief(value) {
 }
 
 /** Build a read view from an already accepted source; this neither saves it nor accepts that source. */
-export function projectNamespaceReadState(workflow) {
-  const projected = { schemaVersion: NAMESPACE_READER_SCHEMAS.state.currentVersion, format: format('state'),
-    workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch ?? null }, currentPhase: workflow.currentPhase,
+function readStateData(workflow) {
+  return {workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch ?? null }, currentPhase: workflow.currentPhase,
     phases: Object.fromEntries(Object.entries(workflow.phases).map(([id, phase]) => [id, {
       id: phase.id, generation: Number(phase.generation ?? 0), status: phase.status,
       requiredArtifact: { path: phase.requiredArtifact?.path ?? null, kind: phase.requiredArtifact?.kind ?? null },
@@ -65,15 +65,27 @@ export function projectNamespaceReadState(workflow) {
     resolution: { documents: { maxPreviewBytes: workflow.resolution?.documents?.maxPreviewBytes ?? null },
       codeDelivery: { display: { previewBytes: workflow.resolution?.codeDelivery?.display?.previewBytes ?? 4096,
         fullDocumentMaximumBytes: workflow.resolution?.codeDelivery?.display?.fullDocumentMaximumBytes ?? 65536 } } } };
-  return namespaceReadState(projected, workflow.workItem.id);
+}
+/** Historical projection writer remains explicitly v1, including its status-free shape. */
+export function projectNamespaceReadState(workflow) {
+  return namespaceReadState(namespaceReadRecord('state',readStateData(workflow)),workflow.workItem.id);
+}
+/** Lifecycle views include explicit terminal state without changing old projection bytes. */
+export function projectNamespaceLifecycleReadState(workflow) {
+  if(!plain(workflow)||!Object.hasOwn(workflow,'currentPhase'))bad('A lifecycle read view needs its own current-phase binding.');
+  const profile=namespaceReaderRecordProfile('state',{schemaVersion:NAMESPACE_READER_SCHEMAS.state.currentVersion});
+  return namespaceReadState({schemaVersion:profile.version,format:profile.format,...readStateData(workflow),
+    status:Object.hasOwn(workflow,'status')?workflow.status:null},workflow.workItem.id);
 }
 
 export function namespaceReadState(value, workId) {
-  admit('state', value);
-  exactObject(value, ['schemaVersion','format','workItem','currentPhase','phases','lineage','resolution']);
+  const profile=admit('state',value).state;
+  exactObject(value, ['schemaVersion','format','workItem','currentPhase','phases','lineage','resolution',...(profile.status?['status']:[])]);
   exactObject(value.workItem, ['id','branch']);
-  if (value.workItem.id !== workId || !text(workId) || !nullableText(value.workItem.branch) || !text(value.currentPhase)
-    || !plain(value.phases) || !Object.hasOwn(value.phases, value.currentPhase)) bad('The read view does not bind the requested Story and current phase.');
+  const active=text(value.currentPhase)&&plain(value.phases)&&Object.hasOwn(value.phases,value.currentPhase);
+  const terminal=value.currentPhase===null&&profile.terminalStatuses.includes(value.status);
+  if (value.workItem.id !== workId || !text(workId) || !nullableText(value.workItem.branch)||!plain(value.phases)
+    ||!active&&!terminal||profile.status&&!nullableText(value.status)) bad('The read view does not bind the requested Story and current phase.');
   for (const [id, phase] of Object.entries(value.phases)) {
     exactObject(phase, ['id','generation','status','requiredArtifact','artifacts','agentBriefs']);
     if (!text(id) || phase.id !== id || !count(phase.generation) || !text(phase.status) || !Array.isArray(phase.artifacts) || !Array.isArray(phase.agentBriefs)) bad('Invalid read-view phase.');
@@ -138,5 +150,7 @@ export function namespaceDocumentIndex(value) {
 
 export function namespaceReadRecord(kind, value) {
   if (!Object.hasOwn(NAMESPACE_READER_SCHEMAS, kind) || !plain(value) || Object.hasOwn(value, 'schemaVersion') || Object.hasOwn(value, 'format')) bad('Read record metadata must come from its registered profile.');
-  return { schemaVersion: NAMESPACE_READER_SCHEMAS[kind].currentVersion, format: format(kind), ...value };
+  // Compatibility builder: new lifecycle state projections use their explicit v2 entry.
+  const profile=namespaceReaderRecordProfile(kind,{schemaVersion:1});
+  return {schemaVersion:profile.version,format:profile.format,...value};
 }

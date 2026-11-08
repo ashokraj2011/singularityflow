@@ -185,8 +185,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {SingularityFlowError} from '${packageName}';
       import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
       import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
-      import {createNamespaceReadEngine,namespaceStoryReadKey,projectNamespaceReadState,namespaceReadRecord} from '${packageName}/hosts/namespace-reader';
-      const directory=process.argv[2],create=process.argv[3]==='create';await mkdir(directory,{recursive:true});
+      import {createNamespaceReadEngine,namespaceStoryReadKey,projectNamespaceReadState,projectNamespaceLifecycleReadState,namespaceReadRecord} from '${packageName}/hosts/namespace-reader';
+      const directory=process.argv[2],create=process.argv[3]==='create',terminal=process.argv[4]==='terminal';await mkdir(directory,{recursive:true});
       const db=new DatabaseSync(path.join(directory,'objects.db'));db.enableDefensive(true);db.enableLoadExtension(false);
       const scope={projectId:'headless-application'},workId='example',binding={kind:'shared'};
       const records=await createFilesystemNamespaceStore({root:path.join(directory,'records'),binding,create});
@@ -195,9 +195,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         if(create){
           const body=Buffer.from('Retained custom-phase output.\\n'),artifact=(await content.put(scope,'evidence',body)).reference;
           const sourceKey='singularity/work-items/example/artifacts/custom/summary.md';
-          const workflow={workItem:{id:workId,branch:'team/branch'},currentPhase:'custom',phases:{custom:{id:'custom',generation:1,status:'in_progress',
+          const workflow={workItem:{id:workId,branch:'team/branch'},status:terminal?'closed':'in_progress',currentPhase:terminal?null:'custom',phases:{custom:{id:'custom',generation:1,status:terminal?'approved':'in_progress',
             requiredArtifact:{path:'artifacts/custom/summary.md',kind:'custom-report'},artifacts:[{path:sourceKey,sha256:artifact.sha256,size:artifact.bytes}],agentBriefs:[]}}};
-          const state=projectNamespaceReadState(workflow),policy=namespaceReadRecord('policy',{workItemRoot:'singularity/work-items',maximumPreviewBytes:1048576});
+          const state=terminal?projectNamespaceLifecycleReadState(workflow):projectNamespaceReadState(workflow),policy=namespaceReadRecord('policy',{workItemRoot:'singularity/work-items',maximumPreviewBytes:1048576});
+          assert.equal(state.schemaVersion,terminal?2:1);assert.equal(Object.hasOwn(state,'status'),terminal);
           const documents=namespaceReadRecord('documents',{documents:[{id:'PHASE-CUSTOM',phase:'custom',generation:1,sourceKey,role:'artifact',name:null,
             kind:'custom-report',mimeType:'text/markdown',encoding:'utf8',locality:'project',status:'active',aliases:[],content:artifact}]});
           const json=async(namespace,value)=>(await content.put(scope,namespace,Buffer.from(JSON.stringify(value)+'\\n'))).reference;
@@ -211,11 +212,15 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(review.manifest.reviewBinding,null);
         const read=await engine.run('document.read',{reference:review.manifest.items[0].reference});
         assert.equal(read.document.content.text,'Retained custom-phase output.\\n');
+        if(terminal)await assert.rejects(engine.run('phase.review'),error=>error.code==='ENGINE_PHASE_SELECTION_REQUIRED'
+          &&error.details.actions.some(action=>action.operation==='phase.review'&&action.inputs.phaseId==='custom'));
         await assert.rejects(engine.approvePhase({}),error=>error instanceof SingularityFlowError&&error.code==='ENGINE_PORT_UNAVAILABLE');
       }finally{db.close();}
     `;
     const data = path.join(directory, 'namespace-data');
     await run('reader.mjs', source, [data, 'create']); await run('reader.mjs', source, [data, 'resume']);
+    const closed = path.join(directory, 'terminal-namespace-data');
+    await run('reader.mjs', source, [closed, 'create', 'terminal']); await run('reader.mjs', source, [closed, 'resume', 'terminal']);
   });
   await t.test('an installed host enrolls a new project and replays the receipt in another empty-PATH process', async () => {
     const source = `
@@ -505,7 +510,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createSqliteNamespaceStore } from '${packageName}/storage/sqlite';
       import { createApplicationNamespaceStore } from '${packageName}/storage/application';
       import { createSqliteContentStore } from '${packageName}/storage/sqlite-content';
-      import { createNamespaceReadEngine, namespaceReadRecord } from '${packageName}/hosts/namespace-reader';
+      import { createNamespaceReadEngine, namespaceReadRecord, projectNamespaceLifecycleReadState } from '${packageName}/hosts/namespace-reader';
       import { createNamespaceProjectEngine } from '${packageName}/hosts/namespace-project';
       import { createNamespaceConfigurationEngine } from '${packageName}/hosts/namespace-configuration';
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
@@ -618,6 +623,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const unavailable=new SingularityFlowError('missing',{code:'UNAVAILABLE',cause:new Error('detail')});
       const reference:ContentReference={namespace:'state',sha256:'a'.repeat(64),bytes:1};
       const head=namespaceReadRecord('head',{projectId:'example',workId:'example',state:reference,policy:{...reference,namespace:'config'},documents:reference});
+      const lifecycleRead:Readonly<Record<string,import('${packageName}/namespace').JsonValue>>=projectNamespaceLifecycleReadState({currentPhase:null,status:'closed'});
+      // @ts-expect-error Read projections are immutable descriptions, never lifecycle writers.
+      lifecycleRead.status='approved';
       function readHost(records:NamespaceStore,content:ContentStore){return createNamespaceReadEngine({records,content,scope:{projectId:'example'},workId:'example'});}
       function projectHost(records:NamespaceStore,content:ContentStore){return createNamespaceProjectEngine({records,content,scope:{projectId:'example'},
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'application-owner',permissions:['project.enroll']})},

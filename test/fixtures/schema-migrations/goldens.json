@@ -1505,6 +1505,45 @@
           }
         }
       }
+    },
+    {
+      "schemaVersion": 2,
+      "format": "sflow-namespace-read-state/v2",
+      "workItem": {
+        "id": "STORY-1",
+        "branch": "feature"
+      },
+      "currentPhase": null,
+      "phases": {
+        "example": {
+          "id": "example",
+          "generation": 1,
+          "status": "approved",
+          "requiredArtifact": {
+            "path": null,
+            "kind": null
+          },
+          "artifacts": [],
+          "agentBriefs": []
+        }
+      },
+      "lineage": {
+        "canonicalBranch": null,
+        "childBranches": [],
+        "submissions": []
+      },
+      "resolution": {
+        "documents": {
+          "maxPreviewBytes": null
+        },
+        "codeDelivery": {
+          "display": {
+            "previewBytes": 4096,
+            "fullDocumentMaximumBytes": 65536
+          }
+        }
+      },
+      "status": "closed"
     }
   ],
   "namespace-story-read-policy": [

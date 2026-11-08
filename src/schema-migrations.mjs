@@ -8,7 +8,8 @@
 import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
-  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, recordJsonSyntax } from './foundation/record-schema.mjs';
+  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, recordJsonSyntax,
+  recordReadTargetVersion,assertRecordRestampAllowed } from './foundation/record-schema.mjs';
 
 const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
 
@@ -4029,15 +4030,18 @@ for (const entry of families) {
         || entry.unversionedAs > entry.currentVersion)) {
     throw new Error(`Invalid unversioned compatibility version for '${entry.id}'.`);
   }
-  if (!['migrate-on-read', 'frozen-identity'].includes(entry.migrationPolicy)) {
+  if (!['migrate-on-read', 'frozen-identity','preserve-versions'].includes(entry.migrationPolicy)) {
     throw new Error(`Invalid migration policy for '${entry.id}'.`);
   }
   if (entry.migrationPolicy === 'frozen-identity'
       && (entry.currentVersion !== 1 || entry.minimumReadableVersion !== 1 || entry.steps.length)) {
     throw new Error(`Frozen-identity family '${entry.id}' cannot declare a schema migration.`);
   }
+  if(entry.migrationPolicy==='preserve-versions'&&(!entry.immutable||entry.steps.length)) {
+    throw new Error(`Preserved-version family '${entry.id}' cannot rewrite immutable history.`);
+  }
   const bySource = new Map(entry.steps.map((step) => [step.from, step]));
-  for (let version = entry.minimumReadableVersion; version < entry.currentVersion; version += 1) {
+  for (let version = entry.minimumReadableVersion; version < recordReadTargetVersion(entry,entry.minimumReadableVersion); version += 1) {
     const step = bySource.get(version);
     if (!step || step.to !== version + 1 || typeof step.migrate !== 'function') {
       throw new Error(`Schema family '${entry.id}' has no contiguous v${version}→v${version + 1} migration.`);
@@ -4069,6 +4073,7 @@ export function phaseApprovalSummaryVersion(decisions) {
 
 export function stampCurrentRecord(familyId, value = {}) {
   if (!plainObject(value)) throw new SingularityFlowError(`Durable record '${familyId}' must be an object.`, { code: 'SCHEMA_RECORD_INVALID' });
+  assertRecordRestampAllowed(schemaFamily(familyId),value);
   return { ...clone(value), schemaVersion: currentSchemaVersion(familyId) };
 }
 
@@ -4084,7 +4089,7 @@ export function readRecord(familyId, rawBytes) {
   let { record, storedVersion } = admitRecordSchemaVersion(entry, parsedRecord(rawBytes));
   const migratedThrough = [];
   const steps = new Map(entry.steps.map((step) => [step.from, step]));
-  for (let version = storedVersion; version < entry.currentVersion; version += 1) {
+  for (let version = storedVersion; version < recordReadTargetVersion(entry,storedVersion); version += 1) {
     const step = steps.get(version);
     if (!step) throw new Error(`Schema family '${familyId}' has no migration from v${version}.`);
     const before = clone(record);

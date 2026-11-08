@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createEngine,ENGINE_OPERATIONS} from '../src/engine-sdk/index.mjs';
 import {SingularityFlowError} from '../src/foundation/failures.mjs';
-import {phaseReviewBriefRecords} from '../src/kernel/phase-policy.mjs';
+import {phaseReviewBriefRecords,phaseReviewSelection,assertHistoricalReviewPhase} from '../src/kernel/phase-policy.mjs';
 
 const sha='a'.repeat(64),packet='b'.repeat(64);
 function fixture(hook=()=>{}) {
@@ -95,6 +95,17 @@ test('historical phases are inspectable without being mistaken for the current s
     if(stage==='read') {facts.phase='constructor';facts.reviewBinding.phase='constructor';}
   });
   assert.equal((await named.engine.run('phase.review',{phaseId:'constructor'})).phase,'constructor');
+});
+
+test('terminal-capable review selection is a pure kernel rule without changing legacy selection errors',()=>{
+  const {context:{workflow}}=fixture(),before=structuredClone(workflow);
+  assertHistoricalReviewPhase(workflow,null);assert.deepEqual(workflow,before);
+  workflow.currentPhase=null;workflow.status='closed';
+  assert.throws(()=>assertHistoricalReviewPhase(workflow,null),error=>error.code==='ENGINE_PHASE_SELECTION_REQUIRED'
+    &&error.details.workId==='STORY-1'&&error.details.status==='closed'
+    &&error.details.actions.every(action=>action.operation==='phase.review'&&Object.hasOwn(workflow.phases,action.inputs.phaseId)));
+  assertHistoricalReviewPhase(workflow,'team-plan');assert.equal(phaseReviewSelection(workflow,'team-plan').current,false);
+  assert.throws(()=>phaseReviewSelection(workflow),error=>error.message==="Unknown or unavailable phase ''. Provide a phase ID.");
 });
 
 test('selection is captured before a native reader can mutate phase, generation or state',async()=>{

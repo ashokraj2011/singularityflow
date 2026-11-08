@@ -4,20 +4,25 @@ import os from 'node:os';
 import path from 'node:path';
 import { createFilesystemNamespaceStore } from '../../src/sda/filesystem-namespace-adapter.mjs';
 import { createSqliteNamespaceStore } from '../../src/sda/sqlite-namespace-adapter.mjs';
+import {createApplicationNamespaceStore} from '../../src/sda/application-namespace-adapter.mjs';
+import {openSqliteNamespaceJournal} from '../../src/sda/sqlite-namespace-journal.mjs';
+import {namespaceLimits} from '../../src/sda/namespace/contract.mjs';
 import { openNativeSqliteDatabase } from '../../src/sda/sqlite-native.mjs';
 import { createSqliteContentStore } from '../../src/sda/sqlite-content-adapter.mjs';
 import { createNamespaceReadEngine, namespaceStoryReadKey } from '../../src/engine-storage/namespace-reader.mjs';
-import { namespaceReadRecord, projectNamespaceReadState } from '../../src/engine-storage/namespace-read-contract.mjs';
+import { namespaceReadRecord, projectNamespaceReadState,projectNamespaceLifecycleReadState } from '../../src/engine-storage/namespace-read-contract.mjs';
 
 export async function namespaceReadFixture(t, { backend = 'filesystem', workId = 'HEADLESS-1', contentWrap = value => value, recordsWrap = value => value } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-namespace-reader-'));
   const scope = { projectId: 'fixture-project' }, binding = { kind: 'shared' };
-  const records = backend === 'filesystem' ? await createFilesystemNamespaceStore({ root: path.join(directory, 'records'), binding, create: true })
+  const journal=backend==='application'?await openSqliteNamespaceJournal({filename:path.join(directory,'records.db'),binding,create:true,limits:namespaceLimits()}):null;
+  const records = journal?createApplicationNamespaceStore({id:'read-application-fixture',qualification:'test-only',binding},{journal})
+    :backend === 'filesystem' ? await createFilesystemNamespaceStore({ root: path.join(directory, 'records'), binding, create: true })
     : await createSqliteNamespaceStore({ filename: path.join(directory, 'records.db'), binding, create: true });
   const database = await openNativeSqliteDatabase(path.join(directory, 'content.db'));
   const opened = [database];
   const content = createSqliteContentStore({ database, binding, create: true });
-  t.after(async () => { records.close?.(); for (const connection of opened) connection.close(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
+  t.after(async () => { records.close?.();journal?.close(); for (const connection of opened) connection.close(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
   const json = (namespace, value) => content.put(scope, namespace, Buffer.from(JSON.stringify(value) + '\n')).then(result => result.reference);
   let sequence = 0;
   const state = { workflow: null, policy: null, documents: null, head: null };
@@ -27,8 +32,8 @@ export async function namespaceReadFixture(t, { backend = 'filesystem', workId =
       preconditions: [{ namespace: 'state', key, version: current.record?.version ?? null }],
       changes: [{ op: 'put', namespace: 'state', key, immutable: false, value }], events: [] });
   }
-  async function seed(workflow, documents, { workItemRoot = 'singularity/work-items', maximumPreviewBytes = 1_048_576 } = {}) {
-    state.workflow = projectNamespaceReadState(workflow);
+  async function seed(workflow, documents, { workItemRoot = 'singularity/work-items', maximumPreviewBytes = 1_048_576,lifecycle=false } = {}) {
+    state.workflow = lifecycle?projectNamespaceLifecycleReadState(workflow):projectNamespaceReadState(workflow);
     state.policy = namespaceReadRecord('policy', { workItemRoot, maximumPreviewBytes });
     state.documents = namespaceReadRecord('documents', { documents });
     state.head = namespaceReadRecord('head', { projectId: scope.projectId, workId, state: await json('state', state.workflow),

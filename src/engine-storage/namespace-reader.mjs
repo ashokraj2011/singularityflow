@@ -5,12 +5,12 @@ import { createEngine } from '../engine-sdk/index.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { recordSha256 } from '../records.mjs';
 import { resolveDocumentRecord } from '../document-identity.mjs';
-import { phaseReviewSelection } from '../kernel/phase-policy.mjs';
+import { phaseReviewSelection,assertHistoricalReviewPhase } from '../kernel/phase-policy.mjs';
 import { validateNamespaceStore,NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
 import { namespaceScope, namespaceRevision } from '../sda/namespace/values.mjs';
 import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
 import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex,
-  namespaceReadRecord,projectNamespaceReadState } from './namespace-read-contract.mjs';
+  namespaceReadRecord,projectNamespaceLifecycleReadState } from './namespace-read-contract.mjs';
 import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
 import { createNamespaceSubmissionReader } from './namespace-submission-reader.mjs';
 
@@ -103,7 +103,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
         policy=namespaceReadPolicy(namespaceReadRecord('policy',{workItemRoot:workflow.resolution.workItemRoot,
           maximumPreviewBytes:workflow.resolution.codeDelivery?.display?.fullDocumentMaximumBytes??65536}));
         documents=namespaceDocumentIndex(namespaceReadRecord('documents',{documents:workflow.namespaceDocuments})).documents;
-        projected=projectNamespaceReadState(workflow);
+        projected=projectNamespaceLifecycleReadState(workflow);
       }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
         throw unavailable('The canonical namespace read metadata is invalid.','ENGINE_STORAGE_CORRUPT',{workId},cause);}
       return {subject:{kind:'story',id:workId},workflow:projected,policy,documents,
@@ -158,7 +158,11 @@ export function createNamespaceReadPorts({ records, content, localContent = null
       reference: bodyReference(workId, phase, record), retained: selected.retained.find(member => member.role === record.role && member.sourceKey === record.sourceKey) ?? null }));
   }
   function expected(record) { return record.retained?.sha256 ? { sha256: record.retained.sha256, bytes: record.retained.bytes } : null; }
-  const phaseReview = { load, async read(context, selected, { signal } = {}) {
+  const phaseReview = { async load(input,options) {
+    const context=await load(input,options);
+    assertHistoricalReviewPhase(context.workflow,input.phaseId);
+    return context;
+  }, async read(context, selected, { signal } = {}) {
     const reviewBinding=context.submissionReader?await context.submissionReader.review(context.lifecycleSnapshot,selected.phase,{signal}):null;
     const documents = [];
     for (const record of inventory(context, selected)) {

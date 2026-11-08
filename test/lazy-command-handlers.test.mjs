@@ -377,7 +377,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // is warned, not failed (state.mjs +662, lifecycle-evidence-policy.mjs +222) [CQF decision 6]. Import's readers stay lazy.
     // 9,565,850 (measured 9,565,815, commands/phase-lifecycle.mjs): the review text shows the findings and the required checks
     // (print-phase-review.mjs +280) [CQF:REQ-055]. Their reads stay lazy (findings/required-checks.mjs).
-    assert.ok(closure.bytes <= 9_565_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,566,000 (measured 9,565,950, commands/phase-lifecycle.mjs): the vulnerable new dependency hold names its catalog entry
+    // (finding-catalog.mjs +135) [CQF:REQ-052].
+    assert.ok(closure.bytes <= 9_566_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

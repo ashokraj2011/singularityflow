@@ -146,3 +146,17 @@ test('a review nothing waits on is offered, answered article by article, and nev
   assert.match(decideSummary(list, choices), /ambiguity: exception \(Two words read two ways\.\)/u);
   assert.doesNotMatch(decideSummary(list, choices), /Still undecided: .*Review the scope/u);
 });
+
+// A code step's departures [CQF:REQ-024]: files share one "Accept all"; a plan row or test is each row's own.
+const departure = (id, file, { one = false } = {}) => ({ id, kind: 'departure', title: `${id.toUpperCase()}: ${file} changed`, why: 'The model recorded it.', decidedBy: allowed,
+  details: { departure: id, acceptAll: !one, ...(one ? { diff: '--- a/plan.md\n+++ b/plan.md\n-old\n+new' } : { path: file }) },
+  options: [{ ...choice('accept', 'Accept'), ...(one ? { oneByOne: true } : {}) }, choice('reject', 'Reject')] });
+
+test('"Accept all" covers file departures, and a row decided one by one keeps its own answer', () => {
+  const list = packet({ items: [departure('d1', 'index.html'), departure('d2', 'about.html'), departure('d3', 'plan.md', { one: true })] });
+  assert.deepEqual(sharedAnswers(list).map((entry) => [entry.id, entry.rows]), [['accept', 2], ['reject', 3]]);
+  const html = decideHtml(list);
+  assert.match(html, /<option value="accept"[^>]*data-one="1"/u, 'the one-by-one row is marked');
+  assert.match(html, /<summary>The change<\/summary><pre>--- a\/plan\.md/u, 'a departure from a document shows its change');
+  assert.match(DECIDE_SCRIPT, /!entry\.dataset\.one/u, '"Apply to all" skips a row decided one by one');
+});

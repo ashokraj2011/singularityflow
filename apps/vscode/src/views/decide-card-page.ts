@@ -19,14 +19,17 @@ export const openRows = (packet: DecisionPacket): DecisionItemPacket[] => packet
 /** What this page shows: the open decisions, then anything offered that nothing waits on. */
 export const decideRows = (packet: DecisionPacket): DecisionItemPacket[] => [...openRows(packet), ...(packet.offered ?? [])];
 
-/** The answers one reason may cover: offered by two or more rows, needing nothing but a reason. */
+/**
+ * The answers one reason may cover: offered by two or more rows, needing nothing but a reason. A
+ * departure's plan row, test or clause-touching wording is decided one by one (`oneByOne`), never here.
+ */
 export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label: string; rows: number }> {
   const seen = new Map<string, { id: string; label: string; rows: number }>();
   for (const item of decideRows(packet)) {
     if (!item.decidedBy?.allowed) continue;
     for (const option of item.options.filter(decidable)) {
       const needs = option.needs ?? {};
-      if (needs.cause || needs.expires || needs.clause || needs.article) continue;
+      if (option.oneByOne || needs.cause || needs.expires || needs.clause || needs.article) continue;
       const known = seen.get(option.id);
       if (known) known.rows += 1; else seen.set(option.id, { id: option.id, label: option.label, rows: 1 });
     }
@@ -59,15 +62,17 @@ function fieldsHtml(item: DecisionItemPacket, entered: DecideDraft extends Reado
 function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const entered = draft?.get(item.title);
   const file = typeof item.details?.path === 'string' ? item.details.path : null;
+  // A departure from an earlier document shows the change itself; its file departures open the file.
+  const diff = item.kind === 'departure' && typeof item.details?.diff === 'string' ? item.details.diff : null;
   const what = `${file ? `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : `<strong>${escape(item.title)}</strong>`}
-    <div class="muted dc-why">${escape(item.why)}</div>`;
+    <div class="muted dc-why">${escape(item.why)}</div>${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}`;
   if (!item.decidedBy?.allowed) {
     return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</td></tr>`;
   }
   const choices = item.options.filter(decidable);
   const select = choices.length ? `<select data-choice aria-label="Decision for ${escape(item.title)}"><option value="">Choose…</option>${choices.map((option) => {
     const needs = Object.keys(option.needs ?? {}).join(' ');
-    return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}</option>`;
+    return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${option.oneByOne ? ' data-one="1"' : ''}${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}</option>`;
   }).join('')}</select>` : '';
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
   const own = ownSteps(item).map((option) => `<div class="dc-own"><span>${escape(option.label)}.</span> <span class="muted">This one stays in your terminal.</span>
@@ -165,6 +170,7 @@ export const DECIDE_STYLE = `
 .dc-article input { grid-column:1 / -1; margin:0; }
 .dc-article input[hidden] { display:none; }
 .dc-why { font-size:.9em; margin-top:.25rem; overflow-wrap:anywhere; }
+.dc-diff pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:16rem; overflow:auto; font-size:.85em; }
 .dc-own { display:grid; gap:.3rem; margin-top:.35rem; justify-items:start; }
 .dc-own code { overflow-wrap:anywhere; white-space:pre-wrap; }
 .dc-link { all:unset; cursor:pointer; color:var(--vscode-textLink-foreground); overflow-wrap:anywhere; font-weight:600; }
@@ -217,7 +223,8 @@ document.addEventListener('click', (event) => {
     if (!reason.value.trim()) return reason.focus();
     for (const row of rows()) {
       const choice = row.querySelector('[data-choice]');
-      if (!choice || ![...choice.options].some((entry) => entry.value === chosen.value)) continue;
+      // A row decided one by one keeps its own answer and reason.
+      if (!choice || ![...choice.options].some((entry) => entry.value === chosen.value && !entry.dataset.one)) continue;
       choice.value = chosen.value;
       if (field(row, 'reason')) field(row, 'reason').value = reason.value.trim();
       sync(row);

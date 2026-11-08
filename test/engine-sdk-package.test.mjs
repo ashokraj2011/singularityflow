@@ -76,6 +76,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       } });
       const sdk = await import('${packageName}');
       assert.equal(sdk.ENGINE_CONTRACT, 'sflow-engine/v1');
+      const execution=await import('${packageName}/execution');
+      assert.equal(execution.EXECUTION_UNIT_CONTRACT,'sflow-execution-unit/v1');
+      assert.equal(execution.EXECUTION_UNIT_METHODS.length,8);
+      assert.throws(()=>execution.captureExecutionUnit({}),error=>error instanceof sdk.SingularityFlowError&&error.code==='ENGINE_EXECUTION_UNIT_PORT_INVALID');
       const artifacts = await import('${packageName}/artifacts');
       assert.equal(artifacts.renderArtifactTemplateText('{{work.id}} {{phase.label}}',
         {id:'team-review',label:'Team review'},{id:'T-1'}),'T-1 Team review');
@@ -684,6 +688,38 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const replay=JSON.parse(await run('choice.mjs',source,['replay']));assert.deepEqual(replay,first);
   });
 
+  await t.test('installed execution units run without Git, configuration, providers or an application checkout',async()=>{
+    await run('execution.mjs',`
+      import assert from 'node:assert/strict';
+      import {registerHooks} from 'node:module';
+      import {createHash} from 'node:crypto';
+      import {readFile} from 'node:fs/promises';
+      const hooks=registerHooks({resolve(specifier,context,next){
+        if(['model-runner','git-access','git-host-selection','sgos/gvm-adapters','sgos/execution-units','config.mjs'].some(part=>specifier.includes(part))
+          ||specifier.endsWith('.ts'))throw Error('Unexpected installed integration: '+specifier);
+        return next(specifier,context);
+      }});
+      const {captureExecutionUnit}=await import('${packageName}/execution');
+      const {createExecutionUnitManifest,createAgentTaskContract,createGenericProcessExecutionUnit}=await import('${packageName}/execution/node');
+      const digest=text=>'sha256:'+createHash('sha256').update(text).digest('hex');
+      const manifest=createExecutionUnitManifest({id:'consumer-process',version:'1.0.0',publisher:'fixture',provider:'local',models:[],
+        capabilities:{shell:false},sandbox:{kind:'process',enforcement:'external-attested',attestationSha256:digest('fixture-sandbox')},
+        network:{mode:'deny'},toolPolicy:{mode:'none'},risk:{class:'low'},tests:{conformanceReceiptSha256:digest('conformance')},
+        command:{executable:process.execPath,executableSha256:'sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex'),
+          arguments:['-e',"let s='';process.stdin.on('data',v=>s+=v);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({task:JSON.parse(s).taskId})))"],environmentAllowlist:[]}});
+      const unit=captureExecutionUnit(createGenericProcessExecutionUnit(manifest,{root:process.cwd(),authorizeManifest:value=>value.manifestSha256}));
+      const contract=createAgentTaskContract({taskId:'sdk-task',processId:'sdk-process',instructionId:'sdk-instruction',objective:'Execute only the fixed fixture.',
+        acceptanceClauses:[],policySnapshotSha256:digest('policy'),programSha256:digest('program'),inputs:[],readScope:[],writeScope:[],forbiddenScope:[],
+        allowedDevices:[],environmentManifestSha256:digest('environment'),candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:[],
+        budgets:{activeMinutes:1,modelInvocations:0,touchedResources:0},stopConditions:[],executionUnitManifestSha256:manifest.manifestSha256});
+      const handle=await unit.start(contract),events=[];for await(const event of unit.observe(handle))events.push(event);
+      assert.deepEqual(events.map(event=>event.type),['started','completed']);
+      assert.equal((await unit.quiesce(handle)).quiescent,true);const result=await unit.collect(handle);
+      assert.deepEqual(result.output,{task:'sdk-task'});assert.equal(result.candidate,null);assert.equal(Object.hasOwn(result,'verification'),false);
+      hooks.deregister();
+    `);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -709,11 +745,30 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import type {NamespaceEngineOptions} from '${packageName}/hosts/namespace-engine';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
+      import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
+      import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
+      import {createDeterministicTranslatorExecutionUnit,createAgentTaskContract,createGenericProcessExecutionUnit} from '${packageName}/execution/node';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       const engine=createEngine({ports:{publication:{load:async()=>{throw new Error('host');},retained:async()=>null,
         prepare:async()=>null,commit:async()=>null,finish:async()=>null}}});
+      const execution:ExecutionUnit=captureExecutionUnit(createDeterministicTranslatorExecutionUnit());
+      const executionManifest=execution.descriptor();
+      const taskInput:AgentTaskInput={taskId:'task',processId:'process',instructionId:'instruction',objective:'A bounded task',
+        acceptanceClauses:[],policySnapshotSha256:'sha256:policy',programSha256:'sha256:program',inputs:[],readScope:[],writeScope:[],forbiddenScope:[],
+        allowedDevices:[],environmentManifestSha256:'sha256:environment',candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:[],
+        budgets:{activeMinutes:1,modelInvocations:0,touchedResources:0},stopConditions:[],executionUnitManifestSha256:executionManifest.manifestSha256};
+      const taskContract=createAgentTaskContract(taskInput);const handle=execution.start(taskContract);
+      const candidate:Promise<ExecutionCandidate>=handle.then(value=>execution.collect(value));
+      // @ts-expect-error A partial object cannot implement the execution-unit port.
+      captureExecutionUnit({descriptor:()=>executionManifest});
+      // @ts-expect-error Execution constructors need an explicit authorization binding.
+      createGenericProcessExecutionUnit(executionManifest,{root:'/explicit/working-directory'});
+      // @ts-expect-error Operational task scope cannot supply phase approval authority.
+      execution.start({...taskContract,approval:true});
+      // @ts-expect-error Stop reasons are text.
+      handle.then(value=>execution.requestStop(value,{reason:true}));
       const artifact:string=renderArtifactTemplateText(ARTIFACT_TEMPLATE_TOKENS.workId,{id:'scope'},{id:'example'});
       validateArtifactTemplateText(artifact);
       const contentPhase:ArtifactContentPhase={id:'review',status:'in_progress',generation:0,requiredArtifact:{minimumBytes:20,

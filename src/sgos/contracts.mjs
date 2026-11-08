@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalJson } from '../foundation/record-schema.mjs';
+import { canonicalJson,cloneSgosRecordValue as cloneJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
@@ -123,29 +123,6 @@ function plainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function cloneJson(value, location = '$', seen = new WeakSet()) {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) fail(`${location} must contain only finite JSON numbers.`);
-    return value;
-  }
-  if (typeof value !== 'object') fail(`${location} must be JSON-safe; received ${typeof value}.`);
-  if (seen.has(value)) fail(`${location} contains a cycle.`);
-  seen.add(value);
-  let result;
-  if (Array.isArray(value)) {
-    result = value.map((entry, index) => cloneJson(entry, `${location}[${index}]`, seen));
-  } else {
-    if (!plainObject(value)) fail(`${location} must contain only plain JSON objects.`);
-    result = {};
-    for (const key of Object.keys(value)) {
-      if (['__proto__', 'prototype', 'constructor'].includes(key)) fail(`${location} contains unsafe key '${key}'.`);
-      result[key] = cloneJson(value[key], `${location}.${key}`, seen);
-    }
-  }
-  seen.delete(value);
-  return result;
-}
 
 function freezeDeep(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {

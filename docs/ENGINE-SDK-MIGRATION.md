@@ -131,6 +131,20 @@ with no failures, cancellations or skips. Source validation passed 3,860 checks 
 typechecking, Git ownership and all 13 unchanged production bundle budgets passed. The optional
 SDK retains 51 operations. Installed Git authority and all remaining migration gates are unchanged.
 
+The [standalone execution-unit host](ENGINE-SDK-EXECUTION-UNITS.md) separates local execution
+from installed model/provider and repository configuration. The SDK's pure operational port and
+explicit Node backend preserve the SGOS v1 protocol and compatibility imports. Stopped preflight
+work cannot launch late or hold collection indefinitely. Durable attempts/leases, phase-check
+evidence and complete application execution still require their portable integration owner;
+Phases 5, 7, 8 and 9 remain open.
+
+The execution-unit slice passed 445 affected Mac checks across 20 files and 20 installed-package
+checks against the final implementation, with no failures, cancellations or skips. Source
+validation passed 3,866 checks across 191 skills; typechecking, the unchanged 2,011-site execution
+audit and all 13 unchanged bundle budgets passed. The optional SDK retains 51 operations. This
+qualifies the local execution boundary; durable attempts/leases, retained phase-check evidence
+and full application Story execution remain required Phase 7 integration work.
+
 The [source-binding delivery](ENGINE-SDK-SOURCE-BINDING.md) retains real selected-checkout
 observations through explicit SGOS units and SDA content/record ports. Takeover preserves first
 observations and original receipts without storing source code or physical roots. Binding does

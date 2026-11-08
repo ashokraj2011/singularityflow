@@ -49,10 +49,30 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries] });
   assert.deepEqual(report.problems, []);
+});
+
+test('standalone execution units have no installed provider, repository configuration, Git or lifecycle owner',async()=>{
+  const owner='src/sgos/node-execution-unit.mjs',allowed=new Set(['node:fs/promises','node:child_process','node:crypto','node:path',
+    '../foundation/record-schema.mjs','../foundation/failures.mjs','../platform-process-values.mjs']);
+  const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+    if(ts.isIdentifier(node)&&['loadDefinition','invokeModel','resolveModelProvider','loadSession','repoRoot','transactStory'].includes(node.text))assert.fail('Execution must use explicit constructor bindings.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
+  const legacy=await readFile(path.join(packageRoot,'src/sgos/execution-units.mjs'),'utf8');
+  assert.doesNotMatch(legacy,/\b(?:spawn|spawnSync|class|function)\b/u,'legacy execution imports are a compatibility facade');
+  for(const file of await sourceFiles('src')){
+    if(file==='src/sgos/execution-units.mjs')continue;
+    const text=await readFile(path.join(packageRoot,file),'utf8');
+    assert.equal(text.includes("from './execution-units.mjs'"),false,file+' must select its explicit execution owner');
+    assert.equal(text.includes("from '../sgos/execution-units.mjs'"),false,file+' must select its explicit execution owner');
+  }
 });
 
 test('only explicit storage adapters consume namespace contracts outside their pure directory', async () => {

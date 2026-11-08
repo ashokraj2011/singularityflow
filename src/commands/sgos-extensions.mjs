@@ -25,7 +25,7 @@ import {
 } from '../sgos/devices.mjs';
 import {
   installedExecutionUnit, installedExecutionUnitManifests
-} from '../sgos/execution-units.mjs';
+} from '../sgos/gvm-adapters.mjs';
 import {
   createCapabilityPackRegistry, createMetaToolService, createPlatformMemoryService,
   createAuthorityState, createLearningWorkspaceService, createReadOnlyLessonCatalog,

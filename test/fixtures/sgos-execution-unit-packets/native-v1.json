@@ -1,0 +1,583 @@
+{
+  "baseline": "02a68ef23",
+  "manifests": [
+    {
+      "schemaVersion": 1,
+      "kind": "execution-unit-manifest",
+      "id": "deterministic-translator",
+      "version": "1.0.0",
+      "publisher": "singularity-flow",
+      "provider": "local-kernel",
+      "models": [],
+      "capabilities": {
+        "readFiles": false,
+        "writeFiles": false,
+        "shell": false,
+        "subagents": false,
+        "worktrees": false
+      },
+      "sandbox": {
+        "kind": "in-process-pure"
+      },
+      "network": {
+        "mode": "deny"
+      },
+      "toolPolicy": {
+        "mode": "none"
+      },
+      "risk": {
+        "class": "low"
+      },
+      "tests": {
+        "conformanceReceiptSha256": "sha256:45d05cd772242e200aefffd1ebab3960bc366572310be06ab633c2b3aacb48f3"
+      },
+      "manifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "execution-unit-manifest",
+      "id": "copilot-cli",
+      "version": "1.0.0",
+      "publisher": "singularity-flow",
+      "provider": "github",
+      "models": [
+        "provider-selected"
+      ],
+      "capabilities": {
+        "readFiles": false,
+        "writeFiles": false,
+        "shell": false,
+        "subagents": false,
+        "worktrees": false
+      },
+      "sandbox": {
+        "kind": "model-runner-no-tools"
+      },
+      "network": {
+        "mode": "provider-only"
+      },
+      "toolPolicy": {
+        "mode": "none"
+      },
+      "risk": {
+        "class": "low"
+      },
+      "tests": {
+        "conformanceReceiptSha256": "sha256:71001e4cd344684ab264c5efef6bad633f5bd19716a51ead6342cb1bf43ddfbd"
+      },
+      "manifestSha256": "sha256:c312160ce0dbf49a5740950164002460dcbe7e8488507e8b84785f92bdf67bca"
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "execution-unit-manifest",
+      "id": "fixture-process",
+      "version": "1.0.0",
+      "publisher": "fixture",
+      "provider": "local",
+      "models": [],
+      "capabilities": {
+        "shell": false
+      },
+      "sandbox": {
+        "kind": "process",
+        "enforcement": "external-attested",
+        "attestationSha256": "sha256:b7ad567477c83756aab9a542b2be04f77dbae25115d85f22070d74d8cc4779dc"
+      },
+      "network": {
+        "mode": "deny"
+      },
+      "toolPolicy": {
+        "mode": "none"
+      },
+      "risk": {
+        "class": "low"
+      },
+      "tests": {
+        "conformanceReceiptSha256": "sha256:f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d"
+      },
+      "command": {
+        "executable": "/opt/sflow-fixtures/node",
+        "executableSha256": "sha256:a29c2123a01df1d0febb9d308a20d8a2fe3d40a91ca8b1294f59f08f9773ebea",
+        "arguments": [
+          "fixture.mjs"
+        ],
+        "environmentAllowlist": [
+          "CI",
+          "LANG"
+        ]
+      },
+      "manifestSha256": "sha256:c84e9ed648631bcda0e016ba3c73906e745a09d251c1ecd1e10a18e63560c169"
+    }
+  ],
+  "tasks": [
+    {
+      "schemaVersion": 1,
+      "kind": "agent-task-contract",
+      "taskId": "task-1",
+      "processId": "PROC-123456",
+      "instructionId": "instruction-1",
+      "objective": "Produce a bounded candidate.",
+      "acceptanceClauses": [
+        "AC-1"
+      ],
+      "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+      "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+      "inputs": [],
+      "readScope": [],
+      "writeScope": [],
+      "forbiddenScope": [
+        ".git"
+      ],
+      "allowedDevices": [],
+      "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+      "candidatePolicy": "immutable-snapshot",
+      "outputSchema": {
+        "type": "object"
+      },
+      "requiredEvidence": [
+        "candidate-snapshot"
+      ],
+      "budgets": {
+        "activeMinutes": 1,
+        "modelInvocations": 1,
+        "touchedResources": 2
+      },
+      "stopConditions": [
+        "scope-expansion"
+      ],
+      "humanRequestPolicy": {},
+      "subagentPolicy": {},
+      "rawEvidencePolicy": {},
+      "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7",
+      "contractSha256": "sha256:8c225dc4d46e109fdd5759f527d870a7e8872c5a3ad979ef714e9680971588c4"
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "agent-task-contract",
+      "taskId": "task-1",
+      "processId": "PROC-123456",
+      "instructionId": "instruction-1",
+      "objective": "Produce a bounded candidate.",
+      "acceptanceClauses": [
+        "AC-1"
+      ],
+      "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+      "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+      "inputs": [],
+      "readScope": [],
+      "writeScope": [],
+      "forbiddenScope": [
+        ".git"
+      ],
+      "allowedDevices": [],
+      "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+      "candidatePolicy": "immutable-snapshot",
+      "outputSchema": {
+        "type": "object"
+      },
+      "requiredEvidence": [
+        "candidate-snapshot"
+      ],
+      "budgets": {
+        "activeMinutes": 1,
+        "modelInvocations": 1,
+        "touchedResources": 2
+      },
+      "stopConditions": [
+        "scope-expansion"
+      ],
+      "humanRequestPolicy": {},
+      "subagentPolicy": {},
+      "rawEvidencePolicy": {},
+      "executionUnitManifestSha256": "sha256:c312160ce0dbf49a5740950164002460dcbe7e8488507e8b84785f92bdf67bca",
+      "contractSha256": "sha256:00c7928ceb826d25319643a5634764a5d1bff23ea084a0f85cdb526bcdb82750"
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "agent-task-contract",
+      "taskId": "task-1",
+      "processId": "PROC-123456",
+      "instructionId": "instruction-1",
+      "objective": "Produce a bounded candidate.",
+      "acceptanceClauses": [
+        "AC-1"
+      ],
+      "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+      "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+      "inputs": [],
+      "readScope": [],
+      "writeScope": [],
+      "forbiddenScope": [
+        ".git"
+      ],
+      "allowedDevices": [],
+      "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+      "candidatePolicy": "immutable-snapshot",
+      "outputSchema": {
+        "type": "object"
+      },
+      "requiredEvidence": [
+        "candidate-snapshot"
+      ],
+      "budgets": {
+        "activeMinutes": 1,
+        "modelInvocations": 1,
+        "touchedResources": 2
+      },
+      "stopConditions": [
+        "scope-expansion"
+      ],
+      "humanRequestPolicy": {},
+      "subagentPolicy": {},
+      "rawEvidencePolicy": {},
+      "executionUnitManifestSha256": "sha256:c84e9ed648631bcda0e016ba3c73906e745a09d251c1ecd1e10a18e63560c169",
+      "contractSha256": "sha256:c0e92281d0119f1093f7aa2a6091bc7082ab28caddbae32b8ec25a88e63135ec"
+    }
+  ],
+  "handle": {
+    "schemaVersion": 1,
+    "kind": "execution-handle",
+    "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7",
+    "contractSha256": "sha256:8c225dc4d46e109fdd5759f527d870a7e8872c5a3ad979ef714e9680971588c4",
+    "adapterHandle": {
+      "kind": "deterministic-translator",
+      "nonceSha256": "sha256:930cb98417815ee376dc122091533a97ccca43120a3e20de642516410669d5b3"
+    },
+    "handleSha256": "sha256:6b465195dc8a230ccc0e1064fdd26eb6d8a94e281735cb2e0c2b39831836eb96"
+  },
+  "events": [
+    {
+      "schemaVersion": 1,
+      "kind": "execution-event",
+      "handleSha256": "sha256:6b465195dc8a230ccc0e1064fdd26eb6d8a94e281735cb2e0c2b39831836eb96",
+      "sequence": 1,
+      "priorEventSha256": null,
+      "type": "started",
+      "data": {
+        "contractSha256": "sha256:8c225dc4d46e109fdd5759f527d870a7e8872c5a3ad979ef714e9680971588c4"
+      },
+      "recordedAt": "2026-11-08T22:07:13.684Z",
+      "eventSha256": "sha256:39dc2298edcdcd8a96fa3f2f332d3b9384018f00248ab150607fe0aeddf66c30"
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "execution-event",
+      "handleSha256": "sha256:6b465195dc8a230ccc0e1064fdd26eb6d8a94e281735cb2e0c2b39831836eb96",
+      "sequence": 2,
+      "priorEventSha256": "sha256:39dc2298edcdcd8a96fa3f2f332d3b9384018f00248ab150607fe0aeddf66c30",
+      "type": "completed",
+      "data": {
+        "resultSha256": "sha256:64d6b233d83d10a4950327b5ae7a26dc95db21684c3bee96f20083cd99694738"
+      },
+      "recordedAt": "2026-11-08T22:07:13.685Z",
+      "eventSha256": "sha256:41bfd75c9afc4c5d76b1496b87498d881a4bba28a7a2b49ea6709112804e4a2c"
+    }
+  ],
+  "quiescence": {
+    "schemaVersion": 1,
+    "kind": "quiescence-receipt",
+    "handleSha256": "sha256:6b465195dc8a230ccc0e1064fdd26eb6d8a94e281735cb2e0c2b39831836eb96",
+    "quiescent": true,
+    "eventHeadSha256": "sha256:41bfd75c9afc4c5d76b1496b87498d881a4bba28a7a2b49ea6709112804e4a2c",
+    "observedAt": "2026-11-08T22:07:13.696Z",
+    "quiescenceReceiptSha256": "sha256:4d7f7545ba1368af434a7a11a9090231c6e2557581bb7c7d880b1d908fc5b564"
+  },
+  "result": {
+    "kind": "candidate-result",
+    "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7",
+    "contractSha256": "sha256:8c225dc4d46e109fdd5759f527d870a7e8872c5a3ad979ef714e9680971588c4",
+    "output": {
+      "objective": "Produce a bounded candidate.",
+      "acceptanceClauses": [
+        "AC-1"
+      ],
+      "inputs": []
+    },
+    "outputSha256": "sha256:ed710fb398b6d7e52ae0c8009f40cd21b68e33deb64ee0bc97b057cafb68e267",
+    "candidate": null,
+    "usage": {
+      "modelInvocations": 0,
+      "assurance": "deterministic"
+    },
+    "eventHeadSha256": "sha256:41bfd75c9afc4c5d76b1496b87498d881a4bba28a7a2b49ea6709112804e4a2c"
+  },
+  "stop": {
+    "schemaVersion": 1,
+    "kind": "stop-receipt",
+    "handleSha256": "sha256:6b465195dc8a230ccc0e1064fdd26eb6d8a94e281735cb2e0c2b39831836eb96",
+    "reasonSha256": "sha256:b754f73c726e89d8e3c80eefd22d040e337d6b82c09f3a889218a323174e6b42",
+    "acknowledged": false,
+    "requestedAt": "2026-11-08T22:07:13.696Z",
+    "stopReceiptSha256": "sha256:f39a34535bca3d589f2d8b5a20a04b34dd0a9b150d97a2fd3c7ab60e4e9cc4cb"
+  },
+  "failures": [
+    {
+      "kind": "manifest",
+      "input": {
+        "schemaVersion": 1,
+        "kind": "execution-unit-manifest",
+        "id": "BAD",
+        "version": "1.0.0",
+        "publisher": "singularity-flow",
+        "provider": "local-kernel",
+        "models": [],
+        "capabilities": {
+          "readFiles": false,
+          "writeFiles": false,
+          "shell": false,
+          "subagents": false,
+          "worktrees": false
+        },
+        "sandbox": {
+          "kind": "in-process-pure"
+        },
+        "network": {
+          "mode": "deny"
+        },
+        "toolPolicy": {
+          "mode": "none"
+        },
+        "risk": {
+          "class": "low"
+        },
+        "tests": {
+          "conformanceReceiptSha256": "sha256:45d05cd772242e200aefffd1ebab3960bc366572310be06ab633c2b3aacb48f3"
+        },
+        "manifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+      },
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SGOS_GEU_MANIFEST_INVALID",
+        "message": "Execution Unit manifest has an invalid ID or semantic version."
+      }
+    },
+    {
+      "kind": "manifest",
+      "input": {
+        "schemaVersion": 1,
+        "kind": "execution-unit-manifest",
+        "id": "deterministic-translator",
+        "version": "1.0.0",
+        "publisher": "singularity-flow",
+        "provider": "forged",
+        "models": [],
+        "capabilities": {
+          "readFiles": false,
+          "writeFiles": false,
+          "shell": false,
+          "subagents": false,
+          "worktrees": false
+        },
+        "sandbox": {
+          "kind": "in-process-pure"
+        },
+        "network": {
+          "mode": "deny"
+        },
+        "toolPolicy": {
+          "mode": "none"
+        },
+        "risk": {
+          "class": "low"
+        },
+        "tests": {
+          "conformanceReceiptSha256": "sha256:45d05cd772242e200aefffd1ebab3960bc366572310be06ab633c2b3aacb48f3"
+        },
+        "manifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+      },
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SGOS_GEU_MANIFEST_MISMATCH",
+        "message": "Execution Unit manifest failed its exact content hash."
+      }
+    },
+    {
+      "kind": "task",
+      "input": {
+        "taskId": "task-1",
+        "processId": "PROC-123456",
+        "instructionId": "instruction-1",
+        "objective": "Produce a bounded candidate.",
+        "acceptanceClauses": [
+          "AC-1"
+        ],
+        "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+        "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+        "inputs": [],
+        "readScope": [],
+        "writeScope": [],
+        "forbiddenScope": [
+          ".git"
+        ],
+        "allowedDevices": [],
+        "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+        "candidatePolicy": "mutable-worktree",
+        "outputSchema": {
+          "type": "object"
+        },
+        "requiredEvidence": [
+          "candidate-snapshot"
+        ],
+        "budgets": {
+          "activeMinutes": 1,
+          "modelInvocations": 1,
+          "touchedResources": 2
+        },
+        "stopConditions": [
+          "scope-expansion"
+        ],
+        "humanRequestPolicy": {},
+        "subagentPolicy": {},
+        "rawEvidencePolicy": {},
+        "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+      },
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SGOS_AGENT_TASK_CONTRACT_INVALID",
+        "message": "Agent Task Contract candidate policy must be immutable-snapshot."
+      }
+    },
+    {
+      "kind": "task",
+      "input": {
+        "taskId": "task-1",
+        "processId": "PROC-123456",
+        "instructionId": "instruction-1",
+        "objective": "Produce a bounded candidate.",
+        "acceptanceClauses": [
+          "AC-1"
+        ],
+        "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+        "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+        "inputs": [],
+        "readScope": [],
+        "writeScope": [],
+        "forbiddenScope": [
+          ".git"
+        ],
+        "allowedDevices": [],
+        "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+        "candidatePolicy": "immutable-snapshot",
+        "outputSchema": {
+          "type": "object"
+        },
+        "requiredEvidence": [
+          "candidate-snapshot"
+        ],
+        "budgets": {
+          "activeMinutes": 0,
+          "modelInvocations": 1,
+          "touchedResources": 2
+        },
+        "stopConditions": [
+          "scope-expansion"
+        ],
+        "humanRequestPolicy": {},
+        "subagentPolicy": {},
+        "rawEvidencePolicy": {},
+        "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+      },
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SGOS_AGENT_TASK_CONTRACT_INVALID",
+        "message": "Agent Task Contract budget activeMinutes is outside the installed bounds."
+      }
+    },
+    {
+      "kind": "task",
+      "input": {
+        "taskId": "task-1",
+        "processId": "PROC-123456",
+        "instructionId": "instruction-1",
+        "objective": "Produce a bounded candidate.",
+        "acceptanceClauses": [
+          "AC-1"
+        ],
+        "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+        "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+        "inputs": [
+          "x",
+          "x"
+        ],
+        "readScope": [],
+        "writeScope": [],
+        "forbiddenScope": [
+          ".git"
+        ],
+        "allowedDevices": [],
+        "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+        "candidatePolicy": "immutable-snapshot",
+        "outputSchema": {
+          "type": "object"
+        },
+        "requiredEvidence": [
+          "candidate-snapshot"
+        ],
+        "budgets": {
+          "activeMinutes": 1,
+          "modelInvocations": 1,
+          "touchedResources": 2
+        },
+        "stopConditions": [
+          "scope-expansion"
+        ],
+        "humanRequestPolicy": {},
+        "subagentPolicy": {},
+        "rawEvidencePolicy": {},
+        "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+      },
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SGOS_GEU_CONTRACT_INVALID",
+        "message": "Agent Task Contract inputs contains duplicates."
+      }
+    },
+    {
+      "kind": "task",
+      "input": {
+        "taskId": "task-1",
+        "processId": "PROC-123456",
+        "instructionId": "instruction-1",
+        "objective": "Produce a bounded candidate.",
+        "acceptanceClauses": [
+          "AC-1"
+        ],
+        "policySnapshotSha256": "sha256:823412d1eacb67956220e532959f0104603057c88704863ca38e7cd188fda812",
+        "programSha256": "sha256:1310ca2c8932dbd118668bd97442558a3e1f546b5e15c69699dfbd6024f548d8",
+        "inputs": [],
+        "readScope": [],
+        "writeScope": [],
+        "forbiddenScope": [
+          ".git"
+        ],
+        "allowedDevices": [],
+        "environmentManifestSha256": "sha256:ba5285161ba6eed0085fb13784ce5c92f70ebc268b94fd66aa1d68a32884204d",
+        "candidatePolicy": "immutable-snapshot",
+        "outputSchema": {
+          "constructor": "invalid"
+        },
+        "requiredEvidence": [
+          "candidate-snapshot"
+        ],
+        "budgets": {
+          "activeMinutes": 1,
+          "modelInvocations": 1,
+          "touchedResources": 2
+        },
+        "stopConditions": [
+          "scope-expansion"
+        ],
+        "humanRequestPolicy": {},
+        "subagentPolicy": {},
+        "rawEvidencePolicy": {},
+        "executionUnitManifestSha256": "sha256:6459709667b18d95110d3d44dd669a947fd04fbcc2b09b4bb301ca44a5732bd7"
+      },
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SGOS_CONTRACT_INVALID",
+        "message": "$.outputSchema contains unsafe key 'constructor'.",
+        "details": {}
+      }
+    }
+  ]
+}

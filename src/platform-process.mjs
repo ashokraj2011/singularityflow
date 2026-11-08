@@ -1,8 +1,14 @@
+import {processEnvironmentValue as environmentValue,isFullyQualifiedWindowsPath,resolveWindowsSystemTool,tryWindowsTaskkill as taskkillWithProcessPort,gitHostSearchDirectories,isAppleDeveloperGit} from './platform-process-values.mjs';
+export {isFullyQualifiedWindowsPath,resolveWindowsSystemTool} from './platform-process-values.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { lstatSync, realpathSync, closeSync, mkdirSync, mkdtempSync, openSync, rmdirSync, unlinkSync } from 'node:fs';
 import os from 'node:os';
-import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
+
+/** Compatibility default binding; the shared tree helper receives an explicit process port. */
+export function tryWindowsTaskkill(pid,{force=false,environment=process.env,spawnSyncCommand=spawnSync,timeoutMs=5_000}={}) {
+  return taskkillWithProcessPort(pid,{force,environment,spawnSyncCommand,timeoutMs});
+}
 
 const WINDOWS_BATCH = /\.(?:cmd|bat)$/i;
 const WINDOWS_PACKAGE_MANAGERS = new Set(['npm', 'npx']);
@@ -37,32 +43,6 @@ function safeArguments(values) {
   });
 }
 
-function environmentValue(environment, names) {
-  const wanted = new Set(names.map((name) => name.toLowerCase()));
-  const key = Object.keys(environment ?? {}).find((entry) => wanted.has(entry.toLowerCase()));
-  return key == null ? null : environment[key];
-}
-
-/** Root-relative (`\\tool.exe`) and drive-relative (`C:tool.exe`) paths are not identities. */
-export function isFullyQualifiedWindowsPath(value, { allowUnc = true } = {}) {
-  const candidate = String(value ?? '').trim();
-  if (/^[a-z]:[\\/]/i.test(candidate)) return true;
-  if (!allowUnc || !candidate.startsWith('\\\\') || /^\\\\[?.][\\/]/u.test(candidate)) return false;
-  const parts = candidate.slice(2).split(/[\\/]+/u);
-  return parts.length >= 3 && parts[0].length > 0 && parts[1].length > 0;
-}
-
-export function resolveWindowsSystemTool(environment, name) {
-  if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9.-]*$/i.test(name)) {
-    throw new TypeError('Windows system-tool name must be one safe basename.');
-  }
-  const systemRoot = environmentValue(environment, ['SystemRoot', 'WINDIR']);
-  if (typeof systemRoot === 'string'
-      && isFullyQualifiedWindowsPath(systemRoot.trim(), { allowUnc: false })) {
-    return path.win32.join(systemRoot.trim(), 'System32', name);
-  }
-  throw new TypeError(`Windows cannot resolve trusted ${name} without an absolute SystemRoot or WINDIR.`);
-}
 
 function absoluteWindowsCommandInterpreter(environment) {
   const expected = resolveWindowsSystemTool(environment, 'cmd.exe');
@@ -270,30 +250,6 @@ export function clearWindowsExecutableCache() {
   WINDOWS_EXECUTABLE_CACHE.clear();
 }
 
-/**
- * Attempt Windows descendant-tree termination without letting an untrusted/missing machine
- * environment escape a timeout or abort callback. Callers must directly signal the child when
- * this returns false; the boolean proves only that taskkill accepted the complete tree request.
- */
-export function tryWindowsTaskkill(pid, {
-  force = false,
-  environment = process.env,
-  spawnSyncCommand = spawnSync,
-  timeoutMs = 5_000
-} = {}) {
-  const processId = Number(pid);
-  if (!Number.isSafeInteger(processId) || processId <= 0) return false;
-  try {
-    const result = spawnSyncCommand(resolveWindowsSystemTool(environment, 'taskkill.exe'), [
-      '/PID', String(processId), '/T', ...(force ? ['/F'] : [])
-    ], {
-      stdio: 'ignore', windowsHide: true, timeout: timeoutMs, shell: false
-    });
-    return !result?.error && result?.status === 0;
-  } catch {
-    return false;
-  }
-}
 
 function resolveWindowsLocalExecutable(command, cwd, lstatSyncCommand, realpathSyncCommand) {
   if (typeof cwd !== 'string' || !isFullyQualifiedWindowsPath(cwd)) {

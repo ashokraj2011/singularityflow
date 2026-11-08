@@ -87,6 +87,8 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   read its canonical lifecycle state and exact source through the same registry.
 - `source`: pure source-unit and snapshot contracts, with logical identities and bounded metadata.
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
+- `execution`: provider-neutral execution-unit method binding and operational TypeScript contracts.
+- `execution/node`: explicitly selected deterministic or fixed-command Node execution units.
 - `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
   canonical lifecycle reads, original receipts and first source observations across takeover.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
@@ -215,6 +217,31 @@ permission. A service identity cannot claim human review. Reuse the original ope
 reconcile an interrupted approval; accepted replay preserves its original reviewer and timestamp.
 No Story is created by approval. Source format and ownership details are in
 `docs/ENGINE-SDK-CONFIGURATION-APPROVAL.md` in the source distribution.
+
+The execution backend can also be used by a Node application or build runner:
+
+```js
+import { captureExecutionUnit } from '@singularity-flow/engine-sdk/execution';
+import {
+  createGenericProcessExecutionUnit, createAgentTaskContract
+} from '@singularity-flow/engine-sdk/execution/node';
+
+const unit = captureExecutionUnit(createGenericProcessExecutionUnit(reviewedManifest, {
+  root: absoluteExecutionDirectory, authorizeManifest: authorizeExactReviewedManifest
+}));
+const handle = await unit.start(createAgentTaskContract(confirmedTaskInputs));
+for await (const event of unit.observe(handle)) consumeExecutionEvent(event);
+const quiescence = await unit.quiesce(handle);
+const candidate = await unit.collect(handle);
+```
+
+The fixed-command manifest pins the executable bytes, argv, environment allowlist, registry
+authorization and externally attested sandbox. The existing profile requires denied network and
+empty repository/Device scopes. Its result is candidate output. Lifecycle admission, retained
+test evidence and human approval remain with their own engine operations. The optional backend
+loads no installed provider, repository configuration or CLI, and performs no Git selection. Handles are local to
+the adapter process; a restarted process returns `SGOS_GEU_HANDLE_STALE`. Durable SGOS attempt,
+lease and phase-check coordination still need their portable owner before full Story execution.
 
 Node 22 or later is required for the core and filesystem/application backends. SQLite is loaded
 only when the namespace factory is called and requires the native capabilities qualified on managed Node

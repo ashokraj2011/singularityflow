@@ -1553,13 +1553,13 @@
       },
       "digest": "af73a4a16312108efd4d7049b29facd683db352919b480359eb3e25ca9058167"
     },
-    "src/sgos/execution-units.mjs": {
+    "src/sgos/node-execution-unit.mjs": {
       "counts": {
         "command-run": 1,
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "80db96c2efd886921af25f6f0395c823d81564b4e535af25487d457c2ab4e081"
+      "digest": "f45b1b198f2c907794b7a4e9bb5e8c9145b2b20c893197cb2c62bcd211417596"
     },
     "src/sgos/human-authority.mjs": {
       "counts": {

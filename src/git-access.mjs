@@ -21,7 +21,7 @@ import {
   isPortableAbsoluteGitPath
 } from './git-remote-diagnostics.mjs';
 import { isFullyQualifiedWindowsPath } from './platform-process.mjs';
-import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
+import { gitHostSearchDirectories, isAppleDeveloperGit } from './platform-process-values.mjs';
 import { processResultCompleted } from './process-result.mjs';
 import { gitReadOutput, isGitRefName, networkDisabled, run, SingularityFlowError } from './util.mjs';
 

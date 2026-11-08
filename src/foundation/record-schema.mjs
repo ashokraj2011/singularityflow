@@ -390,3 +390,31 @@ function namespaceJson(value, {
 }
   return Object.freeze({exactObject,namespaceJson,encode});
 }
+
+/** Frozen SGOS v1 JSON-value semantics, shared by record and execution adapters. */
+function invalidSgosRecordValue(message, details = {}) {
+  throw new SingularityFlowError(message, {code: 'SGOS_CONTRACT_INVALID', details});
+}
+export function cloneSgosRecordValue(value, location = '$', seen = new WeakSet()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) invalidSgosRecordValue(`${location} must contain only finite JSON numbers.`);
+    return value;
+  }
+  if (typeof value !== 'object') invalidSgosRecordValue(`${location} must be JSON-safe; received ${typeof value}.`);
+  if (seen.has(value)) invalidSgosRecordValue(`${location} contains a cycle.`);
+  seen.add(value);
+  let result;
+  if (Array.isArray(value)) {
+    result = value.map((entry, index) => cloneSgosRecordValue(entry, `${location}[${index}]`, seen));
+  } else {
+    if (![Object.prototype,null].includes(Object.getPrototypeOf(value))) invalidSgosRecordValue(`${location} must contain only plain JSON objects.`);
+    result = {};
+    for (const key of Object.keys(value)) {
+      if (['__proto__', 'prototype', 'constructor'].includes(key)) invalidSgosRecordValue(`${location} contains unsafe key '${key}'.`);
+      result[key] = cloneSgosRecordValue(value[key], `${location}.${key}`, seen);
+    }
+  }
+  seen.delete(value);
+  return result;
+}

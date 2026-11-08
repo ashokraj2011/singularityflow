@@ -1,12 +1,16 @@
 /** Closed, bounded AGENT/DEVICE bridge for the installed GVM profile. */
 import { createHash } from 'node:crypto';
+import path from 'node:path';
+import {loadDefinition} from '../config.mjs';
+import {invokeModel,resolveModelProvider} from '../model-runner.mjs';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { assertModelInvocationAllowed } from '../operation-context.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, sha256 } from './contracts.mjs';
 import {
-  createAgentTaskContract, installedExecutionUnit, installedExecutionUnitManifests
-} from './execution-units.mjs';
+  createAgentTaskContract,createExecutionUnitManifest,createExecutionUnitAdapter as adapter,
+  createDeterministicTranslatorExecutionUnit,DETERMINISTIC_EXECUTION_UNIT_MANIFEST as TRANSLATOR_MANIFEST
+} from './node-execution-unit.mjs';
 import { installedDeviceManifests, invokeSgosDevice } from './devices.mjs';
 import { isSgosSecretHandleReference } from './memory.mjs';
 
@@ -412,4 +416,135 @@ export async function executeInstalledGvmAdapter(
     return executeDevice(root, context, adapter, signal, executionUnitOptions);
   }
   fail('No installed GVM adapter was selected.', 'SGOS_GVM_ADAPTER_UNAVAILABLE');
+}
+
+/** Installed provider bindings remain outside the standalone execution host. */
+const COPILOT_MANIFEST = createExecutionUnitManifest({
+  id: 'copilot-cli', version: '1.0.0', publisher: 'singularity-flow', provider: 'github',
+  models: ['provider-selected'],
+  // The installed v1 profile is proposal-only. Broader Copilot capabilities are not advertised
+  // until an isolated candidate worktree and path-enforcing Device mediation are bound.
+  capabilities: { readFiles: false, writeFiles: false, shell: false, subagents: false, worktrees: false },
+  sandbox: { kind: 'model-runner-no-tools' }, network: { mode: 'provider-only' },
+  toolPolicy: { mode: 'none' }, risk: { class: 'low' },
+  tests: { conformanceReceiptSha256: sha256('sgos-copilot-acp-v1') }
+});
+
+
+export function createCopilotExecutionUnit({ invoke = invokeModel, definition = null, root } = {}) {
+  return adapter(COPILOT_MANIFEST, async (contract, runtime) => {
+    if (!root || !path.isAbsolute(root)) fail('Copilot GEU requires a verified repository root.', 'SGOS_GEU_ROOT_REQUIRED');
+    if (contract.readScope.length || contract.writeScope.length || contract.allowedDevices.length
+        || contract.budgets.touchedResources !== 0 || contract.budgets.modelInvocations !== 1) {
+      fail('Copilot GEU accepts exactly one model proposal with no repository, Device, or effect scope.',
+        'SGOS_GEU_SANDBOX_SCOPE_UNSUPPORTED');
+    }
+    const provider = resolveModelProvider(definition ?? await loadDefinition(root));
+    if (provider.provider !== 'copilot-cli') {
+      fail(`Copilot GEU cannot dispatch configured provider '${provider.provider}'.`,
+        'SGOS_GEU_PROVIDER_UNSUPPORTED', { provider: provider.provider });
+    }
+    const prompt = [
+      'Execute only the following immutable SGOS Agent Task Contract.',
+      'Return proposal text only. Do not use tools or repository context.',
+      'Do not expand scope, alter policy, approve work, or claim verification.',
+      canonicalJson(contract)
+    ].join('\n\n');
+    const result = await invoke({
+      provider: provider.provider,
+      providerConfig: provider.providerConfig,
+      cwd: root,
+      allowedRoots: [root],
+      channel: 'sgos-geu-copilot-cli',
+      task: 'code',
+      prompt: { text: prompt },
+      tools: {
+        // The first installed Copilot GEU returns a candidate proposal only. It deliberately has
+        // no direct tools until the runtime gives it a separately retained isolated worktree and
+        // a path-enforcing device layer; Task Contract prose alone is not a sandbox.
+        mode: 'none',
+        names: [], requireSuccessful: true, rejectTruncated: true
+      },
+      limits: {
+        timeoutMs: contract.budgets.activeMinutes * 60_000,
+        outputBytes: MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES,
+        maxTurns: 'auto', maxToolCalls: 'auto', maxTotalTokens: 'auto', maxAiCredits: 'auto'
+      },
+      subject: { kind: 'sgos-task', id: contract.taskId, processId: contract.processId },
+      auditRoot: root,
+      signal: runtime.signal
+    });
+    if (!plain(result)
+        || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(String(result.invocationId ?? ''))
+        || typeof result.output !== 'string'
+        || (result.status != null && result.status !== 'completed')
+        || (result.invocation?.id != null && result.invocation.id !== result.invocationId)) {
+      fail('Copilot GEU received an invalid provider result envelope.', 'SGOS_GEU_RESULT_INVALID');
+    }
+    if (result.provider != null && result.provider !== provider.provider) {
+      fail('Copilot GEU provider result does not match the configured provider.',
+        'SGOS_GEU_PROVIDER_ESCALATION', {
+          expected: provider.provider, received: result.provider
+        });
+    }
+    const outputBytes = Buffer.byteLength(result.output, 'utf8');
+    const outputSha256 = createHash('sha256').update(result.output, 'utf8').digest('hex');
+    if (outputBytes > MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES
+        || (result.outputBytes != null && result.outputBytes !== outputBytes)
+        || (result.outputSha256 != null && result.outputSha256 !== outputSha256)) {
+      fail('Copilot GEU provider result exceeds or contradicts the installed output bound.',
+        'SGOS_GEU_OUTPUT_LIMIT', {
+          maximumBytes: MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, outputBytes
+        });
+    }
+    if (result.toolObservation != null
+        || [result.usage?.toolCalls, result.usage?.totalToolCalls, result.usage?.maxToolCalls]
+          .some((value) => Number.isFinite(value) && value > 0)) {
+      fail('Copilot GEU refused provider tool escalation.', 'SGOS_GEU_TOOL_ESCALATION');
+    }
+    runtime.emit('provider-completed', { invocationIdSha256: sha256(result.invocationId) });
+    return {
+      output: result.output,
+      candidate: {
+        kind: 'model-proposal', authority: 'none', outputBytes,
+        outputSha256: `sha256:${outputSha256}`,
+        provider: provider.provider,
+        providerInvocationId: result.invocationId,
+        providerAuditRef: `model-invocation:${result.invocationId}`
+      },
+      usage: result.usage ?? null
+    };
+  }, async () => {
+    try {
+      if (!root || !path.isAbsolute(root)) {
+        return {
+          status: 'unavailable', capabilities: COPILOT_MANIFEST.capabilities,
+          diagnosticCode: 'SGOS_GEU_ROOT_REQUIRED'
+        };
+      }
+      const provider = resolveModelProvider(definition ?? await loadDefinition(root));
+      return provider.provider === 'copilot-cli'
+        ? { status: 'ready', capabilities: COPILOT_MANIFEST.capabilities }
+        : {
+            status: 'unavailable', capabilities: COPILOT_MANIFEST.capabilities,
+            diagnosticCode: 'SGOS_GEU_PROVIDER_UNSUPPORTED'
+          };
+    } catch (error) {
+      return {
+        status: 'unavailable', capabilities: COPILOT_MANIFEST.capabilities,
+        diagnosticCode: error?.code ?? 'SGOS_GEU_PROVIDER_UNAVAILABLE'
+      };
+    }
+  });
+}
+
+
+export function installedExecutionUnitManifests() {
+  return Object.freeze([TRANSLATOR_MANIFEST, COPILOT_MANIFEST]);
+}
+
+export function installedExecutionUnit(id, options = {}) {
+  if (id === TRANSLATOR_MANIFEST.id) return createDeterministicTranslatorExecutionUnit();
+  if (id === COPILOT_MANIFEST.id) return createCopilotExecutionUnit(options);
+  fail(`Execution Unit '${id}' is not installed.`, 'SGOS_GEU_NOT_INSTALLED', { id });
 }

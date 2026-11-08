@@ -17,7 +17,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { executeGalAsyncRead } from '../../../../src/gal-async-read.mjs';
-import { gitHostChildEnvironment, gitHostSearchDirectories, isAppleDeveloperGit } from '../../../../src/git-host-selection.mjs';
+import { gitHostChildEnvironment, gitHostSearchDirectories, isAppleDeveloperGit } from '../../../../src/platform-process-values.mjs';
 import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
 import { commandGuidance, modelFreeRouteText } from '../copilot-command.ts';
 import { formatCommandRouteLines } from '../../../../src/model-free-commands.mjs';

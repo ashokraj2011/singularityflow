@@ -26,7 +26,7 @@ import { processResultCompleted, processResultSucceeded } from './process-result
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { inReadScope, scopedReadSync } from './read-scope.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
-import { gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
+import { gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './platform-process-values.mjs';
 import {
   inheritEnterpriseGitEnvironment, remoteGitEnvironment
 } from './git-enterprise-environment.mjs';

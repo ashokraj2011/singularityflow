@@ -365,7 +365,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,560,350 (measured 9,560,305, commands/phase-lifecycle.mjs): the findings loop loads only for a step with a scanner or CodeQL
     // (state.mjs +511), so every other step's publication and submission imports none of it.
     // 9,560,700 (measured 9,560,664, commands/phase-lifecycle.mjs): a later step reads CodeQL's alerts too (state.mjs +359). The read stays lazy.
-    assert.ok(closure.bytes <= 9_560_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,560,850 (measured 9,560,832, commands/phase-lifecycle.mjs): the findings loop loads from the CLI source, out of the VS Code
+    // gateway bundle, which it had grown by 28 modules (state.mjs +168).
+    assert.ok(closure.bytes <= 9_560_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

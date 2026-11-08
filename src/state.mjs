@@ -3694,7 +3694,7 @@ export async function publishGeneration(root, config, workflow, {
   if (deliveryPreflight) {
     // Lint and scanners first: they are quick, and a finding sent back to the code step costs no test
     // run. Their findings on changed lines return in this turn while the loop has attempts [CQF:REQ-043].
-    const qualityFindings = findingsLoopApplies(workflow, phase) ? await (await import('./findings/code-step.mjs')).publishCheckFindings(root, config,
+    const qualityFindings = findingsLoopApplies(workflow, phase) ? await (await findingsLoop()).publishCheckFindings(root, config,
       workflow, phase, deliveryPreflight, findingsKernel(config, workflow, phase)) : null;
     await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
     const testedSelection = deliveryPreflight.trpSelection ?? null;
@@ -5034,6 +5034,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   return checks;
 }
 
+// Kept out of the long-lived VS Code bundles like the environment bindings: loaded from the CLI source when a step has a scanner.
+const findingsLoop = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'code-step.mjs')).href);
+
 /** Whether a step has a lint, static-analysis or security command, or reads CodeQL: only then is the findings loop loaded. */
 function findingsLoopApplies(workflow, phase) {
   return workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github'
@@ -5628,7 +5631,7 @@ async function submitPhaseTransition(root, config, workflow, {
   if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
   // A later step reads CodeQL's alerts for the Story branch too; they inform and never block [CQF:REQ-049].
   if (!codeDeliveryRequired && runChecks && workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github') {
-    phase.codeScanning = await (await import('./findings/code-step.mjs')).laterStepCodeScanning(root, config, workflow, phase);
+    phase.codeScanning = await (await findingsLoop()).laterStepCodeScanning(root, config, workflow, phase);
   }
   const pins = codeDeliveryRequired && !retainedRisk && runChecks
     ? await (await import('./test-command-pins.mjs')).gateTestCommandPins(root, config, workflow, phase, requiredTestCommands, phase.deliveryEvidence) : null;
@@ -5641,7 +5644,7 @@ async function submitPhaseTransition(root, config, workflow, {
   // A code step's finding commands run, or stand on unchanged code, through the findings rules, after
   // the others and in the same order as the commands the validation lists [CQF:REQ-045].
   const findingSplit = codeDeliveryRequired && runChecks && findingsLoopApplies(workflow, phase)
-    ? (await import('./findings/code-step.mjs')).splitFindingCommands(deliveryCommands) : null;
+    ? (await findingsLoop()).splitFindingCommands(deliveryCommands) : null;
   if (findingSplit?.findings.length) deliveryCommands = [...findingSplit.others, ...findingSplit.findings];
   const executedCommands = findingSplit?.findings.length ? findingSplit.others : deliveryCommands;
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
@@ -5658,7 +5661,7 @@ async function submitPhaseTransition(root, config, workflow, {
   }) : [];
   // CodeQL's alerts are read from GitHub at submit even when the step runs no scanner itself [CQF:REQ-049].
   if (findingSplit?.findings.length || (findingSplit && workflow.resolution?.codeDelivery?.staticAnalysis?.codeql === 'github')) {
-    const submitted = await (await import('./findings/code-step.mjs')).submitCheckFindings(root, config, workflow, phase, findingSplit.findings,
+    const submitted = await (await findingsLoop()).submitCheckFindings(root, config, workflow, phase, findingSplit.findings,
       findingsKernel(config, workflow, phase, { generation: phase.generation }));
     phase.checks.push(...submitted.checks);
     phase.deliveryEvidence.submittedFindings = submitted.evidence;

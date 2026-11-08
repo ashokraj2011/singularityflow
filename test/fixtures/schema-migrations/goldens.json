@@ -1521,5 +1521,18 @@
       "format": "sflow-namespace-read-documents/v1",
       "documents": []
     }
+  ],
+  "namespace-story-lifecycle-read-head": [
+    {
+      "schemaVersion": 1,
+      "format": "sflow-namespace-read-lifecycle-head/v1",
+      "projectId": "fixture-project",
+      "workId": "STORY-1",
+      "lifecycleHead": "stories/b7f0d881bff2d52fd4b5aa516d499919e77ae42c8a577bdc9aee77b82ea7bf75/head",
+      "authority": {
+        "id": "fixture-authority",
+        "epoch": 1
+      }
+    }
   ]
 }

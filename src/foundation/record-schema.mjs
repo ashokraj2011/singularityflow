@@ -121,7 +121,8 @@ export const SQLITE_NAMESPACE_SCHEMAS = Object.freeze({
 export const CONTENT_STORAGE_SCHEMA = frozenFamily('content-sqlite-manifest');
 export const NAMESPACE_READER_SCHEMAS = Object.freeze({
   head: frozenFamily('namespace-story-read-head'), state: frozenFamily('namespace-story-read-state'),
-  policy: frozenFamily('namespace-story-read-policy'), documents: frozenFamily('namespace-story-document-index')
+  policy: frozenFamily('namespace-story-read-policy'), documents: frozenFamily('namespace-story-document-index'),
+  'lifecycle-head': frozenFamily('namespace-story-lifecycle-read-head')
 });
 export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
   authority: frozenFamily('namespace-lifecycle-authority'), configuration: frozenFamily('namespace-lifecycle-configuration'),
@@ -138,6 +139,10 @@ export const NAMESPACE_CONFIGURATION_SCHEMAS = Object.freeze({
   source: frozenFamily('namespace-configuration-source'), compiled: frozenFamily('namespace-configuration-compiled'),
   head: frozenFamily('namespace-configuration-head'), intent: frozenFamily('namespace-configuration-intent'),
   manifest: frozenFamily('namespace-configuration-manifest')
+});
+export const NAMESPACE_STORY_SCHEMAS = Object.freeze({
+  intent: frozenFamily('namespace-story-creation-intent'), genesis: frozenFamily('namespace-story-genesis'),
+  manifest: frozenFamily('namespace-story-creation-manifest'), workflow: frozenFamily('namespace-story-workflow')
 });
 // Wire shape constraints, selected here without rewriting an immutable historical body.
 const LIFECYCLE_STATE_PROFILES = Object.freeze({

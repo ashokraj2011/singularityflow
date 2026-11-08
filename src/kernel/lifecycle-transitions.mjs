@@ -1,3 +1,5 @@
+import {normalizeSourceBoundary} from './configuration-declarations.mjs';
+import {DEFAULT_APPROVAL_AUTHORITY} from './approval-policy.mjs';
 /** Pure aggregate transitions shared by native lifecycle writers, simulation and portable hosts.
  * These helpers grant no permission, verify no evidence and perform no I/O. The runtime
  * owner must finish its existing publication/reviewer/receipt checks before applying accepted
@@ -584,4 +586,69 @@ function reconcileStatus(workflow, phase, allowedStatuses, at) {
   }
   workflow.currentPhase = phase.id;
   workflow.status = 'in_progress';
+}
+
+
+export function initialPhaseState(definition, index, startedAt) {
+  const requiredArtifact = structuredClone(definition.artifact);
+  return {
+    id: definition.id,
+    label: definition.label,
+    order: index,
+    ...(definition.kind === 'skill' ? {
+      kind: 'skill', skillBinding: structuredClone(definition.skillBinding)
+    } : {}),
+    defaultAgent: definition.defaultAgent ?? null,
+    status: index === 0 ? 'in_progress' : 'not_started',
+    requiredArtifact,
+    template: definition.template,
+    worldModel: structuredClone(definition.worldModel ?? {}),
+    writeScope: definition.writeScope ?? 'artifact-only',
+    sourceBoundary: normalizeSourceBoundary(definition.sourceBoundary, definition.id),
+    comparison: structuredClone(definition.comparison ?? {}),
+    mcp: structuredClone(definition.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] }),
+    repairBudget: structuredClone(definition.repairBudget ?? null),
+    inputs: structuredClone(definition.inputs ?? []),
+    generationPolicy: structuredClone(definition.generation ?? { requirement: 'required', producer: 'agent' }),
+    approvalPolicy: structuredClone(definition.approval ?? { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id] }),
+    qualityCommands: [...(definition.qualityCommands ?? [])],
+    startedAt: index === 0 ? startedAt : null,
+    submittedAt: null,
+    approvedAt: null,
+    approvedBy: null,
+    rejectedAt: null,
+    rejectedBy: null,
+    rejectionReason: null,
+    generation: 0,
+    generatedBy: null,
+    generatedAgent: null,
+    authorship: [],
+    usage: [],
+    telemetry: [],
+    approvals: [],
+    generationPublications: [],
+    submissionArchitectureDecision: null,
+    designSourceSets: [],
+    artifactRegistrationRepairs: [],
+    artifacts: [],
+    checks: []
+  };
+}
+
+export function initialWorkflowProgress(definitions, { startedAt, tokenMode = 'exact-or-unavailable', telemetryMetadata } = {}) {
+  const config={tokens:{mode:tokenMode}};
+  const phases=definitions.map((definition,index)=>initialPhaseState(definition,index,startedAt));
+  return {status: 'in_progress',
+currentPhase: phases[0]?.id ?? null,
+phaseOrder: phases.map((phase) => phase.id),
+phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
+usage: {
+      mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
+      exactRecords: 0, unavailableRecords: 0, byPhase: {}, byAgent: {}, byWorkType: {}, byWorkItem: {}
+    },
+telemetry: { ...telemetryMetadata, mode: 'work-item-sanitized' },
+documents: { count: 0, updatedAt: null },
+collaboration: { assignments: {}, notifications: [] },
+sequenceOverrides: [],
+changeRequests: []};
 }

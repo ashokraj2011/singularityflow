@@ -254,8 +254,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           const text=async value=>(await content.put(scope,'config',Buffer.from(value))).reference;
           const body=await text('Apply the verified requirements and retain evidence.\\n');
           const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',
-            definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md'}},
-              workTypes:{simple:{label:'Simple',phases:['intake']}}},
+            definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md',approval:{authorities:['reviewers'],minimum:1,rejectTo:['intake']}}},
+              approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'}]}},
+              workTypes:{simple:{label:'Simple',phases:['intake'],
+                omits:['scope','plan','implement','verify'].map(responsibility=>({responsibility,reason:'This workflow produces a reviewed document, without delivering application behavior.',authority:'reviewers'}))}}},
             agents:[{id:'analyst',label:'Analyst',phases:['intake'],defaultFor:['intake'],mode:'read-write',body,skills:[],instructions:[]}],
             skills:[],instructions:[],templates:[{path:'singularity/templates/intake.md',body}],files:[]};
           const reference=await text(JSON.stringify(packet));
@@ -279,6 +281,43 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,replayed:true});
   });
 
+  await t.test('installed Story creation pins real configuration and reopens its source in a separate empty-PATH process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';
+      import {readFile,writeFile} from 'node:fs/promises';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceStoryEngine} from '${packageName}/hosts/namespace-story';
+      import {createNamespaceReadEngine} from '${packageName}/hosts/namespace-reader';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='portable-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const database=new (await import('node:sqlite')).DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding});
+      try {
+        let calls=0;const access={async current(){calls++;if(!fresh)throw Error('an accepted creation cannot authorize another effect');
+          return {projectId:scope.projectId,principalId:'story-creator',permissions:['story.create'],actorKind:'human',identity:{name:'Example reviewer',email:'reviewer@example.test'}};}};
+        const clock={now(){if(!fresh)throw Error('a retained creation cannot be restamped');return '2026-11-08T12:00:00.000Z';}};
+        let inputs;
+        if(fresh) {const reference=(await content.put(scope,'state',Buffer.from('# Source\\n\\nCreate a portable Story.\\n'))).reference;
+          inputs={operationId:'create-portable-story',workId,title:'Portable Story',workTypeId:'simple',configurationId:'approve-configuration',source:reference};
+          await writeFile('story-inputs.json',JSON.stringify(inputs));
+        }else inputs=JSON.parse(await readFile('story-inputs.json','utf8'));
+        const engine=createNamespaceStoryEngine({records,content,scope,workId,authority,access,clock});
+        const created=await engine.run('story.create',inputs);
+        assert.equal(created.replayed,!fresh);assert.equal(created.effects.approvalRecorded,false);assert.equal(created.generation,0);
+        const reader=createNamespaceReadEngine({records,content,scope,workId});
+        const document=await reader.run('document.read',{reference:created.source});
+        assert.equal(document.document.content.text,'# Source\\n\\nCreate a portable Story.\\n');
+        assert.equal(document.document.expected.sha256,inputs.source.sha256);
+        if(!fresh)assert.equal(calls,0);
+        process.stdout.write(JSON.stringify(created));
+      }finally{database.close();}
+    `;
+    const first=JSON.parse(await run('story.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('story.mjs',source,['replay']));
+    assert.deepEqual(replay,{...first,replayed:true});
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -290,6 +329,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceReadEngine, namespaceReadRecord } from '${packageName}/hosts/namespace-reader';
       import { createNamespaceProjectEngine } from '${packageName}/hosts/namespace-project';
       import { createNamespaceConfigurationEngine } from '${packageName}/hosts/namespace-configuration';
+      import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
@@ -305,6 +345,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('project.enroll',{operationId:'enroll-1'});
       const configuration:EngineInputs['configuration.approve']={operationId:'approve-configuration',source:{namespace:'config',sha256:'a'.repeat(64),bytes:1},expectedRevision:null,confirm:'a'.repeat(64),reason:'Reviewed exact content.'};
       engine.run('configuration.approve',configuration);
+      const creation:EngineInputs['story.create']={operationId:'create-1',workId:'example',title:'Example',workTypeId:'feature',configurationId:'approve-configuration',source:{namespace:'state',sha256:'a'.repeat(64),bytes:1}};
+      engine.run('story.create',creation);
+      // @ts-expect-error Story creation requires the exact immutable source and configuration ID.
+      engine.run('story.create',{});
+      // @ts-expect-error An immutable source reference cannot be a laptop path.
+      engine.run('story.create',{...creation,source:'/another/file'});
+      // @ts-expect-error A Story ID is separate from a checkout branch, which is not a creation input.
+      engine.run('story.create',{...creation,branch:'feature/example'});
       // @ts-expect-error Exact configuration approval inputs and confirmation are mandatory.
       engine.run('configuration.approve',{});
       // @ts-expect-error Source is an immutable content binding, never a laptop path.
@@ -356,8 +404,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       function configurationHost(records:NamespaceStore,content:ContentStore){return createNamespaceConfigurationEngine({records,content,scope:{projectId:'example'},
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['configuration.approve'],actorKind:'human'})},
         clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
+      function storyHost(records:NamespaceStore,content:ContentStore){return createNamespaceStoryEngine({records,content,scope:{projectId:'example'},workId:'example',
+        authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['story.create'],actorKind:'human',identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
+        clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
-      void [head,readHost,projectHost,configurationHost,createSqliteContentStore];
+      void [head,readHost,projectHost,configurationHost,storyHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],

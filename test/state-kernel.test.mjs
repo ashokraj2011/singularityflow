@@ -1308,12 +1308,16 @@ test('cancel and reject mutate inside the transaction, not before it', async () 
     assert.ok(start > 0, `${name} exists`);
     return cli.slice(start, cli.indexOf('\nasync function ', start + 1));
   };
-  for (const command of ['cancelCommand', 'rejectCommand']) {
-    const source = body(command);
+  const rejection = await readFile(path.join(packageRoot,'src','engine-compatibility','git-rejection.mjs'),'utf8');
+  assert.match(body('rejectCommand'),/await binding\.engine\.run\('phase\.reject'/,
+    'the CLI delegates rejection to its registered engine port');
+  for (const [command,source] of [['cancelCommand',body('cancelCommand')],['rejection commit port',rejection]]) {
     assert.match(source, /transactStory\(/, `${command} publishes through a transaction`);
     assert.doesNotMatch(source, /await commitAndPublish\(/,
       `${command} does not mutate and then publish separately`);
   }
+  assert.match(rejection,/async commit\([\s\S]*transactStory\([\s\S]*aggregate => rejectPhase\(/,
+    'the actual rejection mutation receives the transaction aggregate');
 });
 
 test('post-commit phase handoffs cannot turn reject or reopen into a false lifecycle failure', async () => {
@@ -1327,7 +1331,8 @@ test('post-commit phase handoffs cannot turn reject or reopen into a false lifec
     assert.ok(start > 0, `${name} exists`);
     return cli.slice(start, cli.indexOf('\nasync function ', start + 1));
   };
-  assert.match(body('rejectCommand'),
+  const rejection = await readFile(path.join(packageRoot,'src','engine-compatibility','git-rejection.mjs'),'utf8');
+  assert.match(rejection.slice(rejection.indexOf('async finish(')),
     /await postPublicationStep\('the returned-phase session activation',[\s\S]*activateWorkItemSession/);
   assert.match(body('reopenCommand'),
     /await postPublicationStep\('the reopened-phase session activation',[\s\S]*activateWorkItemSession/);

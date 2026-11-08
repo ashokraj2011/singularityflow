@@ -58,6 +58,17 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-project`: explicitly enroll a new namespace project through `project.enroll`.
+- `hosts/namespace-configuration`: approve an exact workflow package under an enrolled authority.
+- `hosts/namespace-story`: create work from an approved configuration through `story.create` and
+  read its canonical lifecycle state and exact source through the same registry.
+
+The Story host binds the same stores, scope and authority as project setup, plus an explicit
+`workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,
+`workTypeId`, the approved `configurationId` and an immutable shared text `source` reference.
+The creator port supplies authenticated identity and fresh `story.create` permission. Creation
+retains generation zero and unbound execution; it does not record tests or human approval.
+The returned `source` reference can be read with `document.read`. Reuse the same inputs and
+operation ID after a lost acknowledgement. Production portable phase execution is still pending.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
 saved read head. It implements `phase.review` and `document.read`; its other operation ports remain

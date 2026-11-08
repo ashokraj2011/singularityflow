@@ -950,3 +950,39 @@ export function applicationReviewPhase(workflow) {
   return order.slice(0, current < 0 ? order.length : current).findLast(id => phaseRequiresCodeDelivery(workflow.phases?.[id])
     && workflow.phases[id].generation > 0) ?? workflow.currentPhase;
 }
+
+export function phaseTopologyFindings(resolved) {
+  const phases = resolved?.phases ?? [];
+  const findings = [];
+  const add = (code, phase, message) => findings.push({ code, phaseId: phase.id, severity: 'error', message,
+    resolvingAction: 'Edit the effective workflow in Configuration Center, then validate it before starting a Story.' });
+  const convergence = phases.filter(isConvergencePhase);
+  if (convergence.length > 1) add('WORKFLOW_CONVERGENCE_MULTIPLE_UNSUPPORTED', convergence[1],
+    'Only one Convergence step is supported: iteration storage must not be shared by separate review stages.');
+  for (const phase of convergence) {
+    if (!phases.slice(0, phases.indexOf(phase)).some(phaseRequiresCodeDelivery)) {
+      add('WORKFLOW_CONVERGENCE_CODE_SOURCE_MISSING', phase, `Convergence '${phase.id}' needs an earlier code-delivery step and its reconciliation. Use an ordinary document review for a workflow that produces no code.`);
+    }
+  }
+  const visual = phases.filter(isVisualVerificationPhase);
+  if (visual.length > 1) add('WORKFLOW_VISUAL_MULTIPLE_UNSUPPORTED', visual[1],
+    'Only one visual-evidence stage is supported by this workflow contract. Split stages into separate workflows until independent receipt namespaces are supported.');
+  for (const phase of phases) {
+    if ((isConvergencePhase(phase) || isConformancePhase(phase) || isVisualVerificationPhase(phase))
+        && (phase.generationPolicy ?? phase.generation)?.requirement === 'none') {
+      add('WORKFLOW_PROOF_OUTPUT_REQUIRED', phase,
+        `Proof-producing step '${phase.id}' cannot be sign-off-only. Keep its report generation required; use an ordinary review step to review existing outputs.`);
+    } else if ((phase.generationPolicy ?? phase.generation)?.requirement === 'none') {
+      add('WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED', phase,
+        `Step '${phase.id}' declares no output generation, but this execution contract requires a publication receipt. Use a required deterministic or authored review artifact; a no-output review receipt is not supported yet.`);
+    }
+  }
+  return findings;
+}
+
+export function workflowStartIssues(resolved) {
+  const topology=phaseTopologyFindings(resolved);
+  if(topology.length)return topology;
+  if(resolved?.plannedClaims?.mode==='migration-required')return [{code:'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',severity:'error',message:'The selected workflow has no current planned-claim contract.'}];
+  return (resolved?.obligationGraph?.findings??[]).filter(entry=>entry.severity==='error');
+}

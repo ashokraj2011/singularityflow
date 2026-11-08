@@ -24,6 +24,7 @@ import {phaseInputsAuditRequired,phaseInputsManifest} from '../kernel/phase-inpu
 import {workflowNextManifest} from '../kernel/next-plan.mjs';
 import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult,
   projectConfigurationInput,projectConfigurationBinding,projectConfigurationResult} from '../kernel/project-enrollment.mjs';
+import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../kernel/story-creation.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -149,13 +150,33 @@ const definitions = [
     authority:'configuration.approve',confirmation:'exact-source-sha256',
     inputFields:Object.freeze(['operationId','source','expectedRevision','confirm','reason']),
     requiredFields:Object.freeze(['operationId','source','expectedRevision','confirm','reason']),port:'configurationApproval',
-    stages:WRITE_STAGES,validate:'configurationApprovalInput',execute:'approveConfiguration' }
+    stages:WRITE_STAGES,validate:'configurationApprovalInput',execute:'approveConfiguration' },
+  { id:'story.create',version:1,subject:'story',effect:'story-creation',humanDecision:false,
+    authority:'story.create',inputFields:Object.freeze(['operationId','workId','title','workTypeId','configurationId','source']),
+    requiredFields:Object.freeze(['operationId','workId','title','workTypeId','configurationId','source']),port:'storyCreation',
+    stages:WRITE_STAGES,validate:'storyCreationInput',execute:'createStory' }
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
 function configurationApprovalInput(value) { return projectConfigurationInput(data(value)); }
+
+async function createStory(port, inputs, signal) {
+  notCancelled(signal);
+  const context=await port.load(inputs,{signal});notCancelled(signal);
+  const binding=data(storyCreationBinding(data(context?.binding),inputs));
+  let committed=await port.retained(context,inputs,{signal});notCancelled(signal);
+  if(committed===null) {
+    try {const prepared=await port.prepare(context,inputs,{signal});notCancelled(signal);committed=await port.commit(context,prepared,{signal});}
+    catch(cause) {
+      if(!['ENGINE_STORY_EXISTS','ENGINE_CONTEXT_CHANGED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+      committed=await port.retained(context,inputs,{signal});if(committed===null)throw cause;
+    }
+  }
+  const facts=data(await port.finish(context,committed,{signal:null}));
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'story.create',...storyCreationResult(binding,inputs,facts)});
+}
 
 async function approveConfiguration(port, inputs, signal) {
   notCancelled(signal);
@@ -186,8 +207,13 @@ async function enrollProject(port, inputs, signal) {
   const retained = await port.retained(context, inputs, { signal }); notCancelled(signal);
   let committed = retained;
   if (retained === null) {
-    const prepared = await port.prepare(context, inputs, { signal }); notCancelled(signal);
-    committed = await port.commit(context, prepared, { signal });
+    try {
+      const prepared = await port.prepare(context, inputs, { signal }); notCancelled(signal);
+      committed = await port.commit(context, prepared, { signal });
+    } catch(cause) {
+      if(!['ENGINE_PROJECT_ALREADY_ENROLLED','ENGINE_CONTEXT_CHANGED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
+      committed=await port.retained(context,inputs,{signal});if(committed===null)throw cause;
+    }
   }
   // A known durable receipt must still be acknowledged if cancellation arrives after commit.
   const facts = data(await port.finish(context, committed, { signal: null }));
@@ -1342,7 +1368,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 /** Default SDK composition binds every coordinator to the one data-only registry. */
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
-    enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,
+    enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,

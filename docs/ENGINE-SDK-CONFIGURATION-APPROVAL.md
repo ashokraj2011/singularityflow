@@ -96,7 +96,8 @@ owns content and metadata persistence. The configuration host coordinates those 
 the registered operation. Shared bounded JSON grammar now lives in foundation; existing namespace
 readers retain their original limits, identities, diagnostics and exported function signatures.
 
-Namespace-backed Story creation and complete lifecycle ports remain required. Native configuration
+The later [Story creation delivery](ENGINE-SDK-STORY-CREATION.md) consumes these immutable approvals.
+Complete lifecycle ports remain required. Native configuration
 adapter convergence, existing-project export/import and authority cutover, old-writer fencing,
 obsolete-access removal and final distribution/performance qualification remain open milestones.
 

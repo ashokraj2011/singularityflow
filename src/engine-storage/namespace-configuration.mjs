@@ -1,5 +1,7 @@
 /** Explicit configuration approval host. No installed discovery, Git, provider or filesystem. */
 import { createHash } from 'node:crypto';
+import { createNamespaceConfigurationCodec } from './namespace-configuration-codec.mjs';
+import { createNamespaceConfigurationObserver } from './namespace-configuration-reader.mjs';
 import { createEngine } from '../engine-sdk/index.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { NODE_NAMESPACE_CONFIGURATION_COMPILER } from '../engine-compatibility/node-namespace-configuration.mjs';
@@ -7,7 +9,6 @@ import { namespaceConfigurationJsonValues } from '../kernel/namespace-configurat
 import { projectConfigurationAccess, projectEnrollmentTimestamp, CONFIGURATION_PACKAGE_MAXIMUM_BYTES } from '../kernel/project-enrollment.mjs';
 import { validateNamespaceStore, namespaceLimits } from '../sda/namespace/contract.mjs';
 import { exactObject, namespaceScope, namespaceIdentifier, namespaceRevision, namespaceJson, namespaceIdentityJson } from '../sda/namespace/values.mjs';
-import { namespaceTransaction, namespaceTransactionIdentity } from '../sda/namespace/transaction.mjs';
 import { validateContentStore, contentReference } from '../sda/content/contract.mjs';
 import { LIFECYCLE_AUTHORITY_KEY, lifecycleAuthority, lifecycleConfiguration, lifecycleRecord } from './namespace-lifecycle-contract.mjs';
 import { NAMESPACE_CONFIGURATION_HEAD_KEY, namespaceConfigurationRecord, namespaceConfigurationRecordValue, namespaceConfigurationCompiledValue } from './namespace-configuration-contract.mjs';
@@ -33,41 +34,9 @@ export function createNamespaceConfigurationEngine({ records, content, scope, au
   const currentAccess=access.current.bind(access), now=clock.now.bind(clock);
   const contexts=new WeakMap(), preparations=new WeakMap(), outcomes=new WeakMap();
   const binding=Object.freeze({projectId:scope.projectId,authority});
-  const keys=operationId=> { const id=identity({projectId:scope.projectId,authority,operationId});
-    return {prepared:`configuration/prepared/${id}`,manifest:`configuration/approvals/${id}`,
-      prepareOperation:`config-prepare-${id}`,operation:`config-approve-${id}`,event:`config-approve-${id}`}; };
   const parameters=inputs=>identity({operation:'configuration.approve',inputs,binding,recordsId:recordId,contentId});
-  const txDigest=tx=>hash(namespaceTransactionIdentity(scope,tx,limits));
-  function stored(validate,...args) {
-    try{return validate(...args);}catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
-      throw error('A retained configuration record is invalid.','ENGINE_STORAGE_CORRUPT',{projectId:scope.projectId},cause);}
-  }
-  async function record(namespace,key,immutable,signal) {
-    const result=await read(scope,namespace,key,{signal});
-    if(result?.status==='missing' && result.record===null)return null;
-    try {
-      if(result?.status!=='present' || result.record?.namespace!==namespace || result.record.key!==key
-        || result.record.immutable!==immutable || namespaceRevision(result.record.version)===null)throw new Error('Wrong record binding.');
-      return {version:result.record.version,value:namespaceJson(result.record.value,{maxBytes:limits.maxValueBytes})};
-    }catch(cause){
-      throw error('The namespace port returned another configuration record.','ENGINE_PORT_RESULT_INVALID',{namespace,key},cause);
-    }
-  }
-  async function bytes(reference,signal) {
-    reference=contentReference(reference); const result=await get(scope,reference,{maximumBytes:reference.bytes,signal});
-    if(result?.status==='missing' && result.data===null)throw error('Required immutable configuration content is missing.','ENGINE_STORAGE_CONTENT_MISSING',{reference});
-    try {
-      if(result?.status!=='present' || !same(contentReference(result.reference),reference) || !(result.data instanceof Uint8Array)
-        || result.data.byteLength!==reference.bytes || result.truncated!==false)throw new Error('Wrong content binding.');
-    }catch(cause){throw error('The content port returned another configuration binding.','ENGINE_PORT_RESULT_INVALID',{reference},cause);}
-    const data=Buffer.from(result.data);
-    if(hash(data)!==reference.sha256)throw error('Immutable configuration content has another digest.','ENGINE_STORAGE_CORRUPT',{reference});
-    return data;
-  }
-  function json(data) {
-    try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}
-    catch(cause){throw error('The configuration package is not bounded UTF-8 JSON.','ENGINE_CONFIGURATION_INVALID',null,cause);}
-  }
+  const {keys,projected,transaction,prepareTransaction,receipt,txDigest}=createNamespaceConfigurationCodec({scope,authority,limits});
+  const {stored,record,bytes,json}=createNamespaceConfigurationObserver({records,content,scope,authority});
   async function compile(inputs,signal) {
     cancelled(signal); const result=NODE_NAMESPACE_CONFIGURATION_COMPILER.compile(json(await bytes(inputs.source,signal)),inputs.source);
     for(const resource of result.resources) {
@@ -90,47 +59,6 @@ export function createNamespaceConfigurationEngine({ records, content, scope, au
   }
   function select(context) { const selected=contexts.get(context);
     if(!selected)throw error('Configuration approval needs its own issued context.','ENGINE_INPUT_INVALID'); return selected; }
-  const projected=(kind,plan)=>namespaceConfigurationRecord(kind,Object.fromEntries(Object.entries(plan)
-    .filter(([key])=>!['schemaVersion','format','requestDigest'].includes(key))));
-  function transaction(plan) {
-    const k=keys(plan.operationId),configuration=lifecycleRecord('configuration',{projectId:scope.projectId,content:plan.configuration.content});
-    return namespaceTransaction({operationId:k.operation,preconditions:[
-      {namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,version:plan.authorityVersion},
-      {namespace:'config',key:NAMESPACE_CONFIGURATION_HEAD_KEY,version:plan.baseRevision},
-      {namespace:'config',key:plan.configuration.key,version:plan.configurationVersion},
-      {namespace:'evidence',key:k.manifest,version:null}
-    ],changes:[
-      ...(plan.configurationVersion===null?[{op:'put',namespace:'config',key:plan.configuration.key,immutable:true,value:configuration}]:[]),
-      {op:'put',namespace:'config',key:NAMESPACE_CONFIGURATION_HEAD_KEY,immutable:false,value:projected('head',plan)},
-      {op:'put',namespace:'evidence',key:k.manifest,immutable:true,value:projected('manifest',plan)}
-    ],events:[{eventId:k.event,eventType:'engine.configuration-approved',namespace:'config',
-      payload:{projectId:scope.projectId,operationId:plan.operationId,source:plan.source,configuration:plan.configuration.content,
-        principalId:plan.principalId,authorityId:authority.id,epoch:authority.epoch}}]},limits);
-  }
-  function prepareTransaction(plan) {
-    const k=keys(plan.operationId);
-    return namespaceTransaction({operationId:k.prepareOperation,preconditions:[
-      {namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,version:plan.authorityVersion},
-      {namespace:'config',key:NAMESPACE_CONFIGURATION_HEAD_KEY,version:plan.baseRevision},
-      {namespace:'runtime',key:k.prepared,version:null},{namespace:'evidence',key:k.manifest,version:null}
-    ],changes:[{op:'put',namespace:'runtime',key:k.prepared,immutable:true,value:plan}],events:[]},limits);
-  }
-  function receipt(result,tx) {
-    let r;
-    try {
-      r=namespaceJson(result?.receipt,{maxBytes:limits.maxValueBytes});
-      exactObject(r,['operationId','scope','revision','requestDigest','records','eventIds']); exactObject(r.scope,['projectId']);
-      if(namespaceRevision(r.revision)===null || !Array.isArray(r.records) || !Array.isArray(r.eventIds))throw new Error('Invalid receipt fields.');
-      for(const item of r.records){exactObject(item,['namespace','key','version']);if(namespaceRevision(item.version)===null)throw new Error('Missing record revision.');}
-    }catch(cause){throw error('Inspect the original configuration operation: its receipt is invalid.','ENGINE_PORT_RESULT_INVALID',null,cause);}
-    const addresses=tx.changes.map(change=>[change.namespace,change.key]);
-    if(result.status!=='committed' || r.operationId!==tx.operationId || r.scope.projectId!==scope.projectId || r.requestDigest!==txDigest(tx)
-      || result.replayed!==undefined && typeof result.replayed!=='boolean' || r.records.length!==addresses.length
-      || new Set(r.records.map(item=>JSON.stringify([item.namespace,item.key]))).size!==addresses.length
-      || !r.records.every(item=>addresses.some(([namespace,key])=>item.namespace===namespace&&item.key===key))
-      || !same(r.eventIds,tx.events.map(event=>event.eventId)))throw error('The configuration receipt has another binding.','ENGINE_PORT_RESULT_INVALID');
-    return r;
-  }
   function admit(plan,selected) {
     stored(namespaceConfigurationRecordValue,'intent',plan,scope,selected.inputs.operationId);
     if(plan.parametersSha256!==selected.parameters || plan.authorityId!==authority.id || plan.epoch!==authority.epoch
@@ -140,15 +68,18 @@ export function createNamespaceConfigurationEngine({ records, content, scope, au
     if(plan.requestDigest!==txDigest(transaction(plan)))throw error('The prepared configuration transaction changed.','ENGINE_STORAGE_CORRUPT'); return plan;
   }
   async function checkpoint(selected,signal) {
-    const k=keys(selected.inputs.operationId),saved=await record('runtime',k.prepared,true,signal),observed=await inspect(scope,k.prepareOperation,{signal});
+    const k=keys(selected.inputs.operationId);let saved=await record('runtime',k.prepared,true,signal);
+    const observed=await inspect(scope,k.prepareOperation,{signal});
     if(saved===null && observed?.status==='missing' && observed.receipt===null)return null;
+    if(saved===null && observed?.status==='committed')saved=await record('runtime',k.prepared,true,signal);
     if(!saved)throw error('The configuration preparation lost its immutable intent.','ENGINE_STORAGE_CORRUPT');
     const plan=admit(saved.value,selected);receipt(observed,prepareTransaction(plan));return plan;
   }
   function outcome(context,plan,r,replayed,advisories){const token=Object.freeze({});outcomes.set(token,{context,plan,receipt:r,replayed,advisories});return token;}
   async function retained(context,_inputs,{signal}={}) {
-    cancelled(signal);const selected=select(context),plan=await checkpoint(selected,signal),observed=await inspect(scope,keys(selected.inputs.operationId).operation,{signal});
+    cancelled(signal);const selected=select(context),observed=await inspect(scope,keys(selected.inputs.operationId).operation,{signal});
     if(observed?.status==='missing' && observed.receipt===null)return null;
+    const plan=await checkpoint(selected,signal);
     if(!plan)throw error('A configuration approval lost its prepared intent.','ENGINE_STORAGE_CORRUPT');
     const r=receipt(observed,transaction(plan)),saved=await record('evidence',keys(plan.operationId).manifest,true,signal);
     if(!saved || !same(stored(namespaceConfigurationRecordValue,'manifest',saved.value,scope,plan.operationId),projected('manifest',plan)))throw error('The accepted configuration decision is missing or changed.','ENGINE_STORAGE_CORRUPT');

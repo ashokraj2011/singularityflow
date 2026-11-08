@@ -1,3 +1,5 @@
+import { enrollPinnedApprovalIdentity } from './kernel/approval-policy.mjs';
+import {initialWorkflowProgress} from './kernel/lifecycle-transitions.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { phaseInputsAuditRequired } from './kernel/phase-inputs.mjs';
 import { resolutionPolicySha256, storyHistoryCommits, initialWorkflowRecord, committedResolutionPolicy, PROSPECTIVE_SKILL_AMENDMENT } from './story-policy-anchor.mjs';
@@ -67,7 +69,6 @@ import { contextBoundaryHandoff } from './context-policy.mjs';
 import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority, sameApprover } from './kernel/approval-policy.mjs';
 import { assertSourceBoundary } from './source-boundary.mjs';
-import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-transition-routes.mjs';
@@ -336,51 +337,7 @@ function sourceMarkdown(source) {
     + `\n## Subtasks\n\n${subtasks}\n`;
 }
 
-function phaseState(definition, index) {
-  const requiredArtifact = structuredClone(definition.artifact);
-  return {
-    id: definition.id,
-    label: definition.label,
-    order: index,
-    ...(definition.kind === 'skill' ? {
-      kind: 'skill', skillBinding: structuredClone(definition.skillBinding)
-    } : {}),
-    defaultAgent: definition.defaultAgent ?? null,
-    status: index === 0 ? 'in_progress' : 'not_started',
-    requiredArtifact,
-    template: definition.template,
-    worldModel: structuredClone(definition.worldModel ?? {}),
-    writeScope: definition.writeScope ?? 'artifact-only',
-    sourceBoundary: normalizeSourceBoundary(definition.sourceBoundary, definition.id),
-    comparison: structuredClone(definition.comparison ?? {}),
-    mcp: structuredClone(definition.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] }),
-    repairBudget: structuredClone(definition.repairBudget ?? null),
-    inputs: structuredClone(definition.inputs ?? []),
-    generationPolicy: structuredClone(definition.generation ?? { requirement: 'required', producer: 'agent' }),
-    approvalPolicy: structuredClone(definition.approval ?? { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id] }),
-    qualityCommands: [...(definition.qualityCommands ?? [])],
-    startedAt: index === 0 ? nowIso() : null,
-    submittedAt: null,
-    approvedAt: null,
-    approvedBy: null,
-    rejectedAt: null,
-    rejectedBy: null,
-    rejectionReason: null,
-    generation: 0,
-    generatedBy: null,
-    generatedAgent: null,
-    authorship: [],
-    usage: [],
-    telemetry: [],
-    approvals: [],
-    generationPublications: [],
-    submissionArchitectureDecision: null,
-    designSourceSets: [],
-    artifactRegistrationRepairs: [],
-    artifacts: [],
-    checks: []
-  };
-}
+
 
 /**
  * Operational phase policy appears twice in the aggregate: the immutable resolved definition and
@@ -961,21 +918,7 @@ export async function createWorkflow(root, config, {
     ?? resolution.approvalAuthorities
     ?? normalizeApprovalAuthorities(config.approvalAuthorities));
   if (normalizeApprovalSecurity(config.approvalSecurity ?? {}).autoEnrollNewIdentities) {
-    const email = String(creator.email ?? '').trim().toLowerCase();
-    const githubLogin = String(creator.login ?? creator.githubLogin ?? '').trim();
-    for (const authority of Object.values(pinnedApprovalAuthorities)) {
-      authority.members ??= [];
-      const enrolled = authority.members.some((member) =>
-        (email && String(member.email ?? '').trim().toLowerCase() === email)
-        || (githubLogin && String(member.githubLogin ?? '').trim().toLowerCase() === githubLogin.toLowerCase()));
-      if (!enrolled && (email || githubLogin)) {
-        authority.members.push({
-          name: String(creator.name ?? '').trim() || null,
-          email: email || null,
-          githubLogin: githubLogin || null
-        });
-      }
-    }
+    enrollPinnedApprovalIdentity(pinnedApprovalAuthorities, creator);
   }
   for (const phase of resolution.phases) {
     assertApprovalPolicyAttainable(pinnedApprovalAuthorities, phase.approval, phase.id, { creator });
@@ -1028,8 +971,11 @@ export async function createWorkflow(root, config, {
     }
   }
   const actor = creator;
-  const phases = resolution.phases.map(phaseState);
+  const startedAt = resolution.phases.length ? nowIso() : null;
   const createdAt = nowIso();
+  const progress = initialWorkflowProgress(resolution.phases, { startedAt, tokenMode: config.tokens?.mode ?? 'exact-or-unavailable',
+    telemetryMetadata: { schemaVersion: currentSchemaVersion('work-item-telemetry') } });
+  const phases = progress.phaseOrder.map(id => progress.phases[id]);
   const workflow = {
     // A selected skill phase introduces a different immutable phase contract, but all newly
     // written Stories use the current record version. Legacy template records remain readable
@@ -1100,20 +1046,8 @@ export async function createWorkflow(root, config, {
       ...(snapshotState.repositoryCommitPolicy == null ? {} : { repositoryCommitPolicy: structuredClone(snapshotState.repositoryCommitPolicy) }),
       phases: resolution.phases
     },
-    status: 'in_progress',
-    currentPhase: phases[0]?.id ?? null,
-    phaseOrder: phases.map((phase) => phase.id),
-    phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
-    usage: {
-      mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
-      exactRecords: 0, unavailableRecords: 0, byPhase: {}, byAgent: {}, byWorkType: {}, byWorkItem: {}
-    },
-    telemetry: { schemaVersion: currentSchemaVersion('work-item-telemetry'), mode: 'work-item-sanitized' },
-    documents: { count: 0, updatedAt: null },
-    collaboration: { assignments: {}, notifications: [] },
-    sequenceOverrides: [],
-    changeRequests: [],
-    history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${currentBranch}` }]
+    ...progress,
+    history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: progress.currentPhase, detail: `Created ${selectedType} branch ${currentBranch}` }]
   };
   // Cut from another Story's branch: keep that Story as this one's base Story and take its Epic.
   // The new branch still points at the base, so HEAD is the commit when none was supplied.

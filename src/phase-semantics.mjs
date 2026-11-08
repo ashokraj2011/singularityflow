@@ -1,3 +1,5 @@
+import { phaseTopologyFindings } from './kernel/phase-policy.mjs';
+export { phaseTopologyFindings } from './kernel/phase-policy.mjs';
 import { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './kernel/phase-policy.mjs';
 export { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './kernel/phase-policy.mjs';
 /** Versioned, read-only phase interpretation and runtime-topology admission. */
@@ -70,34 +72,6 @@ export function installAcceptedPhaseInterpretation(workflow, policy, phaseTempla
 }
 
 /** Pure findings: incomplete drafts stay readable, but cannot be activated or started. */
-export function phaseTopologyFindings(resolved) {
-  const phases = resolved?.phases ?? [];
-  const findings = [];
-  const add = (code, phase, message) => findings.push({ code, phaseId: phase.id, severity: 'error', message,
-    resolvingAction: 'Edit the effective workflow in Configuration Center, then validate it before starting a Story.' });
-  const convergence = phases.filter(isConvergencePhase);
-  if (convergence.length > 1) add('WORKFLOW_CONVERGENCE_MULTIPLE_UNSUPPORTED', convergence[1],
-    'Only one Convergence step is supported: iteration storage must not be shared by separate review stages.');
-  for (const phase of convergence) {
-    if (!phases.slice(0, phases.indexOf(phase)).some(phaseRequiresCodeDelivery)) {
-      add('WORKFLOW_CONVERGENCE_CODE_SOURCE_MISSING', phase, `Convergence '${phase.id}' needs an earlier code-delivery step and its reconciliation. Use an ordinary document review for a workflow that produces no code.`);
-    }
-  }
-  const visual = phases.filter(isVisualVerificationPhase);
-  if (visual.length > 1) add('WORKFLOW_VISUAL_MULTIPLE_UNSUPPORTED', visual[1],
-    'Only one visual-evidence stage is supported by this workflow contract. Split stages into separate workflows until independent receipt namespaces are supported.');
-  for (const phase of phases) {
-    if ((isConvergencePhase(phase) || isConformancePhase(phase) || isVisualVerificationPhase(phase))
-        && (phase.generationPolicy ?? phase.generation)?.requirement === 'none') {
-      add('WORKFLOW_PROOF_OUTPUT_REQUIRED', phase,
-        `Proof-producing step '${phase.id}' cannot be sign-off-only. Keep its report generation required; use an ordinary review step to review existing outputs.`);
-    } else if ((phase.generationPolicy ?? phase.generation)?.requirement === 'none') {
-      add('WORKFLOW_REVIEW_RECEIPT_UNSUPPORTED', phase,
-        `Step '${phase.id}' declares no output generation, but this execution contract requires a publication receipt. Use a required deterministic or authored review artifact; a no-output review receipt is not supported yet.`);
-    }
-  }
-  return findings;
-}
 
 export function assertPhaseTopology(resolved) {
   const findings = phaseTopologyFindings(resolved);

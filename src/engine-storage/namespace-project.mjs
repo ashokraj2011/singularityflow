@@ -104,9 +104,10 @@ export function createNamespaceProjectEngine({ records, content, scope, authorit
     return plan;
   }
   async function checkpoint(selected, signal) {
-    const k = keys(selected.inputs.operationId), plan = await record('runtime', k.prepared, true, signal);
+    const k = keys(selected.inputs.operationId); let plan = await record('runtime', k.prepared, true, signal);
     const observed = await inspectOperation(scope, k.prepareOperation, { signal });
     if (plan === null && observed?.status === 'missing' && observed.receipt === null) return null;
+    if (plan === null && observed?.status === 'committed') plan = await record('runtime', k.prepared, true, signal);
     if (!plan) throw error('The enrollment receipt has lost its immutable prepared intent.', 'ENGINE_STORAGE_CORRUPT');
     admitPlan(plan, selected); receipt(observed, prepareTransaction(plan));
     return plan;
@@ -115,9 +116,10 @@ export function createNamespaceProjectEngine({ records, content, scope, authorit
     const token = Object.freeze({}); outcomes.set(token, { context, plan, receipt: r, replayed }); return token;
   }
   async function retained(context, _inputs, { signal } = {}) {
-    cancelled(signal); const selected = state(context), plan = await checkpoint(selected, signal);
+    cancelled(signal); const selected = state(context);
     const observed = await inspectOperation(scope, keys(selected.inputs.operationId).operation, { signal });
     if (observed?.status === 'missing' && observed.receipt === null) return null;
+    const plan = await checkpoint(selected, signal);
     if (!plan) throw error('A committed enrollment has lost its prepared intent.', 'ENGINE_STORAGE_CORRUPT');
     const r = receipt(observed, transaction(plan));
     const saved = await record('evidence', keys(plan.operationId).manifest, true, signal);

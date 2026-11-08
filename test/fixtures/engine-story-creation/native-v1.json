@@ -1,0 +1,237 @@
+{
+  "baseline": "4f25f8a79",
+  "at": "2026-11-08T12:00:00.000Z",
+  "phaseBody": "343e971bbc588e0626b5e24bedd72716276ff850b565a2eba8c063b421ac7a27",
+  "progressProperties": {
+    "status": "a98631cbdfa96ad12ddb3cb6cb08a598114f8c4d7fa80d337aea69ea265c4313",
+    "currentPhase": "2448a1e0c40b1da353e15f5612e868c25d1afff29e8176ea3cb7bcf8060cab7d",
+    "phaseOrder": "ba2b2c828f432b3fe20704aefff07df8e780bf57f89121856e7e1426f7e18669",
+    "phases": "1a3095bb54ea552ea6584c7aa8098c50446114eba72e6b3121c40029093fdbca",
+    "usage": "7767c9768ae706b687f7c1018e26688479538194fd13ac12996dde1491ed0c78",
+    "telemetry": "09737d164d3e5afcc1ac1e3e6934a504a14178a07a1b8f9588fcb0c19ab62af3",
+    "documents": "0ef5bdb6e725370b199acfedffa2295e9453260a974761ab6edb178a72ab37aa",
+    "collaboration": "222d71227e77dda904c8eb48229e0a7f8724e4979955db6eb123a8244f6c9c30",
+    "sequenceOverrides": "e6a9d27d300648d3cf06ac6534cfeb8501e73841ea8edc1875f0c9241fec7877",
+    "changeRequests": "282d3729d59728fc9e2c97083a8c913e5a73b965e6530a99ed6df46731fcc58d"
+  },
+  "telemetrySchemaVersion": 1,
+  "results": [
+    {
+      "workTypeId": "feature",
+      "phaseDefinitions": "31026a4bace5546f6117d4e5ab743c27cc7f5bcbfe2677377bf465b83d03defc",
+      "phases": "0d8ab93859524573f2683397ba6a2819e6fc06b26d957901a80762d019c00cee",
+      "progress": "b3d493f173d640fb01c6bde27e21e983ad131f2db19b19eaa0a4755e36859c55",
+      "clockCalls": 1,
+      "count": 7
+    },
+    {
+      "workTypeId": "bugfix",
+      "phaseDefinitions": "d64296b463377c6d40ac353ec4beb9768ae4e66f3ef5e1138495f4d16a00d9de",
+      "phases": "ea407c3c253bf86dfc469d94267586c9774882f985aa3a95c973f7e4ff3459e3",
+      "progress": "61f5d309319c8e31382036905dd299080ec19b54074707c19fb79604575a3a21",
+      "clockCalls": 1,
+      "count": 7
+    },
+    {
+      "workTypeId": "chore",
+      "phaseDefinitions": "f45963e95cac52c6899783e0e1819850ea03651f72437b234c4a99d1fde233c6",
+      "phases": "775980a03039a8fa1718146d26cfc0e134a91ffdca7d540c2c6779381d89f25d",
+      "progress": "5e1c91a310d7012a635af61eee658f4d0101bfcf1ff26d3565ab467f152933fc",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "figma-mobile",
+      "phaseDefinitions": "32700970718912f65cf8379e46650f93c630a7435b1cec2219187fbeb5425514",
+      "phases": "1bb6031f7dbc2dca674de15e9c2a041decc3bfb9be6e3cd6ca9d8564d28c65c0",
+      "progress": "6bd3e593843ad92e10f9b7a326ad075b2fcfb2d76e2bb6ca668d3b24edae8bd5",
+      "clockCalls": 1,
+      "count": 7
+    },
+    {
+      "workTypeId": "quick-fix",
+      "phaseDefinitions": "e84ae2f42afd2d83cab3235ac57d406cb5fe9e50b5703cdaf0a167e3d62db0db",
+      "phases": "295d03b6349c60cd123fa186bbf63e1e08203f96d67dc1ad82340c1879b94c0c",
+      "progress": "9f2f94e62a56f11a1998d93f43d4b708beb0675d07e014f70e6cf0373cf7a463",
+      "clockCalls": 1,
+      "count": 3
+    },
+    {
+      "workTypeId": "careful-change",
+      "phaseDefinitions": "18f0415109a195d558e67aa758ed9a88c2bbe06e2a4b397c75d1c9a75e1035ef",
+      "phases": "979c37f9b42a2bac9b6d63b01f530e295c3118366d65bc6c858b0c77a024c9a0",
+      "progress": "6fdd98df4c469d8e0f75c9c85edc0e1eb2488e73e1028b4c7b79f7e59bba4572",
+      "clockCalls": 1,
+      "count": 1
+    },
+    {
+      "workTypeId": "classic-delivery",
+      "phaseDefinitions": "3ea178cfeecaea3ea5e0a1a8a6f3486c8b11d8b903a24aab27059d4fed79af71",
+      "phases": "0df5fc538b5b676bea9da880087b467a9d263caf9d6c8ef58150a034daa758f0",
+      "progress": "9af214490c294970bcf6451f1b0f2a60d85560fd34839bf3d95ccbd5bfdbdbf1",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "spec-code-test-loop",
+      "phaseDefinitions": "d9550bb32f5d1ae8f541d390ceb6fa55deadf7561a2cadf64013e384626ac0c0",
+      "phases": "30ee2e52741cc28c7d82acad1e2805c9205c881b20c6137a4ad561470e0a2115",
+      "progress": "e038674f88b79a426d34c38b6bbda4af971ee30425d6767b93facae65efa817f",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "document-test-repair",
+      "phaseDefinitions": "a4f96911c469e4ffdb4c4f45b44c8f6c9e05352d8c9647d3b77efdf7fe3a3a6b",
+      "phases": "9a77444769beb1f1ac55599913976acb9392dac534f2411e360cb146abae49d3",
+      "progress": "9e5a45b8b23fef7dccf6688aa5dbb51e8d223e695012c56588cd6af32304cafb",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "demo-web-e2e-testing",
+      "phaseDefinitions": "eb4abe8d9d8bbd7b0abacbfef18d6e9b39e9f854fcc6a01d1257015fb3cd1f76",
+      "phases": "0d847cc6943b6f1d60fea5ea2511b3704005ddefdaf36585b768e7eec78b4dea",
+      "progress": "6d2e032a7deffaf17cc44ea31876f94b446651ef9c0cbecef6f374099149ba75",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "demo-check-repair-close",
+      "phaseDefinitions": "bd96d20dc8e8a86f491d1b3858eebabdff256ad7d9f0d36f1478fa71d1fb502b",
+      "phases": "ee798f9cdbba7c33f9a64bd788cca11d9637f0cb0ca8bcd9ebd3aa8d63e01d2f",
+      "progress": "a77b1a0a5bbae7c9be63e8312cb82799137efa47380be48aa9d209be9d7c4659",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "demo-instruction-test-loop",
+      "phaseDefinitions": "fe1a15189b02c4669d778ddf2d21979abdce967849f72a6f0eccd42a5e8b9136",
+      "phases": "831da11da22e3d68c3dd7453de7d35c74bf31ea40339839f114b1940c38e1c7d",
+      "progress": "d34ec15da7e026dc36f499f826e19c2555456857edd638045ca18326c639da1b",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "poc-lite",
+      "phaseDefinitions": "18c9cb93ed73d7e185ee6ec232fc82ef159dceca1ce5fd3be7dd9486edd07e35",
+      "phases": "5ecb1fca5fdc5b63fa37cd1ce740ef435bc946a024a255f06610f3a090a26173",
+      "progress": "50039b09a00256d7c14cf7a1bdffa1d74ab25f1a409a8765b588febae06d2144",
+      "clockCalls": 1,
+      "count": 4
+    },
+    {
+      "workTypeId": "benchmarking-a",
+      "phaseDefinitions": "14e4ef9c3071f69a5c5f41bacf4be08f5380c240758eadf8fe00e5a1b77926ef",
+      "phases": "e190ac7af42a3caa428148acd18ea6ff4ae579f6e34d3eb7189e4917cdf365c2",
+      "progress": "f8a425597c5717982c652cb239a92b2afcace5248d4c436e57b2c766d2ef19f8",
+      "clockCalls": 1,
+      "count": 5
+    },
+    {
+      "workTypeId": "benchmarking-b",
+      "phaseDefinitions": "f682d615409e0fb5b615f02ac72b8d05a01b35ef168d0267221349944ce6a2ec",
+      "phases": "a508316092d3866e742cffa43812bd1d72971c45834ad1a472ce5f9351cd2ad4",
+      "progress": "b5ced9fcb187144678ed3ba21e53e2837f633a3d68eb95664f950d34ec2a3c08",
+      "clockCalls": 1,
+      "count": 5
+    },
+    {
+      "workTypeId": "poc-workflow",
+      "phaseDefinitions": "60ab74649fcf3023f1e5b87325d5b16b685aa8684e8855da0d105d7da9ceeeca",
+      "phases": "be9216c4e86b32e41f13f20fc2ebbda69affb19878dfc002a6eefa8bcb8ff462",
+      "progress": "ba7ad9b0dcc7681a53a245b70d3cd62737618ed22f524750611087cf8fed0233",
+      "clockCalls": 1,
+      "count": 6
+    },
+    {
+      "workTypeId": "reference-driven-build",
+      "phaseDefinitions": "f1a126d915acdef4ac2c876b225b2cba1eb31616b3879b5169201642e60f55b0",
+      "phases": "8fa7d05896d324ee83a43025acccd07a0d46a5b9ee589bf054978ec74bddeef8",
+      "progress": "f30c46172fc90fd7d9d20293a5f6e85b6caee6cc39c8365edb61b2b8bab32c74",
+      "clockCalls": 1,
+      "count": 6
+    },
+    {
+      "workTypeId": "spec-driven-standard",
+      "phaseDefinitions": "2d2b480d60d958ec266109043bc1bfb051b1368afe8127ef1fdd838daca3b4b5",
+      "phases": "c23a2358ef28dceb3807b53a8da4c9d32fc2ee142b71825ea3870ab07e32274e",
+      "progress": "63fd7f2618bad88405f933c150a360638921b7f94b006d69363b3b6d781f5276",
+      "clockCalls": 1,
+      "count": 6
+    }
+  ],
+  "sample": {
+    "id": "specification",
+    "label": "Specification",
+    "order": 0,
+    "defaultAgent": null,
+    "status": "in_progress",
+    "requiredArtifact": {
+      "path": "artifacts/specification/spec.md",
+      "kind": "requirements",
+      "minimumBytes": 400
+    },
+    "template": "spec-driven/spec.md",
+    "worldModel": {},
+    "writeScope": "artifact-only",
+    "sourceBoundary": "unrestricted",
+    "comparison": {},
+    "mcp": {
+      "requiredServers": [],
+      "requireSmoke": false,
+      "evidence": []
+    },
+    "repairBudget": null,
+    "inputs": [],
+    "generationPolicy": {
+      "requirement": "required",
+      "defaultProducer": "governed-agent",
+      "allowedProducers": [
+        "governed-agent",
+        "human"
+      ],
+      "task": null,
+      "producer": "agent"
+    },
+    "approvalPolicy": {
+      "mode": "required",
+      "policy": null,
+      "maximumChangedPaths": null,
+      "authorities": [
+        "product-approvers"
+      ],
+      "requiredAuthorities": [],
+      "minimum": 1,
+      "rejectTo": [
+        "specification"
+      ],
+      "allowSelfApproval": true,
+      "changeRequests": {
+        "commentRequired": true,
+        "reopenCompleted": true
+      }
+    },
+    "qualityCommands": [],
+    "startedAt": "2026-11-08T12:00:00.000Z",
+    "submittedAt": null,
+    "approvedAt": null,
+    "approvedBy": null,
+    "rejectedAt": null,
+    "rejectedBy": null,
+    "rejectionReason": null,
+    "generation": 0,
+    "generatedBy": null,
+    "generatedAgent": null,
+    "authorship": [],
+    "usage": [],
+    "telemetry": [],
+    "approvals": [],
+    "generationPublications": [],
+    "submissionArchitectureDecision": null,
+    "designSourceSets": [],
+    "artifactRegistrationRepairs": [],
+    "artifacts": [],
+    "checks": []
+  }
+}

@@ -524,3 +524,23 @@ export function assertApprovalReviewConfirmation(expected, confirmation) {
     });
   }
 }
+
+/** Enroll into a private Story pin only; this does not publish membership or record approval. */
+export function enrollPinnedApprovalIdentity(authorities, creator) {
+    const email = String(creator.email ?? '').trim().toLowerCase();
+    const githubLogin = String(creator.login ?? creator.githubLogin ?? '').trim();
+    for (const authority of Object.values(authorities)) {
+      authority.members ??= [];
+      const enrolled = authority.members.some((member) =>
+        (email && String(member.email ?? '').trim().toLowerCase() === email)
+        || (githubLogin && String(member.githubLogin ?? '').trim().toLowerCase() === githubLogin.toLowerCase()));
+      if (!enrolled && (email || githubLogin)) {
+        authority.members.push({
+          name: String(creator.name ?? '').trim() || null,
+          email: email || null,
+          githubLogin: githubLogin || null
+        });
+      }
+    }
+  return authorities;
+}

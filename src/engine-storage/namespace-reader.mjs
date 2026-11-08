@@ -6,10 +6,12 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { recordSha256 } from '../records.mjs';
 import { resolveDocumentRecord } from '../document-identity.mjs';
 import { phaseReviewSelection } from '../kernel/phase-policy.mjs';
-import { validateNamespaceStore } from '../sda/namespace/contract.mjs';
+import { validateNamespaceStore,NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
 import { namespaceScope, namespaceRevision } from '../sda/namespace/values.mjs';
-import { validateContentStore, contentReference } from '../sda/content/contract.mjs';
-import { namespaceReadHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex } from './namespace-read-contract.mjs';
+import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
+import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex,
+  namespaceReadRecord,projectNamespaceReadState } from './namespace-read-contract.mjs';
+import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const unavailable = (message, code, details = null, cause = undefined) => new SingularityFlowError(message, { code, details, cause });
@@ -32,6 +34,11 @@ function errorData(error, depth = 0) {
 
 /** Ports are application-owned. This projection is never used as a fresh approval binding. */
 export function createNamespaceReadEngine({ records, content, localContent = null, scope, workId } = {}) {
+  return createEngine({ports:createNamespaceReadPorts({records,content,localContent,scope,workId})});
+}
+
+/** Internal port composition lets creation and reading share one registered Engine instance. */
+export function createNamespaceReadPorts({ records, content, localContent = null, scope, workId } = {}) {
   validateNamespaceStore(records); validateContentStore(content);
   scope = namespaceScope(scope); const key = namespaceStoryReadKey(workId);
   if (records.descriptor.binding.kind !== 'shared' || content.descriptor.binding.kind !== 'shared') {
@@ -44,6 +51,11 @@ export function createNamespaceReadEngine({ records, content, localContent = nul
   // Capture method bindings. A caller cannot redirect a running host by replacing methods.
   const readRecord = records.read.bind(records);
   const readContent = content.read.bind(content), readLocal = localContent?.read.bind(localContent);
+  // An authority locator is data; it must not make us recapture replaceable host methods later.
+  const lifecycleRecords=Object.freeze({descriptor:structuredClone(records.descriptor),
+    ...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,records[name].bind(records)]))});
+  const lifecycleContent=Object.freeze({descriptor:structuredClone(content.descriptor),
+    ...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,content[name].bind(content)]))});
   async function head(signal) {
     cancelled(signal); const result = await readRecord(scope, 'state', key, { signal }); cancelled(signal);
     if (result?.status === 'missing' && result.record === null) throw unavailable('This backend has no read snapshot for the bound Story.', 'ENGINE_STORY_SNAPSHOT_MISSING', { projectId: scope.projectId, workId });
@@ -51,7 +63,9 @@ export function createNamespaceReadEngine({ records, content, localContent = nul
       throw unavailable('The metadata port returned another read head.', 'ENGINE_PORT_RESULT_INVALID');
     }
     if (namespaceRevision(result.record.version) === null) throw unavailable('A read head needs an observed revision.', 'ENGINE_PORT_RESULT_INVALID');
-    try { return { revision: result.record.version, value: namespaceReadHead(result.record.value, scope, workId) }; }
+    try { const value=result.record.value;
+      return {revision:result.record.version,value:value?.format?.startsWith('sflow-namespace-read-lifecycle-head/')
+        ?namespaceReadLifecycleHead(value,scope,workId):namespaceReadHead(value,scope,workId)}; }
     catch (cause) {
       if (cause.code === 'ENGINE_STORAGE_UNSUPPORTED') throw cause;
       throw unavailable('The stored Story read head is invalid.', 'ENGINE_STORAGE_CORRUPT', { workId, stage: 'read-head' }, cause);
@@ -79,6 +93,16 @@ export function createNamespaceReadEngine({ records, content, localContent = nul
   }
   async function load(_inputs, { signal } = {}) {
     const selected = await head(signal);
+    if(selected.value.format==='sflow-namespace-read-lifecycle-head/v1') {
+      if(selected.value.lifecycleHead!==namespaceLifecycleStoryKey(workId))throw unavailable('The lifecycle locator points at another Story.','ENGINE_STORAGE_CORRUPT');
+      const observer=createNamespaceLifecycleObserver({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority});
+      const {snapshot,basis}=await observer.capture({signal}),workflow=snapshot.workflow;
+      const policy=namespaceReadPolicy(namespaceReadRecord('policy',{workItemRoot:workflow.resolution.workItemRoot,
+        maximumPreviewBytes:workflow.resolution.codeDelivery?.display?.fullDocumentMaximumBytes??65536}));
+      const documents=namespaceDocumentIndex(namespaceReadRecord('documents',{documents:workflow.namespaceDocuments})).documents;
+      return {subject:{kind:'story',id:workId},workflow:projectNamespaceReadState(workflow),policy,documents,
+        revision:snapshot.revision,lifecycle:{locatorRevision:selected.revision,key:selected.value.lifecycleHead,authorityVersion:basis.authorityVersion}};
+    }
     const results = await Promise.allSettled([json(selected.value.state, signal), json(selected.value.policy, signal), json(selected.value.documents, signal)]);
     let failure = null; for (const result of results) if (result.status === 'rejected' && failure === null) failure = result.reason;
     if (failure !== null) throw failure;
@@ -93,6 +117,19 @@ export function createNamespaceReadEngine({ records, content, localContent = nul
   }
   async function unchanged(context, signal) {
     const selected = await head(signal);
+    if(context.lifecycle) {
+      const current=await readRecord(scope,'state',context.lifecycle.key,{signal});
+      const authority=await readRecord(scope,'state','authority/lifecycle',{signal});
+      cancelled(signal);
+      for(const [result,key] of [[current,context.lifecycle.key],[authority,'authority/lifecycle']]) {
+        if(result?.status==='missing'&&result.record===null)throw unavailable('The lifecycle record disappeared during this read.','ENGINE_CONTEXT_CHANGED',{workId,key});
+        if(result?.status!=='present'||result.record?.namespace!=='state'||result.record.key!==key||result.record.immutable!==false
+          ||namespaceRevision(result.record.version)===null)throw unavailable('The metadata port returned another lifecycle binding.','ENGINE_PORT_RESULT_INVALID',{key});
+      }
+      if(selected.revision!==context.lifecycle.locatorRevision||current?.record?.version!==context.revision
+        ||authority?.record?.version!==context.lifecycle.authorityVersion)throw unavailable('The canonical lifecycle changed during this read. Read it again.','ENGINE_CONTEXT_CHANGED',{workId});
+      return;
+    }
     if (selected.revision !== context.revision) throw unavailable('The Story read snapshot changed during this operation. Read it again.',
       'ENGINE_CONTEXT_CHANGED', { workId, expectedRevision: context.revision, observedRevision: selected.revision });
   }
@@ -167,5 +204,5 @@ export function createNamespaceReadEngine({ records, content, localContent = nul
     await unchanged(context, signal);
     return { id: record.id, revision: context.revision, observed: { sha256: record.content.sha256, bytes: record.content.bytes, binary: record.encoding === 'binary' }, content, extractionFailure: null };
   } };
-  return createEngine({ ports: { phaseReview, documentRead } });
+  return { phaseReview, documentRead };
 }

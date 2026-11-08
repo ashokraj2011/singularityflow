@@ -67,7 +67,9 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-reader.mjs', 'src/engine-storage/namespace-read-contract.mjs',
     'src/engine-storage/namespace-lifecycle-commit.mjs', 'src/engine-storage/namespace-lifecycle-contract.mjs',
     'src/engine-storage/namespace-project.mjs', 'src/engine-storage/namespace-project-contract.mjs',
-    'src/engine-storage/namespace-configuration.mjs', 'src/engine-storage/namespace-configuration-contract.mjs']);
+    'src/engine-storage/namespace-configuration.mjs', 'src/engine-storage/namespace-configuration-contract.mjs',
+    'src/engine-storage/namespace-configuration-codec.mjs','src/engine-storage/namespace-configuration-reader.mjs',
+    'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-story.mjs','src/engine-storage/namespace-story-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -204,7 +206,7 @@ test('configuration path rules depend on a string-syntax contract and native bin
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',
-    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs']);
+    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs']);
   const file = 'src/engine-storage/namespace-reader.mjs', text = await readFile(path.join(packageRoot, file), 'utf8');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const visit = node => {
@@ -223,7 +225,7 @@ test('the internal namespace lifecycle committer composes explicit ports without
   const owner = 'src/engine-storage/namespace-lifecycle-commit.mjs';
   const allowed = new Set(['node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../sda/namespace/contract.mjs', '../sda/namespace/values.mjs', '../sda/namespace/transaction.mjs',
-    '../sda/content/contract.mjs', './namespace-lifecycle-contract.mjs']);
+    '../sda/content/contract.mjs', './namespace-lifecycle-contract.mjs','./namespace-lifecycle-reader.mjs']);
   const ast = ts.createSourceFile(owner, await readFile(path.join(packageRoot, owner), 'utf8'), ts.ScriptTarget.Latest, true);
   const visit = node => {
     if (ts.isImportDeclaration(node)) assert.ok(allowed.has(node.moduleSpecifier.text), node.moduleSpecifier.text);
@@ -273,7 +275,7 @@ test('explicit configuration approval cannot discover or select installed author
   const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs',
     '../engine-compatibility/node-namespace-configuration.mjs','../kernel/namespace-configuration.mjs','../kernel/project-enrollment.mjs',
     '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/content/contract.mjs',
-    './namespace-lifecycle-contract.mjs','./namespace-configuration-contract.mjs']);
+    './namespace-lifecycle-contract.mjs','./namespace-configuration-contract.mjs','./namespace-configuration-codec.mjs','./namespace-configuration-reader.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -293,6 +295,45 @@ test('explicit configuration approval cannot discover or select installed author
       assert.notEqual(path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text)),owner,
         file+' cannot implicitly activate namespace configuration');
     }
+  }
+});
+
+test('Story genesis composes only explicit storage, access and clock ports; observers cannot write',async()=>{
+  const owner='src/engine-storage/namespace-story.mjs';
+  const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs',
+    '../kernel/story-creation.mjs','../kernel/project-enrollment.mjs','../sda/namespace/contract.mjs',
+    '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
+    '../sda/content/contract.mjs','./namespace-configuration-reader.mjs','./namespace-lifecycle-reader.mjs',
+    './namespace-lifecycle-contract.mjs','./namespace-story-contract.mjs','./namespace-read-contract.mjs','./namespace-reader.mjs']);
+  const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node)&&(node.expression.kind===ts.SyntaxKind.ImportKeyword
+      ||ts.isIdentifier(node.expression)&&['require','eval','Function'].includes(node.expression.text)),false);
+    if(ts.isIdentifier(node)&&node.text==='process')assert.fail('Creation cannot discover installed state or identity.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
+  const contract='src/engine-storage/namespace-story-contract.mjs';
+  const report=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,
+    'src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
+    ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(report.problems,[]);
+  for(const file of ['src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-configuration-reader.mjs']) {
+    const text=await readFile(path.join(packageRoot,file),'utf8');
+    const source=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);
+    const readOnly=node=>{
+      if(ts.isImportDeclaration(node)&&node.moduleSpecifier.text.startsWith('node:'))assert.equal(node.moduleSpecifier.text,'node:crypto');
+      if(ts.isPropertyAccessExpression(node)&&['put','transact','remove','delete','close'].includes(node.name.text))assert.fail(file+' cannot mutate a storage port');
+      if(ts.isIdentifier(node)&&['process','eval','Function','require'].includes(node.text))assert.fail(file+' cannot discover a host');
+      ts.forEachChild(node,readOnly);
+    };readOnly(source);
+  }
+  for(const file of await sourceFiles('src')) {
+    if(file===owner)continue;
+    const source=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    for(const node of source.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.'))assert.notEqual(
+      path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text)),owner,
+      file+' cannot silently select a namespace Story creator');
   }
 });
 

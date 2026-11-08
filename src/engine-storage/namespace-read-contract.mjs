@@ -33,6 +33,16 @@ export function namespaceReadHead(value, scope, workId) {
   return { ...value, ...refs };
 }
 
+/** A separate profile points at current lifecycle authority, rather than a second state copy. */
+export function namespaceReadLifecycleHead(value,scope,workId) {
+  namespaceScope(scope);admit('lifecycle-head',value);
+  exactObject(value,['schemaVersion','format','projectId','workId','lifecycleHead','authority']);
+  exactObject(value.authority,['id','epoch']);
+  if(value.projectId!==scope.projectId||value.workId!==workId||!text(value.lifecycleHead)||!text(value.authority.id)
+    ||!Number.isSafeInteger(value.authority.epoch)||value.authority.epoch<1)bad('Invalid lifecycle read locator.');
+  return value;
+}
+
 function brief(value) {
   if (!plain(value)) bad('Invalid retained brief metadata.');
   return { generation: value.generation ?? null, renderedPath: value.renderedPath ?? null, renderedSha256: value.renderedSha256 ?? null };

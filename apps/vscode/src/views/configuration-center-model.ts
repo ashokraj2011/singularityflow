@@ -1,5 +1,6 @@
 /** Pure models and governed YAML edits for the Configuration Center. */
 import YAML from 'yaml';
+import { renderPreservingFormatting } from '../../../../src/yaml-formatting.mjs';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 export {
   configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs,
@@ -373,6 +374,14 @@ export function validateAuthorityDraft(draft: AuthorityDraft): string[] {
   return errors;
 }
 
+/**
+ * The edited file as written back: only the lines the edit touched change, and every other line keeps
+ * its own padding, line breaks and comments, so the configuration review shows the one setting.
+ */
+function written(text: string, parsed: YAML.Document): string {
+  return renderPreservingFormatting(text, parsed);
+}
+
 function document(text: string, label: string): YAML.Document.Parsed {
   const parsed = YAML.parseDocument(text);
   if (parsed.errors.length) throw new Error(`${label} is not valid YAML: ${parsed.errors[0]?.message}`);
@@ -393,7 +402,7 @@ export function updateMcpYaml(text: string, draft: McpDraft | null, deleteId: st
       evidence: { captureToolCalls: draft.captureToolCalls, captureResults: draft.captureResults }
     });
   }
-  return String(parsed);
+  return written(text, parsed);
 }
 
 export function updateAuthorityYaml(text: string, draft: AuthorityDraft | null, deleteId: string | null = null): string {
@@ -415,7 +424,7 @@ export function updateAuthorityYaml(text: string, draft: AuthorityDraft | null, 
       }))
     });
   }
-  return String(parsed);
+  return written(text, parsed);
 }
 
 /**
@@ -460,7 +469,7 @@ export function authorityWithMember(
 export function updateApprovalSecurityProfileYaml(text: string, profile: 'poc' | 'team' | 'regulated'): string {
   const parsed = document(text, 'workflow.yml');
   parsed.setIn(['approvalSecurity', 'profile'], profile);
-  return String(parsed);
+  return written(text, parsed);
 }
 
 /** Update only the two Auto enablement layers represented by this form, preserving every ceiling. */
@@ -474,7 +483,7 @@ export function updateAutoYaml(text: string, draft: AutoDraft): string {
   for (const entry of draft.workTypes) {
     parsed.setIn(['workTypes', entry.id, 'auto', 'eligibility'], entry.eligibility);
   }
-  return String(parsed);
+  return written(text, parsed);
 }
 
 /** Update only the source scope; every other World Model setting in the file stays as it is. */
@@ -485,7 +494,7 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
   // [] is a deliberate choice of the whole repository, so it is written too.
   parsed.setIn(['worldModel', 'sourceRoots'], draft.sourceRoots);
   parsed.setIn(['worldModel', 'sharedRoots'], draft.sharedRoots);
-  return String(parsed);
+  return written(text, parsed);
 }
 
 /** Only a draft value; the CLI performs full policy/profile validation before proposing it. */
@@ -495,5 +504,5 @@ export function updateCommitPolicyYaml(text: string, policyText: string): string
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new Error('Commit policy must be a JSON object.');
   const parsed = document(text, 'workflow.yml');
   parsed.setIn(['git', 'commitPolicy'], policy);
-  return String(parsed);
+  return written(text, parsed);
 }

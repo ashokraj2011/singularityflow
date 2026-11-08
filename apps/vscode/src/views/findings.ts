@@ -151,12 +151,12 @@ export class FindingsPanel implements vscode.Disposable {
 
   /** Save the empty workbook where the person chooses, offering the home folder (never the checkout); the CLI never overwrites a file. */
   private async template(): Promise<void> {
-    const target = await vscode.window.showSaveDialog({ title: 'Save the findings workbook template', saveLabel: 'Save template',
-      filters: { 'Excel workbook': ['xlsx'] }, defaultUri: vscode.Uri.file(path.join(os.homedir(), 'sflow-findings-template.xlsx')) });
+    const target = await vscode.window.showSaveDialog({ title: 'Save an example findings workbook', saveLabel: 'Save example',
+      filters: { 'Excel workbook': ['xlsx'] }, defaultUri: vscode.Uri.file(path.join(os.homedir(), 'sflow-findings-example.xlsx')) });
     if (!target) return;
     try {
       const result = await this.client.run<{ path: string }>(findingsTemplateArgv(target.fsPath));
-      this.notice = `Saved the template: ${result.path}`;
+      this.notice = `Saved an example workbook: ${result.path}. Replace its example rows with the team's own, then upload it.`;
       this.error = null;
     } catch (error) {
       this.error = errorText(error);

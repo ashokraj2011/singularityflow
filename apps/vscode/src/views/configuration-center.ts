@@ -20,7 +20,7 @@ import {
 } from './configuration-save.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
-import { testSetupTargetsFromYaml, updateTestSetupYaml, type TestSetupInspection } from './test-setup-model.ts';
+import { testScopeFromYaml, testSetupTargetsFromYaml, updateTestScopeYaml, updateTestSetupYaml, type TestSetupInspection } from './test-setup-model.ts';
 
 export type ConfigurationCenterMessage =
   | ({ type: 'save'; path: string; content: string } & ConfigurationSavePlan)
@@ -287,10 +287,10 @@ export class ConfigurationCenterPanel {
       await vscode.commands.executeCommand('singularityFlow.explainError', 'configuration');
       return;
     }
-    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-commit-policy']
+    const mutation = ['save-profile', 'add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-test-scope', 'save-commit-policy']
       .includes(String(message.type))
       || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
-    const authorityMutation = ['add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-commit-policy']
+    const authorityMutation = ['add-current-identity', 'save-authority', 'save-mcp', 'save-auto', 'save-world-model', 'save-test-setup', 'save-test-scope', 'save-commit-policy']
       .includes(String(message.type))
       || (message.type === 'action' && ['delete-authority', 'delete-mcp'].includes(String(message.action)));
     if (authorityMutation && this.pendingProposal) {
@@ -406,6 +406,18 @@ export class ConfigurationCenterPanel {
         if (outcome.error) return this.showErrors([outcome.error]);
         this.dirty = false;
         this.notice = this.savedNotice('Test configuration saved. Existing Stories retain their pin; use /sf-test-setup for reviewed current-code-phase adoption and fresh test evidence.', outcome.disposition);
+        if (outcome.disposition?.kind === 'proposal') return;
+      } catch (error) { return this.showErrors([(error as Error).message]); }
+      return this.render();
+    }
+    if (message.type === 'save-test-scope') {
+      try {
+        const snapshot = this.store.current.snapshot!;
+        const text = this.renderedTexts.definitionText;
+        const outcome = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateTestScopeYaml(text, message.enabled), text);
+        if (outcome.error) return this.showErrors([outcome.error]);
+        this.dirty = false;
+        this.notice = this.savedNotice(`Test scope at Story start saved ${message.enabled ? 'on' : 'off'}. Review and publish configuration before it applies, then refresh the new-Story form.`, outcome.disposition);
         if (outcome.disposition?.kind === 'proposal') return;
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
@@ -624,6 +636,7 @@ export class ConfigurationCenterPanel {
       configurationCenterHtml(
         {...view, commitPolicyInspection: this.commitPolicyInspection}, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors, this.pendingProposal,
         { targets: testSetupTargetsFromYaml(this.renderedTexts.definitionText), selected: this.testTarget,
+          testScope: testScopeFromYaml(this.renderedTexts.definitionText),
           inspection: this.testInspection?.repositoryPath === this.store.current.snapshot?.repository?.root ? this.testInspection : null }
       ),
       contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT,

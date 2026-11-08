@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { EMPTY_INTAKE_FORM, INTAKE_SCRIPT, intakeCommand, intakeHtml } from '../apps/vscode/src/views/intake-form.ts';
 
 // CQF:REQ-065 in VS Code's new-Story form: the register's open items as tick boxes, none ticked.
@@ -40,4 +41,19 @@ test('ticked items go to Start as one --address, on every route, and a taken or 
 test('with no register the form says nothing; an unreadable one is said', () => {
   assert.ok(!intakeHtml(form({ findingChoices: [] })).includes('data-intake-findings'));
   assert.match(intakeHtml(form({ findingChoices: [], findingsNote: 'The findings register could not be read: damaged.' })), /could not be read: damaged/u);
+});
+
+test('a register with nothing open says so and offers the upload, which reads the register again once imported', async () => {
+  const note = 'No open security findings or TLM items for this repository.';
+  const empty = intakeHtml(form({ findingChoices: [], findingsNote: note, findingsUpload: true }));
+  assert.match(empty, /data-intake-findings-note>No open security findings/);
+  assert.match(empty, /<button type="button" class="secondary" data-findings-upload>Upload findings…<\/button>/);
+  assert.doesNotMatch(intakeHtml(form({ findingChoices: [], findingsNote: 'The findings register could not be read: damaged.' })), /data-findings-upload/);
+  assert.match(INTAKE_SCRIPT, /closest\('\[data-findings-upload\]'\)\) return vscode\.postMessage\(\{ type: 'findingsUpload' \}\)/);
+  const panel = await readFile(new URL('../apps/vscode/src/views/intake-panel.ts', import.meta.url), 'utf8');
+  assert.match(panel, /if \(!\(findings\.total \?\? 0\) && !\(findings\.items \?\? \[\]\)\.length\) \{\s*return \{ findingChoices: \[\], findingsUpload: true/);
+  assert.match(panel, /executeCommand<unknown>\('singularityFlow\.uploadFindings'\);\s*if \(imported && !this\.disposed\) await this\.reloadCatalog\(\);/);
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(extension, /'singularityFlow\.uploadFindings': async \(\) => \{[\s\S]{0,900}?void showCompactInformationMessage[\s\S]{0,300}?return result;\s*\},/,
+    'the command answers with the import, not after the toast');
 });

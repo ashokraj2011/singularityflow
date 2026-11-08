@@ -279,6 +279,8 @@ export interface IntakeForm extends TestRecoveryDraft {
   /** The register's open security findings and TLM items for this repository, and why none show. */
   findingChoices: FindingChoice[];
   findingsNote: string | null;
+  /** The register was read and holds nothing open for this repository: offer the upload. */
+  findingsUpload: boolean;
   /** The ones this Story addresses: ticked by the person, never by default. */
   addressFindings: string[];
   profile: string | null;
@@ -436,7 +438,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   qualityGateMode: 'hard',
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
-  acceptanceCriteria: '', targetUrl: '', findingChoices: [], findingsNote: null, addressFindings: [],
+  acceptanceCriteria: '', targetUrl: '', findingChoices: [], findingsNote: null, findingsUpload: false, addressFindings: [],
   profile: null, profiles: [], workType: null, storyWorkflows: [],
   availableStoryWorkflows: [],
   referenceRepositories: [],
@@ -489,7 +491,9 @@ function addressArguments(form: IntakeForm): string[] {
  */
 function findingsPicker(form: IntakeForm): string {
   if (!form.findingChoices.length) {
-    return form.findingsNote ? `<p class="muted" data-intake-findings-note>${escape(form.findingsNote)}</p>` : '';
+    if (!form.findingsNote) return '';
+    return `<p class="muted" data-intake-findings-note>${escape(form.findingsNote)}</p>${form.findingsUpload
+      ? `<p><button type="button" class="secondary" data-findings-upload${form.busy ? ' disabled' : ''}>Upload findings…</button></p>` : ''}`;
   }
   const row = (choice: FindingChoice) => {
     const kind = choice.feed === 'tlm' ? 'TLM' : `${(choice.severity ?? 'info').replace(/^./u, (letter) => letter.toUpperCase())}`;
@@ -2008,6 +2012,10 @@ document.addEventListener('click', (event) => {
   if (catalogRetry) return vscode.postMessage({ type: 'catalogRetry' });
   const workflowRefresh = event.target.closest('[data-workflow-refresh]');
   if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
+  if (event.target.closest('[data-test-scope-configure]')) return vscode.postMessage({ type: 'testScopeConfigure' });
+  // Reads the approved workflows again, as Retry does, once the switch is published.
+  if (event.target.closest('[data-test-scope-refresh]')) return vscode.postMessage({ type: 'catalogRetry' });
+  if (event.target.closest('[data-findings-upload]')) return vscode.postMessage({ type: 'findingsUpload' });
   const testRecoveryRefresh = event.target.closest('[data-test-recovery-refresh]');
   if (testRecoveryRefresh) return vscode.postMessage({ type: 'testRecoveryRefresh' });
   if (event.target.closest('[data-intake-cancel]')) return vscode.postMessage({ type: 'cancel' });

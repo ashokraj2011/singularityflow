@@ -52,6 +52,8 @@ export interface TestRecoveryDraft {
   testBaselineOwner: string;
   testBaselineRemediation: string;
   testBaselineExpiresAt: string;
+  /** Whether the engine has checked the chosen base: until then it has not said whether test scope is offered. */
+  basePreflightPassed?: boolean;
 }
 
 export const EMPTY_TEST_RECOVERY_DRAFT: TestRecoveryDraft = {
@@ -171,10 +173,16 @@ function list(values: string[] | undefined, empty: string): string {
 
 /** Engine-returned routes are displayed only. Report text never becomes a runnable webview action. */
 export function testRecoveryHtml(draft: TestRecoveryDraft): string {
+  // Before the base is checked the engine has not answered yet: say when it will, not that it is off.
+  if (draft.testRecovery == null && draft.basePreflightPassed === false) return `<section data-test-policy-availability data-test-policy-pending><h2>Test execution scope</h2>
+    <p class="meta">Whether this workflow lets you choose changed-and-affected or all-configured tests shows here once the base branch is checked.
+    Its configured test commands remain required either way.</p></section>`;
   if (!testRecoveryEnabled(draft)) return `<section data-test-policy-availability><h2>Test execution scope</h2>
     <p class="meta">This workflow does not advertise Story test-scope selection. Its configured test commands remain required.
-    To choose changed-and-affected or all-configured tests at intake, enable <code>testRecovery.enabled</code>
-    in the approved repository workflow and refresh this intake. Capability path exclusions alone do not change test scope or accept failed tests.</p></section>`;
+    To choose changed-and-affected or all-configured tests at intake, turn on <strong>Test scope at Story start</strong>
+    (<code>testRecovery.enabled</code>) in Configuration Center, publish the configuration, and refresh this intake. Capability path exclusions alone do not change test scope or accept failed tests.</p>
+    <p><button type="button" class="secondary" data-test-scope-configure>Open Test scope in Configuration Center</button>
+      <button type="button" class="secondary" data-test-scope-refresh>Refresh this intake</button></p></section>`;
   const capability = draft.testRecovery!;
   const radios = (field: 'testBaselineDisposition' | 'testExecutionMode' | 'testBaselineScope',
     label: string, choices: Array<[string, string]>): string => `<fieldset><legend>${label}</legend>

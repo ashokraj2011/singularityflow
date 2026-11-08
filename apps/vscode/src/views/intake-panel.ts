@@ -182,17 +182,23 @@ interface EngineFindingsForStart {
 }
 
 /** The engine's findings for a new Story as tick-box choices, and a note when there are none to offer. */
-function findingChoicesOf(findings: EngineFindingsForStart | undefined): { findingChoices: FindingChoice[]; findingsNote: string | null } {
-  if (!findings) return { findingChoices: [], findingsNote: null };
+function findingChoicesOf(findings: EngineFindingsForStart | undefined): { findingChoices: FindingChoice[]; findingsNote: string | null; findingsUpload: boolean } {
+  if (!findings) return { findingChoices: [], findingsNote: null, findingsUpload: false };
   if (findings.available === false) {
-    return { findingChoices: [], findingsNote: `The findings register could not be read: ${findings.reason ?? 'unknown reason'}.` };
+    return { findingChoices: [], findingsNote: `The findings register could not be read: ${findings.reason ?? 'unknown reason'}.`, findingsUpload: false };
+  }
+  // Said, not hidden: a person who looks for the findings picker learns there is nothing to pick yet
+  // and where the team's workbook goes.
+  if (!(findings.total ?? 0) && !(findings.items ?? []).length) {
+    return { findingChoices: [], findingsUpload: true,
+      findingsNote: 'No open security findings or TLM items for this repository. Upload the security team\'s or the TLM owners\' workbook and its open items appear here to tick.' };
   }
   const findingChoices = (findings.items ?? []).filter((item) => typeof item.id === 'string' && (item.feed === 'security' || item.feed === 'tlm'))
     .map((item) => ({ id: item.id!, feed: item.feed as 'security' | 'tlm', label: String(item.label ?? ''),
       severity: item.severity ?? null, dueAt: item.dueAt ?? null, state: String(item.state ?? 'open'), story: item.story ?? null,
       file: item.file ?? null, package: item.package ?? null }));
   const hidden = (findings.total ?? findingChoices.length) - findingChoices.length;
-  return { findingChoices, findingsNote: hidden > 0 ? `${hidden} more are not shown; see singularity-flow findings list.` : null };
+  return { findingChoices, findingsNote: hidden > 0 ? `${hidden} more are not shown; see singularity-flow findings list.` : null, findingsUpload: false };
 }
 
 /** The first listing, the fresh one replacing a cached paint, or a reload after a configuration change. */
@@ -796,9 +802,9 @@ export class IntakePanel {
             ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null
         }),
         ...(listed.intake ? (() => {
-          const { findingChoices, findingsNote } = findingChoicesOf(listed.intake.findings);
+          const { findingChoices, findingsNote, findingsUpload } = findingChoicesOf(listed.intake.findings);
           const offered = new Set(findingChoices.filter((choice) => !choice.story).map((choice) => choice.id));
-          return { findingChoices, findingsNote, addressFindings: this.form.addressFindings.filter((id) => offered.has(id)) };
+          return { findingChoices, findingsNote, findingsUpload, addressFindings: this.form.addressFindings.filter((id) => offered.has(id)) };
         })() : {}),
         baseBranchChoices,
         baseBranchOrphans: [...new Set(Object.values(listed.orphaned ?? {}).flat())]
@@ -1090,6 +1096,14 @@ export class IntakePanel {
       }
     },
     catalogRetry: () => { if (!this.form.busy) return this.reloadCatalog({ refresh: true }); },
+    // Where the switch for choosing test scope at Story start lives; refresh here once it is published.
+    testScopeConfigure: () => vscode.commands.executeCommand('singularityFlow.configureTests'),
+    // The same upload Findings offers; once a workbook is imported this form reads the register again.
+    findingsUpload: async () => {
+      if (this.form.busy) return;
+      const imported = await vscode.commands.executeCommand<unknown>('singularityFlow.uploadFindings');
+      if (imported && !this.disposed) await this.reloadCatalog();
+    },
     workflowRefresh: () => vscode.commands.executeCommand(
       'singularityFlow.refreshRepositorySetup', {
         // The exact repository finds its workspace there. targetWorkspace is a name, never a path.

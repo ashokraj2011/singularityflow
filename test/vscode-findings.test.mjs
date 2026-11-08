@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { findingsImportArgv, findingsListArgv, findingsListFrom, importSummary } from '../apps/vscode/src/views/findings-model.ts';
-import { FINDINGS_SCRIPT, findingsPageHtml } from '../apps/vscode/src/views/findings-page.ts';
+import { FINDINGS_FORMAT, FINDINGS_SCRIPT, findingsPageHtml } from '../apps/vscode/src/views/findings-page.ts';
+import { COLUMNS } from '../src/findings/register/format.mjs';
 
 // CQF:REQ-070 in VS Code: the Findings view (Security and TLM tabs, due dates, the Story addressing each
 // item) and the "Upload security or TLM findings…" command. Made-up items.
@@ -60,4 +61,25 @@ test('both commands are contributed, are repository commands with handlers, and 
   assert.match(extension, /'singularityFlow\.uploadFindings': async \(\) => \{\n\s+const \{ uploadFindings, FindingsPanel, findingsImportSummary \} = lazyPanels\(\);/u);
   const lazy = await readFile(new URL('../apps/vscode/src/lazy-panels-runtime.ts', import.meta.url), 'utf8');
   assert.match(lazy, /export \{ FindingsPanel, uploadFindings \} from '\.\/views\/findings\.ts';/u);
+});
+
+// A person with nothing imported yet needs the file's shape before the upload, in the page itself.
+test('the page says what to upload, with the importer\'s own columns, and what the example workbook is', async () => {
+  for (const feed of ['security', 'tlm']) {
+    assert.deepEqual([...FINDINGS_FORMAT[feed].required], COLUMNS[feed].filter((column) => column.required).map((column) => column.header), `${feed} required`);
+    assert.deepEqual([...FINDINGS_FORMAT[feed].optional], COLUMNS[feed].filter((column) => !column.required).map((column) => column.header), `${feed} optional`);
+  }
+  const empty = findingsPageHtml(view({ list: { ...list, items: [], lastImport: null, location: 'state-branch' } }));
+  assert.match(empty, /<details class="fnd-format" data-findings-format open><summary>What to upload: the file format<\/summary>/u, 'open while nothing is imported');
+  assert.match(empty, /sheet named <strong>Security<\/strong>, a sheet named <strong>TLM<\/strong>/u);
+  assert.match(empty, /<tr><td>Security<\/td><td><code>ID<\/code>, <code>Title<\/code>, <code>Severity<\/code>, <code>Repository<\/code><\/td>/u);
+  assert.match(empty, /<tr><td>TLM<\/td><td><code>ID<\/code>, <code>Component<\/code>, <code>Repository<\/code>, <code>Target version<\/code><\/td>/u);
+  assert.match(empty, /data-template title="[^"]+">Save an example workbook…<\/button>/u);
+  assert.match(empty, /<strong>Save an example workbook…<\/strong> writes an <code>\.xlsx<\/code> in this format/u);
+  assert.match(empty, /data-findings-empty>Nothing has been imported for this repository\./u, 'an empty state branch is nothing imported, not an empty tab');
+  assert.match(findingsPageHtml(view()), /<details class="fnd-format" data-findings-format><summary>/u, 'closed once items are shown');
+  assert.match(findingsPageHtml(view({ list: { ...list, items: list.items.filter((item) => item.feed === 'security') }, tab: 'tlm' })),
+    /data-findings-empty>No open TLM items for this repository\./u);
+  const panel = await readFile(new URL('../apps/vscode/src/views/findings.ts', import.meta.url), 'utf8');
+  assert.match(panel, /title: 'Save an example findings workbook'[\s\S]{0,200}'sflow-findings-example\.xlsx'/u);
 });

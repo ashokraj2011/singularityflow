@@ -5,7 +5,7 @@ import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 import { PROFILE_PERSONAS } from './profile-personas.ts';
 import { TEST_RESULT_ADAPTERS } from '../../../../src/external-command-policy.mjs';
-import type { TestSetupView } from './test-setup-model.ts';
+import type { TestScopeSetting, TestSetupView } from './test-setup-model.ts';
 
 // A command's `env` is literal and never secret-like (external-command-policy.mjs): shown, and kept on save.
 function envText(env: unknown): string {
@@ -38,12 +38,25 @@ function commandRow(command: Record<string, any> = {}): string {
   </div>`;
 }
 
+/**
+ * The one switch for choosing a Story's test scope when it starts (`testRecovery.enabled`), where the
+ * new-Story form sends a person who finds the choice missing. It never makes a test optional.
+ */
+function testScopeForm(setting: TestScopeSetting | null | undefined): string {
+  if (!setting) return '';
+  return `<form id="test-scope-form" class="test-scope" data-test-scope><h3>Test scope at Story start</h3>
+    <label class="check"><input type="checkbox" name="enabled"${setting.enabled ? ' checked' : ''}>Let the person starting a Story choose changed-and-affected or all-configured tests</label>
+    <p class="muted">Configured test commands stay required either way. Stories already started keep their pin.${setting.reviews ? ' The risk reviews this workflow sets under <code>testRecovery</code> stay as they are.' : ''} Saved here as <code>testRecovery.enabled</code>; review and publish the configuration before a new Story offers the choice.</p>
+    <p><button type="submit">Save test scope</button></p></form>`;
+}
+
 export function testSetupHtml(view: TestSetupView): string {
   const selected = view.targets.find(target => target.id === view.selected);
   return `<section class="plain"><h2>${icon('phase')}Test setup</h2>
     <p>Configure test methods for this repository. Inspection reads only selected module manifests; it does not clone, install dependencies, run tests, or claim a passing baseline.</p>
     <p class="notice warning">Existing Stories retain their pinned configuration. After merging a runner change, use <code>/sf-test-setup</code> or <code>/sf-recover</code> to review adoption for the current code phase. Saving here does not change any Story.</p>
     <label class="field"><span>Inspect module directories (comma separated)</span><input id="test-inspection-roots" value="${escape(view.inspection?.sourceRoots.join(', ') ?? '.')}" placeholder="apps/client, services/api"><small>For nested Angular and monorepo applications, enter their exact directories. No recursive repository scan.</small></label>
+    ${testScopeForm(view.testScope)}
     <p><button type="button" class="secondary" data-test-inspect>Read repository &amp; suggest</button><button type="button" class="secondary" data-action="test-setup-copilot">Ask Copilot for suggestions</button></p>
     <div id="test-inspection-results" aria-live="polite">${view.inspection ? `<p>Inspected <code>${escape(view.inspection.repositoryPath)}</code>. Baseline: unverified; no tests ran.</p>
       ${view.inspection.diagnostics.map(entry => `<p class="notice warning">${escape(entry.path)}: ${escape(entry.message)}</p>`).join('')}
@@ -561,6 +574,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = true; });
     const data = new FormData(form);
     if (form.id === 'test-setup-form') return submitTestSetup(form);
+    if (form.id === 'test-scope-form') vscode.postMessage({ type: 'save-test-scope', enabled: data.get('enabled') === 'on' });
     if (form.id === 'profile-form') vscode.postMessage({ type: 'save-profile', name: data.get('name'), role: data.get('role') });
     if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), allowSelfApproval: data.get('allowSelfApproval') === 'on', autoEnrollNewIdentities: data.get('autoEnrollNewIdentities') === 'on' });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });

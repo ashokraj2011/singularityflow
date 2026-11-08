@@ -9816,8 +9816,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!result) return;
       const summary = findingsImportSummary(result);
       await FindingsPanel.refreshOpen(summary);
-      const choice = await showCompactInformationMessage(`Findings import ${result.importId}: ${summary}`, 'Open Findings');
-      if (choice === 'Open Findings') FindingsPanel.show(client, { output, refresh: refreshAfterKnownMutation }, summary);
+      // Not awaited: the new-Story form waits on this import to read the register again, not on the toast.
+      void showCompactInformationMessage(`Findings import ${result.importId}: ${summary}`, 'Open Findings').then((choice) => {
+        if (choice === 'Open Findings') FindingsPanel.show(client, { output, refresh: refreshAfterKnownMutation }, summary);
+      });
+      return result;
     },
     'singularityFlow.inspectCompositionCache': async () => {
       const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakePlanInputKey,
   intakeProblems, storyPreflightCommand
@@ -230,4 +231,20 @@ test('non-Story intake does not expose or apply a Story test policy', () => {
   const form = story({ shape: 'epic', testRecovery: capability(), goal: 'Improve delivery' });
   assert.doesNotMatch(intakeHtml(form), /data-test-recovery/);
   assert.ok(!intakeCommand(form).includes('--test-baseline-disposition'));
+});
+
+test('without test-scope choice the form links to the switch in Configuration Center and refreshes itself', async () => {
+  const pending = testRecoveryHtml({ testRecovery: null, basePreflightPassed: false });
+  assert.match(pending, /data-test-policy-pending[\s\S]*shows here once the base branch is checked/);
+  assert.doesNotMatch(pending, /does not advertise|data-test-scope-configure/, 'not said to be off before the engine answers');
+  const html = testRecoveryHtml({ testRecovery: { schemaVersion: 1, enabled: false }, basePreflightPassed: true });
+  assert.match(html, /Test scope at Story start[\s\S]*<code>testRecovery\.enabled<\/code>[\s\S]*in Configuration Center/);
+  assert.match(html, /<button type="button" class="secondary" data-test-scope-configure>Open Test scope in Configuration Center<\/button>/);
+  assert.match(html, /<button type="button" class="secondary" data-test-scope-refresh>Refresh this intake<\/button>/);
+  assert.doesNotMatch(html, /data-catalog-retry/, 'a catalog Retry button means the catalog failed; this is not one');
+  const form = await readFile(new URL('../apps/vscode/src/views/intake-form.ts', import.meta.url), 'utf8');
+  assert.match(form, /closest\('\[data-test-scope-configure\]'\)\) return vscode\.postMessage\(\{ type: 'testScopeConfigure' \}\)/);
+  assert.match(form, /closest\('\[data-test-scope-refresh\]'\)\) return vscode\.postMessage\(\{ type: 'catalogRetry' \}\)/);
+  const panel = await readFile(new URL('../apps/vscode/src/views/intake-panel.ts', import.meta.url), 'utf8');
+  assert.match(panel, /testScopeConfigure: \(\) => vscode\.commands\.executeCommand\('singularityFlow\.configureTests'\)/);
 });

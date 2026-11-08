@@ -1140,7 +1140,10 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
   const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
-  const carried = new Set(listed.map((item) => item.kind));
+  // A row whose amendment waits for its approvers is that amendment's item, which holds the approval in its place [SCS:REQ-023].
+  const amending = new Set((facts.gaps ?? []).filter((gap) => gap.status === 'amending' && gap.issue).map((gap) => gap.issue));
+  const amendmentItem = (item) => ['intent-amendment', 'forward-amendment'].includes(item.kind) && amending.has(item.details?.amendment);
+  const carried = new Set([...listed.map((item) => item.kind), ...(listed.some(amendmentItem) ? ['conformance-gap'] : [])]);
   // This checkout's own changes come first, as the door refuses them first, as d0 and outside the
   // digest: setting them aside changes neither which item a number means nor what a person chose.
   const dirty = holds.find((hold) => hold.owner === 'this-checkout');
@@ -1151,7 +1154,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
       : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
-  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && heldKinds.has(item.kind)
+  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item)) || (awaiting && heldKinds.has(item.kind)
     && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const items = built.map((item, index) => {

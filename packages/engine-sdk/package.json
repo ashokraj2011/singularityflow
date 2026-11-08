@@ -13,6 +13,7 @@
     "./namespace": { "types": "./dist/namespace.d.mts", "import": "./dist/namespace.mjs" },
     "./content": { "types": "./dist/content.d.mts", "import": "./dist/content.mjs" },
     "./hosts/namespace-reader": { "types": "./dist/hosts/namespace-reader.d.mts", "import": "./dist/hosts/namespace-reader.mjs" },
+    "./hosts/namespace-project": { "types": "./dist/hosts/namespace-project.d.mts", "import": "./dist/hosts/namespace-project.mjs" },
     "./storage/filesystem": { "types": "./dist/storage/filesystem.d.mts", "import": "./dist/storage/filesystem.mjs" },
     "./storage/sqlite": { "types": "./dist/storage/sqlite.d.mts", "import": "./dist/storage/sqlite.mjs" },
     "./storage/sqlite-content": { "types": "./dist/storage/sqlite-content.d.mts", "import": "./dist/storage/sqlite-content.mjs" },

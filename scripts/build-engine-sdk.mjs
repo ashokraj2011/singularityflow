@@ -8,7 +8,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'hosts/namespace-reader',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'hosts/namespace-reader', 'hosts/namespace-project',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
@@ -21,6 +21,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if (field === 'operationId') return 'string';
   if (['workId', 'phaseId'].includes(field)) return 'string | null';
   if (['fetch', 'compose', 'adoptExisting', 'runChecks', 'confirmEvidence', 'notApplicable', 'open', 'fromArtifact', 'repair', 'dryRun'].includes(field)) return 'boolean | null';
   if (field === 'maximumBytes') return 'number | null';
@@ -43,7 +44,7 @@ export declare const ENGINE_CONTRACT: ${JSON.stringify(ENGINE_CONTRACT)};
 export interface ApprovalConfirmation { readonly workId: string; readonly phase: string; readonly generation: number; readonly reviewPacketSha256: string }
 export interface EngineInputs {
 ${ENGINE_OPERATIONS.map(operation => `  readonly ${JSON.stringify(operation.id)}: {\n${operation.inputFields.map(field =>
-    `    readonly ${JSON.stringify(field)}?: ${inputType(operation, field)};`).join('\n')}\n  };`).join('\n')}
+    `    readonly ${JSON.stringify(field)}${operation.requiredFields?.includes(field) ? '' : '?'}: ${inputType(operation, field)};`).join('\n')}\n  };`).join('\n')}
 }
 export type EngineOperation = keyof EngineInputs;
 export interface EngineResult<O extends EngineOperation = EngineOperation> {
@@ -65,7 +66,9 @@ export type EngineStage = (...parameters: unknown[]) => unknown;
 export type EnginePort = Readonly<Record<string, EngineStage>>;
 export interface Engine {
   readonly contract: typeof ENGINE_CONTRACT; readonly operations: typeof ENGINE_OPERATIONS;
-  run<O extends EngineOperation>(operation: O, inputs?: EngineInputs[O], options?: EngineOptions): Promise<EngineResult<O>>;
+  run<O extends EngineOperation>(operation: O, ...args: {} extends EngineInputs[O]
+    ? [inputs?: EngineInputs[O], options?: EngineOptions]
+    : [inputs: EngineInputs[O], options?: EngineOptions]): Promise<EngineResult<O>>;
 ${Object.entries(ENGINE_HELPERS).map(([helper, operation]) =>
     `  ${helper}(inputs?: EngineInputs[${JSON.stringify(operation)}], options?: EngineOptions): Promise<EngineResult<${JSON.stringify(operation)}>>;`).join('\n')}
 }
@@ -114,7 +117,8 @@ export async function buildEngineSdk({ outdir = path.join(workspace, 'dist') } =
     const outputs = Object.fromEntries(result.outputFiles.map(output => [path.relative(staging, output.path).replaceAll('\\', '/'), {
       bytes: output.contents.length, sha256: createHash('sha256').update(output.contents).digest('hex') }]));
     const report = { schemaVersion: 1, package: '@singularity-flow/engine-sdk', contract: ENGINE_CONTRACT,
-      operations: ENGINE_OPERATIONS.map(({ id, version, inputFields, port, stages }) => ({ id, version, inputFields, port, stages })),
+      operations: ENGINE_OPERATIONS.map(({ id, version, inputFields, requiredFields, port, stages }) => ({ id, version, inputFields,
+        ...(requiredFields ? { requiredFields } : {}), port, stages })),
       sources: Object.keys(result.metafile.inputs).sort(), outputs };
     await writeFile(path.join(staging, 'build.json'), JSON.stringify(report, null, 2) + '\n');
     await promote(staging, destination);

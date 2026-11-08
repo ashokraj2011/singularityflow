@@ -25,6 +25,9 @@ export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
     maximumReadableVersion: 2, unversionedAs: null, immutable: true, migrationPolicy: 'preserve-versions' }),
   prepared: frozenFamily('namespace-lifecycle-prepared'), manifest: frozenFamily('namespace-lifecycle-manifest')
 });
+export const NAMESPACE_ENROLLMENT_SCHEMAS = Object.freeze({
+  intent: frozenFamily('namespace-enrollment-intent'), manifest: frozenFamily('namespace-enrollment-manifest')
+});
 // Wire shape constraints, selected here without rewriting an immutable historical body.
 const LIFECYCLE_STATE_PROFILES = Object.freeze({
   1: Object.freeze({ requireOwnedCurrentPhase: false, terminalStatuses: Object.freeze([]) }),

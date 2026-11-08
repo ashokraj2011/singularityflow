@@ -100,8 +100,9 @@ v1 predecessor as immutable lineage. Head, intent, event and receipt formats rem
 Storage acceptance does not grant phase approval, cancellation or reopening authority. Those
 remain policy-owner decisions. A closed aggregate still returns the kernel's confirmation gate
 before reopening, and a local `phase.begin` operation cannot be relabelled as a shared commit.
-Project enrollment, local-draft coordination and production lifecycle admission remain separate
-runtime work; the terminal tests do not constitute a complete headless Story.
+[Explicit project enrollment](NAMESPACE-PROJECT-ENROLLMENT.md) provides new-project authority
+creation. Local-draft coordination and production lifecycle admission remain separate runtime
+work; the terminal tests do not constitute a complete headless Story.
 
 ## Remaining integration
 

@@ -22,6 +22,7 @@ import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phas
 import {workflowAssetSelection,workflowAssetManifest} from '../kernel/workflow-assets.mjs';
 import {phaseInputsAuditRequired,phaseInputsManifest} from '../kernel/phase-inputs.mjs';
 import {workflowNextManifest} from '../kernel/next-plan.mjs';
+import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult} from '../kernel/project-enrollment.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -139,10 +140,31 @@ const definitions = [
     stages:Object.freeze(['load','inspect']),validate:'phaseReviewInput',execute:'inspectPhaseCheck'},
   {id:'phase.draft-check',version:1,effect:'inspection',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId']),port:'phaseDraftCheck',
-    stages:Object.freeze(['load','inspect']),validate:'phaseReviewInput',execute:'inspectPhaseCheck'}
+    stages:Object.freeze(['load','inspect']),validate:'phaseReviewInput',execute:'inspectPhaseCheck'},
+  { id:'project.enroll',version:1,subject:'project',effect:'project-enrollment',humanDecision:false,
+    inputFields:Object.freeze(['operationId']),requiredFields:Object.freeze(['operationId']),port:'projectEnrollment',
+    stages:WRITE_STAGES,validate:'enrollmentInput',execute:'enrollProject' }
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
+
+function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
+
+async function enrollProject(port, inputs, signal) {
+  notCancelled(signal);
+  const context = await port.load(inputs, { signal }); notCancelled(signal);
+  const binding = data(projectEnrollmentBinding(data(context?.binding)));
+  const retained = await port.retained(context, inputs, { signal }); notCancelled(signal);
+  let committed = retained;
+  if (retained === null) {
+    const prepared = await port.prepare(context, inputs, { signal }); notCancelled(signal);
+    committed = await port.commit(context, prepared, { signal });
+  }
+  // A known durable receipt must still be acknowledged if cancellation arrives after commit.
+  const facts = data(await port.finish(context, committed, { signal: null }));
+  return data({ schemaVersion: 1, contract: ENGINE_CONTRACT, operation: 'project.enroll',
+    ...projectEnrollmentResult(binding, inputs, facts) });
+}
 
 function workflowAssetsInput(value) {
   const input = data(value);
@@ -1291,6 +1313,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 /** Default SDK composition binds every coordinator to the one data-only registry. */
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
+    enrollmentInput, enrollProject,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,

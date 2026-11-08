@@ -95,6 +95,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/kernel/adhoc-policy.mjs',
   'src/kernel/mcp-policy.mjs',
   'src/kernel/step-action-policy.mjs',
+  'src/kernel/project-enrollment.mjs',
   'src/kernel/configuration-policy.mjs',
   'src/kernel/workflow-configuration.mjs',
   'src/kernel/phase-admission.mjs',

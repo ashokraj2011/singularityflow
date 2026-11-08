@@ -65,7 +65,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
     'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',
     'src/engine-storage/namespace-reader.mjs', 'src/engine-storage/namespace-read-contract.mjs',
-    'src/engine-storage/namespace-lifecycle-commit.mjs', 'src/engine-storage/namespace-lifecycle-contract.mjs']);
+    'src/engine-storage/namespace-lifecycle-commit.mjs', 'src/engine-storage/namespace-lifecycle-contract.mjs',
+    'src/engine-storage/namespace-project.mjs', 'src/engine-storage/namespace-project-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -188,6 +189,31 @@ test('the internal namespace lifecycle committer composes explicit ports without
     if (file === owner) continue;
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     assert.equal(text.includes('namespace-lifecycle-commit.mjs'), false, file + ' must not select the new authority before a verified cutover');
+  }
+});
+
+test('project enrollment owns only explicit namespace ports and cannot select installed Git authority', async () => {
+  const owner = 'src/engine-storage/namespace-project.mjs';
+  const allowed = new Set(['node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
+    '../kernel/project-enrollment.mjs', '../sda/namespace/contract.mjs', '../sda/namespace/values.mjs',
+    '../sda/namespace/transaction.mjs', '../sda/content/contract.mjs', './namespace-lifecycle-contract.mjs', './namespace-project-contract.mjs']);
+  const source = ts.createSourceFile(owner, await readFile(path.join(packageRoot, owner), 'utf8'), ts.ScriptTarget.Latest, true);
+  const visit = node => {
+    if (ts.isImportDeclaration(node)) assert.ok(allowed.has(node.moduleSpecifier.text), node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+      || ts.isIdentifier(node.expression) && ['require','eval','Function'].includes(node.expression.text)), false);
+    if (ts.isIdentifier(node) && node.text === 'process') assert.fail('Enrollment must not discover installed projects.');
+    ts.forEachChild(node, visit);
+  }; visit(source);
+  const contract = 'src/engine-storage/namespace-project-contract.mjs';
+  const report = await inspectPureModuleGraph({ root: packageRoot, entries: [contract],
+    allowed: [contract, 'src/engine-storage/namespace-lifecycle-contract.mjs', ...await sourceFiles('src/foundation'),
+      ...await sourceFiles('src/sda/namespace'), ...await sourceFiles('src/sda/content')] });
+  assert.deepEqual(report.problems, []);
+  for (const file of await sourceFiles('src')) {
+    if (file === owner) continue;
+    assert.equal((await readFile(path.join(packageRoot, file), 'utf8')).includes('namespace-project.mjs'), false,
+      file + ' must not enroll an installed project implicitly');
   }
 });
 

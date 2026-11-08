@@ -57,6 +57,7 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `content`: draft immutable byte/reference contract, separate from metadata transaction limits.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
+- `hosts/namespace-project`: explicitly enroll a new namespace project through `project.enroll`.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
 saved read head. It implements `phase.review` and `document.read`; its other operation ports remain
@@ -76,6 +77,27 @@ The content connection needs durable SQLite journaling and FULL/EXTRA synchronou
 application chooses its bounded lock-wait policy and closes the connection. Content tables need
 a separate database from the exclusive SQLite namespace journal. Missing local attachments ask
 for matching reupload on that device; they are never read from shared content instead.
+
+New projects can establish their lifecycle authority through the same SDK registry:
+
+```js
+import { createNamespaceProjectEngine } from '@singularity-flow/engine-sdk/hosts/namespace-project';
+
+const project = createNamespaceProjectEngine({
+  records, content, scope: { projectId }, authority: { id: authorityId, epoch: 1 },
+  access: applicationProjectAccess, clock: applicationClock
+});
+const enrollment = await project.run('project.enroll', { operationId: stableEnrollmentId });
+```
+
+The application supplies `access.current({ projectId, operation, signal })`, returning its current
+`projectId`, `principalId` and `permissions`, and `clock.now()`, returning a canonical UTC timestamp.
+Fresh `project.enroll` permission is required before preparing and committing. A pending operation
+keeps its original principal and timestamp; retry with the same operation ID to reconcile it.
+An accepted retry returns the original receipt without activating another authority. Enrollment
+never replaces or reactivates an existing authority, approves configuration, creates a Story or
+migrates a Git project. The other lifecycle ports in this host remain unavailable. See the source
+guide `docs/NAMESPACE-PROJECT-ENROLLMENT.md` for persistence and qualification details.
 
 Node 22 or later is required for the core and filesystem/application backends. SQLite is loaded
 only when the namespace factory is called and requires the native capabilities qualified on managed Node

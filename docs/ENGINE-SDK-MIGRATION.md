@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host and internal conditional lifecycle committer implemented; production portable lifecycle ports and complete cross-agent Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer and explicit new-project enrollment implemented; production portable lifecycle ports and complete cross-agent Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -261,7 +261,13 @@ do not become proof of approval or execution.
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first
-complete namespace runtime; enrollment and production lifecycle admission remain required.
+complete namespace runtime; production lifecycle admission remains required.
+
+[Explicit project enrollment](NAMESPACE-PROJECT-ENROLLMENT.md) now establishes an authority through
+the registered `project.enroll` operation and real namespace transactions. Its prepared intent,
+fresh application permissions and original receipt replace test-fixture authority seeding for
+new projects. It does not approve configuration, initialize a Story or migrate installed Git
+authority; those remaining runtime and migration gates retain their full scope.
 
 [ADR 0018](adr/0018-sda-lifecycle-authority-options.md) keeps the Story branch as lifecycle authority,
 the state branch as proof/projection and `sflow/config` as configuration authority. The Git

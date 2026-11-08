@@ -200,6 +200,37 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const data = path.join(directory, 'namespace-data');
     await run('reader.mjs', source, [data, 'create']); await run('reader.mjs', source, [data, 'resume']);
   });
+  await t.test('an installed host enrolls a new project and replays the receipt in another empty-PATH process', async () => {
+    const source = `
+      import assert from 'node:assert/strict';
+      import path from 'node:path';
+      import { createFilesystemNamespaceStore } from '${packageName}/storage/filesystem';
+      import { createSqliteContentStore } from '${packageName}/storage/sqlite-content';
+      import { createNamespaceProjectEngine } from '${packageName}/hosts/namespace-project';
+      const binding={kind:'shared'},scope={projectId:'portable-project'},fresh=process.argv[2]==='fresh';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('enrollment-records'),binding,create:fresh});
+      const database=new (await import('node:sqlite')).DatabaseSync(path.resolve('enrollment-content.db'));
+      database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+      const content=createSqliteContentStore({database,binding,create:fresh});
+      try {
+        let accessCalls=0,clockCalls=0;
+        const access={current(){accessCalls++;if(!fresh)throw new Error('replay cannot authorize a new effect');
+          return {projectId:scope.projectId,principalId:'application-owner',permissions:['project.enroll']};}};
+        const clock={now(){clockCalls++;if(!fresh)throw new Error('replay cannot restamp intent');return '2026-11-08T00:00:00.000Z';}};
+        const engine=createNamespaceProjectEngine({records,content,scope,authority:{id:'application-authority',epoch:1},access,clock});
+        const result=await engine.run('project.enroll',{operationId:'portable-enrollment'});
+        assert.equal(result.replayed,!fresh);assert.equal(result.recordedAt,'2026-11-08T00:00:00.000Z');
+        assert.equal(result.effects.configurationApproved,false);assert.equal(result.effects.storyCreated,false);
+        assert.equal(accessCalls,fresh?2:0);assert.equal(clockCalls,fresh?1:0);
+        assert.equal((await records.list(scope,'state',{limit:100})).entries.length,1);
+        process.stdout.write(JSON.stringify(result));
+      } finally {database.close();}
+    `;
+    const first = JSON.parse(await run('enrollment.mjs', source, ['fresh']));
+    const replay = JSON.parse(await run('enrollment.mjs', source, ['replay']));
+    assert.deepEqual(replay, { ...first, replayed: true });
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -209,6 +240,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createApplicationNamespaceStore } from '${packageName}/storage/application';
       import { createSqliteContentStore } from '${packageName}/storage/sqlite-content';
       import { createNamespaceReadEngine, namespaceReadRecord } from '${packageName}/hosts/namespace-reader';
+      import { createNamespaceProjectEngine } from '${packageName}/hosts/namespace-project';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
@@ -221,6 +253,13 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('workflow.assets',{workflowIds:['story:feature']});
       engine.run('story.status',{workId:'example'});
       engine.run('story.guide',{workId:'example'});
+      engine.run('project.enroll',{operationId:'enroll-1'});
+      // @ts-expect-error Enrollment requires a stable operation identity.
+      engine.run('project.enroll',{});
+      // @ts-expect-error Required enrollment inputs cannot be omitted altogether.
+      engine.run('project.enroll');
+      // @ts-expect-error The trusted host binds enrollment identity and permissions.
+      engine.run('project.enroll',{operationId:'enroll-1',principalId:'administrator'});
       // @ts-expect-error Review and authoring observations come from the trusted port.
       engine.run('story.guide',{sourceReviewEvidence:{status:'ready'}});
       // @ts-expect-error Native branch/Jira alias resolution belongs to the host composition.
@@ -254,8 +293,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const reference:ContentReference={namespace:'state',sha256:'a'.repeat(64),bytes:1};
       const head=namespaceReadRecord('head',{projectId:'example',workId:'example',state:reference,policy:{...reference,namespace:'config'},documents:reference});
       function readHost(records:NamespaceStore,content:ContentStore){return createNamespaceReadEngine({records,content,scope:{projectId:'example'},workId:'example'});}
+      function projectHost(records:NamespaceStore,content:ContentStore){return createNamespaceProjectEngine({records,content,scope:{projectId:'example'},
+        authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'application-owner',permissions:['project.enroll']})},
+        clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
       void [check,operation,tx,filesystem,database,unavailable,createApplicationNamespaceStore,emptyNamespaceState,NAMESPACE_JOURNAL_PORT];
-      void [head,readHost,createSqliteContentStore];
+      void [head,readHost,projectHost,createSqliteContentStore];
     `;
     const file = path.join(consumer, 'types.mts'); await writeFile(file, source);
     const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: false, types: [],
@@ -263,9 +305,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const diagnostics = ts.getPreEmitDiagnostics(program);
     assert.deepEqual(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')), []);
     const declared = await readFile(path.join(consumer, 'node_modules', packageName, 'dist/index.d.mts'), 'utf8');
-    for (const { id, inputFields } of ENGINE_OPERATIONS) {
+    for (const { id, inputFields, requiredFields } of ENGINE_OPERATIONS) {
       assert.ok(declared.includes(`readonly ${JSON.stringify(id)}:`));
-      for (const field of inputFields) assert.ok(declared.includes(`readonly ${JSON.stringify(field)}?:`));
+      for (const field of inputFields) assert.ok(declared.includes(`readonly ${JSON.stringify(field)}${requiredFields?.includes(field) ? '' : '?'}:`));
     }
     for (const helper of Object.keys(ENGINE_HELPERS)) assert.ok(declared.includes(`  ${helper}(`));
   });

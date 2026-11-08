@@ -89,6 +89,7 @@ for(const backend of ['filesystem','sqlite','application']){
     const writer=f.make(),basis=await writer.capture();
     // A local draft operation cannot be relabelled as a shared lifecycle commit or grant reopening.
     await assert.rejects(writer.prepare(basis,f.proposal(reopened.workflow,'continued',{operation:'phase.begin'})),{code:'ENGINE_INPUT_INVALID'});
+    await assert.rejects(writer.prepare(basis,f.proposal(reopened.workflow,'enroll-project',{operation:'project.enroll'})),{code:'ENGINE_INPUT_INVALID'});
     assert.equal((await writer.inspect('continued')).status,'missing');
     assert.deepEqual((await f.make().commit('finish')).receipt,committed.receipt);
     assert.equal((await f.make().capture()).workflow.status,'closed');

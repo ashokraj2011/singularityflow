@@ -1396,6 +1396,16 @@
                   "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9][A-Za-z0-9.+-]{0,15}$" } }
               },
               "additionalProperties": false
+            },
+            "coverage": {
+              "description": "The coverage report this test command already writes, below its working directory. SFlow reads it beside the test report and never adds a flag to write it. Without it the usual places are read: coverage/lcov.info, coverage/cobertura-coverage.xml, target/site/jacoco/jacoco.xml, build/reports/jacoco/test/jacocoTestReport.xml, coverage.xml, coverage/coverage-final.json. An engine older than this key ignores it.",
+              "type": "object",
+              "required": ["format", "path"],
+              "properties": {
+                "format": { "enum": ["lcov", "cobertura", "jacoco", "istanbul-json"] },
+                "path": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
             }
           },
           "oneOf": [

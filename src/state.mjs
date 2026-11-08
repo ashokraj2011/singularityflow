@@ -4944,6 +4944,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       rerunReason = standing.moved;
     }
     if (rerunReason) console.warn(`Running ${policy.id} again: ${rerunReason}.`);
+    // A coverage report the command writes is read only when this run wrote it [CQF:REQ-030]; a run
+    // given an environment's values, or on another tree than the Story's, is not measured.
+    const coverageBefore = policy.kind === 'test' && policy.argv && !environmentGate.run && !candidateIsOtherCode
+      ? await (await import('./verification/coverage-reports.mjs')).coverageReportsBefore(executionRoot, policy) : null;
     const result = policy.argv
       ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
         cwd: executionRoot,
@@ -4959,6 +4963,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
+    const coverage = coverageBefore ? await (await import('./verification/coverage-reports.mjs')).capturedCoverage(executionRoot, coverageBefore, {
+      startedAt, codeRoot: isolation?.root ?? root, workingDirectory: policy.workingDirectory ?? '.', affectedRoots: policy.affectedRoots,
+      base: workflow.workIntervals?.history?.[0]?.sourceBaseCommit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null }) : null;
     if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
       isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
     });
@@ -5026,6 +5033,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         }, check) : error;
     }
     await gateRun?.attach(check);
+    // Kept off the check's JSON: its attempt records it beside the test report.
+    if (coverage) Object.defineProperty(check, 'coverageReport', { value: coverage });
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     qualityCommandResults.set(check, result);
     checks.push(check);

@@ -5,6 +5,11 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 const reporterFlag = (token) => token === '--test-reporter' || token.startsWith('--test-reporter=');
 const destinationFlag = (token) => token === '--test-reporter-destination' || token.startsWith('--test-reporter-destination=');
 
+/** One run's flag values, `--flag=value` or `--flag value`. */
+const flagValues = (tokens, test) => tokens.flatMap((token, index) => (!test(token) ? [] : token.includes('=') ? [token.slice(token.indexOf('=') + 1)] : [tokens[index + 1] ?? '']));
+const lcovReportToFile = (tokens) => flagValues(tokens, reporterFlag).every((value) => value === 'lcov')
+  && flagValues(tokens, destinationFlag).every((value) => value && !['stdout', 'stderr'].includes(value));
+
 /** A native reporter is required for exact Node identities: ordinary TAP omits passing files. */
 export async function nodeTestReporterEnvironment(environment, root, { argv = [], cwd = root } = {}) {
   const env = { ...environment };
@@ -19,6 +24,9 @@ export async function nodeTestReporterEnvironment(environment, root, { argv = []
     destinations: (text.match(/--test-reporter-destination(?:=|\s)/gu) ?? []).length });
   const shapes = runs.length ? runs.map(shape) : [textShape(outer.join(' '))];
   const [{ reporters: existing, destinations }] = shapes;
+  // A run whose one reporter writes Node's lcov to a file of its own reports no TAP: SFlow's reporter writes it,
+  // so the coverage report the command already makes is kept beside it [CQF:REQ-030].
+  const lcovToFile = existing === 1 && destinations === 1 && runs.length > 0 && runs.every(lcovReportToFile);
   // NODE_OPTIONS reaches every run, so the runs must agree on how many reporters they install.
   const conflicting = shapes.some((entry) => entry.reporters !== existing || entry.destinations !== destinations);
   if (existing > 1 || destinations > existing || conflicting || /--test-reporter(?:=|\s)/u.test(env.NODE_OPTIONS ?? '')) {
@@ -27,7 +35,7 @@ export async function nodeTestReporterEnvironment(environment, root, { argv = []
   // With an explicit TAP reporter, retain its output and add only the identity event record. Node
   // requires one destination per reporter when more than one is installed; both use the captured
   // stream unless the approved command explicitly supplied its own destination.
-  env.SINGULARITY_FLOW_NODE_TEST_TAP = existing ? '0' : '1';
+  env.SINGULARITY_FLOW_NODE_TEST_TAP = existing && !lcovToFile ? '0' : '1';
   env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --test-reporter=${reporter}${existing
     ? ' --test-reporter-destination=stdout' + (destinations ? '' : ' --test-reporter-destination=stdout') : ''}`.trim();
   return env;

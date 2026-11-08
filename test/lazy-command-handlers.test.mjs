@@ -357,7 +357,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // delivery-evidence.mjs, phase-execution-evidence.mjs, attempts.mjs, story-lineage.mjs, code-delivery-tests.mjs) [CQF:REQ-011]. The gates themselves read it, so not lazy.
     // 9,553,000 (measured 9,552,936): a Story on only its new tests runs, at its last step that runs tests, the existing tests that import a changed module
     // (state.mjs, attempts.mjs); finding them stays lazy (verification/test-scope-selection.mjs) [CQF:REQ-017].
-    assert.ok(closure.bytes <= 9_553_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,556,800 (measured 9,556,715, commands/phase-lifecycle.mjs): a test command names its coverage report and its attempt keeps it beside
+    // the test report (external-command-policy.mjs, state.mjs, attempts.mjs, node-test-observation.mjs); reading and keeping one stays lazy
+    // (verification/coverage-reports.mjs) [CQF:REQ-030].
+    assert.ok(closure.bytes <= 9_556_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -535,7 +538,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
   // 4,158,510 (measured 4,158,509): the same --latest flag as root dispatch.
   // 4,159,060 (measured 4,159,053): the one documentation definition exported, and a receipt's code digest (delivery-evidence.mjs, code-delivery-tests.mjs) [CQF:REQ-011].
-  assert.ok(current.bytes <= 4_159_060, `session current loads ${current.bytes} source bytes`);
+  // 4,161,000 (measured 4,160,916): the same coverage key and lcov reporter rule as start (external-command-policy.mjs, node-test-observation.mjs) [CQF:REQ-030].
+  assert.ok(current.bytes <= 4_161_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

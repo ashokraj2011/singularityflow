@@ -19,11 +19,14 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  * as for `decision evidence-reuse`, `decision test-risk` and `decision test-command`.
  */
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { stdin as processInput, stdout as processOutput } from 'node:process';
 import readline from 'node:readline/promises';
+import { pathToFileURL } from 'node:url';
 
 import { action, commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card']);
@@ -55,6 +58,20 @@ async function storyContext(root, workId, { record, fetch }) {
   }
   const accepted = await loadAcceptedStoryExecution(root, workId ?? undefined);
   return { config: accepted.definition, workflow: accepted.workflow };
+}
+
+/**
+ * The step's coverage, criterion proof, findings, vulnerable-dependency hold and required checks beside the
+ * list, for the card and the Copilot CLI table to show [CQF:REQ-031, REQ-033, REQ-034, REQ-052, REQ-055]. Loaded from
+ * the CLI source, out of the VS Code gateway bundle; evidence only, so an unreadable one is left out.
+ */
+async function approvalEvidenceOf(root, config, workflow, packet, at) {
+  try {
+    const [{ approvalEvidence }, { actionActor }] = await Promise.all([
+      import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'approval-evidence.mjs')).href), import('./kernel.mjs')]);
+    return await approvalEvidence(root, config, workflow, packet.phase, { actor: actionActor(root),
+      authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, at });
+  } catch { return null; }
 }
 
 /** The list as it stands now, for the current Git identity. */
@@ -525,7 +542,8 @@ async function show(root, options, workId) {
     return emitShow(packet, options, workflow, { preview });
   }
   const route = await inApproval(packet);
-  const shown = route ? { ...packet, inApproval: route } : packet;
+  const evidence = optionBoolean(options, 'json') ? await approvalEvidenceOf(root, config, workflow, packet, at) : null;
+  const shown = { ...packet, ...(route ? { inApproval: route } : {}), ...(evidence ? { approvalEvidence: evidence } : {}) };
   if (!optionBoolean(options, 'json')) process.stdout.write(packetText(shown));
   return emitShow(shown, options, workflow);
 }

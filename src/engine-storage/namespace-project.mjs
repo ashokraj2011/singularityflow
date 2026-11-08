@@ -17,7 +17,7 @@ const error = (message, code, details = null, cause = undefined) => new Singular
 function cancelled(signal) { if (signal?.aborted) throw error('Enrollment was cancelled before its next effect.', 'ENGINE_OPERATION_CANCELLED'); }
 
 /** The application owns access.current and clock.now. Neither is a request field. */
-export function createNamespaceProjectEngine({ records, content, scope, authority, access, clock } = {}) {
+export function createNamespaceProjectPorts({ records, content, scope, authority, access, clock } = {}) {
   validateNamespaceStore(records); validateContentStore(content); scope = namespaceScope(scope);
   exactObject(authority, ['id','epoch']);
   authority = Object.freeze({ id: namespaceIdentifier(authority.id, 'Authority ID'), epoch: authority.epoch });
@@ -141,7 +141,7 @@ export function createNamespaceProjectEngine({ records, content, scope, authorit
     if (existing) { stored(lifecycleAuthority, existing, scope);
       throw error('This project already has an authority. Enrollment cannot replace, migrate or reactivate it.', 'ENGINE_PROJECT_ALREADY_ENROLLED'); }
   }
-  return createEngine({ ports: { projectEnrollment: {
+  return { projectEnrollment: {
     async load(inputs, { signal } = {}) {
       cancelled(signal); const context = Object.freeze({ binding });
       contexts.set(context, { inputs, parameters: parameters(inputs) }); return context;
@@ -193,5 +193,9 @@ export function createNamespaceProjectEngine({ records, content, scope, authorit
       return { projectId: scope.projectId, operationId: plan.operationId, authorityId: authority.id, epoch: 1,
         principalId: plan.principalId, recordedAt: plan.recordedAt, requestDigest: r.requestDigest, revision: r.revision, replayed };
     }
-  } } });
+  } };
+}
+
+export function createNamespaceProjectEngine(options={}) {
+  return createEngine({ports:createNamespaceProjectPorts(options)});
 }

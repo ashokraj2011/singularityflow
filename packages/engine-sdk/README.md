@@ -16,6 +16,26 @@ Install the resulting local archive in the host project with `npm install /path/
 The archive contains the runtime, declarations and source inventory; it needs no SFlow checkout.
 The ordinary CLI and extension installers and their existing package exports remain unchanged.
 
+For the implemented namespace lifecycle, use one explicitly bound host:
+
+```js
+import { createNamespaceEngine } from '@singularity-flow/engine-sdk/hosts/namespace-engine';
+
+const engine = createNamespaceEngine({
+  records, content, scope: { projectId }, workId, authority,
+  access: authenticatedApplicationAccess, clock: applicationClock,
+  working: { records: localRecords, content: localContent }, sources: selectedSourceUnits
+});
+const draft = await engine.run('phase.prepare', { phaseId });
+```
+
+It binds one registry and the existing operation owners, from explicit enrollment/configuration
+through reviewed-document authoring, publication, submission, human approval and route choices.
+The optional `working` ports hold device-bound private drafts; shared-only hosts can read/review
+and acknowledge retained effects, including publication without the old private store. Read and
+write authority share the same explicit binding. Construction performs no I/O or enrollment.
+Full application/test execution and additional production policy owners remain required work.
+
 ```js
 import { createEngine, ENGINE_OPERATIONS } from '@singularity-flow/engine-sdk';
 
@@ -59,6 +79,8 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   and required-content observations with explicit host-computed fingerprints.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
+- `hosts/namespace-engine`: one explicit composition of the implemented namespace operations,
+  sharing captured storage, access, clock, source and read ports. Individual hosts remain available.
 - `hosts/namespace-project`: explicitly enroll a new namespace project through `project.enroll`.
 - `hosts/namespace-configuration`: approve an exact workflow package under an enrolled authority.
 - `hosts/namespace-story`: create work from an approved configuration through `story.create` and

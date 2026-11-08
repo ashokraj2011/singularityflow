@@ -21,7 +21,7 @@ const error = (message, code, details = null, cause = undefined) => new Singular
 function cancelled(signal) { if(signal?.aborted) throw error('Configuration approval was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED'); }
 
 /** access.current authenticates the human; no operation input may supply identity or permission. */
-export function createNamespaceConfigurationEngine({ records, content, scope, authority, access, clock } = {}) {
+export function createNamespaceConfigurationPorts({ records, content, scope, authority, access, clock } = {}) {
   validateNamespaceStore(records); validateContentStore(content); scope=namespaceScope(scope);
   exactObject(authority,['id','epoch']); authority=Object.freeze({id:namespaceIdentifier(authority.id),epoch:authority.epoch});
   if(!Number.isSafeInteger(authority.epoch) || authority.epoch < 1 || records.descriptor.binding.kind !== 'shared'
@@ -119,7 +119,7 @@ export function createNamespaceConfigurationEngine({ records, content, scope, au
     if((h?.version??null)!==inputs.expectedRevision)throw error('The approved configuration changed. Review the current revision before creating another operation.','ENGINE_CONTEXT_CHANGED',{expected:inputs.expectedRevision,actual:h?.version??null});
     return {authorityVersion:a.version,baseRevision:h?.version??null};
   }
-  return createEngine({ports:{configurationApproval:{
+  return {configurationApproval:{
     async load(inputs,{signal}={}) {cancelled(signal);const context=Object.freeze({binding});contexts.set(context,{inputs,parameters:parameters(inputs)});return context;},
     retained,
     async prepare(context,_inputs,{signal}={}) {
@@ -176,5 +176,9 @@ export function createNamespaceConfigurationEngine({ records, content, scope, au
         principalId:plan.principalId,source:plan.source,configuration:plan.configuration.content,reason:plan.reason,
         recordedAt:plan.recordedAt,requestDigest:r.requestDigest,revision,transactionRevision:r.revision,replayed,advisories};
     }
-  }}});
+  }};
+}
+
+export function createNamespaceConfigurationEngine(options={}) {
+  return createEngine({ports:createNamespaceConfigurationPorts(options)});
 }

@@ -7,7 +7,7 @@ import { recordSha256 } from '../records.mjs';
 import { resolveDocumentRecord } from '../document-identity.mjs';
 import { phaseReviewSelection,assertHistoricalReviewPhase,hasPublishedPhaseGeneration,phaseNeedsGeneration } from '../kernel/phase-policy.mjs';
 import { validateNamespaceStore,NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
-import { namespaceScope, namespaceRevision } from '../sda/namespace/values.mjs';
+import { namespaceScope, namespaceRevision,namespaceIdentifier,exactObject } from '../sda/namespace/values.mjs';
 import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
 import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex,
   namespaceReadRecord,projectNamespaceLifecycleReadState } from './namespace-read-contract.mjs';
@@ -40,9 +40,13 @@ export function createNamespaceReadEngine({ records, content, localContent = nul
 }
 
 /** Internal port composition lets creation and reading share one registered Engine instance. */
-export function createNamespaceReadPorts({ records, content, localContent = null, scope, workId } = {}) {
+export function createNamespaceReadPorts({ records, content, localContent = null, scope, workId } = {},{authority=null}={}) {
   validateNamespaceStore(records); validateContentStore(content);
   scope = namespaceScope(scope); const key = namespaceStoryReadKey(workId);
+  if(authority!==null) {
+    exactObject(authority,['id','epoch']);authority=Object.freeze({id:namespaceIdentifier(authority.id),epoch:authority.epoch});
+    if(!Number.isSafeInteger(authority.epoch)||authority.epoch<1)throw unavailable('A bound read authority needs its exact epoch.','ENGINE_INPUT_INVALID');
+  }
   if (records.descriptor.binding.kind !== 'shared' || content.descriptor.binding.kind !== 'shared') {
     throw unavailable('Story read snapshots need shared metadata and content ports.', 'ENGINE_INPUT_INVALID');
   }
@@ -96,6 +100,8 @@ export function createNamespaceReadPorts({ records, content, localContent = null
   async function load(_inputs, { signal } = {}) {
     const selected = await head(signal);
     if(selected.value.format==='sflow-namespace-read-lifecycle-head/v1') {
+      if(authority&&(selected.value.authority.id!==authority.id||selected.value.authority.epoch!==authority.epoch))throw unavailable(
+        'The canonical read locator belongs to another bound authority.','ENGINE_AUTHORITY_FENCED',{workId,authority});
       if(selected.value.lifecycleHead!==namespaceLifecycleStoryKey(workId))throw unavailable('The lifecycle locator points at another Story.','ENGINE_STORAGE_CORRUPT');
       const observer=createNamespaceLifecycleObserver({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority});
       const {snapshot,basis}=await observer.capture({signal}),workflow=snapshot.workflow;
@@ -113,6 +119,8 @@ export function createNamespaceReadPorts({ records, content, localContent = null
         routingChoiceReader:createNamespaceRoutingChoiceReader({observer,scope,workId,packets:submissionReader}),
         lifecycle:{locatorRevision:selected.revision,key:selected.value.lifecycleHead,authorityVersion:basis.authorityVersion}};
     }
+    if(authority)throw unavailable('The bound Engine requires a canonical lifecycle locator.','ENGINE_PORT_UNAVAILABLE',{
+      workId,required:['canonical-lifecycle-locator']});
     const results = await Promise.allSettled([json(selected.value.state, signal), json(selected.value.policy, signal), json(selected.value.documents, signal)]);
     let failure = null; for (const result of results) if (result.status === 'rejected' && failure === null) failure = result.reason;
     if (failure !== null) throw failure;

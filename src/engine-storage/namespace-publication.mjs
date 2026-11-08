@@ -17,6 +17,7 @@ import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {namespacePublicationValue,NAMESPACE_PUBLICATION_PROFILE} from './namespace-publication-contract.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
+import {createNamespaceReadPorts} from './namespace-reader.mjs';
 export {NAMESPACE_PUBLICATION_PROFILE};
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -24,15 +25,16 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Publication was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespacePublicationEngine(options={}) {
-  const {records,content,localRecords,localContent,access,clock,sources=[],modelEnabled=true,notice=()=>{}}=options;
+export function createNamespacePublicationPort(options={},runtime=null) {
+  const {records,content,clock,modelEnabled=true,notice=()=>{}}=options;
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID'),authority=Object.freeze(structuredClone(options.authority));
-  const runtime=createNamespacePreparationRuntime({records,content,localRecords,localContent,scope,workId,authority,access,clock,sources,modelEnabled});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority}),observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const publicationReader=createNamespacePublicationReader({observer,scope,workId});
   const put=content.put.bind(content),now=clock.now.bind(clock),contexts=new WeakMap(),preparations=new WeakMap();
   if(typeof notice!=='function')throw error('Publication notice must be an explicit observer.','ENGINE_INPUT_INVALID');
   function selected(context){const value=contexts.get(context);if(!value)throw error('Use the issued publication context.','ENGINE_INPUT_INVALID');return value;}
+  const workingRequired=phase=>error('New publication requires an explicit machine-local working store.','ENGINE_PORT_UNAVAILABLE',{
+    operation:'phase.publish',phase,required:['machine-local-working-store']});
   async function shared(data,signal) {
     cancelled(signal);const expected={namespace:'evidence',sha256:hash(data),bytes:data.byteLength},saved=await put(scope,'evidence',data,{signal});
     if(!same(contentReference(saved?.reference),expected)||typeof saved.reused!=='boolean')throw error('The content port stored another publication body.','ENGINE_PORT_RESULT_INVALID');
@@ -72,7 +74,8 @@ export function createNamespacePublicationEngine(options={}) {
       namespaceIdentifier(phaseId,'Phase ID');
       const request={workId,phaseId,authored:input.authored??null,channel:input.channel??null,externalAiUse:input.externalAiUse??null,changeOrigins:input.changeOrigins??null};
       const requestSha256=hash(namespaceIdentityJson(request));let draft=null,identity=null,missing=null;
-      try{draft=await runtime.captureDraft(phaseId,{signal});identity=runtime.draftIdentity(draft);}
+      if(runtime===null)missing=workingRequired(phaseId);
+      else try{draft=await runtime.captureDraft(phaseId,{signal});identity=runtime.draftIdentity(draft);}
       catch(cause){if(!['ENGINE_DRAFT_MISSING','ENGINE_STORAGE_CONTENT_MISSING'].includes(cause.code))throw cause;missing=cause;}
       const operationId=identity?'publish-'+hash(namespaceIdentityJson({scope,authority,workId,phaseId,draft:identity.bodySha256,request})):null;
       const context={subject:Object.freeze({kind:'story',id:workId}),phase:{id:phaseId},modelEnabled};
@@ -104,7 +107,8 @@ export function createNamespacePublicationEngine(options={}) {
       return null;
     },
     async prepare(context,_input,intent,{signal}={}) {
-      const s=selected(context),admission=await runtime.admitDraft(s.draft,'phase.publish',{signal}),observed=runtime.draftFacts(admission);
+      const s=selected(context);if(runtime===null)throw workingRequired(s.phaseId);
+      const admission=await runtime.admitDraft(s.draft,'phase.publish',{signal}),observed=runtime.draftFacts(admission);
       const snapshot=s.snapshot??await committer.capture({signal}),phase=snapshot.workflow.phases[s.phaseId];
       if(snapshot.revision!==observed.revision||s.plan&&snapshot.revision!==s.plan.basis.headVersion)throw error('The Story changed before publication preparation.','ENGINE_CONTEXT_CHANGED');
       const required=primaryDocumentPublicationRequirements(snapshot.workflow,phase,{definition:observed.definition});
@@ -170,5 +174,14 @@ export function createNamespacePublicationEngine(options={}) {
       return facts(s,(await retainedPublication(plan,s,null)).publication,accepted);
     }
   };
-  return createEngine({ports:{...runtime.ports,publication}});
+  return publication;
+}
+
+export function createNamespacePublicationEngine(options={}) {
+  const {records,content,localRecords,localContent,access,clock,sources=[],modelEnabled=true,notice=()=>{},
+    scope:givenScope,workId:givenWorkId,authority:givenAuthority}=options;
+  const scope=namespaceScope(givenScope),workId=namespaceIdentifier(givenWorkId,'Story ID'),authority=Object.freeze(structuredClone(givenAuthority));
+  const bound={records,content,localRecords,localContent,scope,workId,authority,access,clock,sources,modelEnabled,notice};
+  const runtime=createNamespacePreparationRuntime(bound);
+  return createEngine({ports:{...createNamespaceReadPorts(bound),...runtime.ports,publication:createNamespacePublicationPort(bound,runtime)}});
 }

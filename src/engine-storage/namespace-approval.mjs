@@ -29,7 +29,7 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Approval was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock,localContent=null}={}) {
+export function createNamespaceApprovalPorts({records,content,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
@@ -267,5 +267,11 @@ export function createNamespaceApprovalEngine({records,content,scope,workId,auth
       return facts(s,await retained(plan,s),accepted);
     }
   };
-  return createEngine({ports:{...createNamespaceReadPorts({records,content,localContent,scope,workId}),approval}});
+  return {approval};
+}
+
+export function createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock,localContent=null}={}) {
+  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent};
+  const ports=createNamespaceApprovalPorts(options);
+  return createEngine({ports:{...createNamespaceReadPorts(options),...ports}});
 }

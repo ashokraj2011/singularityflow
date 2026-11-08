@@ -155,6 +155,7 @@ export function createNamespaceSourceBindingPort({records,content,scope,workId,a
   };
 }
 
-export function createNamespaceSourceEngine(options={}) {
+export function createNamespaceSourceEngine({records,content,localContent=null,scope,workId,authority,sources=[],access,clock}={}) {
+  scope=namespaceScope(scope);const options={records,content,localContent,scope,workId,authority,sources,access,clock};
   return createEngine({ports:{...createNamespaceReadPorts(options),sourceBinding:createNamespaceSourceBindingPort(options)}});
 }

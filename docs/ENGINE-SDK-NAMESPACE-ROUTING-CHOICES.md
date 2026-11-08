@@ -91,8 +91,9 @@ SDA owns retained records/bytes and the conditional commit, and the host owns au
 human interaction. Contracts and kernel modules have no filesystem, process, provider or Git
 dependency. Architecture guards restrict the explicit host and its read-only proof service.
 
-Phases 5, 7, 8 and 9 remain open: remaining native query/policy extraction, one complete headless
-Engine composition, actual application/test and other production policy execution, verified
+The [single headless composition](ENGINE-SDK-HEADLESS-COMPOSITION.md) now binds the implemented
+owners to one public Engine. Phases 5, 7, 8 and 9 remain open: remaining native query/policy
+extraction, actual application/test and other production policy execution, verified
 migration, adapter/distribution qualification and performance comparisons retain their full scope.
 
 ## Mac qualification

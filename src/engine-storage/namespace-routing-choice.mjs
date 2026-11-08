@@ -23,7 +23,7 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('The route choice was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceRoutingChoiceEngine({records,content,scope,workId,authority,access,clock,localContent=null}={}) {
+export function createNamespaceRoutingChoicePorts({records,content,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
@@ -188,5 +188,11 @@ export function createNamespaceRoutingChoiceEngine({records,content,scope,workId
         actorId:value.actor.principalId,authorityGroup:value.authorityGroup,currentPhase:value.currentPhase};
     }
   };
-  return createEngine({ports:{...createNamespaceReadPorts({records,content,localContent,scope,workId}),decisionRecord}});
+  return {decisionRecord};
+}
+
+export function createNamespaceRoutingChoiceEngine({records,content,scope,workId,authority,access,clock,localContent=null}={}) {
+  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent};
+  const ports=createNamespaceRoutingChoicePorts(options);
+  return createEngine({ports:{...createNamespaceReadPorts(options),...ports}});
 }

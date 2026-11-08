@@ -23,7 +23,7 @@ const error=(message,code,details=null,cause=undefined)=>new SingularityFlowErro
 function cancelled(signal){if(signal?.aborted)throw error('Story creation was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 export const namespaceStoryGenesisKey=workId=>namespaceLifecycleStoryKey(workId).replace(/\/head$/u,'/genesis');
 
-export function createNamespaceStoryEngine({records,content,localContent=null,scope,workId,authority,access,clock}={}) {
+export function createNamespaceStoryPorts({records,content,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);exactObject(authority,['id','epoch']);
   authority=Object.freeze({id:namespaceIdentifier(authority.id),epoch:authority.epoch});
   storyCreationBinding({projectId:scope.projectId,workId,authority},{workId});
@@ -188,5 +188,11 @@ export function createNamespaceStoryEngine({records,content,localContent=null,sc
         revision:r.records.find(item=>item.namespace==='state'&&item.key===headKey).version,transactionRevision:r.revision,requestDigest:r.requestDigest,replayed};
     }
   };
-  return createEngine({ports:{...createNamespaceReadPorts({records,content,localContent,scope,workId}),storyCreation}});
+  return {storyCreation};
+}
+
+export function createNamespaceStoryEngine({records,content,localContent=null,scope,workId,authority,access,clock}={}) {
+  scope=namespaceScope(scope);const options={records,content,localContent,scope,workId,authority,access,clock};
+  const ports=createNamespaceStoryPorts(options);
+  return createEngine({ports:{...createNamespaceReadPorts(options),...ports}});
 }

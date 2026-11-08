@@ -340,7 +340,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
           artifact:p.artifact.current,recordedAt:p.updatedAt,principalId:p.updatedBy.principalId,replayed:r.replayed===true};}
     };
   }
-  const ports={...createNamespaceReadPorts({records,content,localContent,scope,workId}),phasePreparation,phaseDraftRead,
+  const ports={phasePreparation,phaseDraftRead,
     phaseDraftWrite:mutationPort('write'),phaseDraftRebase:mutationPort('rebase')};
   function draftCapture(token) {const value=draftCaptures.get(token);if(!value)throw error('Use the issued private draft capture.','ENGINE_INPUT_INVALID');return value;}
   function admission(token) {const value=admissions.get(token);if(!value)throw error('Use the issued private draft admission.','ENGINE_INPUT_INVALID');return value;}
@@ -385,5 +385,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
 }
 
 export function createNamespacePreparationEngine(options) {
-  return createEngine({ports:createNamespacePreparationRuntime(options).ports});
+  const {records,content,localRecords,localContent,scope,workId,authority,access,clock,sources=[],modelEnabled=true}=options===undefined?{}:options;
+  const bound={records,content,localRecords,localContent,scope:namespaceScope(scope),workId,authority,access,clock,sources,modelEnabled};
+  const runtime=createNamespacePreparationRuntime(bound);
+  return createEngine({ports:{...createNamespaceReadPorts(bound),...runtime.ports}});
 }

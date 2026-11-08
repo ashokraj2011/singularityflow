@@ -627,58 +627,56 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const replay=JSON.parse(await run('routing-approval.mjs',source,['replay']));assert.deepEqual(replay,first);
   });
 
-  await t.test('installed human choice resumes the actual approved question and reopens its original receipt in another process',async()=>{
+  await t.test('one installed Engine authors, publishes, approves, chooses and recovers receipts in another shared-only process',async()=>{
     const source=`
       import assert from 'node:assert/strict';import path from 'node:path';import {readFile,writeFile} from 'node:fs/promises';
       import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
       import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
-      import {createNamespaceStoryEngine} from '${packageName}/hosts/namespace-story';
-      import {createNamespacePreparationEngine} from '${packageName}/hosts/namespace-preparation';
-      import {createNamespacePublicationEngine} from '${packageName}/hosts/namespace-publication';
-      import {createNamespaceSubmissionEngine} from '${packageName}/hosts/namespace-submission';
-      import {createNamespaceApprovalEngine} from '${packageName}/hosts/namespace-approval';
-      import {createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE} from '${packageName}/hosts/namespace-routing-choice';
+      import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
+      import {NAMESPACE_ROUTING_CHOICE_PROFILE} from '${packageName}/hosts/namespace-routing-choice';
       const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='choice-story';
       const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
       const {DatabaseSync}=await import('node:sqlite'),database=new DatabaseSync(path.resolve('configuration-content.db'));
       const content=createSqliteContentStore({database,binding});let privateDatabase=null;
       try {
         const clock={now(){if(!fresh)throw Error('An original choice cannot obtain another timestamp.');return '2026-11-08T19:00:00.000Z';}};
-        const humanAccess={current:()=>({projectId:scope.projectId,principalId:'independent-reviewer',actorKind:'human',agentId:fresh?null:'another-prompt',
-          identity:{name:'Independent reviewer',email:'independent@example.test'},permissions:fresh?['phase.approve','decision.choose']:[]})};
-        const common={records,content,scope,workId,authority,clock},chooser=createNamespaceRoutingChoiceEngine({...common,access:humanAccess});
-        let input;
+        let reviewing=!fresh,working=null;
         if(fresh) {
-          const access={current:()=>({projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',agentId:'analyst',
-            identity:{name:'Example reviewer',email:'reviewer@example.test'},
-            permissions:['story.create','phase.prepare','phase.draft.read','phase.draft.write','phase.publish','phase.submit']})};
-          const options={...common,access},source=(await content.put(scope,'state',Buffer.from('# Reviewed direction\\n\\nA human must choose its disposition.\\n'))).reference;
-          await createNamespaceStoryEngine(options).run('story.create',{operationId:'create-choice-story',workId,title:'Human-directed review',
-            workTypeId:'choice',configurationId:'approve-configuration',source});
           const localBinding={kind:'machine-local',deviceId:'choice-device'};
           const localRecords=await createFilesystemNamespaceStore({root:path.resolve('choice-private-records'),binding:localBinding,create:true});
           privateDatabase=new DatabaseSync(path.resolve('choice-private-content.db'));
-          const localContent=createSqliteContentStore({database:privateDatabase,binding:localBinding,create:true});
-          const author=createNamespacePreparationEngine({...options,localRecords,localContent});
-          await author.run('phase.prepare',{phaseId:'intake'});const draft=await author.run('phase.draft.read',{phaseId:'intake'});
-          const authored=(await localContent.put(scope,'local',Buffer.from('# Reviewed outcome\\n\\nThe actual document is retained for an independent human.\\n'))).reference;
-          await author.run('phase.draft.write',{operationId:'write-choice-report',workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,
+          working={records:localRecords,content:createSqliteContentStore({database:privateDatabase,binding:localBinding,create:true})};
+        }
+        const access={current:()=>({projectId:scope.projectId,principalId:reviewing?'independent-reviewer':'human-reviewer',actorKind:'human',
+          agentId:reviewing?(fresh?null:'another-prompt'):'analyst',identity:reviewing?{name:'Independent reviewer',email:'independent@example.test'}
+            :{name:'Example reviewer',email:'reviewer@example.test'},permissions:fresh?['story.create','phase.prepare','phase.draft.read','phase.draft.write',
+              'phase.publish','phase.submit','phase.approve','decision.choose']:[]})};
+        const engine=createNamespaceEngine({records,content,scope,workId,authority,clock,access,working});
+        let input;
+        if(fresh) {
+          const source=(await content.put(scope,'state',Buffer.from('# Reviewed direction\\n\\nA human must choose its disposition.\\n'))).reference;
+          await engine.run('story.create',{operationId:'create-choice-story',workId,title:'Human-directed review',
+            workTypeId:'choice',configurationId:'approve-configuration',source});
+          await engine.run('phase.prepare',{phaseId:'intake'});const draft=await engine.run('phase.draft.read',{phaseId:'intake'});
+          const authored=(await working.content.put(scope,'local',Buffer.from('# Reviewed outcome\\n\\nThe actual document is retained for an independent human.\\n'))).reference;
+          await engine.run('phase.draft.write',{operationId:'write-choice-report',workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,
             content:authored,reason:'Retain the authored report.'});
-          await createNamespacePublicationEngine({...options,localRecords,localContent}).run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});
-          await createNamespaceSubmissionEngine(options).run('phase.submit',{phaseId:'intake'});
-          const reviewer=createNamespaceApprovalEngine({...common,access:humanAccess}),resources=await reviewer.run('phase.review.resources',{phaseId:'intake'});
-          for(const resource of resources.manifest.resources)assert.equal((await reviewer.run('document.read',{reference:resource.reference})).document.integrity,'matched');
-          await reviewer.run('phase.approve',{phaseId:'intake',confirmation:{workId,phase:'intake',generation:1,
+          await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});
+          await engine.run('phase.submit',{phaseId:'intake'});reviewing=true;
+          const resources=await engine.run('phase.review.resources',{phaseId:'intake'});
+          for(const resource of resources.manifest.resources)assert.equal((await engine.run('document.read',{reference:resource.reference})).document.integrity,'matched');
+          await engine.run('phase.approve',{phaseId:'intake',confirmation:{workId,phase:'intake',generation:1,
             reviewPacketSha256:resources.manifest.reviewBinding.packetSha256}});
-          const {manifest}=await chooser.run('decision.context');assert.equal(manifest.question.generation,1);
+          const {manifest}=await engine.run('decision.context');assert.equal(manifest.question.generation,1);
           assert.match(manifest.proof.approvalSha256,/^[a-f0-9]{64}$/u);
           input={workId,expected:manifest.question.key,option:'deliver',reason:'The human reviewed and chose the retained direction.'};
           await writeFile('choice-inputs.json',JSON.stringify(input));
         }else input=JSON.parse(await readFile('choice-inputs.json','utf8'));
         assert.equal(NAMESPACE_ROUTING_CHOICE_PROFILE,'sflow-human-routing-choice/v1');
-        const result=await chooser.run('decision.choose',input);assert.equal(result.currentPhase,null);assert.equal(result.recordKind,'routing');
+        const result=await engine.run('decision.choose',input);assert.equal(result.currentPhase,null);assert.equal(result.recordKind,'routing');
         assert.equal(result.record.outcome.by,'person');assert.equal(result.actorId,'independent-reviewer');
-        assert.equal((await chooser.run('decision.context')).manifest.question,null);
+        assert.equal((await engine.run('decision.context')).manifest.question,null);
+        assert.equal((await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'})).status,'retained');
         process.stdout.write(JSON.stringify(result));
       }finally{database.close();privateDatabase?.close();}
     `;
@@ -707,6 +705,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE } from '${packageName}/hosts/namespace-submission';
       import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE } from '${packageName}/hosts/namespace-routing-choice';
+      import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
+      import type {NamespaceEngineOptions} from '${packageName}/hosts/namespace-engine';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
@@ -745,6 +745,15 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('decision.choose',{workId:'example',principalId:'administrator'});
       const choiceProfile:'sflow-human-routing-choice/v1'=NAMESPACE_ROUTING_CHOICE_PROFILE;
       void createNamespaceRoutingChoiceEngine;void choiceProfile;
+      const composedOptions:NamespaceEngineOptions={records:{} as NamespaceStore,content:{} as ContentStore,
+        scope:{projectId:'example'},workId:'example',authority:{id:'application',epoch:1},clock:{now:()=>new Date().toISOString()},
+        access:{current:()=>({projectId:'example',principalId:'human',actorKind:'human',agentId:null,
+          identity:{name:'Reviewer',email:'reviewer@example.test',login:null},permissions:[]})}};
+      const composed=createNamespaceEngine(composedOptions);composed.run('decision.context');
+      // @ts-expect-error A working store uses explicit content/record ports, never a laptop path.
+      createNamespaceEngine({...composedOptions,working:{records:composedOptions.records,content:'/a/path'}});
+      // @ts-expect-error A composed Engine always has one explicit Story identity.
+      createNamespaceEngine({records:composedOptions.records,content:composedOptions.content});
       engine.run('story.guide',{workId:'example'});
       engine.run('project.enroll',{operationId:'enroll-1'});
       const configuration:EngineInputs['configuration.approve']={operationId:'approve-configuration',source:{namespace:'config',sha256:'a'.repeat(64),bytes:1},expectedRevision:null,confirm:'a'.repeat(64),reason:'Reviewed exact content.'};

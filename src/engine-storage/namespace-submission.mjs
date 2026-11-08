@@ -27,7 +27,7 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Submission was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceSubmissionEngine({records,content,scope,workId,authority,access,clock,localContent=null,notice=()=>{}}={}) {
+export function createNamespaceSubmissionPorts({records,content,scope,workId,authority,access,clock,notice=()=>{}}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
@@ -205,5 +205,11 @@ export function createNamespaceSubmissionEngine({records,content,scope,workId,au
       return facts(s,await retained(plan,s),accepted);
     }
   };
-  return createEngine({ports:{...createNamespaceReadPorts({records,content,localContent,scope,workId}),submission}});
+  return {submission};
+}
+
+export function createNamespaceSubmissionEngine({records,content,scope,workId,authority,access,clock,localContent=null,notice=()=>{}}={}) {
+  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent,notice};
+  const ports=createNamespaceSubmissionPorts(options);
+  return createEngine({ports:{...createNamespaceReadPorts(options),...ports}});
 }

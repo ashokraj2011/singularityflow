@@ -225,3 +225,30 @@ neverCommit: []
   }, inferred);
   assert.doesNotThrow(() => validateEnvironmentQualityCommandCatalog(declaration, currentOnly));
 });
+
+test('a checks mapping names a command of this phase that this call does not run: a SonarQube scan runs only at submit', () => {
+  const declaration = parseEnvironmentDeclaration(Buffer.from(`schemaVersion: 1
+environments:
+  sonar:
+    requires:
+      - { name: SONAR_HOST_URL, kind: endpoint, value: "https://sonar.example.test" }
+      - { name: SONAR_TOKEN, kind: secret }
+checks:
+  sonar: { environment: sonar }
+  integration-tests: { environment: sonar }
+`));
+  const tests = { id: 'integration-tests', kind: 'test', argv: ['mvn', '-B', 'test'], modelPolicy: 'never' };
+  const scan = { id: 'sonar', kind: 'static-analysis', modelPolicy: 'never', environment: 'sonar', argv: ['mvn', '-B', 'verify', 'sonar:sonar'],
+    result: { adapter: 'sonarqube', path: '.sflow/results/scannerwork/report-task.txt' }, sonarqube: { project: 'shop', scratchProject: 'shop-sflow' } };
+  const phase = { id: 'implement', qualityCommands: [tests, scan] };
+  const workflow = { resolution: { phases: [phase] } };
+  // Publication runs the tests without the scan; submission's scan call runs the scan alone, with its own -D options.
+  for (const running of [[tests], [{ ...scan, argv: [...scan.argv, '-Dsonar.projectKey=shop-sflow'] }]]) {
+    const catalog = effectiveEnvironmentQualityCommandCatalog(phase, workflow, running);
+    assert.deepEqual(catalog.map((entry) => entry.id).sort(), ['integration-tests', 'sonar']);
+    assert.doesNotThrow(() => validateEnvironmentQualityCommandCatalog(declaration, catalog));
+  }
+  // A mapping that names no command at all is still refused.
+  const typo = parseEnvironmentDeclaration(Buffer.from('schemaVersion: 1\nenvironments:\n  sonar:\n    requires:\n      - { name: SONAR_TOKEN, kind: secret }\nchecks:\n  sonnar: { environment: sonar }\n'));
+  assert.throws(() => validateEnvironmentQualityCommandCatalog(typo, effectiveEnvironmentQualityCommandCatalog(phase, workflow, [tests])), /unknown quality command ID\(s\): sonnar/u);
+});

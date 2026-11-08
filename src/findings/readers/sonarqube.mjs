@@ -28,14 +28,20 @@ const EXCEPTED_STATUSES = new Set(['ACCEPTED', 'FALSE_POSITIVE']);
 const CLOSED_STATUSES = new Set(['CLOSED', 'RESOLVED', 'FIXED']);
 export const SONARQUBE_MEASURES = Object.freeze(['complexity', 'cognitive_complexity', 'duplicated_lines_density', 'new_coverage']);
 
-/** A component key's file path: the response's own `components[].path`, else the key after `project:`. */
+/**
+ * A component key's file path: the response's own `components[].path`, else the key after its project's
+ * key and a colon. A Maven project's key is `groupId:artifactId` unless one is set, so the path starts
+ * after the issue's `project`, not after the key's first colon.
+ */
 function componentPaths(response) {
   const byKey = new Map((response.components ?? []).filter((entry) => entry?.key).map((entry) => [entry.key, entry.path ?? null]));
-  return (key) => {
+  return (key, project = null) => {
     if (!key) return null;
     if (byKey.get(key)) return byKey.get(key);
-    const at = String(key).indexOf(':');
-    return at < 0 ? null : String(key).slice(at + 1);
+    const text = String(key);
+    if (project && text.startsWith(`${project}:`)) return text.slice(String(project).length + 1) || null;
+    const at = text.indexOf(':');
+    return at < 0 ? null : text.slice(at + 1);
   };
 }
 
@@ -66,7 +72,7 @@ export function readSonarqubeIssues(value, context = {}) {
     if (EXCEPTED_RESOLUTIONS.has(issue.resolution) || EXCEPTED_STATUSES.has(issue.issueStatus)) { excepted += 1; continue; }
     if (CLOSED_STATUSES.has(issue.status) || CLOSED_STATUSES.has(issue.issueStatus)) { closed += 1; continue; }
     if (findings.length >= MAX_FINDINGS_PER_REPORT) { omitted += 1; continue; }
-    const file = fileOf(issue.component);
+    const file = fileOf(issue.component, issue.project);
     findings.push(createFinding(base(context, {
       rule: issue.rule ?? null, severity: issueSeverity(issue), kind: issueKind(issue),
       file: context.paths ? context.paths(file) : file,
@@ -90,7 +96,7 @@ export function readSonarqubeHotspots(value, context = {}) {
   for (const hotspot of response.hotspots) {
     if (hotspot.status === 'REVIEWED' && ['SAFE', 'FIXED'].includes(hotspot.resolution)) { excepted += 1; continue; }
     if (findings.length >= MAX_FINDINGS_PER_REPORT) { omitted += 1; continue; }
-    const file = fileOf(hotspot.component);
+    const file = fileOf(hotspot.component, hotspot.project);
     findings.push(createFinding(base(context, {
       rule: hotspot.ruleKey ?? hotspot.rule?.key ?? null,
       severity: { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' }[hotspot.vulnerabilityProbability] ?? 'medium',

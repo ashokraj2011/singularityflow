@@ -421,7 +421,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,606,400 (measured 9,606,339, commands/phase-lifecycle.mjs): spec–code sync M1 decides deviated and unplanned
     // conformance rows (upstream-routes.mjs, conformance-verdicts.mjs, conformance-readiness.mjs, decision-list.mjs, the
     // pinned spec.conformanceDifferences in specifications.mjs and the two leaves above), +15,905 on every entry [SCS:REQ-010].
-    assert.ok(closure.bytes <= 9_606_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,606,900 (measured 9,606,853, commands/phase-lifecycle.mjs): an environment's checks mapping knows the phase's commands a
+    // call does not run, such as the SonarQube scan only submit runs (state.mjs effectiveEnvironmentQualityCommandCatalog), and
+    // a finding on no file keeps its reader's verdict (findings/model.mjs markNewCode) [CQF:REQ-048].
+    assert.ok(closure.bytes <= 9_606_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

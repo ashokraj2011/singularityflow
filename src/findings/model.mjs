@@ -112,6 +112,8 @@ export function withToolIdentity(finding, { toolVersion = null, rulesetSha256 = 
  */
 export function markNewCode(findings, changed) {
   return findings.map((finding) => {
+    // A finding on no file keeps its reader's verdict: a failed quality gate is about the new code as a whole.
+    if (!finding.file) return finding;
     const ranges = finding.file ? changed?.get(finding.file) : null;
     const start = finding.line;
     const end = finding.endLine ?? finding.line;

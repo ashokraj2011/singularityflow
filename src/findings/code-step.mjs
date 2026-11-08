@@ -389,9 +389,14 @@ export function splitFindingCommands(commands) {
 }
 
 /** A check for a finding command as submission records it: its findings decide it, never its exit code alone. */
+// What a run given an environment's values says of itself, on the check that reports its findings too [RUN M3].
+const LOCAL_INTEGRATION_FIELDS = Object.freeze(['evidenceClass', 'environment', 'ranBy', 'linkedEnvironment', 'allowedEnvironments', 'countsForStep']);
+
 function findingCheck(result, { mode, candidate, counted, status, reason = null }) {
   const { command } = result;
   const own = counted.filter((finding) => finding.source === command.id).length;
+  const ran = result.check?.evidenceClass === 'local-integration'
+    ? Object.fromEntries(LOCAL_INTEGRATION_FIELDS.filter((key) => Object.hasOwn(result.check, key)).map((key) => [key, result.check[key]])) : {};
   return {
     id: command.id, command: command.command ?? command.argv.join(' '), kind: command.kind,
     // Unavailable informs, in every mode: the verdict never counts it as a required check missing [decision 11].
@@ -405,7 +410,7 @@ function findingCheck(result, { mode, candidate, counted, status, reason = null 
     stdout: '', stderr: reason ?? '',
     findings: { mode, adapter: command.result.adapter, ...findingCounts(result.findings), counted: own,
       ...(result.reused ? { reusedFrom: result.reused.id } : result.run ? { runId: result.run.id } : {}) },
-    ...(result.reused ? { evidenceUse: 'reused' } : {})
+    ...(result.reused ? { evidenceUse: 'reused' } : {}), ...ran
   };
 }
 

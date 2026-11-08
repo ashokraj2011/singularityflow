@@ -1,3 +1,8 @@
+import { NODE_NETWORK_ADDRESS_SYNTAX } from './engine-compatibility/node-network-syntax.mjs';
+import { createMarketplacePolicyCompiler } from './kernel/configuration-policy.mjs';
+const remoteContentPolicy = /* @__PURE__ */ createMarketplacePolicyCompiler(NODE_NETWORK_ADDRESS_SYNTAX);
+export const isPublicRemoteAddress = /* @__PURE__ */ (() => remoteContentPolicy.isPublicRemoteAddress)();
+export const validatePublicHttpsUrl = /* @__PURE__ */ (() => remoteContentPolicy.validatePublicHttpsUrl)();
 /**
  * The one hardened HTTPS reader for content a repository chooses to take from the Internet: agent
  * Markdown dependencies, imported skills, templates and agents, and marketplace indexes.
@@ -13,15 +18,13 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { readFile } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
-import { BlockList, isIP } from 'node:net';
+import { isIP } from 'node:net';
 import { SingularityFlowError } from './util.mjs';
 import { measurePerformance } from './dx-timing-context.mjs';
 
 export const DEFAULT_REMOTE_MAX_BYTES = 1024 * 1024;
 export const HARD_REMOTE_MAX_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
-const TOKEN_PATTERN = /\{([^}]+)\}/g;
-const BLOCKED_REMOTE_ADDRESSES = new BlockList();
 
 /**
  * Tests and offline demonstrations point this at a directory; `https://host/a/b.md` is then read
@@ -29,48 +32,7 @@ const BLOCKED_REMOTE_ADDRESSES = new BlockList();
  */
 export const REMOTE_FIXTURES_ENV = 'SINGULARITY_FLOW_TEST_REMOTE_FIXTURES';
 
-for (const [network, prefix] of [
-  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
-  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
-  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
-  ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]
-]) BLOCKED_REMOTE_ADDRESSES.addSubnet(network, prefix, 'ipv4');
-for (const [network, prefix] of [
-  // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) embed an IPv4 address, which may be a private one.
-  ['::', 128], ['::1', 128], ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['100::', 64],
-  ['2001::', 23], ['2001:db8::', 32], ['2002::', 16], ['fc00::', 7], ['fe80::', 10],
-  ['fec0::', 10], ['ff00::', 8]
-]) BLOCKED_REMOTE_ADDRESSES.addSubnet(network, prefix, 'ipv6');
-
 export function sha256Hex(value) { return createHash('sha256').update(value).digest('hex'); }
-
-export function isPublicRemoteAddress(address) {
-  const family = isIP(address);
-  if (family === 6 && address.toLowerCase().startsWith('::ffff:')) return false;
-  return family !== 0 && !BLOCKED_REMOTE_ADDRESSES.check(address, family === 4 ? 'ipv4' : 'ipv6');
-}
-
-/**
- * A public HTTPS URL without embedded credentials, on a public host. With `dynamic`, `{token}`
- * placeholders from `allowedTokens` are permitted and checked with a stand-in value.
- */
-export function validatePublicHttpsUrl(value, label, { dynamic = false, allowedTokens = [] } = {}) {
-  const text = String(value ?? '');
-  const tokens = [...text.matchAll(TOKEN_PATTERN)].map((match) => match[1]);
-  if (!dynamic && tokens.length) throw new SingularityFlowError(`${label} cannot contain template variables.`);
-  const allowed = new Set(allowedTokens);
-  for (const token of tokens) if (!allowed.has(token)) throw new SingularityFlowError(`${label} uses unsupported variable '{${token}}'.`);
-  const candidate = dynamic ? text.replace(TOKEN_PATTERN, 'value') : text;
-  let url;
-  try { url = new URL(candidate); } catch { throw new SingularityFlowError(`${label} must be a valid public HTTPS URL.`); }
-  if (url.protocol !== 'https:' || url.username || url.password) throw new SingularityFlowError(`${label} must be a public HTTPS URL without embedded credentials.`);
-  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
-    || (isIP(host) && !isPublicRemoteAddress(host))) {
-    throw new SingularityFlowError(`${label} must use a public Internet host.`);
-  }
-  return text;
-}
 
 export async function resolvePublicRemoteHost(url, { lookupImpl = dnsLookup } = {}) {
   const parsed = new URL(url);

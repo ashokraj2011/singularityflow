@@ -148,7 +148,7 @@ async function capture(root, authority) {
   if (entries.length > 4096) fail('Too many catalog assets.', 'WORKFLOW_INTENT_LIMIT');
   const source = { kind: authority.kind, ref: authority.ref ?? null, commit: authority.commit ?? null };
   const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-references.mjs', 'phase-overrides.mjs', 'kernel/workflow-configuration.mjs', 'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs',
-    'kernel/configuration-path-policies.mjs', 'engine-compatibility/node-configuration-path.mjs',
+    'kernel/configuration-path-policies.mjs', 'engine-compatibility/node-configuration-path.mjs', 'engine-compatibility/node-network-syntax.mjs',
     'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs', 'kernel/phase-policy.mjs',
     'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'foundation/package.json', 'configuration-read-scope.mjs',
     'kernel/workflow-obligations.mjs', 'kernel/phase-responsibilities.mjs',

@@ -977,3 +977,134 @@ function normalizeApplicationReview(value) {
   APPLICATION_REVIEW_VALIDATORS.set(recordBytes, normalizeApplicationReview);
   return normalizeApplicationReview;
 }
+
+
+// Marketplace trust and public remote-content syntax. Native ports do not choose the rules.
+export const NETWORK_ADDRESS_SYNTAX_PROFILE = 'sflow-network-address-syntax/v1';
+const MARKETPLACE_POLICY_COMPILERS = new WeakMap();
+
+export function createMarketplacePolicyCompiler(port) {
+  const invalid = () => { throw new SingularityFlowError('Remote-content rules require one frozen, explicit network-address syntax capability.', { code: 'ENGINE_NETWORK_ADDRESS_SYNTAX_INVALID' }); };
+  if (!port || typeof port !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(port)) || !Object.isFrozen(port)) invalid();
+  const fields = Object.getOwnPropertyDescriptors(port), keys = Reflect.ownKeys(fields);
+  if (keys.length !== 3 || keys.some(key => !['profile','isIP','containsSubnets'].includes(key))) invalid();
+  for (const key of keys) if (!fields[key].enumerable || !Object.hasOwn(fields[key], 'value')
+    || (key === 'profile' ? fields[key].value !== NETWORK_ADDRESS_SYNTAX_PROFILE : typeof fields[key].value !== 'function')) invalid();
+  if (MARKETPLACE_POLICY_COMPILERS.has(port)) return MARKETPLACE_POLICY_COMPILERS.get(port);
+  const classify = fields.isIP.value, contains = fields.containsSubnets.value;
+  const isIP = value => {
+    const family = Reflect.apply(classify, port, [value]);
+    if (![0,4,6].includes(family)) throw new SingularityFlowError('Network syntax did not return an exact IP address family.', { code: 'ENGINE_NETWORK_ADDRESS_SYNTAX_RESULT_INVALID' });
+    return family;
+  };
+  const IPV4_SUBNETS = Object.freeze([
+    Object.freeze(["0.0.0.0",8]),
+    Object.freeze(["10.0.0.0",8]),
+    Object.freeze(["100.64.0.0",10]),
+    Object.freeze(["127.0.0.0",8]),
+    Object.freeze(["169.254.0.0",16]),
+    Object.freeze(["172.16.0.0",12]),
+    Object.freeze(["192.0.0.0",24]),
+    Object.freeze(["192.0.2.0",24]),
+    Object.freeze(["192.168.0.0",16]),
+    Object.freeze(["198.18.0.0",15]),
+    Object.freeze(["198.51.100.0",24]),
+    Object.freeze(["203.0.113.0",24]),
+    Object.freeze(["224.0.0.0",4]),
+    Object.freeze(["240.0.0.0",4])
+  ]);
+  const IPV6_SUBNETS = Object.freeze([
+    Object.freeze(["::",128]),
+    Object.freeze(["::1",128]),
+    Object.freeze(["64:ff9b::",96]),
+    Object.freeze(["64:ff9b:1::",48]),
+    Object.freeze(["100::",64]),
+    Object.freeze(["2001::",23]),
+    Object.freeze(["2001:db8::",32]),
+    Object.freeze(["2002::",16]),
+    Object.freeze(["fc00::",7]),
+    Object.freeze(["fe80::",10]),
+    Object.freeze(["fec0::",10]),
+    Object.freeze(["ff00::",8])
+  ]);
+  const BLOCKED_REMOTE_ADDRESSES = Object.freeze({ check(address, family) {
+    const blocked = Reflect.apply(contains, port, [address, family, family === 'ipv4' ? IPV4_SUBNETS : IPV6_SUBNETS]);
+    if (typeof blocked !== 'boolean') throw new SingularityFlowError('Network syntax did not return an exact subnet membership result.', { code: 'ENGINE_NETWORK_ADDRESS_SYNTAX_RESULT_INVALID' });
+    return blocked;
+  } });
+
+const TOKEN_PATTERN = /\{([^}]+)\}/g;
+
+const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function isPublicRemoteAddress(address) {
+  const family = isIP(address);
+  if (family === 6 && address.toLowerCase().startsWith('::ffff:')) return false;
+  return family !== 0 && !BLOCKED_REMOTE_ADDRESSES.check(address, family === 4 ? 'ipv4' : 'ipv6');
+}
+
+/**
+ * A public HTTPS URL without embedded credentials, on a public host. With `dynamic`, `{token}`
+ * placeholders from `allowedTokens` are permitted and checked with a stand-in value.
+ */
+function validatePublicHttpsUrl(value, label, { dynamic = false, allowedTokens = [] } = {}) {
+  const text = String(value ?? '');
+  const tokens = [...text.matchAll(TOKEN_PATTERN)].map((match) => match[1]);
+  if (!dynamic && tokens.length) throw new SingularityFlowError(`${label} cannot contain template variables.`);
+  const allowed = new Set(allowedTokens);
+  for (const token of tokens) if (!allowed.has(token)) throw new SingularityFlowError(`${label} uses unsupported variable '{${token}}'.`);
+  const candidate = dynamic ? text.replace(TOKEN_PATTERN, 'value') : text;
+  let url;
+  try { url = new URL(candidate); } catch { throw new SingularityFlowError(`${label} must be a valid public HTTPS URL.`); }
+  if (url.protocol !== 'https:' || url.username || url.password) throw new SingularityFlowError(`${label} must be a public HTTPS URL without embedded credentials.`);
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
+    || (isIP(host) && !isPublicRemoteAddress(host))) {
+    throw new SingularityFlowError(`${label} must use a public Internet host.`);
+  }
+  return text;
+}
+
+function fail(message, code = 'MARKETPLACE_INVALID', details = undefined) {
+  return new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
+}
+
+function text(value, label, max) {
+  if (value == null) return null;
+  const result = String(value).replace(/\s+/g, ' ').trim();
+  if (!result || result.length > max) throw fail(`${label} must be 1 to ${max} characters.`);
+  return result;
+}
+
+/** The `marketplaces:` configuration: id → { label, index, allowedOrigins }. */
+function normalizeMarketplaces(value = {}) {
+  if (value == null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) throw fail('marketplaces must be an object of marketplace ID to its index.');
+  const normalized = {};
+  for (const [id, entry] of Object.entries(value)) {
+    if (!ID.test(id)) throw fail(`Marketplace '${id}' must use lower-case kebab-case.`);
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw fail(`Marketplace '${id}' must be an object.`);
+    for (const key of Object.keys(entry)) {
+      if (!['label', 'index', 'allowedOrigins'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'.`);
+    }
+    const index = validatePublicHttpsUrl(String(entry.index ?? ''), `Marketplace '${id}' index`);
+    const allowedOrigins = (entry.allowedOrigins ?? []).map((candidate, position) => {
+      const url = validatePublicHttpsUrl(String(candidate ?? ''), `Marketplace '${id}' allowedOrigins[${position}]`);
+      const parsed = new URL(url);
+      if (parsed.pathname !== '/' || parsed.search || parsed.hash) throw fail(`Marketplace '${id}' allowedOrigins[${position}] must be an origin such as https://cdn.example.org.`);
+      return parsed.origin;
+    });
+    if (!Array.isArray(entry.allowedOrigins ?? [])) throw fail(`Marketplace '${id}' allowedOrigins must be a list.`);
+    normalized[id] = Object.freeze({
+      id, label: text(entry.label, `Marketplace '${id}' label`, 120) ?? id, index,
+      allowedOrigins: Object.freeze([...new Set(allowedOrigins)])
+    });
+  }
+  return normalized;
+}
+
+  const binding = Object.freeze({ isPublicRemoteAddress, validatePublicHttpsUrl, normalizeMarketplaces,
+    marketplaceFailure: fail, marketplaceText: text, isMarketplaceId: value => ID.test(value) });
+  MARKETPLACE_POLICY_COMPILERS.set(port, binding);
+  return binding;
+}

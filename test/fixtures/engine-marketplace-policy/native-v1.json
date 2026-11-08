@@ -1,0 +1,1351 @@
+{
+  "baseline": "526b69e7328b5a4e960637b68cf7718b9cba7b95",
+  "subnets": {
+    "ipv4": [
+      [
+        "0.0.0.0",
+        8
+      ],
+      [
+        "10.0.0.0",
+        8
+      ],
+      [
+        "100.64.0.0",
+        10
+      ],
+      [
+        "127.0.0.0",
+        8
+      ],
+      [
+        "169.254.0.0",
+        16
+      ],
+      [
+        "172.16.0.0",
+        12
+      ],
+      [
+        "192.0.0.0",
+        24
+      ],
+      [
+        "192.0.2.0",
+        24
+      ],
+      [
+        "192.168.0.0",
+        16
+      ],
+      [
+        "198.18.0.0",
+        15
+      ],
+      [
+        "198.51.100.0",
+        24
+      ],
+      [
+        "203.0.113.0",
+        24
+      ],
+      [
+        "224.0.0.0",
+        4
+      ],
+      [
+        "240.0.0.0",
+        4
+      ]
+    ],
+    "ipv6": [
+      [
+        "::",
+        128
+      ],
+      [
+        "::1",
+        128
+      ],
+      [
+        "64:ff9b::",
+        96
+      ],
+      [
+        "64:ff9b:1::",
+        48
+      ],
+      [
+        "100::",
+        64
+      ],
+      [
+        "2001::",
+        23
+      ],
+      [
+        "2001:db8::",
+        32
+      ],
+      [
+        "2002::",
+        16
+      ],
+      [
+        "fc00::",
+        7
+      ],
+      [
+        "fe80::",
+        10
+      ],
+      [
+        "fec0::",
+        10
+      ],
+      [
+        "ff00::",
+        8
+      ]
+    ]
+  },
+  "addresses": [
+    {
+      "id": "0",
+      "value": false
+    },
+    {
+      "id": "1",
+      "value": false
+    },
+    {
+      "id": "2",
+      "value": false
+    },
+    {
+      "id": "3",
+      "value": false
+    },
+    {
+      "id": "4",
+      "value": false
+    },
+    {
+      "id": "5",
+      "value": false
+    },
+    {
+      "id": "6",
+      "value": false
+    },
+    {
+      "id": "7",
+      "value": true
+    },
+    {
+      "id": "8",
+      "value": true
+    },
+    {
+      "id": "9",
+      "value": false
+    },
+    {
+      "id": "10",
+      "value": false
+    },
+    {
+      "id": "11",
+      "value": false
+    },
+    {
+      "id": "12",
+      "value": false
+    },
+    {
+      "id": "13",
+      "value": false
+    },
+    {
+      "id": "14",
+      "value": true
+    },
+    {
+      "id": "15",
+      "value": true
+    },
+    {
+      "id": "16",
+      "value": false
+    },
+    {
+      "id": "17",
+      "value": true
+    },
+    {
+      "id": "18",
+      "value": false
+    },
+    {
+      "id": "19",
+      "value": false
+    },
+    {
+      "id": "20",
+      "value": true
+    },
+    {
+      "id": "21",
+      "value": true
+    },
+    {
+      "id": "22",
+      "value": false
+    },
+    {
+      "id": "23",
+      "value": false
+    },
+    {
+      "id": "24",
+      "value": true
+    },
+    {
+      "id": "25",
+      "value": true
+    },
+    {
+      "id": "26",
+      "value": false
+    },
+    {
+      "id": "27",
+      "value": false
+    },
+    {
+      "id": "28",
+      "value": true
+    },
+    {
+      "id": "29",
+      "value": true
+    },
+    {
+      "id": "30",
+      "value": false
+    },
+    {
+      "id": "31",
+      "value": false
+    },
+    {
+      "id": "32",
+      "value": true
+    },
+    {
+      "id": "33",
+      "value": true
+    },
+    {
+      "id": "34",
+      "value": false
+    },
+    {
+      "id": "35",
+      "value": false
+    },
+    {
+      "id": "36",
+      "value": true
+    },
+    {
+      "id": "37",
+      "value": true
+    },
+    {
+      "id": "38",
+      "value": false
+    },
+    {
+      "id": "39",
+      "value": false
+    },
+    {
+      "id": "40",
+      "value": true
+    },
+    {
+      "id": "41",
+      "value": true
+    },
+    {
+      "id": "42",
+      "value": false
+    },
+    {
+      "id": "43",
+      "value": false
+    },
+    {
+      "id": "44",
+      "value": true
+    },
+    {
+      "id": "45",
+      "value": true
+    },
+    {
+      "id": "46",
+      "value": false
+    },
+    {
+      "id": "47",
+      "value": false
+    },
+    {
+      "id": "48",
+      "value": true
+    },
+    {
+      "id": "49",
+      "value": true
+    },
+    {
+      "id": "50",
+      "value": false
+    },
+    {
+      "id": "51",
+      "value": false
+    },
+    {
+      "id": "52",
+      "value": true
+    },
+    {
+      "id": "53",
+      "value": true
+    },
+    {
+      "id": "54",
+      "value": false
+    },
+    {
+      "id": "55",
+      "value": false
+    },
+    {
+      "id": "56",
+      "value": true
+    },
+    {
+      "id": "57",
+      "value": true
+    },
+    {
+      "id": "58",
+      "value": false
+    },
+    {
+      "id": "59",
+      "value": false
+    },
+    {
+      "id": "60",
+      "value": true
+    },
+    {
+      "id": "61",
+      "value": true
+    },
+    {
+      "id": "62",
+      "value": false
+    },
+    {
+      "id": "63",
+      "value": false
+    },
+    {
+      "id": "64",
+      "value": true
+    },
+    {
+      "id": "65",
+      "value": true
+    },
+    {
+      "id": "66",
+      "value": false
+    },
+    {
+      "id": "67",
+      "value": false
+    },
+    {
+      "id": "68",
+      "value": false
+    },
+    {
+      "id": "69",
+      "value": false
+    },
+    {
+      "id": "70",
+      "value": false
+    },
+    {
+      "id": "71",
+      "value": false
+    },
+    {
+      "id": "72",
+      "value": false
+    },
+    {
+      "id": "73",
+      "value": false
+    },
+    {
+      "id": "74",
+      "value": false
+    },
+    {
+      "id": "75",
+      "value": false
+    },
+    {
+      "id": "76",
+      "value": false
+    },
+    {
+      "id": "77",
+      "value": false
+    },
+    {
+      "id": "78",
+      "value": true
+    },
+    {
+      "id": "79",
+      "value": true
+    },
+    {
+      "id": "80",
+      "value": false
+    },
+    {
+      "id": "81",
+      "value": false
+    },
+    {
+      "id": "82",
+      "value": true
+    },
+    {
+      "id": "83",
+      "value": true
+    },
+    {
+      "id": "84",
+      "value": false
+    },
+    {
+      "id": "85",
+      "value": false
+    },
+    {
+      "id": "86",
+      "value": true
+    },
+    {
+      "id": "87",
+      "value": true
+    },
+    {
+      "id": "88",
+      "value": false
+    },
+    {
+      "id": "89",
+      "value": false
+    },
+    {
+      "id": "90",
+      "value": true
+    },
+    {
+      "id": "91",
+      "value": true
+    },
+    {
+      "id": "92",
+      "value": false
+    },
+    {
+      "id": "93",
+      "value": false
+    },
+    {
+      "id": "94",
+      "value": true
+    },
+    {
+      "id": "95",
+      "value": true
+    },
+    {
+      "id": "96",
+      "value": false
+    },
+    {
+      "id": "97",
+      "value": false
+    },
+    {
+      "id": "98",
+      "value": true
+    },
+    {
+      "id": "99",
+      "value": true
+    },
+    {
+      "id": "100",
+      "value": false
+    },
+    {
+      "id": "101",
+      "value": false
+    },
+    {
+      "id": "102",
+      "value": true
+    },
+    {
+      "id": "103",
+      "value": true
+    },
+    {
+      "id": "104",
+      "value": false
+    },
+    {
+      "id": "105",
+      "value": false
+    },
+    {
+      "id": "106",
+      "value": true
+    },
+    {
+      "id": "107",
+      "value": true
+    },
+    {
+      "id": "108",
+      "value": false
+    },
+    {
+      "id": "109",
+      "value": false
+    },
+    {
+      "id": "110",
+      "value": false
+    },
+    {
+      "id": "111",
+      "value": false
+    },
+    {
+      "id": "112",
+      "value": false
+    },
+    {
+      "id": "113",
+      "value": false
+    },
+    {
+      "id": "114",
+      "value": false
+    },
+    {
+      "id": "115",
+      "value": false
+    },
+    {
+      "id": "116",
+      "value": false
+    },
+    {
+      "id": "117",
+      "value": false
+    }
+  ],
+  "urls": [
+    {
+      "id": "0",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a valid public HTTPS URL.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "1",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a valid public HTTPS URL.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "2",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a valid public HTTPS URL.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "3",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a valid public HTTPS URL.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "4",
+      "value": "https://market.example.org/index.json"
+    },
+    {
+      "id": "5",
+      "value": " https://market.example.org/index.json "
+    },
+    {
+      "id": "6",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a public HTTPS URL without embedded credentials.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "7",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a public HTTPS URL without embedded credentials.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "8",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must be a public HTTPS URL without embedded credentials.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "9",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "10",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "11",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "12",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "13",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "14",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "15",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "16",
+      "value": "https://8.8.8.8"
+    },
+    {
+      "id": "17",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "18",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "19",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "20",
+      "value": "https://[2001:4860:4860::8888]/"
+    },
+    {
+      "id": "21",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source cannot contain template variables.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "22",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source cannot contain template variables.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "23",
+      "value": "https://market.example.org/{}"
+    },
+    {
+      "id": "dynamic-24",
+      "value": "https://market.example.org/{workId}"
+    },
+    {
+      "id": "dynamic-25",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source uses unsupported variable '{unknown}'.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "dynamic-26",
+      "value": "https://{host}/index.json"
+    },
+    {
+      "id": "dynamic-27",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    }
+  ],
+  "marketplaces": [
+    {
+      "id": "default",
+      "value": {
+        "value": {},
+        "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "null",
+      "value": {
+        "value": {},
+        "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "empty",
+      "value": {
+        "value": {},
+        "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "array",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "marketplaces must be an object of marketplace ID to its index.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "text",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "marketplaces must be an object of marketplace ID to its index.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "ordinary",
+      "value": {
+        "value": {
+          "team": {
+            "id": "team",
+            "label": "team",
+            "index": "https://market.example.org/index.json",
+            "allowedOrigins": []
+          }
+        },
+        "sha256": "bde80b60754375546fe2043e57834cb4df4c116fa5f27e25d44dc44423502f1a",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "with-origins",
+      "value": {
+        "value": {
+          "team": {
+            "id": "team",
+            "label": "Team assets",
+            "index": "https://market.example.org/index.json",
+            "allowedOrigins": [
+              "https://cdn.example.org"
+            ]
+          }
+        },
+        "sha256": "ffe7d6c7b02aa0c83886dcc75302fdb30b500274c1dcf889df4cb3626b8c3ac4",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "null-prototype",
+      "value": {
+        "value": {
+          "team": {
+            "id": "team",
+            "label": "team",
+            "index": "https://market.example.org/index.json",
+            "allowedOrigins": []
+          }
+        },
+        "sha256": "bde80b60754375546fe2043e57834cb4df4c116fa5f27e25d44dc44423502f1a",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "empty-id",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace '' must use lower-case kebab-case.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "uppercase-id",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'Team' must use lower-case kebab-case.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "null-entry",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' must be an object.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "array-entry",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' must be an object.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "extra-field",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' contains unknown field 'approved'.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "missing-index",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' index must be a valid public HTTPS URL.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "private-index",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' index must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "public-literal-index",
+      "value": {
+        "value": {
+          "team": {
+            "id": "team",
+            "label": "team",
+            "index": "https://8.8.8.8/index.json",
+            "allowedOrigins": []
+          }
+        },
+        "sha256": "1f97c9a378dc4215117f7147d0febd036ea19709e06b89a71f795d37e3d810b8",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "null-origins",
+      "value": {
+        "value": {
+          "team": {
+            "id": "team",
+            "label": "team",
+            "index": "https://market.example.org",
+            "allowedOrigins": []
+          }
+        },
+        "sha256": "9b6bb5c9c7f82645bbcf875d7b2b3654ba459d012c2d606334ba9d5548f96738",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "text-origins",
+      "error": {
+        "name": "TypeError",
+        "message": "(entry.allowedOrigins ?? []).map is not a function",
+        "code": null,
+        "details": null,
+        "exitCode": null
+      }
+    },
+    {
+      "id": "object-origins",
+      "error": {
+        "name": "TypeError",
+        "message": "(entry.allowedOrigins ?? []).map is not a function",
+        "code": null,
+        "details": null,
+        "exitCode": null
+      }
+    },
+    {
+      "id": "path-origin",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' allowedOrigins[0] must be an origin such as https://cdn.example.org.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "query-origin",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' allowedOrigins[0] must be an origin such as https://cdn.example.org.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "hash-origin",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' allowedOrigins[0] must be an origin such as https://cdn.example.org.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "private-origin",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' allowedOrigins[0] must use a public Internet host.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "empty-label",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' label must be 1 to 120 characters.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "long-label",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' label must be 1 to 120 characters.",
+        "code": "MARKETPLACE_INVALID",
+        "details": null,
+        "exitCode": 1
+      }
+    },
+    {
+      "id": "numeric-label",
+      "value": {
+        "value": {
+          "team": {
+            "id": "team",
+            "label": "123",
+            "index": "https://market.example.org",
+            "allowedOrigins": []
+          }
+        },
+        "sha256": "eef6f8c6123be6298b6fec78db63b8bbd95cd1b3323554e0b4f31c322d927468",
+        "frozenEntries": true
+      }
+    },
+    {
+      "id": "templated-index",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Marketplace 'team' index cannot contain template variables.",
+        "code": null,
+        "details": null,
+        "exitCode": 1
+      }
+    }
+  ],
+  "authority": [
+    {
+      "id": "default",
+      "value": {
+        "value": {
+          "branch": "state",
+          "remote": "origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "world-model",
+      "value": {
+        "value": {
+          "branch": "model-state",
+          "remote": "model-origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "ledger",
+      "value": {
+        "value": {
+          "branch": "ledger-state",
+          "remote": "ledger-origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "application",
+      "value": {
+        "value": {
+          "branch": "state",
+          "remote": "code-origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "precedence",
+      "value": {
+        "value": {
+          "branch": "model-state",
+          "remote": "ledger-origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "fallback",
+      "value": {
+        "value": {
+          "branch": "fallback-state",
+          "remote": "fallback-origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "fallback-before-ledger-branch",
+      "value": {
+        "value": {
+          "branch": "fallback-state",
+          "remote": "origin"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "empty-strings",
+      "value": {
+        "value": {
+          "branch": "",
+          "remote": ""
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "null-values",
+      "value": {
+        "value": {
+          "branch": "state",
+          "remote": "origin"
+        },
+        "frozen": true
+      }
+    }
+  ],
+  "exports": {
+    "remote": [
+      "DEFAULT_REMOTE_MAX_BYTES",
+      "HARD_REMOTE_MAX_BYTES",
+      "REMOTE_FIXTURES_ENV",
+      "decodeUtf8",
+      "fetchRemoteBytes",
+      "fetchRemoteMarkdown",
+      "isPublicRemoteAddress",
+      "resolvePublicRemoteHost",
+      "sha256Hex",
+      "validatePublicHttpsUrl"
+    ],
+    "marketplaces": [
+      "MARKETPLACE_IMPORT_KINDS",
+      "MARKETPLACE_INDEX_FORMAT",
+      "configuredMarketplaces",
+      "fetchMarketplaceIndex",
+      "marketplaceEntriesView",
+      "normalizeMarketplaces",
+      "parseMarketplaceIndex",
+      "requireMarketplace",
+      "selectMarketplaceEntry"
+    ],
+    "authority": [
+      "worldModelStateAuthority"
+    ]
+  },
+  "functions": {
+    "src/remote-fetch.mjs:isPublicRemoteAddress": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "9868ecd23554102ad897b268ae48887862232cd1d2eaa3b5c5d368d7fc748e31"
+    },
+    "src/remote-fetch.mjs:validatePublicHttpsUrl": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "4fd316d9f0e459163bc5795b862d17907d4a6e57dc446df930e38d87dc92d9fd"
+    },
+    "src/marketplace.mjs:fail": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "a01d8f1630d550f97987c8644dd07df34eb937ebe2789dd4d43d2e0563f5a99a"
+    },
+    "src/marketplace.mjs:text": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "37f863d2aa9bf11efaaa5646b4c2bf1c0c82dea1d5cd005ef8efbd81a3c81f67"
+    },
+    "src/marketplace.mjs:normalizeMarketplaces": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "77cb98939a7d7120dcb8f45c4f18190a7bfeb3d998b9f7562560553bb8a0a455"
+    },
+    "src/state-authority.mjs:worldModelStateAuthority": {
+      "owner": "src/kernel/configuration-declarations.mjs",
+      "sha256": "3cb6bfd83d49a6671edccaff2fa508b5010b09eb8ce8b9282e095053cd120430"
+    }
+  },
+  "constants": {
+    "src/remote-fetch.mjs:TOKEN_PATTERN": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "c60e3f59f80b3f036a86092f61bca8d3ef0a2aaa8da806b64f6e23d8058fdf6a"
+    },
+    "src/marketplace.mjs:ID": {
+      "owner": "src/kernel/configuration-policy.mjs",
+      "sha256": "e65023f0e501402647120ee8acfcf2b331dae5ae05e541b6abe6cbac9d6e6a94"
+    }
+  },
+  "unchangedBodies": {
+    "src/remote-fetch.mjs:sha256Hex": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "8dd46717550035d625e60241f3b1e483df23b84e2c7b25199f3db5b7e5eda4d7"
+    },
+    "src/remote-fetch.mjs:resolvePublicRemoteHost": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "a47aac31ba94d14bfded7ed8da9b3b0faddd67efbf47cf5a880d9ce6063a5d00"
+    },
+    "src/remote-fetch.mjs:pinnedHttpsFetch": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "c430c323ecdbd8ca71b34be0a6a123f321c7d7bdcf08dbef398b2b38d6664080"
+    },
+    "src/remote-fetch.mjs:resolveRemoteHostWithTimeout": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "ea7d528a3cc21a3e159bf43e4aba9b2960461f7361e00b59e591678c9c4cc167"
+    },
+    "src/remote-fetch.mjs:fixtureResponse": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "4dbe66b41eaca6a2b9d67981a88af50c06bf5004ed17bc82698dae49088fd62c"
+    },
+    "src/remote-fetch.mjs:fetchRemoteBytes": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "75d134eea193cdbd999e0b19022eebb3b7f72e818cbdf2468c1f9d16128146e2"
+    },
+    "src/remote-fetch.mjs:fetchRemoteBytesImpl": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "9722cff7cf4dfb8de4bac380ce54a267c7d2d8c62a2f81789fdd604f5abd7634"
+    },
+    "src/remote-fetch.mjs:decodeUtf8": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "3f468ae2278bfca4551331d6cba50dcb1e5bf75014ea05c6538bee05c868fd20"
+    },
+    "src/remote-fetch.mjs:fetchRemoteMarkdown": {
+      "owner": "src/remote-fetch.mjs",
+      "sha256": "0a2736f307b3cdeec4175f32186b9d32a56cc833810b13713631bcb451e03732"
+    },
+    "src/marketplace.mjs:origin": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "5b9b1848866ee4e4e00384321a4e15accefbf60b2e54ea8dda3532e2169a1ea9"
+    },
+    "src/marketplace.mjs:configuredMarketplaces": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "65eece33896bfc572b7017f64fffaf1e3b9479689ffae2adf70faba52d1e44d7"
+    },
+    "src/marketplace.mjs:requireMarketplace": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "d5dec4cf74779f910c98078978d132e8f765799ca7c6ed4f7108e4483cf4e4ad"
+    },
+    "src/marketplace.mjs:compareVersions": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "a2078d7bfd703a402081d7164105fce3ca8ea2985f113f3702070979ea462530"
+    },
+    "src/marketplace.mjs:parseMarketplaceIndex": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "8292b287efa95e3a439a5cd15c21cbab9fb3278e444173077c0084e7cdc7644e"
+    },
+    "src/marketplace.mjs:fetchMarketplaceIndex": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "5f33f01930d9715fd5e8270b5213ae9fce4ff085b757a57357206860e2c82031"
+    },
+    "src/marketplace.mjs:selectMarketplaceEntry": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "7e88f61bde098040e5e7e37c53b80ec3d214d822039fa66b1bdf401d94d3faab"
+    },
+    "src/marketplace.mjs:marketplaceEntriesView": {
+      "owner": "src/marketplace.mjs",
+      "sha256": "95694f71e2f82d6a2f224a73357e01b52d4256bce05a468c9bfe5103ee5d8520"
+    }
+  }
+}

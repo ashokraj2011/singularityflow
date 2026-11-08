@@ -55,7 +55,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/step-action-policy.mjs',
   'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs', 'kernel/configuration-path-policies.mjs',
   'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
-  'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'configuration-read-scope.mjs',
+  'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'configuration-read-scope.mjs', 'engine-compatibility/node-network-syntax.mjs',
   'records.mjs', 'kernel/workflow-obligations.mjs', 'kernel/phase-responsibilities.mjs',
   'engine-compatibility/node-workflow-obligations.mjs',
   'engine-compatibility/node-configuration-path.mjs',

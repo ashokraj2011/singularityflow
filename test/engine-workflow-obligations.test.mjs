@@ -73,7 +73,7 @@ test('native graph APIs and the compiler use one cached rule function; results a
   assert.equal(obligationModules.graph.pinnedObligationGraph, core.pinnedObligationGraph);
   assert.equal(obligationModules.roles.phaseResponsibilities, roles.phaseResponsibilities);
   assert.equal(core.createWorkflowObligationCompiler(records.NODE_TEXT_DIGESTS), compile);
-  assert.equal(Object.keys(installed.dependencies).length, 8);
+  assert.equal(Object.keys(installed.dependencies).length, 7);
   assert.equal(installed.dependencies.textDigests, records.NODE_TEXT_DIGESTS);
   assert.equal(Object.hasOwn(installed.dependencies, 'compileObligationGraph'), false);
   assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, compileObligationGraph: () => ({ ready: true }) }),

@@ -1,5 +1,6 @@
 import { NODE_TEXT_DIGESTS, NODE_RECORD_BYTES } from './records.mjs';
 import { NODE_CONFIGURATION_PATH_SYNTAX } from './engine-compatibility/node-configuration-path.mjs';
+import { NODE_NETWORK_ADDRESS_SYNTAX } from './engine-compatibility/node-network-syntax.mjs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 
@@ -39,7 +40,6 @@ import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 
-import { normalizeMarketplaces } from './marketplace.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 import { loadImpactDefinition } from './impact-config.mjs';
@@ -56,7 +56,6 @@ import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 
 import { worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
 import { disabledArchitectureIntent } from "./kernel/configuration-declarations.mjs";
-import { worldModelStateAuthority } from './state-authority.mjs';
 import { INITIALIZATION_MAPPINGS } from './initialization-assets.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import {
@@ -97,8 +96,7 @@ const {
   authoringSkillCatalog,
   recordBytes: NODE_RECORD_BYTES,
   normalizeCommitPolicyRuntime,
-  normalizeMarketplaces,
-  worldModelStateAuthority,
+  networkAddressSyntax: NODE_NETWORK_ADDRESS_SYNTAX,
   pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX,
   textDigests: NODE_TEXT_DIGESTS
 });

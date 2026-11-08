@@ -295,8 +295,16 @@ validator constructed over explicit byte syntax. Foundation and the native regis
 record parser and unchanged v1 policy metadata; native migration dispatch remains unchanged.
 The compiler no longer accepts an application-review admission callback. Phase selection and
 code-delivery facts use the shared phase owner, while preview execution and human acceptance
-remain with their existing authorities. Remaining runtime, marketplace and full namespace
+remain with their existing authorities. Remaining runtime and full namespace
 lifecycle work retain their original milestone scope.
+
+[Marketplace trust and remote-content rules](ENGINE-SDK-MARKETPLACE-POLICY.md) now share one
+kernel compiler over exact Node address/subnet value primitives. The complete declaration, URL
+and blocked-range rules are no longer provided by a native admission callback. Historical
+state-reference precedence is a shared configuration-value rule; it does not select a backend.
+The compiler now has seven composition entries. Native DNS, HTTPS and final authority checks
+retain their owners and behavior; runtime/commit-policy and complete namespace lifecycle work
+remain required.
 
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including

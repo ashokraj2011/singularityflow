@@ -1,3 +1,10 @@
+import { NODE_NETWORK_ADDRESS_SYNTAX } from './engine-compatibility/node-network-syntax.mjs';
+import { createMarketplacePolicyCompiler } from './kernel/configuration-policy.mjs';
+const marketplacePolicy = /* @__PURE__ */ createMarketplacePolicyCompiler(NODE_NETWORK_ADDRESS_SYNTAX);
+export const normalizeMarketplaces = /* @__PURE__ */ (() => marketplacePolicy.normalizeMarketplaces)();
+const fail = /* @__PURE__ */ (() => marketplacePolicy.marketplaceFailure)();
+const text = /* @__PURE__ */ (() => marketplacePolicy.marketplaceText)();
+const ID = /* @__PURE__ */ (() => Object.freeze({ test: marketplacePolicy.isMarketplaceId }))();
 /**
  * Marketplaces: catalogs of skills, templates, agents and generated-artifact sources that a
  * repository chooses to trust.
@@ -12,13 +19,11 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { decodeUtf8, fetchRemoteBytes, validatePublicHttpsUrl } from './remote-fetch.mjs';
-import { SingularityFlowError } from './util.mjs';
 
 export const MARKETPLACE_INDEX_FORMAT = 'sflow-marketplace@1';
 /** Entry kinds this build can import; others are listed but not offered. */
 export const MARKETPLACE_IMPORT_KINDS = Object.freeze(['skill', 'template', 'agent', 'generated', 'mcp-server']);
 const MARKETPLACE_KINDS = new Set([...MARKETPLACE_IMPORT_KINDS, 'workflow', 'mcp-server']);
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const INDEX_MAX_BYTES = 1024 * 1024;
 const MAX_ENTRIES = 2000;
@@ -26,45 +31,7 @@ const GENERATED_TOKENS = Object.freeze(['workId', 'workType', 'phase', 'generati
 // The same path config.mjs owns; repeated here because config.mjs normalizes marketplaces.
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 
-function fail(message, code = 'MARKETPLACE_INVALID', details = undefined) {
-  return new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
-}
-
 function origin(url) { return new URL(url.replace(/\{[^}]+\}/g, 'value')).origin; }
-
-function text(value, label, max) {
-  if (value == null) return null;
-  const result = String(value).replace(/\s+/g, ' ').trim();
-  if (!result || result.length > max) throw fail(`${label} must be 1 to ${max} characters.`);
-  return result;
-}
-
-/** The `marketplaces:` configuration: id → { label, index, allowedOrigins }. */
-export function normalizeMarketplaces(value = {}) {
-  if (value == null) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) throw fail('marketplaces must be an object of marketplace ID to its index.');
-  const normalized = {};
-  for (const [id, entry] of Object.entries(value)) {
-    if (!ID.test(id)) throw fail(`Marketplace '${id}' must use lower-case kebab-case.`);
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw fail(`Marketplace '${id}' must be an object.`);
-    for (const key of Object.keys(entry)) {
-      if (!['label', 'index', 'allowedOrigins'].includes(key)) throw fail(`Marketplace '${id}' contains unknown field '${key}'.`);
-    }
-    const index = validatePublicHttpsUrl(String(entry.index ?? ''), `Marketplace '${id}' index`);
-    const allowedOrigins = (entry.allowedOrigins ?? []).map((candidate, position) => {
-      const url = validatePublicHttpsUrl(String(candidate ?? ''), `Marketplace '${id}' allowedOrigins[${position}]`);
-      const parsed = new URL(url);
-      if (parsed.pathname !== '/' || parsed.search || parsed.hash) throw fail(`Marketplace '${id}' allowedOrigins[${position}] must be an origin such as https://cdn.example.org.`);
-      return parsed.origin;
-    });
-    if (!Array.isArray(entry.allowedOrigins ?? [])) throw fail(`Marketplace '${id}' allowedOrigins must be a list.`);
-    normalized[id] = Object.freeze({
-      id, label: text(entry.label, `Marketplace '${id}' label`, 120) ?? id, index,
-      allowedOrigins: Object.freeze([...new Set(allowedOrigins)])
-    });
-  }
-  return normalized;
-}
 
 /** The marketplaces the effective configuration trusts, read without loading the whole definition. */
 export async function configuredMarketplaces(root) {

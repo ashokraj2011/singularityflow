@@ -62,7 +62,7 @@ test('native APIs are exact kernel aliases; policy defaults, checklist content a
 });
 
 test('the compiler owns specification meaning and rejects all five former collaborator overrides', () => {
-  assert.equal(Object.keys(installed.dependencies).length, 8);
+  assert.equal(Object.keys(installed.dependencies).length, 7);
   for (const name of baseline.compilerDependencies) {
     assert.equal(Object.hasOwn(installed.dependencies, name), false, name);
     assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, [name]: () => ({ ready: true }) }),

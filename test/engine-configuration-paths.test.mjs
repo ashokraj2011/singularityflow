@@ -74,7 +74,7 @@ test('native APIs and compiler use the same cached policies over the one native 
   assert.equal(core.sourceScopePolicies(NODE_CONFIGURATION_PATH_SYNTAX), families.scope);
   assert.equal(native.normalizeSourceRoots, families.scope.normalizeSourceRoots);
   assert.equal(Object.isFrozen(families.recovery), true);
-  assert.equal(Object.keys(installed.dependencies).length, 8);
+  assert.equal(Object.keys(installed.dependencies).length, 7);
   for (const name of [...baseline.compilerDependencies,...baseline.primitiveDependencies]) {
     assert.equal(Object.hasOwn(installed.dependencies,name), false, name);
     assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, [name]: () => ({ ready: true }) }),

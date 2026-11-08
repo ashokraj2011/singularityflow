@@ -464,3 +464,28 @@ export function assertCodeDeliveryConfiguration(phase, label = `Phase '${phase?.
 }
 // Internal bindings keep native execution/presentation on the same declarations.
 export { PLACEHOLDER as storyBranchNamePLACEHOLDER, DEFAULT_MAX_BYTES as loggingDEFAULTMAXBYTES, DEFAULT_KEEP as loggingDEFAULTKEEP, object as initiativeConfigObject, unique as initiativeConfigUnique, safeId as initiativeConfigSafeId };
+
+
+// Existing Git-configuration value precedence only; this does not select or open a backend.
+/**
+ * Resolve the reusable World-Model state authority from approved repository configuration.
+ *
+ * The ledger owns state publication. `git.remote` is the application-code transport and may point
+ * at a different server, so it is only the final configured fallback. Keeping this one pure join
+ * prevents read-only UI, gateway, workspace, and planning surfaces from selecting different refs.
+ */
+export function worldModelStateAuthority(definition = {}, {
+  branch: fallbackBranch = null,
+  remote: fallbackRemote = null
+} = {}) {
+  const branch = definition.worldModel?.stateBranch
+    ?? fallbackBranch
+    ?? definition.ledger?.branch
+    ?? 'state';
+  const remote = definition.ledger?.remote
+    ?? definition.worldModel?.remote
+    ?? fallbackRemote
+    ?? definition.git?.remote
+    ?? 'origin';
+  return Object.freeze({ branch, remote });
+}

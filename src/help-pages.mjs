@@ -1831,7 +1831,9 @@ const PAGES = Object.freeze({
       'amendment or an intent amendment. Rejecting is its own record, and the model restores the change.',
       'Never a departure: secrets and environment files, other Stories\' files, workflow and configuration files,',
       'protected paths, .git, approvals and risk acceptances, an earlier document\'s managed input block, and',
-      'deleting, skipping or loosening a planned test. An earlier document is never edited: --file is a draft copy.'
+      'deleting, skipping or loosening a planned test. An earlier document is never edited: --file is a draft copy.',
+      'account is the code step\'s own too: each instruction the person typed after /sf-code is accounted for before',
+      'the step\'s approval, within the plan with the clauses it implements (--clauses) or by its departure (--departure).'
     ],
     options: [
       ['--kind KIND', 'path, supporting, plan-row, test, wording or clause.'],
@@ -1841,11 +1843,15 @@ const PAGES = Object.freeze({
       ['--target STEP', 'The earlier step whose document a wording or clause departure changes.'],
       ['--file DRAFT', 'A draft copy of that document with the changed text.'],
       ['--reason TEXT', 'Why the change needs it, 20 to 1000 characters.'],
-      ['--finding ID', 'A finding the departure fixes.']
+      ['--finding ID', 'A finding the departure fixes.'],
+      ['--instruction N', 'account: the instruction\'s number, as the step\'s result lists it.'],
+      ['--clauses ID,...', 'account: the clauses of the approved plan that carry it.'],
+      ['--departure DEP-ID', 'account: the departure recorded for it.']
     ],
     examples: [
       ['singularity-flow departure record --kind path --path src/date-format.mjs --clause CAL-1:REQ-002 --reason "Formatting moved into its own module."',
         'Records the departure; publish goes ahead with the file.'],
+      ['singularity-flow departure account --instruction 1 --departure DEP-001', 'Says the first instruction the person typed is that departure.'],
       ['singularity-flow departure list --open', 'Lists the departures that wait for a person.'],
       ['singularity-flow decision departure CAL-1 --departure DEP-001 --as accepted --reason "The module serves REQ-002."',
         'A person accepts it: one plan amendment names the file.']

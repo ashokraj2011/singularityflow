@@ -336,6 +336,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.departure)} (${slot(s.kind)}); publish goes ahead with it, and a person decides it before the step is approved.`,
     preserves: false
   },
+  'departure.account.succeeded': {
+    headline: (s) => `Instruction ${slot(s.instruction)} is accounted for (${slot(s.as)}); the approver reads it beside the departures.`,
+    preserves: false
+  },
   'departure.list.succeeded': {
     headline: (s) => `${slot(s.count, '0')} departure(s).`,
     preserves: true

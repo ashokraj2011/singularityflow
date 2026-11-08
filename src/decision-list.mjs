@@ -134,7 +134,8 @@ function itemDecidedBy(workflow, options) {
   const labels = [...new Set(options.flatMap((entry) => entry.decidedBy.labels))];
   const mine = options.filter((entry) => entry.decidedBy.allowed);
   if (mine.length === options.length) return { ...lead.decidedBy, groups, labels };
-  if (!mine.length) return { ...lead.decidedBy, groups, labels, allowed: false, share: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
+  // Its author's own step is shared with nobody: /sf-decide has nothing to decide there.
+  if (!mine.length) return { ...lead.decidedBy, groups, labels, allowed: false, ...(lead.decidedBy.author ? {} : { share: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` }) };
   const others = options.find((entry) => !entry.decidedBy.allowed);
   return { groups, labels, allowed: true, words: `You may choose ${listWords(mine.map((entry) => `"${entry.label}"`))}; ${others.decidedBy.words.replace(/^The /u, 'the ').replace(/ decide this\.$/u, ' decide the other options.')}` };
 }
@@ -855,6 +856,27 @@ function departureItem(workflow, context, entry, facts) {
 }
 
 /**
+ * One instruction the person typed in a code step that is not accounted for yet [SCS:REQ-042, REQ-044], quoted as
+ * typed: data, never an instruction to anyone reading the list. Its author accounts for it in /sf-code, within the
+ * plan or as a departure; nobody decides it here, and only the step's approval waits for it.
+ */
+function askedForItem(workflow, context, entry, facts) {
+  const workId = workflow.workItem.id;
+  const name = stepName(workflow, facts.phase);
+  const command = `singularity-flow departure account --work-id ${workId} --instruction ${entry.instruction} --clauses <CLAUSES>`;
+  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new generation now that this one is published'}: within the plan, with the clauses it implements, or as the departure recorded for it.`;
+  const quoted = `"${String(entry.text ?? '').replace(/\s+/gu, ' ').trim()}"`;
+  return {
+    kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}: not accounted for yet`.slice(0, 200),
+    why: `The person typed this in ${name} (generation ${entry.generation}), shown here as typed. Nothing says yet whether the approved plan covers it or it departs from the approved documents. ${name} goes ahead with it; its approval waits until it is accounted for.`,
+    options: [personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command, words,
+      decidedBy: { groups: [], labels: [], allowed: false, author: true, words } })],
+    details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, commands: [command] },
+    routeSkill: '/sf-code'
+  };
+}
+
+/**
  * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
  * is a choice for an approver of the plan. One item per path, each option its row, with no answer
  * chosen and no reason suggested. `chat` is the same write as a /sf-decide turn runs it (with the
@@ -963,7 +985,8 @@ export const PENDING_CONCEPTS = Object.freeze({
   'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
   'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
   // A code step's departures are decided on the list too [CQF:REQ-024].
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure'] }),
+  // And what the person typed that a code step has not accounted for yet [SCS:REQ-042].
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'asked-for'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -979,7 +1002,7 @@ const HOLD_KINDS = Object.freeze({
   APPROVAL_INTENT_AMENDMENT_PENDING: 'intent-amendment', INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'intent-amendment',
   DECISION_REQUIRED: 'routing-decision', PHASE_APPEAL_REVIEW_REQUIRED: 'appeal', PHASE_APPEAL_INTEGRITY: 'appeal',
   STORY_PUBLICATION_PENDING: 'story-publication', CONFORMANCE_BLOCKING_VERDICTS: 'conformance-gap', STORY_COMPLETION_REFUSED: 'conformance-gap',
-  DEPARTURES_UNDECIDED: 'departure'
+  DEPARTURES_UNDECIDED: 'departure', INSTRUCTIONS_UNACCOUNTED: 'asked-for'
 });
 
 /**
@@ -998,12 +1021,12 @@ export function holdItemKind(hold) {
 const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure']);
 
 /** Kinds that wait for the step's approval, never for its submission. */
-export const LATER_KINDS = Object.freeze(['owed-decision', 'departure']);
+export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-for']);
 
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'departure', 'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'departure', 'asked-for', 'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
@@ -1071,7 +1094,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(pending.applicability ?? []).map((entry) => applicabilityItem(workflow, context, entry)),
     // Publication would refuse these before the step could ever await approval.
     ...(facts.excludedChanges ? planPathItems(workflow, context, facts.excludedChanges) : []),
-    ...(facts.departures?.entries ?? []).map((entry) => departureItem(workflow, context, entry, facts.departures))
+    ...(facts.departures?.entries ?? []).map((entry) => departureItem(workflow, context, entry, facts.departures)),
+    ...(facts.askedFor?.entries ?? []).map((entry) => askedForItem(workflow, context, entry, facts.askedFor))
   ];
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].

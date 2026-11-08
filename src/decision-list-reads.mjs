@@ -224,6 +224,19 @@ async function departureFacts(root, config, workflow, phase) {
 }
 
 /**
+ * A code step's instructions the person typed that are not accounted for yet [SCS:REQ-042], quoted; null when none.
+ */
+async function askedForFacts(workflow, phase) {
+  if (!(workflow.askedFor ?? []).some((entry) => entry.phase === phase.id)) return null;
+  const [{ phaseRequiresCodeDelivery }, { instructionAccounting }, { typedFocusOff }] = await Promise.all([import('./code-delivery-policy.mjs'),
+    // From the CLI source, as the departures are: the VS Code bundles load it only for a Story that has one.
+    import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href), import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for.mjs')).href)]);
+  if (!phaseRequiresCodeDelivery(phase) || typedFocusOff(workflow)) return null;
+  const entries = instructionAccounting(workflow, phase.id).filter((entry) => !entry.account);
+  return entries.length ? { phase: phase.id, open: workflow.currentPhase === phase.id && phase.status === 'in_progress' && phase.generationIntent?.status === 'open', entries } : null;
+}
+
+/**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
  * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
@@ -326,6 +339,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
+    askedFor: workflow.status === 'in_progress' ? await askedForFacts(workflow, phase) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
@@ -335,6 +349,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       testCommandReviewBindings: commandReviews.bindings,
       planAmendments: (workflow.planAmendments ?? []).length,
       departures: `${(workflow.departures ?? []).length}:${(workflow.departureDecisions ?? []).length}`,
+      askedFor: `${(workflow.askedFor ?? []).length}:${(workflow.instructionAccounts ?? []).length}`,
       witnessRecords: (workflow.witnessRecords ?? []).length,
       scopeDispositions: (workflow.scopeDispositions ?? []).length, completenessReviews: (workflow.completenessReviews ?? []).length,
       applicability: (workflow.applicability ?? []).length,

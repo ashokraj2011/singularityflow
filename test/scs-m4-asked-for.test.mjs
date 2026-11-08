@@ -159,7 +159,7 @@ test('SCS REQ-041: prepublish copies what the person asked for into the Story in
   assert.equal(checked.status, 0, JSON.stringify(checked.value));
   assert.deepEqual(checked.value.askedFor.instructions.map((entry) => [entry.instruction, entry.text, entry.recorded]),
     [[1, 'make the value 2, not 3', true], [2, 'keep the module name', true]]);
-  assert.match(checked.value.askedFor.words, /\(1\) "make the value 2, not 3"; \(2\) "keep the module name"/u);
+  assert.match(checked.value.askedFor.words, /\(1\) "make the value 2, not 3": not accounted for yet; \(2\) "keep the module name": not accounted for yet\./u);
   let recorded = await state();
   assert.deepEqual(recorded.askedFor.map((entry) => [entry.phase, entry.instruction, entry.text, entry.turn]),
     [['implement', 1, 'make the value 2, not 3', 'turn-a'], ['implement', 2, 'keep the module name', 'turn-b']]);
@@ -187,4 +187,90 @@ test('SCS REQ-041: policy.typedFocus folds one way, and off copies nothing', asy
   assert.throws(() => foldCapabilityPolicy({}, { typedFocus: 'yes' }), { code: 'CAPABILITY_POLICY_INVALID' });
   const workflow = { workItem: { id: 'QF-1' }, resolution: { capability: { policy: { typedFocus: 'off' } } } };
   assert.deepEqual(await pendingAskedFor('/nonexistent', workflow, { id: 'implement' }), { generation: null, entries: [], omitted: 0 });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// [SCS:REQ-042] In a code step each instruction is accounted for before the step's approval.
+
+const approveArgs = ['--no-model', 'approve', 'implement', '--work-id', 'QF-1', '--yes', '--json'];
+async function summarized(repo) {
+  const summary = path.join(repo.root, 'singularity/work-items/QF-1/artifacts/implement/implementation-summary.md');
+  await writeFile(summary, `${await readFile(summary, 'utf8')}\n## What changed\n\nThe value module returns the approved value 2, as the person asked.\n`);
+}
+
+test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approval, never its publish or submit', async (t) => {
+  const { repo, state, typed } = await codeStep(t);
+  const { cli } = await import('./helpers/run-and-test-fixture.mjs');
+  await typed('make the value 2, not 3', 'turn-a');
+  await typed('add a log line when it changes', 'turn-b');
+  // The model's one command: it copies what was typed first, then accounts for the one it names.
+  const accounted = repo.sflowJson('departure', 'account', '--instruction', '1', '--clauses', 'QF-1:AC-001');
+  assert.equal(accounted.status, 0, JSON.stringify(accounted.value));
+  let recorded = await state();
+  assert.deepEqual(recorded.askedFor.map((entry) => entry.instruction), [1, 2]);
+  assert.deepEqual(recorded.instructionAccounts.map((entry) => [entry.instruction, entry.as, entry.clauses, entry.author.producer]),
+    [[1, 'within-plan', ['QF-1:AC-001'], 'governed-agent']]);
+  // Each refusal says what is wrong, and nothing is written.
+  const refusal = (...args) => { const result = repo.sflowJson('departure', 'account', ...args); assert.notEqual(result.status, 0); return JSON.stringify(result.value); };
+  assert.match(refusal('--instruction', '2', '--clauses', 'QF-1:REQ-404'), /INSTRUCTION_CLAUSE_UNKNOWN/u);
+  assert.match(refusal('--instruction', '9', '--clauses', 'QF-1:AC-001'), /INSTRUCTION_NOT_FOUND/u);
+  assert.match(refusal('--instruction', '2'), /DEPARTURE_OPTIONS_INVALID/u);
+  assert.match(refusal('--instruction', '2', '--clauses', 'QF-1:AC-001', '--departure', 'DEP-001'), /DEPARTURE_OPTIONS_INVALID/u);
+  assert.match(refusal('--instruction', '2', '--departure', 'DEP-404'), /DEPARTURE_NOT_FOUND/u);
+  assert.equal((await state()).instructionAccounts.length, 1);
+  // Prepublish names the one still to account for; publish and submit go ahead.
+  const checked = repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent');
+  assert.equal(checked.status, 0, JSON.stringify(checked.value));
+  assert.deepEqual(checked.value.askedFor.unaccounted, [2]);
+  assert.match(checked.value.askedFor.words, /departure account --instruction 2/u);
+  await summarized(repo);
+  const published = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  repo.sflow('submit', 'implement');
+  // The list: one item for it, quoted, holding the approval; the author's route, nobody's decision.
+  const list = repo.sflowJson('decisions', 'QF-1');
+  const packet = list.value.data ?? list.value;
+  const item = packet.items.find((entry) => entry.kind === 'asked-for');
+  assert.ok(item, JSON.stringify(packet.items.map((entry) => entry.kind)));
+  assert.equal(item.title, 'Asked for (2) "add a log line when it changes": not accounted for yet');
+  assert.equal(item.holdsApproval, true);
+  assert.equal(item.decidedBy.allowed, false);
+  assert.match(item.options[0].action.command, /^singularity-flow departure account --work-id QF-1 --instruction 2 /u);
+  assert.deepEqual(packet.items.find((entry) => entry.kind === 'approval').details.heldBy, [item.id]);
+  const refused = repo.run(process.execPath, [cli, ...approveArgs]);
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout + refused.stderr, /INSTRUCTIONS_UNACCOUNTED/u);
+  // Once published, the open generation is gone: a new one accounts for it.
+  assert.match(refusal('--instruction', '2', '--clauses', 'QF-1:AC-001'), /DEPARTURE_LIFECYCLE/u);
+  recorded = await state();
+  assert.equal(recorded.phases.implement.status, 'awaiting_approval');
+});
+
+test('SCS REQ-042: an instruction accounted for as a departure is decided with it, and the step approves', async (t) => {
+  const { repo, state, typed } = await codeStep(t);
+  const { cli } = await import('./helpers/run-and-test-fixture.mjs');
+  await typed('show the value on an entry page too', 'turn-a');
+  await writeFile(path.join(repo.root, 'index.html'), '<!-- @clause:QF-1:AC-001 show the approved value -->\n<title>Value</title>\n');
+  repo.sflow('prepare', 'implement');
+  // The agent's prepublish records the file as DEP-001; the model accounts for the instruction by it.
+  assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.departures.recorded, ['DEP-001']);
+  const accounted = repo.sflowJson('departure', 'account', '--instruction', '1', '--departure', 'DEP-001');
+  assert.equal(accounted.status, 0, JSON.stringify(accounted.value));
+  assert.deepEqual((await state()).instructionAccounts.map((entry) => [entry.as, entry.departure]), [['departure', 'DEP-001']]);
+  assert.deepEqual(repo.sflowJson('phase', 'prepublish', 'implement', '--for-agent').value.askedFor.unaccounted, []);
+  await summarized(repo);
+  const published = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  repo.sflow('submit', 'implement');
+  const packet = (({ value }) => value.data ?? value)(repo.sflowJson('decisions', 'QF-1'));
+  assert.equal(packet.items.filter((entry) => entry.kind === 'asked-for').length, 0, 'accounted for: nothing to hold');
+  const departure = packet.items.find((entry) => entry.kind === 'departure');
+  const answers = path.join(repo.root, '..', 'answers.json');
+  await writeFile(answers, JSON.stringify({ choose: { [departure.id]: 'accept' }, reason: { [departure.id]: 'The person asked for the entry page, so it ships with this code.' },
+    confirm: packet.packetSha256 }));
+  const decided = repo.sflowJson('decisions', 'record', 'QF-1', '--answers', answers);
+  assert.equal(decided.status, 0, JSON.stringify(decided.value));
+  const approved = repo.run(process.execPath, [cli, ...approveArgs]);
+  assert.equal(approved.status, 0, approved.stdout + approved.stderr);
+  assert.equal((await state()).phases.implement.status, 'approved');
 });

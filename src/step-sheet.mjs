@@ -101,7 +101,8 @@ function stepOf(workflow, packet, item, option, { rows = [], card = true } = {})
 function holdOfItem(workflow, packet, item, registry, codes, partyKind, card) {
   const code = item.details?.code ?? codes[0] ?? null;
   const rows = item.details?.planRows ?? [];
-  const key = item.details?.path ? `${item.kind}:${item.details.path}` : item.details?.departure ? `${item.kind}:${item.details.departure}` : `${item.kind}:${code ?? item.details?.amendment ?? item.details?.clause ?? item.details?.scopeItem
+  const key = item.details?.path ? `${item.kind}:${item.details.path}` : item.details?.departure ? `${item.kind}:${item.details.departure}`
+    : item.kind === 'asked-for' ? `${item.kind}:${item.details?.instruction}` : `${item.kind}:${code ?? item.details?.amendment ?? item.details?.clause ?? item.details?.scopeItem
     ?? item.details?.key ?? item.details?.appeal ?? item.details?.request ?? item.details?.issue ?? item.id}`;
   return { key, code, codes, item: item.id, source: sourceOf(code, !codes.length), title: item.title, why: item.why, clearedBy: partyOf(item.decidedBy, registry, partyKind),
     steps: item.options.map((option) => stepOf(workflow, packet, item, option, { rows, card })) };
@@ -127,9 +128,9 @@ function carriedCodes(checkHolds, items) {
   const free = [];
   for (const hold of checkHolds) {
     const item = holdItemKind(hold) === 'approval' ? null : carriedBy(hold);
-    // One refusal, one item per path or departure it names.
+    // One refusal, one item per path, departure or instruction it names.
     const carriers = !item ? [] : hold.unclaimedPaths?.length ? items.filter((entry) => entry.kind === 'plan-accounting')
-      : item.kind === 'departure' ? items.filter((entry) => entry.kind === 'departure') : [item];
+      : ['departure', 'asked-for'].includes(item.kind) ? items.filter((entry) => entry.kind === item.kind) : [item];
     for (const carrier of carriers) byItem.set(carrier.id, [...(byItem.get(carrier.id) ?? []), hold.code]);
     if (!item) free.push(hold);
   }

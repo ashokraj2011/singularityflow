@@ -114,7 +114,9 @@ const COMMANDS = Object.freeze({
   'tests-node': ['singularity-flow tests node --work-id PMC-1 --node 22', 'singularity-flow tests node --work-id PMC-1 --node 22 --phase custom-step --json'],
   // The model records a departure without asking [CQF:REQ-021]: not a person's step, so it is open to the turns that edit.
   'departure-record': ['singularity-flow departure record --kind path --path src/a.mjs --clause PMC-1:AC-001 --reason "The change needed this file too."',
-    'singularity-flow departure record --kind wording --target custom-step --file drafts/custom-step.md --reason "The wording no longer matches the code." --json'],
+    'singularity-flow departure record --kind wording --target custom-step --file drafts/custom-step.md --reason "The wording no longer matches the code." --json',
+    // And accounts for each instruction the person typed [SCS:REQ-042]: the model's statement, never a person's decision.
+    'singularity-flow departure account --instruction 1 --clauses PMC-1:AC-001 --json', 'singularity-flow departure account --instruction 2 --departure DEP-001'],
   // Who a record is credited to.
   'authorship-claim': ['singularity-flow phase publish custom-step --authored human --channel manual-in-place --json', 'singularity-flow phase publish custom-step --json', 'singularity-flow phase publish custom-step --authored external-tool'],
   'agent-publication': ['singularity-flow phase publish custom-step --authored governed-agent --json'],

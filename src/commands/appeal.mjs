@@ -103,7 +103,18 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (action === 'checkpoint') data = await withSubjectLock(root, { kind: 'story', id: workflow.workItem.id },
     () => createPhaseCheckpoint(root, config, workflow, phase));
   if (action === 'checkpoint-show') data = await inspectPhaseCheckpoint(root, workflow, phase, positionals[2]);
-  if (action === 'prepare') data = { status: 'review-required', packet: await preparePhaseAppeal(root, config, workflow, request(options, workflow.workItem.id)), stateChanged: false };
+  // A scope appeal is a departure now [CQF:REQ-029]: its exact changes are checked as before, then each is
+  // recorded for a person to decide once on the decision list, with no appeal review of its own.
+  if (action === 'prepare') {
+    const packet = await preparePhaseAppeal(root, config, workflow, request(options, workflow.workItem.id));
+    const [{ recordAppealDepartures }, { actionActor }, { loadSession }] = await Promise.all([import('../departure-records.mjs'), import('../git.mjs'), import('../session.mjs')]);
+    const session = await loadSession(root, { required: false });
+    const departures = await recordAppealDepartures(root, config, workflow, packet,
+      { actor: actionActor(root), agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null });
+    data = { status: 'departure-recorded', departures: departures.map((entry) => ({ id: entry.id, kind: entry.kind, paths: entry.paths, clauses: entry.clauses })),
+      stateChanged: true, nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide',
+        label: 'A person decides each departure on the decision list before the step is approved; the step keeps working.' } };
+  }
   if (action === 'submit') data = await submitPhaseAppeal(root, config, workflow, request(options));
   if (action === 'list') data = await phaseAppealStatus(root, config, workflow, optionString(options, 'phase') ? phase : null);
   if (action === 'show') {

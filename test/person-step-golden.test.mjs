@@ -43,7 +43,10 @@ const COMMANDS = Object.freeze({
     'singularity-flow decision applicability PMC-1 --clause PMC-1:REQ-001 --as not-applicable --reason "No UI."',
     'singularity-flow decision completeness PMC-1 --reason "Complete."', 'singularity-flow decision choose PMC-1 --choice O1 --reason "Simpler."',
     'singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --reason "Also here."',
-    'singularity-flow decision plan PMC-1 --add-supporting src/b.mjs=test-support --supporting-reason "A helper." --reason "Accounted for here."'],
+    'singularity-flow decision plan PMC-1 --add-supporting src/b.mjs=test-support --supporting-reason "A helper." --reason "Accounted for here."',
+    // A person's decision on a code step's departure [CQF:REQ-024]: a /sf-decide turn's, held to their answer.
+    'singularity-flow decision departure PMC-1 --fetch --departure DEP-001 --as accepted --reason "The page ships with this code."',
+    'singularity-flow decision departure PMC-1 --fetch --departure DEP-002 --as rejected --reason "Not part of this Story."'],
   'story-reopen': ['singularity-flow reopen PMC-1 --to custom-step --reason "Found a defect."'],
   'convergence-adjudication': ['singularity-flow story adjudicate PMC-1 --finding F-1 --as dismissed --reason "Not a defect."'],
   'source-review-decision': ['singularity-flow review-source decide custom-step --finding F-1 --reason "Accepted."'],
@@ -109,6 +112,9 @@ const COMMANDS = Object.freeze({
   'decision-list-record-new': [`singularity-flow decisions record PMC-1 --choose d1=pin-node --confirm ${digest}`, `singularity-flow decisions record PMC-1 --choose d1=include --reason d1=Why --confirm ${digest}`],
   'plan-amendment-batch': ['singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --add-location PMC-1:AC-001=src/b.mjs --add-supporting test/h.mjs=test-support --supporting-reason "A helper." --reason "One reason for them all."'],
   'tests-node': ['singularity-flow tests node --work-id PMC-1 --node 22', 'singularity-flow tests node --work-id PMC-1 --node 22 --phase custom-step --json'],
+  // The model records a departure without asking [CQF:REQ-021]: not a person's step, so it is open to the turns that edit.
+  'departure-record': ['singularity-flow departure record --kind path --path src/a.mjs --clause PMC-1:AC-001 --reason "The change needed this file too."',
+    'singularity-flow departure record --kind wording --target custom-step --file drafts/custom-step.md --reason "The wording no longer matches the code." --json'],
   // Who a record is credited to.
   'authorship-claim': ['singularity-flow phase publish custom-step --authored human --channel manual-in-place --json', 'singularity-flow phase publish custom-step --json', 'singularity-flow phase publish custom-step --authored external-tool'],
   'agent-publication': ['singularity-flow phase publish custom-step --authored governed-agent --json'],
@@ -117,7 +123,8 @@ const COMMANDS = Object.freeze({
   // Previews and reads: open everywhere they are open today, and they must stay so.
   preview: ['singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --dry-run', 'singularity-flow epic complete E-1 --dry-run --json', 'singularity-flow program approve PRG-1', 'singularity-flow decision show PMC-1',
     'singularity-flow decisions PMC-1 --json', 'singularity-flow appeal risk-prepare --work-id PMC-1 --phase custom-step --reason "Preview the risk."', `singularity-flow appeal evidence-accept --work-id PMC-1 --phase custom-step --review-ui --confirm ${digest}`,
-    'singularity-flow story test-policy accept-risk PMC-1 --phase custom-step', 'singularity-flow apm install acme/review-pack --dry-run', 'singularity-flow choices begin approve PMC-1 --json']
+    'singularity-flow story test-policy accept-risk PMC-1 --phase custom-step', 'singularity-flow apm install acme/review-pack --dry-run', 'singularity-flow choices begin approve PMC-1 --json',
+    'singularity-flow departure list --json', 'singularity-flow departure show DEP-001 --json']
 });
 
 const SPECIAL_TURNS = Object.freeze(['(plain prompt)', '(paused)', '(no turn)']);

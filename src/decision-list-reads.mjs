@@ -184,6 +184,37 @@ async function excludedChangeFacts(root, config, workflow, phase) {
 }
 
 /**
+ * A code step's departures that wait for a person [CQF:REQ-024], each with who decides it, the plan's rows
+ * a file may join, the own-terminal command a row, test or clause is accepted with, and the steps a clause
+ * change reopens. Null when there are none.
+ */
+async function departureFacts(root, config, workflow, phase) {
+  if (!(workflow.departures ?? []).some((entry) => entry.phase === phase.id)) return null;
+  try {
+    const [{ departureReadings, departureAuthorities, acceptanceCommand }, { acceptAllEligible, departureHolds, departureWords }] = await Promise.all([
+      import('./departure-records.mjs'), import('./departures.mjs')]);
+    const readings = (await departureReadings(root, workflow, phase.id)).filter((entry) => departureHolds(entry.status) && entry.status !== 'rejected');
+    if (!readings.length) return null;
+    const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);
+    const planRows = planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
+    const order = workflow.phaseOrder ?? [];
+    const reopens = (departure) => order.slice(order.indexOf(departure.target?.phase) + 1, order.indexOf(departure.phase) + 1)
+      .filter((id) => ['approved', 'awaiting_approval'].includes(workflow.phases?.[id]?.status) || id === departure.phase);
+    return {
+      phase: phase.id, planRows, codeStepOpen: workflow.currentPhase === phase.id && phase.status === 'in_progress',
+      entries: await Promise.all(readings.map(async (entry) => ({ ...entry, groups: await departureAuthorities(workflow, entry.departure),
+        words: departureWords(entry.departure), acceptAll: acceptAllEligible(entry.departure) }))),
+      acceptance: Object.fromEntries(readings.filter((entry) => ['plan-row', 'test', 'clause'].includes(entry.departure.kind))
+        .map((entry) => [entry.departure.id, acceptanceCommand(workflow, entry.departure)])),
+      reopens: Object.fromEntries(readings.filter((entry) => entry.departure.kind === 'clause').map((entry) => [entry.departure.id, reopens(entry.departure)])),
+      // A clause change is shown with every test changed under the same clause [CQF:REQ-024].
+      tests: Object.fromEntries(readings.filter((entry) => entry.departure.kind === 'clause').map((entry) => [entry.departure.id,
+        (workflow.departures ?? []).filter((other) => other.kind === 'test' && other.clauses.some((clause) => entry.departure.clauses.includes(clause))).map((other) => other.id)]))
+    };
+  } catch (error) { if (error instanceof SingularityFlowError) return null; throw error; }
+}
+
+/**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
  * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
@@ -285,6 +316,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     visual: await visualProfiles(root, config, workflow, phase),
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
+    departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
@@ -293,6 +325,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       testCommandDecisions: (workflow.testCommandDecisions ?? []).length,
       testCommandReviewBindings: commandReviews.bindings,
       planAmendments: (workflow.planAmendments ?? []).length,
+      departures: `${(workflow.departures ?? []).length}:${(workflow.departureDecisions ?? []).length}`,
       witnessRecords: (workflow.witnessRecords ?? []).length,
       scopeDispositions: (workflow.scopeDispositions ?? []).length, completenessReviews: (workflow.completenessReviews ?? []).length,
       applicability: (workflow.applicability ?? []).length,

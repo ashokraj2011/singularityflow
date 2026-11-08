@@ -221,9 +221,27 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
     return line.trim();
   };
   const values = { choose: {}, reason: {}, expires: {}, cause: {}, clause: {}, article: {} };
+  const together = new Set();
   try {
     say(packet.headline);
+    // Departures one answer may accept, files and wording that names no clause [CQF:REQ-024]: asked once.
+    // The rest, and each of these when the person says no, are asked one by one below.
+    const accepting = packet.items.filter((item) => item.kind === 'departure' && item.details?.acceptAll === true && item.decidedBy.allowed
+      && item.options.some((option) => option.id === 'accept' && !option.oneByOne && option.recordable !== false && option.available !== false && option.decidedBy.allowed));
+    if (accepting.length > 1) {
+      say('');
+      say(`Accept all ${accepting.length} departures (${accepting.map((item) => item.details.departure).join(', ')}) with one reason?`);
+      if (/^(?:y|yes)$/iu.test(await ask('   [y/N]: '))) {
+        const reason = await ask('   One reason for all of them: ');
+        for (const item of accepting) {
+          together.add(item.id);
+          values.choose[item.id] = 'accept';
+          if (reason) values.reason[item.id] = reason;
+        }
+      }
+    }
     for (const [index, item] of [...packet.items, ...(packet.offered ?? [])].entries()) {
+      if (together.has(item.id)) continue;
       say('');
       for (const line of itemLines(item, index, { numbered: true })) say(line);
       if (!item.decidedBy.allowed) continue;
@@ -327,6 +345,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const { commitPlanAmendment } = await import('./decision-plan-amendment.mjs');
     const changes = (effect.changes ?? [effect.change]).map((change) => (change.kind === 'add-supporting' ? { ...change, reason: step.values.reason } : change));
     return (await commitPlanAmendment(root, config, workflow, { changes, reason: step.values.reason }, { actor, agent })).amendment;
+  }
+  if (effect.kind === 'departure') {
+    const { commitDepartureDecision } = await import('../departure-records.mjs');
+    return (await commitDepartureDecision(root, config, workflow, { departures: effect.departures ?? [effect.departure], decision: effect.decision,
+      reason: step.values.reason, changes: effect.changes ?? null }, { actor, agent })).record;
   }
   if (effect.kind === 'node-pin') {
     const { commitNodePin } = await import('./decision-plan-amendment.mjs');

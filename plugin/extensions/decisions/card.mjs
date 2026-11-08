@@ -48,12 +48,15 @@ export function decisionsTable(packet) {
     '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows].join('\n');
 }
 
-/** The answers one reason may cover: offered by two or more rows, needing nothing but a reason. */
+/**
+ * The answers one reason may cover: offered by two or more rows, needing nothing but a reason. A
+ * departure's plan row, test or clause-touching wording is decided one by one (`oneByOne`), never here.
+ */
 export function sharedAnswers(packet) {
   const seen = new Map();
   for (const item of decidable(packet)) {
     for (const option of item.options.filter(choosable)) {
-      if (option.needs?.cause || option.needs?.expires || option.needs?.clause || option.needs?.article) continue;
+      if (option.oneByOne || option.needs?.cause || option.needs?.expires || option.needs?.clause || option.needs?.article) continue;
       const known = seen.get(option.id);
       if (known) known.items.push(item); else seen.set(option.id, { id: option.id, label: option.label, items: [item] });
     }

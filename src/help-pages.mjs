@@ -1763,6 +1763,39 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['decision', 'reject', 'approve']
   },
+  departure: {
+    summary: 'Record what a code step\'s change departs from in the approved documents; a person decides it once.',
+    description: [
+      'record is the code step\'s own: /sf-code records each departure without asking anyone and keeps working.',
+      'A departure is a file no row of the plan names (path), a supporting file, a plan row, a planned test, an',
+      'earlier document\'s wording or a clause. Prepublish records the files publication would leave out by itself.',
+      'Publish and submit go ahead with the files; the step\'s approval waits until a person decides each one on the',
+      'decisions table (VS Code, the Copilot CLI table, or singularity-flow decisions record in a terminal).',
+      'Accepting writes the record the kind already has: a plan amendment, a plan row correction, a forward',
+      'amendment or an intent amendment. Rejecting is its own record, and the model restores the change.',
+      'Never a departure: secrets and environment files, other Stories\' files, workflow and configuration files,',
+      'protected paths, .git, approvals and risk acceptances, an earlier document\'s managed input block, and',
+      'deleting, skipping or loosening a planned test. An earlier document is never edited: --file is a draft copy.'
+    ],
+    options: [
+      ['--kind KIND', 'path, supporting, plan-row, test, wording or clause.'],
+      ['--path FILE', 'A changed file the departure names; repeat for more (path and supporting).'],
+      ['--clause CLAUSE', 'The clause it serves or changes; repeat for more.'],
+      ['--row-op OP', 'A plan row change: add-row, set-fulfillment, remove-location, replace-location, add-test or replace-test.'],
+      ['--target STEP', 'The earlier step whose document a wording or clause departure changes.'],
+      ['--file DRAFT', 'A draft copy of that document with the changed text.'],
+      ['--reason TEXT', 'Why the change needs it, 20 to 1000 characters.'],
+      ['--finding ID', 'A finding the departure fixes.']
+    ],
+    examples: [
+      ['singularity-flow departure record --kind path --path src/date-format.mjs --clause CAL-1:REQ-002 --reason "Formatting moved into its own module."',
+        'Records the departure; publish goes ahead with the file.'],
+      ['singularity-flow departure list --open', 'Lists the departures that wait for a person.'],
+      ['singularity-flow decision departure CAL-1 --departure DEP-001 --as accepted --reason "The module serves REQ-002."',
+        'A person accepts it: one plan amendment names the file.']
+    ],
+    seeAlso: ['decisions', 'decision', 'phase']
+  },
   report: {
     summary: 'Report on a Story: timing, usage, approvals — or the account of how it got here.',
     description: [

@@ -45,7 +45,8 @@ const onTheWrongNode = async (story) => {
 };
 const published = (result) => result?.publishIfReady?.published === true || (result?.resultType === 'sflow-phase-publication' && result?.status === 'published');
 const PREPUBLISH = 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready';
-const prepared = (result) => Boolean(result?.data?.packet);
+// Since CQF M2 `appeal prepare` records its changes as departures a person decides on the list [CQF:REQ-029].
+const prepared = (result) => Boolean(result?.data?.packet) || result?.data?.status === 'departure-recorded';
 const unplannedHelper = async (story) => {
   await story.write('src/helper.mjs', 'export const approved = 2;\n');
   await story.write('src/value.mjs', `// @clause:${WORK}:AC-001 the module returns the approved value from its helper\nimport {approved} from './helper.mjs';\nexport const value = approved;\n`);
@@ -84,7 +85,9 @@ const SCENARIOS = Object.freeze([
   { id: 'chain-under-another-node', meets: 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED', real: 'a real Story: the same check, tried under another Node with a PATH prefix',
     setup: onTheWrongNode, reached: published,
     guard: { prompt: '/sf-code', toolArgs: { command: `PATH="/opt/tool/node@${OTHER_MAJOR}/bin:$PATH" ${PREPUBLISH}` } } },
-  { id: 'plan-hold-on-unnamed-path', meets: 'ask-person', real: 'a changed path no plan row names', setup: unplannedHelper, start: PREPUBLISH, reached: published,
+  // Since CQF M2 the agent's prepublish records the path as a departure and publishes: no person stops it here,
+  // and the step's approval waits for them instead [CQF:REQ-021, REQ-022].
+  { id: 'plan-hold-on-unnamed-path', meets: null, real: 'a changed path no plan row names', setup: unplannedHelper, start: PREPUBLISH, reached: published,
     answers: { CLAUSE: `${WORK}:AC-001`, why: 'The small helper implements the already approved return value.' } },
   { id: 'appeal-for-a-file-not-there-yet', meets: 'PHASE_APPEAL_PATH_UNSUPPORTED', real: 'a real Story: the person chose a pin, and the appeal blamed protected paths', reached: prepared,
     start: "singularity-flow appeal prepare --phase implementation --add-supporting .nvmrc=build-configuration --supporting-reason 'Tests fail on this Node, so the repository pins one.' --reason 'The person chose a pinned Node version for this Story.' --for-agent --json",

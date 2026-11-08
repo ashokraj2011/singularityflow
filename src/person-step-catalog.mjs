@@ -119,10 +119,10 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
 ].map(([id, matches]) => Object.freeze({ id, matches })));
 
 /**
- * What a /sf-decide turn may run itself, after asking the person. The same five are a person's
+ * What a /sf-decide turn may run itself, after asking the person. The same six are a person's
  * decision everywhere else.
  */
-export const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
+export const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure']);
 /** Options that write only upstream-issue records (a raise needs no authority; a decision needs its step's approvers). */
 export const ISSUE_ONLY_OPTIONS = DECISION_LIST_CHAT_OPTIONS;
 /** The turns whose decision commands are held to what the person answered, and the steps it holds (copilot-answer-binding.mjs); approvals keep their own typed confirmation. */
@@ -215,6 +215,10 @@ export const PERSON_STEPS = Object.freeze([
     family: { list: 'forwardAmendmentDecisions', action: 'decision.forward-amendment', label: 'Forward amendment decision', isPerson: always } },
   { id: 'plan-amendment', guard: 'decision:story-decision', effect: ['plan-amendment', 'node-pin'], review: { kind: 'plan', entry: safe({ planAmendments: 'plan_amended' }) },
     family: { list: 'planAmendments', action: 'decision.plan', label: 'Plan amendment', isPerson: always } },
+  // A code step's departures [CQF:REQ-021]: the model records them (`departure record`), and a person's
+  // rejection is its own record (`decision departure`); an acceptance is the record its kind already has.
+  { id: 'departure', guard: 'decision:story-decision', effect: 'departure', review: { kind: 'departure', entry: safe({ departures: 'departure_recorded', departureDecisions: 'departure_decided' }) },
+    family: { list: 'departureDecisions', action: 'decision.departure', label: 'Departure decision', isPerson: always } },
   { id: 'amendment-revalidation', guard: 'own:upstream-amendment-decision', review: { kind: 'forward-amendment', entry: safe({ amendmentRevalidations: 'amendment_revalidated' }) },
     family: { list: 'amendmentRevalidations', action: 'decision.revalidate', label: 'Amendment revalidation', isPerson: always } },
   // SPEC-PSS-v1 §10.12: an intent amendment's or a skill version's decision sits inside its summary. The
@@ -262,7 +266,7 @@ export const PERSON_STEPS = Object.freeze([
 export const PERSON_STEP_FAMILIES = Object.freeze(PERSON_STEPS.filter((row) => row.family).map((row) => Object.freeze({ id: row.id, ...row.family })));
 
 // The order a commit's lists are read in (REVIEW_SAFE_DECISION_LISTS).
-const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
+const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
   'witness-exception', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'workflow']);
 /** What each decision kind does to a submitted review: REVIEW_EFFECTS's `decision-made:*` (state.mjs). */
 export const PERSON_STEP_REVIEW_EFFECTS = Object.freeze(Object.fromEntries(REVIEW_KIND_ORDER.map((kind) =>

@@ -78,7 +78,7 @@ Every public operation is classified before its implementation module is importe
 | appeal.evidence-prepare | read | never | — | — |
 | appeal.list | read | never | — | — |
 | appeal.preflight | read | never | — | — |
-| appeal.prepare | read | never | — | — |
+| appeal.prepare | mutation | never | — | — |
 | appeal.repair-plan | read | never | — | — |
 | appeal.repair-quarantine | mutation | never | — | — |
 | appeal.repair-quarantine.preview | read | never | — | — |
@@ -240,6 +240,7 @@ Every public operation is classified before its implementation module is importe
 | decision.applicability | mutation | never | — | — |
 | decision.choose | mutation | never | — | — |
 | decision.completeness | mutation | never | — | — |
+| decision.departure | mutation | never | — | — |
 | decision.evidence-reuse | mutation | never | — | — |
 | decision.finding-risk | mutation | never | — | — |
 | decision.plan | mutation | never | — | — |
@@ -272,6 +273,9 @@ Every public operation is classified before its implementation module is importe
 | delivery.select | mutation | never | — | — |
 | delivery.wel-readiness | read | never | — | — |
 | delivery.workflow-status | read | never | — | — |
+| departure.list | read | never | — | — |
+| departure.record | mutation | never | — | — |
+| departure.show | read | never | — | — |
 | device.doctor | read | never | — | — |
 | device.intent | read | never | — | — |
 | device.invoke | mutation | never | — | — |

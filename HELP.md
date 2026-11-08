@@ -4008,6 +4008,11 @@ singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|amend|re
 singularity-flow upstream-issue propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID]
 singularity-flow upstream-issue decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID
 singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT
+# A code step's departures from the approved documents: recorded by the step without asking, decided once on the decision list before its approval.
+singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause --reason TEXT [--path FILE] [--clause CLAUSE] [--target STEP --file DRAFT] [--json]
+singularity-flow departure list [--phase PHASE] [--open] [--json]
+singularity-flow departure show DEP-NNN [--json]
+singularity-flow decision departure [WORK-ID] --departure DEP-NNN --as accepted|rejected --reason TEXT [--clause CLAUSE]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]

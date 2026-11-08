@@ -277,3 +277,22 @@ test('a review nothing waits on has its own form, and only a person who typed /d
   assert.equal(result.status, 'recorded');
   assert.deepEqual(result.remaining, [], 'offered rows are not what remains');
 });
+
+// A code step's departures [CQF:REQ-024]: files share one "Accept all"; a plan row or test is each row's own.
+const departure = (id, title, { one = false } = {}) => ({ id, kind: 'departure', title, why: 'The model recorded it.', decidedBy: allowed, details: { departure: id, acceptAll: !one },
+  options: [{ ...choice('accept', 'Accept'), ...(one ? { oneByOne: true } : {}) }, choice('reject', 'Reject')] });
+
+test('"Accept all" covers file departures and leaves a plan row or a test to be decided one by one', async () => {
+  const list = packet({ items: [departure('d1', 'DEP-001: index.html changed'), departure('d2', 'DEP-002: about.html changed'),
+    departure('d3', 'DEP-003: a planned test changes', { one: true }), departure('d4', 'DEP-004: a plan row changes', { one: true })] });
+  const shared = sharedAnswers(list);
+  assert.deepEqual(shared.map((entry) => [entry.id, entry.items.map((item) => item.id)]), [['accept', ['d1', 'd2']], ['reject', ['d1', 'd2', 'd3', 'd4']]]);
+  const reason = 'Both pages ship with the code they show.';
+  const testReason = 'The renamed test still proves the clause.';
+  const { seen, ui } = person([accept({ choice: 'Accept for all 2, with one reason' }), accept({ reason }),
+    accept({ decision0: 'Accept', decision1: LEAVE }), accept({ reason: testReason }), accept({ confirm: RECORD })], [list]);
+  await runCard({ ...ui, askedInChat: false });
+  const [recorded] = seen.recorded;
+  assert.deepEqual(recorded.document.choose, { d1: 'accept', d2: 'accept', d3: 'accept' });
+  assert.deepEqual(recorded.document.reason, { d1: reason, d2: reason, d3: testReason }, 'the one-by-one row carries its own reason');
+});

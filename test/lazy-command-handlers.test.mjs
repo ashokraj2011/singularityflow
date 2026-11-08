@@ -374,7 +374,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,560,700 (measured 9,560,664, commands/phase-lifecycle.mjs): a later step reads CodeQL's alerts too (state.mjs +359). The read stays lazy.
     // 9,560,850 (measured 9,560,832, commands/phase-lifecycle.mjs): the findings loop loads from the CLI source, out of the VS Code
     // gateway bundle, which it had grown by 28 modules (state.mjs +168).
-    assert.ok(closure.bytes <= 9_560_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`); // BUDGET-REMEASURE
+    // 9,556,250 (measured 9,556,218, commands/phase-lifecycle.mjs): a code step's departures [CQF M2]: their files in the candidate and in coverage
+    // (plan-amendments.mjs, candidate-scope.mjs, specifications.mjs), a rejected one's refusal (delivery-evidence.mjs), the approval's stage and hold
+    // words (state.mjs, approval-check.mjs, decision-list.mjs), prepublish and publication recording them (phase-lifecycle.mjs), the catalog row and the
+    // command (person-step-catalog.mjs, command-registry.mjs, command-skills.mjs, messages.mjs). The records and their reads stay lazy (departures.mjs, departure-records.mjs).
+    // 9,573,550 (measured 9,573,488, commands/phase-lifecycle.mjs): test results carry forward, departures and the findings loop merged; each one's growth is above.
+    assert.ok(closure.bytes <= 9_573_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -443,7 +448,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 858,817 measured 2026-11-07: review-source status and check take --for-agent as an output option.
   // 858,851 measured 2026-11-08: tests summary --latest is declared a flag (util.mjs +34) [CQF:REQ-015].
   // 858,850 (measured 858,833): decision finding-risk classifies as a person's mutation (command-registry.mjs +16).
-  assert.ok(root.bytes <= 858_850, `root dispatch loads ${root.bytes} source bytes`); // BUDGET-REMEASURE
+  // 859,700 (measured 859,660): `departure`, `decision departure` and `appeal prepare`, which now records, classify in command-registry.mjs (+843), which every command reads to dispatch.
+  // 859,750 (measured 859,710): the same three merged: --latest, decision departure and decision finding-risk.
+  assert.ok(root.bytes <= 859_750, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -556,7 +563,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,165,000 (measured 4,164,950): the same external-command-policy.mjs +5270 and code-delivery-policy.mjs +1205 as start.
   // 4,165,450 (measured 4,165,420): the same person-step-catalog.mjs +454 and command-registry.mjs +16 as start.
   // 4,165,750 (measured 4,165,714): the same code-delivery-policy.mjs +294 as start.
-  assert.ok(current.bytes <= 4_165_750, `session current loads ${current.bytes} source bytes`); // BUDGET-REMEASURE
+  // 4,163,200 (measured 4,163,160): the same departures as start; no new file.
+  // 4,171,000 (measured 4,170,977): the same three merged.
+  assert.ok(current.bytes <= 4_171_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

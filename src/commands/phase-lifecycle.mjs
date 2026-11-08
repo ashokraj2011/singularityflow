@@ -201,12 +201,20 @@ export async function phaseCommand(positionals, options) {
       );
     }
     const session = await loadSession(root, { required: false });
+    // The agent's prepublish records the files publication would leave out as departures first, so the
+    // step publishes them and a person decides each once, before its approval [CQF:REQ-021]. A person's
+    // own check records nothing: a departure is the agent's record, never theirs.
+    const departureRecords = subcommand === 'prepublish' && phaseRequiresCodeDelivery(phase) ? await import('../departure-records.mjs') : null;
+    const recordedNow = departureRecords && optionBoolean(options, 'for-agent') ? await departureRecords.recordPathDepartures(root, config, workflow, phase,
+      { actor: actionActor(root), agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null }) : [];
     const check = subcommand === 'prepublish' ? phasePrepublish : phaseDraftCheck;
     // An agent's read names its own authorship, never a person's: see agentPublicationProducer.
-    const result = await check(root, config, workflow, phase, {
+    const checked = await check(root, config, workflow, phase, {
       modelEnabled: operationContext()?.modelMode.enabled !== false, session,
       requestedProducer: optionBoolean(options, 'for-agent') ? agentPublicationProducer(phase) : null
     });
+    const departures = departureRecords ? await departureRecords.departureSummary(root, workflow, phase, recordedNow) : null;
+    const result = departures ? { ...checked, departures } : checked;
     const { observeWorkflowTaskCheck, readWorkflowTaskResume } = await import('../workflow-task-store.mjs');
     if (subcommand === 'draft-check') await observeWorkflowTaskCheck(root, workflow, phase, result);
     const taskResume = await readWorkflowTaskResume(root, workflow, phase, { generation: result.generation,
@@ -222,6 +230,7 @@ export async function phaseCommand(positionals, options) {
       && result.testExecution?.status === 'not-run';
     console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
     if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
+    if (departures) console.log(departures.words);
     if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
     if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
@@ -322,6 +331,14 @@ export async function phaseCommand(positionals, options) {
     throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
   }
   assertProducerAllowed(requestedPhase, authorshipOptions.producer);
+  // A file no row of the plan names is recorded as a departure first, in its own commit before the remote
+  // tip is read, so the agent's publication carries it and a person decides it once [CQF:REQ-021, REQ-022].
+  // A person's own publication records none: what they leave out stays theirs to account for.
+  if (phaseRequiresCodeDelivery(requestedPhase) && authorshipOptions.producer === 'governed-agent') {
+    const recordedBy = await loadSession(root, { required: false });
+    await (await import('../departure-records.mjs')).recordPathDepartures(root, config, workflow, requestedPhase,
+      { actor: actionActor(root), agent: recordedBy?.workId === workflow.workItem.id ? recordedBy.agent ?? null : null });
+  }
   // Ask for the remote tip now; it arrives while publication checks run.
   prefetchStoryPublicationObservation(root, config, workflow);
   const deterministicPublication = authorshipOptions.producer === 'deterministic';

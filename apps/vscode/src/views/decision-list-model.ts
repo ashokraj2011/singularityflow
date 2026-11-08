@@ -34,6 +34,8 @@ export interface DecisionOptionPacket {
    */
   recordable?: boolean;
   available?: boolean;
+  /** A departure decided on its own row with its own reason, never by one answer for all [CQF:REQ-024]. */
+  oneByOne?: boolean;
   action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string } };
 }
 

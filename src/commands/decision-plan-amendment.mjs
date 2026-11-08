@@ -25,7 +25,7 @@ export async function amendmentContentHashes(root, changes) {
   } catch { return {}; }
 }
 
-export async function commitPlanAmendment(root, config, workflow, { changes, reason }, { actor, agent = null }) {
+export async function commitPlanAmendment(root, config, workflow, { changes, reason, departures = [] }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   const groups = planAuthorities(workflow);
   if (!groups.length) {
@@ -40,7 +40,7 @@ export async function commitPlanAmendment(root, config, workflow, { changes, rea
   );
   const decide = (aggregate, contentHashes = {}) => recordPlanAmendment(aggregate, {
     changes, reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), plan, contentHashes
+    identityAssurance: authority.identityAssurance ?? null, at: nowIso(), plan, contentHashes, departures
   });
   // Checked first: only an exact repository path is ever read.
   const contentHashes = await amendmentContentHashes(root, decide(structuredClone(workflow)).changes);
@@ -56,7 +56,7 @@ export async function commitPlanAmendment(root, config, workflow, { changes, rea
       const recorded = decide(aggregate, contentHashes);
       aggregate.history.push({
         at: recorded.at, actor: recorded.actor, agent, event: 'plan_amended', phase: aggregate.currentPhase ?? null,
-        detail: `${recorded.id}: ${recorded.changes.map((change) => change.kind === 'add-location' ? `${change.path} added to ${change.clauseId}` : `${change.path} listed as ${change.class}`).join('; ')}. ${recorded.reason}`
+        detail: `${recorded.id}: ${recorded.changes.map((change) => change.kind === 'add-location' ? `${change.path} added to ${change.clauseId}` : `${change.path} listed as ${change.class}`).join('; ')}${recorded.departures ? `, accepting ${recorded.departures.join(', ')}` : ''}. ${recorded.reason}`
       });
       return recorded;
     },

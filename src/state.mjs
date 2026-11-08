@@ -6524,6 +6524,11 @@ export async function evaluateApproval(root, config, workflow, {
       const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
       await assertPhaseAppealsResolved(root, config, workflow, phase);
     });
+    await stage('departures', async () => {
+      // Every departure from the approved documents is decided before the code step is approved [CQF:REQ-023].
+      const { assertDeparturesDecided } = await import('./departure-records.mjs');
+      await assertDeparturesDecided(root, config, workflow, phase);
+    });
     await stage('document-risks', async () => {
       const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
       documentRisks = await assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve');
@@ -8750,7 +8755,7 @@ function forwardAmendmentReaders(workflow, phase, current) {
  * anywhere in the repository, so the step that found the defect can draft the fix.
  */
 export async function proposeForwardAmendment(root, config, workflow, {
-  phaseId, reason, file = null, actor, agent = null, upstreamIssue = null, at = nowIso()
+  phaseId, reason, file = null, actor, agent = null, upstreamIssue = null, departure = null, at = nowIso()
 }) {
   const { phase, relative, approved } = forwardAmendmentTarget(config, workflow, phaseId);
   if (pendingForwardAmendments(workflow).some((entry) => entry.phase === phaseId)) {
@@ -8780,9 +8785,11 @@ export async function proposeForwardAmendment(root, config, workflow, {
   await writeBytes(target.absolute, bytes);
   // The approved bytes stay in force until the approvers decide.
   if (sourceRelative === relative) await writeBytes(path.join(root, relative), committed);
+  // A departure's amendment is the model's proposal, credited to whoever recorded it [CQF:REQ-027].
   const proposal = {
     id, phase: phaseId, fromGeneration: Number(phase.generation), artifactPath: relative, fromSha256: approved,
-    proposedPath, proposedSha256, reason: text, proposedBy: actorKey(actor), agent, upstreamIssue, at
+    proposedPath, proposedSha256, reason: text, proposedBy: departure?.author?.actor ?? actorKey(actor), agent: departure ? departure.author?.agent ?? agent : agent,
+    upstreamIssue, ...(departure ? { departure: departure.id } : {}), at
   };
   workflow.forwardAmendments.push(proposal);
   workflow.history.push({ at, actor: proposal.proposedBy, agent, event: 'forward_amendment_proposed', phase: workflow.currentPhase ?? null,
@@ -8871,7 +8878,8 @@ export async function decideForwardAmendment(root, config, workflow, {
     decision: 'approved', phase: phase.id, generation: phase.generation, forwardAmendmentId: amendmentId,
     at, actor: structuredClone(actor), agent, authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance ?? null, channel, reason: text, selfApproval: sameApprover(proposal.proposedBy, actor),
-    artifactSha256: [{ path: relative, sha256: proposal.proposedSha256 }], architectureIntent: null, architectureDecision: null
+    artifactSha256: [{ path: relative, sha256: proposal.proposedSha256 }], architectureIntent: null, architectureDecision: null,
+    ...(proposal.departure ? { departure: proposal.departure } : {})
   };
   const reference = await registerReference(root, {
     repository: { id: config.repository?.id ?? path.basename(root), origin: config.repository?.origin ?? null },
@@ -8907,7 +8915,8 @@ export async function decideForwardAmendment(root, config, workflow, {
       generation: phase.generation, publishedAt: at, changeSetDigest: null,
       resultDigest: await generationResultDigest(root, config, workflow, phase, { architectureIntent: null, architectureDecision: null, resultDigestVersion: 3 }),
       resultDigestVersion: 3, architectureIntent: null, architectureDecision: null,
-      origin: { kind: 'forward-amendment', id: amendmentId, proposalSha256: proposal.proposedSha256, decisionSha256 },
+      // The generation an accepted departure made names it, so its old approval reads as amended by it [CQF:REQ-027].
+      origin: { kind: 'forward-amendment', id: amendmentId, proposalSha256: proposal.proposedSha256, decisionSha256, ...(proposal.departure ? { departure: proposal.departure } : {}) },
       record: null
     }
   ].sort((left, right) => Number(left.generation) - Number(right.generation));

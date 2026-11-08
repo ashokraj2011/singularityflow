@@ -149,6 +149,8 @@ const entries = {
   decisions: ['sf-decide'],
   call: ['sf-call-add'],
   'upstream-issue': ['sf-decide'],
+  // The model records a departure in /sf-code; a person decides it on the list [CQF:REQ-021].
+  departure: ['sf-code', 'sf-decide'],
   reopen: ['sf-reject'],
   cancel: ['sf-cancel'],
   // `sync <INTENT-ID>` retries one saved push, the step /sf-push explains and runs.
@@ -225,6 +227,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   // OWN_TERMINAL_STEPS below.
   // A code step's author requests a Story test command in its own turn; /sf-decide's turn refused it.
   decision: route('sf-decide', { 'test-command': 'sf-code' }),
+  // The code step records a departure; reading one, and deciding it on the list, is /sf-decide's [CQF:REQ-021].
+  departure: route('sf-code', { list: 'sf-decide', show: 'sf-decide' }),
   'review-source': route('sf-review-source', {
     'decision-context': 'sf-review-decide', decide: 'sf-review-decide'
   }),

@@ -233,7 +233,9 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
     ? (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review.mjs')).href)).applicationReviewRepairContext(workflow, phase) : null;
   // What the plan's amendments changed, for a code step: the turn after one must hear it from the record (bin-opr2).
   const planChanges = base.generatesCode && workflow.planAmendments?.length ? await (await import('./plan-amendment-notes.mjs')).planChangeNotes(root, workflow) : [];
-  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // And its departures: what waits for a person, and what one rejected, which this turn restores [CQF:REQ-026].
+  const departures = base.generatesCode && workflow.departures?.length ? await (await import('./departure-records.mjs')).departureSummary(root, workflow, phase) : null;
+  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),

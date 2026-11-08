@@ -2120,6 +2120,11 @@ async function proposeIntentAmendment(root, config, workflow, options) {
       code: 'INTENT_AMENDMENT_REASON_REQUIRED'
     });
   }
+  // A clause departure's amendment names it, so the departure is accepted once this one is approved [CQF:REQ-025].
+  const departure = optionString(options, 'departure') ?? null;
+  if (departure && !(workflow.departures ?? []).some((entry) => entry.id === departure && entry.kind === 'clause')) {
+    throw new SingularityFlowError(`${departure} is not a clause departure of this Story.`, { code: 'INTENT_AMENDMENT_INVALID' });
+  }
   const specificationPath = posix(path.join(
     path.relative(root, workDir(root, config, workflow.workItem.id)), specification.requiredArtifact.path
   ));
@@ -2215,7 +2220,8 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     changedClauses: diff.changed,
     findingIds: proposal.convergence?.findingIds ?? [],
     affectedClaims: radius.totals.affected,
-    acknowledgementRequired: false
+    acknowledgementRequired: false,
+    ...(departure ? { departure } : {})
   };
   const beforeWorkflow = structuredClone(workflow);
   const expectedInputSnapshot = `${source.artifactPresent}:${source.artifactSha256}:${beforeSha256}`;

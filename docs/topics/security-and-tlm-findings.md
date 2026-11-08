@@ -17,6 +17,7 @@ questions:
   - How do I open a remediation Story for security findings or TLM items?
   - When does an item close?
   - How do I tell the security team what was fixed?
+  - Where are the findings in VS Code?
 keywords:
   - excel
   - xlsx
@@ -31,7 +32,7 @@ related:
   - findings
   - starting-work
   - configuration
-version: 5
+version: 7
 ---
 The security team and the technology lifecycle (TLM) owners give SFlow their lists as one Excel workbook in SFlow's format, or as one CSV file per list. Later the same rows come from the security team's URL; both land in one register.
 
@@ -43,7 +44,7 @@ Use this topic to get the workbook template and to see what each column means. N
 
 - **Shell:** `sflow findings template --out FILE` writes an empty workbook with a `Security` sheet and a `TLM` sheet, the headers and one made-up example row on each. It never overwrites a file. `sflow findings import FILE [--feed security|tlm] [--source NAME] [--dry-run]` reads it into the register, and `sflow findings list` shows this repository's items. `sflow start ... --address ID,...` picks items for a new Story. `sflow findings plan` previews remediation Stories and `sflow findings start <GROUP-ID>` opens one. `sflow findings report --out FILE` writes the update for the security team.
 - **Copilot:** `/sf-findings` runs the same commands. `/sf-start` offers the open items, none picked, and passes the ones you pick.
-- **VS Code:** the new-Story form lists the open items as tick boxes, none ticked. The Findings view lists the register.
+- **VS Code:** **Singularity Flow: Findings** opens the Findings view: a Security tab and a TLM tab, each item with its due date (a past one is marked), its state and the Story that addresses it. **Singularity Flow: Upload security or TLM findings…** (also a button in the view) opens a file picker and runs the same import; a CSV file asks which list it is. Its source is the one upload source findings.yml names, else `upload`, so a later upload replaces that source's rows of the same list. The new-Story form lists the open items as tick boxes, none ticked.
 
 ## Guided workflow
 

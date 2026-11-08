@@ -116,7 +116,7 @@ test('a difference is settled by a dated risk, a dismissal, the spec following t
   // scope approvers holds the row as amending, and its approval settles it.
   const open = byClause(decided(story({ issues: [issue] })), 'REQ-003');
   assert.deepEqual([open.status, open.choices.map((choice) => choice.kind)], ['undecided', ['correct-report', 'update-spec', 'decide-upstream-issue', 'fix-code']]);
-  const proposedIntent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'proposed', clauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
+  const proposedIntent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'proposed', changedClauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
   assert.deepEqual([proposedIntent.status, proposedIntent.issue, proposedIntent.choices.map((choice) => choice.kind)],
     ['amending', 'AMD-001', ['decide-intent-amendment']]);
   // A forward amendment of a document step, proposed for the issue, holds it the same way.
@@ -130,8 +130,10 @@ test('a difference is settled by a dated risk, a dismissal, the spec following t
     forwardAmendmentDecisions: [{ amendment: 'FAM-001', phase: 'requirements', decision: 'approved', reason: 'r', at: AT }] } })), 'REQ-003');
   assert.deepEqual([approved.status, approved.outcome, approved.issue], ['decided', 'amended', 'FAM-001']);
   // So is an approved intent amendment naming the clause.
-  const intent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', clauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
+  const intent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', changedClauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
   assert.deepEqual([intent.status, intent.outcome], ['decided', 'amended']);
+  // Read by the clauses a proposal records it changes (changedClauses), never by another clause's amendment.
+  assert.equal(byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', changedClauses: [`${W}:REQ-006`] }] } })), 'REQ-003').status, 'unraised');
   // An unplanned row the code step already departed with, accepted by a person, is never asked again.
   const departure = { id: 'DEP-001', kind: 'path', phase: 'implementation', generation: 1, paths: ['src/cache.js'], clauses: [] };
   const amendment = { id: 'PAM-001', departures: ['DEP-001'], at: AT, contentHashes: {} };
@@ -174,4 +176,19 @@ test('an older Story keeps its exact summary sentence; a new one names every ver
   const summary = verdictSummaryBlock(REPORT, story(), 'conformance', { now: AT });
   assert.match(summary, /`ORD-7:REQ-003`: deviated; no issue raised yet; requirements owns it\./u);
   assert.match(summary, /`ORD-7:REQ-005`: partial; no issue raised yet; implementation owns it\./u);
+});
+
+test('a proposed amendment is the row\'s item: it holds the approval, and the approval check adds no item of its own [SCS:REQ-023]', () => {
+  const workflow = story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'proposed', changedClauses: [`${W}:REQ-003`] }] } });
+  const gaps = decided(workflow).filter((entry) => entry.status !== 'decided' && entry.clauseId === `${W}:REQ-003`).map((entry) => ({ ...entry, report: 'conformance' }));
+  assert.deepEqual(gaps.map((entry) => [entry.status, entry.issue]), [['amending', 'AMD-001']]);
+  const words = `Phase 'conformance' cannot be approved until a person decides each clause: ${W}:REQ-003 remains deviated: AMD-001 is updating requirements's document to match the code.`;
+  const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps, issues: upstreamIssueStates(workflow, AT), activeReuse: [], candidates: [], reuseProblems: [], testRisks: [],
+    unavailable: [], state: {}, scopePhase: 'requirements', pending: { intentAmendments: workflow.intentAmendments },
+    approvalCheck: { holds: [{ code: 'CONFORMANCE_BLOCKING_VERDICTS', owner: 'someone-decides', summary: words, message: words },
+      { code: 'STORY_COMPLETION_REFUSED', owner: 'someone-decides', summary: `Story ${W} cannot finish yet.`, message: `Story ${W} cannot finish yet: AMD-001.` }] } };
+  const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
+    actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
+  assert.deepEqual(packet.items.map((item) => [item.kind, item.holdsApproval]), [['intent-amendment', true], ['approval', false]]);
+  assert.match(packet.items[0].title, /Decide intent amendment AMD-001/u);
 });

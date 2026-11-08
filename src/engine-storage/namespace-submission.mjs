@@ -155,7 +155,7 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
         if(s.decisionPlan?.kind==='retained')required.add('retained-decision-input-provenance');
         if(workflow.resolution.presence)required.add('person-presence');
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
-        const published=await publications.read(s.publication,s.phaseId,{signal});
+        const published=await publications.accepted(s.publication,s.phaseId,{signal,snapshot});
         if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation
           ||!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
           throw error('Submission requires the exact retained artifact and publication configuration.','ENGINE_STORAGE_CORRUPT');

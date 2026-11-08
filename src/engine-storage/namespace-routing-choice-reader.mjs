@@ -17,7 +17,7 @@ export function createNamespaceRoutingChoiceReader({observer,scope,workId,packet
     if(selected.question===null)return null;
     const phase=snapshot.workflow.phases[selected.phase],proof=await packets.inspect(snapshot,phase.id,{signal});
     if(!proof)throw corrupt('The pending question lost its submitted source.');
-    const active=await votes.active(snapshot,phase.id,proof,{signal});
+    const active=await votes.activeAccepted(snapshot,phase.id,proof,{signal});
     const completed=active.votes.filter(item=>item.value.thresholdReached);
     if(completed.length!==1||completed[0]!==active.votes.at(-1))throw corrupt('The pending question has no exact completed human quorum.');
     const approved=completed[0],value=approved.value;

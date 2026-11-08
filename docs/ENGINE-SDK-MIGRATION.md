@@ -119,6 +119,18 @@ typechecking, Git ownership and all 13 unchanged bundle budgets passed. Preparat
 commit races recover only the exact genuinely accepted receipt. Real failures and ordinary
 display edits keep their separate meanings. Phases 5, 7, 8 and 9 remain open.
 
+The [accepted-evidence reader](ENGINE-SDK-ACCEPTED-EVIDENCE.md) distinguishes durable candidate
+bytes from genuinely accepted publication, submission and human votes. It shares the frozen v1
+conditional transaction codec with the writer and verifies original receipts, manifest revisions,
+configuration and state bindings before downstream reuse. Candidate self-checks remain resumable;
+valid context formats and installed Git authority are unchanged. This advances the namespace
+proof boundary without completing Phases 5, 7, 8 or 9.
+
+That slice passed 555 Mac checks across 33 files, including the independently installed SDK,
+with no failures, cancellations or skips. Source validation passed 3,860 checks across 191 skills;
+typechecking, Git ownership and all 13 unchanged production bundle budgets passed. The optional
+SDK retains 51 operations. Installed Git authority and all remaining migration gates are unchanged.
+
 The [source-binding delivery](ENGINE-SDK-SOURCE-BINDING.md) retains real selected-checkout
 observations through explicit SGOS units and SDA content/record ports. Takeover preserves first
 observations and original receipts without storing source code or physical roots. Binding does

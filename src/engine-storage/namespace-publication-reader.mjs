@@ -1,9 +1,11 @@
 /** Verify immutable publication records and their actual shared bytes; never authorize a write. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {phasePublicationBindingValue} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,canonicalJson} from '../foundation/record-schema.mjs';
 import {artifactBytesAreText,artifactContentObservation} from '../kernel/artifact-content.mjs';
 import {namespacePublicationValue} from './namespace-publication-contract.mjs';
+import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
+const same=(a,b)=>a===undefined||b===undefined?a===b:canonicalJson(a)===canonicalJson(b);
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
@@ -22,5 +24,14 @@ export function createNamespacePublicationReader({observer,scope,workId}) {
     for(const resource of publication.inputs)if(resource.reference.namespace!=='local')await bytes(resource.reference,resource.reference.bytes,signal);
     return publication;
   }
-  return Object.freeze({read});
+  async function accepted(binding,phaseId,options={}) {
+    const value=await read(binding,phaseId,options),proof=await namespaceAcceptedEvidence(observer,binding,value,'phase.publish',options);
+    const phase=proof.state.workflow.phases[phaseId];
+    if(phase?.generation!==value.generation||!phase.publicationBindings?.some(item=>same(item,binding))
+      ||!phase.artifacts?.some(item=>item.path===value.artifact.sourceKey&&item.sha256===value.artifact.content.sha256&&item.size===value.artifact.content.bytes)
+      ||!proof.plan.evidence.some(ref=>same(ref,value.artifact.content)))throw error(
+      'The accepted publication lost its exact artifact or generation binding.','ENGINE_STORAGE_CORRUPT');
+    return value;
+  }
+  return Object.freeze({read,accepted});
 }

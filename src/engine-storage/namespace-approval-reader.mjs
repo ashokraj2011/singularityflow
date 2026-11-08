@@ -5,7 +5,9 @@ import {canonicalJson,namespaceApprovalRoutingProfile} from '../foundation/recor
 import {principalApprovalPlan} from '../kernel/approval-policy.mjs';
 import {decisionAfter} from '../kernel/workflow-decisions.mjs';
 import {routedApprovalSelection} from '../kernel/routed-approval.mjs';
-import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision} from './namespace-approval-contract.mjs';
+import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision,
+  namespaceApprovalReceipts,namespaceApprovalReceipt} from './namespace-approval-contract.mjs';
+import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
 /** V1 hashes its native payload. V2 also binds generation, so coarse clocks cannot reuse a question. */
@@ -39,7 +41,17 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
     }
     return value;
   }
-  async function active(snapshot,phaseId,proof,{signal}={}) {
+  async function readAccepted(binding,phaseId,proof,options={}) {
+    const value=await read(binding,phaseId,proof,options),accepted=await namespaceAcceptedEvidence(observer,binding,value,'phase.approve',options);
+    const workflow=accepted.state.workflow,phase=workflow.phases[phaseId];
+    const retained=value.routing?namespaceApprovalReceipts(workflow,{projectId:scope.projectId,workId}).some(item=>same(item,namespaceApprovalReceipt(value,binding)))
+      :phase?.generation===value.generation&&phase.approvals?.some(item=>same(item,namespaceApprovalDecision(value,binding)));
+    if(!retained||workflow.currentPhase!==value.currentPhase||![value.artifactSet,value.reviewPacket].every(ref=>accepted.plan.evidence.some(item=>same(item,ref))))throw corrupt(
+      'The accepted approval lost its exact human vote or outcome.');
+    return value;
+  }
+  async function collect(snapshot,phaseId,proof,options,readVote) {
+    const {signal}=options;
     const phase=snapshot.workflow.phases[phaseId];
     if(!Array.isArray(phase.approvals))throw corrupt('The phase approval inventory is invalid.');
     const votes=[],decisions=[];
@@ -51,7 +63,7 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
       if(decision.reviewPacketSha256!==proof.binding.record.sha256)throw corrupt('An active vote names another review packet.');
       if(!decision.namespaceVote)throw new SingularityFlowError('A retained vote needs its evidence owner.',{
         code:'ENGINE_PORT_UNAVAILABLE',details:{required:['retained-approval-vote']}});
-      const value=await read(decision.namespaceVote,phaseId,proof,{signal});
+      const value=await readVote(decision.namespaceVote,phaseId,proof,{...options,signal,snapshot});
       if(!value.routing&&decisionAfter(snapshot.workflow,phaseId))throw new SingularityFlowError('A routed approval needs its versioned outcome proof.',{
         code:'ENGINE_PORT_UNAVAILABLE',details:{required:['routed-approval-proof']}});
       try {
@@ -69,5 +81,7 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
     }
     return {votes,decisions};
   }
-  return Object.freeze({decode,read,active});
+  const active=(snapshot,phaseId,proof,options={})=>collect(snapshot,phaseId,proof,options,read);
+  const activeAccepted=(snapshot,phaseId,proof,options={})=>collect(snapshot,phaseId,proof,options,readAccepted);
+  return Object.freeze({decode,read,readAccepted,active,activeAccepted});
 }

@@ -1,18 +1,18 @@
 /** Internal persistence port for already-admitted engine transitions. No policy bypass or discovery. */
 import { createHash } from 'node:crypto';
-import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey,validWorkId } from './namespace-lifecycle-reader.mjs';
+import {NODE_TEXT_DIGESTS} from '../records.mjs';
+import { createNamespaceLifecycleObserver,validWorkId } from './namespace-lifecycle-reader.mjs';
+import { createNamespaceLifecycleCodec } from './namespace-lifecycle-codec.mjs';
 export { namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
 import { ENGINE_OPERATIONS } from '../engine-sdk/index.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { validateNamespaceStore, namespaceLimits } from '../sda/namespace/contract.mjs';
-import { namespaceJson, namespaceIdentityJson, namespaceIdentifier, namespaceScope, namespaceRevision, exactObject } from '../sda/namespace/values.mjs';
-import { namespaceTransaction, namespaceTransactionIdentity } from '../sda/namespace/transaction.mjs';
+import { namespaceJson, namespaceIdentityJson, namespaceIdentifier, namespaceScope, exactObject } from '../sda/namespace/values.mjs';
 import { contentReference, validateContentStore } from '../sda/content/contract.mjs';
-import { LIFECYCLE_AUTHORITY_KEY, LIFECYCLE_STATE_MAXIMUM_BYTES, lifecycleAuthority, lifecycleConfiguration,
-  lifecycleHead, lifecyclePrepared, lifecycleRecord, lifecycleState } from './namespace-lifecycle-contract.mjs';
+import { LIFECYCLE_AUTHORITY_KEY, LIFECYCLE_STATE_MAXIMUM_BYTES, lifecycleConfiguration,
+  lifecyclePrepared, lifecycleRecord } from './namespace-lifecycle-contract.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const identity = value => hash(namespaceIdentityJson(value));
 const error = (message, code, details = null, cause = undefined) => new SingularityFlowError(message, { code, details, cause });
 const same = (a,b) => namespaceIdentityJson(a) === namespaceIdentityJson(b);
 const sameRef = (a,b) => a.namespace === b.namespace && a.sha256 === b.sha256 && a.bytes === b.bytes;
@@ -29,37 +29,17 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
   authority = Object.freeze({ id: namespaceIdentifier(authority.id, 'Authority ID'), epoch: authority.epoch });
   if (!Number.isSafeInteger(authority.epoch) || authority.epoch < 1 || records.descriptor.binding.kind !== 'shared'
     || content.descriptor.binding.kind !== 'shared') throw error('Lifecycle persistence needs explicit shared ports and an authority epoch.', 'ENGINE_INPUT_INVALID');
-  const recordId = records.descriptor.id, contentId = content.descriptor.id, limits = namespaceLimits(records.descriptor.limits);
-  const read = records.read.bind(records), transact = records.transact.bind(records), inspectOperation = records.inspectOperation.bind(records);
-  const putContent = content.put.bind(content), readContent = content.read.bind(content);
-  const captures = new WeakMap(), headKey = namespaceLifecycleStoryKey(workId);
-  const token = operationId => identity({ projectId: scope.projectId, workId, authorityId: authority.id, epoch: authority.epoch, operationId });
-  const keys = operationId => { const id = token(namespaceIdentifier(operationId, 'Operation ID'));
-    return { operation: `lifecycle-${id}`, prepared: `lifecycle/prepared/${id}`, manifest: `lifecycle/operations/${id}`, event: `lifecycle-${id}` }; };
+  const limits = namespaceLimits(records.descriptor.limits);
+  const transact = records.transact.bind(records), inspectOperation = records.inspectOperation.bind(records);
+  const putContent = content.put.bind(content);
+  const captures = new WeakMap();
+  const codec = createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
+  const {keys,transaction,prepareTransaction,requestDigest,receipt} = codec;
   const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const {stored,record,assertAuthority,bytes,state}=observer;
   async function capture(options={}) {
     const {snapshot,basis}=await observer.capture(options);captures.set(snapshot,basis);return snapshot;
   }
-  function transaction(plan) {
-    const k = keys(plan.operationId), previous = plan.basis.head;
-    const head = lifecycleRecord('head', { projectId: scope.projectId, workId, authorityId: authority.id, epoch: authority.epoch,
-      sequence: previous.sequence + 1, configuration: previous.configuration, state: plan.state, previous: previous.state, operationId: plan.operationId });
-    const manifest = lifecycleRecord('manifest', { projectId: scope.projectId, workId, authorityId: authority.id, epoch: authority.epoch,
-      sequence: head.sequence, operationId: plan.operationId, operation: plan.operation, inputsSha256: plan.inputsSha256,
-      configuration: previous.configuration, previous: previous.state, state: plan.state, evidence: plan.evidence });
-    return namespaceTransaction({ operationId: k.operation, preconditions: [
-      { namespace: 'state', key: LIFECYCLE_AUTHORITY_KEY, version: plan.basis.authorityVersion },
-      { namespace: 'state', key: headKey, version: plan.basis.headVersion },
-      { namespace: 'config', key: previous.configuration.key, version: plan.basis.configurationVersion },
-      { namespace: 'evidence', key: k.manifest, version: null }
-    ], changes: [
-      { op: 'put', namespace: 'state', key: headKey, immutable: false, value: head },
-      { op: 'put', namespace: 'evidence', key: k.manifest, immutable: true, value: manifest }
-    ], events: [{ eventId: k.event, eventType: 'engine.operation-committed', namespace: 'state',
-      payload: { workId, operation: plan.operation, sequence: head.sequence, state: plan.state } }] }, limits);
-  }
-  const requestDigest = tx => hash(namespaceTransactionIdentity(scope, tx, limits));
   function admitPlan(value, operationId) {
     stored(lifecyclePrepared, value, workId, operationId);
     if (value.authorityId !== authority.id || value.epoch !== authority.epoch || !writes.has(value.operation)
@@ -95,39 +75,11 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
     const storedBody = await putContent(scope, 'state', data, { signal });
     if (!sameRef(contentReference(storedBody?.reference), value.state)) throw error('The content port stored another lifecycle body.', 'ENGINE_PORT_RESULT_INVALID');
     for (const reference of evidence) { cancelled(signal); await bytes(reference, 0, signal); }
-    cancelled(signal); const k = keys(value.operationId);
-    const preparedTransaction = namespaceTransaction({ operationId: `prepare-${token(value.operationId)}`,
-      preconditions: [{ namespace: 'runtime', key: k.prepared, version: null },
-        { namespace: 'state', key: LIFECYCLE_AUTHORITY_KEY, version: basis.authorityVersion },
-        { namespace: 'state', key: headKey, version: basis.headVersion },
-        { namespace: 'config', key: basis.head.configuration.key, version: basis.configurationVersion }],
-      changes: [{ op: 'put', namespace: 'runtime', key: k.prepared, immutable: true, value }], events: [] }, limits);
+    cancelled(signal);
+    const preparedTransaction = prepareTransaction(value);
     const accepted = await transact(scope, preparedTransaction, { signal });
     receipt(accepted, value, preparedTransaction);
     return preparedResult(value);
-  }
-  function receipt(result, plan, tx = transaction(plan)) {
-    const expected = tx.changes.map(change => [change.namespace,change.key]);
-    let r;
-    try {
-      r = namespaceJson(result?.receipt, { maxBytes: limits.maxValueBytes });
-      exactObject(r, ['operationId','scope','revision','requestDigest','records','eventIds']);
-      namespaceScope(r.scope); namespaceRevision(r.revision);
-      if (!Array.isArray(r.records)) throw error('Receipt records must be an array.', 'ENGINE_PORT_RESULT_INVALID');
-      for (const record of r.records) {
-        exactObject(record, ['namespace','key','version']);
-        if (namespaceRevision(record.version) === null) throw error('A put receipt needs an opaque record revision.', 'ENGINE_PORT_RESULT_INVALID');
-      }
-    } catch (cause) { throw error('The namespace port returned an invalid receipt. Inspect the retained operation intent.', 'ENGINE_PORT_RESULT_INVALID', { workId, operationId: plan.operationId }, cause); }
-    if (result?.status !== 'committed' || !r || r.operationId !== tx.operationId || r.scope?.projectId !== scope.projectId
-      || r.requestDigest !== requestDigest(tx) || r.revision === null || result.replayed !== undefined && typeof result.replayed !== 'boolean'
-      || !Array.isArray(r.records) || !Array.isArray(r.eventIds) || r.records.length !== expected.length || !same(r.eventIds, tx.events.map(event => event.eventId))
-      || new Set(r.records.map(record => JSON.stringify([record.namespace,record.key]))).size !== expected.length
-      || !r.records.every(record => expected.some(([namespace,key]) => record.namespace === namespace && record.key === key))) {
-      throw error('The namespace port returned a different operation receipt; inspect the same retained intent.', 'ENGINE_PORT_RESULT_INVALID',
-        { workId, operationId: plan.operationId, requestDigest: plan.requestDigest });
-    }
-    return namespaceJson(r, { maxBytes: limits.maxValueBytes });
   }
   async function inspect(operationId, { signal } = {}) {
     cancelled(signal); const k = keys(operationId);

@@ -17,6 +17,7 @@ import { contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.
 import { NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
 import { createNamespaceDraftStore } from './namespace-draft-store.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
+import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -35,6 +36,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   sources=[],modelEnabled=true}={}) {
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
+  const packets=createNamespaceSubmissionReader({observer,scope,workId});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof modelEnabled!=='boolean'||!Array.isArray(sources)||sources.length>32) {
     throw error('Preparation needs explicit access, clock, source and model-mode ports.','ENGINE_INPUT_INVALID');
   }
@@ -165,7 +167,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       }else await observer.bytes(document.content,document.content.bytes,signal);
       result.push({kind:'supporting-document',id:document.id,locality:document.locality,reference:document.content});
     }
-    for(const id of approvedInputPhases(w,phase)) {
+    const inputPhases=approvedInputPhases(w,phase),available=inputPhases.filter(id=>w.phases[id]?.status==='approved');
+    const proofs=await packets.inspectApprovedMany(captured.snapshot,available,{signal});
+    const acceptedInputs=new Map(available.map((id,index)=>[id,proofs[index]]));
+    for(const id of inputPhases) {
       const producer=w.phases[id],declarations=resolvedPhaseInputs(w,phase),optional=!declarations.some(item=>(typeof item==='string'?item:item.phase)===id&&(typeof item==='string'||item.required!==false));
       if(!producer||producer.status!=='approved') {
         if(optional||workflowInputsMode(w)!=='enforce')continue;
@@ -174,6 +179,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       const document=(w.namespaceDocuments??[]).find(item=>item.phase===id&&item.generation===producer.generation&&item.role==='artifact');
       const retained=(producer.artifacts??[]).find(item=>item.path===document?.sourceKey);
       if(!document?.content||!retained||retained.sha256!==document.content.sha256)throw error('The approved input has no matching retained content binding.','PHASE_INPUTS_NOT_READY',{upstreamPhase:id});
+      const proof=acceptedInputs.get(id);
+      if(!proof||proof.value.generation!==producer.generation||proof.published.artifact.sourceKey!==document.sourceKey
+        ||!same(proof.published.artifact.content,document.content))throw error('The approved input differs from its accepted publication and human review.',
+        'PHASE_INPUTS_NOT_READY',{upstreamPhase:id});
       await observer.bytes(document.content,document.content.bytes,signal);
       result.push({kind:'approved-input',phase:id,generation:producer.generation,reference:document.content,
         contract:declarations.filter(item=>(typeof item==='string'?item:item.phase)===id)});

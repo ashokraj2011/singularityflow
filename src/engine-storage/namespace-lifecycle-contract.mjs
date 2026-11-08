@@ -97,3 +97,17 @@ export function lifecyclePrepared(value, scope, workId, operationId) {
   }
   return value;
 }
+export function lifecycleManifest(value, scope, workId, operationId) {
+  admit('manifest', value, scope);
+  exactObject(value, ['schemaVersion','format','projectId','workId','authorityId','epoch','sequence','operationId','operation',
+    'inputsSha256','configuration','previous','state','evidence']);
+  namespaceIdentifier(value.authorityId, 'Authority ID'); namespaceIdentifier(operationId, 'Operation ID');
+  if(value.workId!==workId||value.operationId!==operationId||!count(value.epoch)||value.epoch<1||!count(value.sequence)
+    ||value.sequence<1||!text(value.operation)||!digest(value.inputsSha256)||!Array.isArray(value.evidence)||value.evidence.length>128)bad('Invalid lifecycle operation manifest.');
+  configuration(value.configuration);
+  for(const ref of [value.previous,value.state])if(contentReference(ref,LIFECYCLE_STATE_MAXIMUM_BYTES).namespace!=='state')bad('Invalid lifecycle manifest state.');
+  const seen=new Set();
+  for(const ref of value.evidence){const checked=contentReference(ref);
+    if(checked.namespace!=='evidence'||seen.has(checked.sha256))bad('Invalid lifecycle manifest evidence.');seen.add(checked.sha256);}
+  return value;
+}

@@ -7,6 +7,7 @@ import {namespaceScope,namespaceIdentityJson} from '../sda/namespace/values.mjs'
 import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
+import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
 import {LIFECYCLE_AUTHORITY_KEY} from './namespace-lifecycle-contract.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -19,7 +20,8 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   const base=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
   const codec=createNamespaceStoryCodec({scope,workId,authority,limits:namespaceLimits(records.descriptor.limits)});
-  const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap();
+  const receipts=createNamespaceLifecycleReceiptReader({records,content,scope,workId,authority});
+  const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap();
   const binding={projectId:scope.projectId,workId,authority};
   function stored(kind,value,operationId=null) {
     try {return namespaceStoryValue(kind,value,scope,workId,operationId);}
@@ -66,11 +68,20 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
     return {workflow,configuration:plan.configuration,approval};
   }
   async function approved(snapshot,{signal}={}) {
-    cancelled(signal);let proof=proofs.get(snapshot);
-    if(!proof){proof=await original(signal);proofs.set(snapshot,proof);}
+    cancelled(signal);let proof=proofs.get(snapshot)??workflowProofs.get(snapshot.workflow);
+    if(!proof)proof=await original(signal);
     if(!same(snapshot.configuration,proof.configuration))throw error(
       'The Story changed its original configuration without a verified amendment.','ENGINE_STORAGE_CORRUPT',{workId});
-    assertStoryPolicy(snapshot.workflow,proof.workflow);cancelled(signal);return proof.approval;
+    assertStoryPolicy(snapshot.workflow,proof.workflow);proofs.set(snapshot,proof);workflowProofs.set(snapshot.workflow,proof);
+    cancelled(signal);return proof.approval;
+  }
+  async function accepted(operationId,{signal,cache,snapshot}={}) {
+    const proof=await receipts.accepted(operationId,{signal,cache});
+    const selected=snapshot??{workflow:proof.state.workflow,configuration:proof.plan.basis.head.configuration};
+    await approved(selected,{signal});const origin=proofs.get(selected);
+    if(!same(origin.configuration,proof.plan.basis.head.configuration))throw error(
+      'The accepted operation changed its original Story configuration.','ENGINE_STORAGE_CORRUPT',{workId,operationId});
+    assertStoryPolicy(proof.state.workflow,origin.workflow);assertStoryPolicy(proof.basisState.workflow,origin.workflow);return proof;
   }
   async function observe(options,active) {
     const captured=await (active?base.capture(options):base.inspect(options));
@@ -85,5 +96,5 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   async function state(data,head,{signal}={}) {
     const value=base.state(data,head);await approved({workflow:value.workflow,configuration:head.configuration},{signal});return value;
   }
-  return Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state});
+  return Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted});
 }

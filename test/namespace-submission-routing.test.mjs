@@ -7,7 +7,7 @@ import {namespaceSubmissionRecord,namespaceSubmissionValue,NAMESPACE_SUBMISSION_
 import {namespaceApprovalFixture} from './helpers/namespace-approval-fixture.mjs';
 import {createNamespaceSubmissionEngine} from '../src/engine-storage/namespace-submission.mjs';
 import {createNamespaceSubmissionReader} from '../src/engine-storage/namespace-submission-reader.mjs';
-import {createNamespaceLifecycleObserver} from '../src/engine-storage/namespace-lifecycle-reader.mjs';
+import {createNamespaceStoryObserver} from '../src/engine-storage/namespace-story-reader.mjs';
 const capture=JSON.parse(await readFile(new URL('./fixtures/namespace-submission-packets/native-v1.json',import.meta.url),'utf8'));
 const configure=source=>{source.definition.workTypes.simple.decisions=[{id:'channel',label:'Channel',after:'intake',kind:'branch',
   inputs:[{name:'channel',values:['Web','Mobile']},{name:'confidence',type:'number',minimum:0,maximum:100}],
@@ -80,7 +80,7 @@ test('a prepared input submission resumes the same normalized intent and origina
 
 test('altered canonical input values cannot acquire the retained packet review binding',async t=>{
   const f=await namespaceApprovalFixture(t,{configure});await f.submit('intake',{channel:'Web',confidence:75});const snapshot=await f.capture();
-  const observer=createNamespaceLifecycleObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
+  const observer=createNamespaceStoryObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
   const reader=createNamespaceSubmissionReader({observer,scope:f.scope,workId:f.inputs.workId}),corrupt=structuredClone(snapshot);
   corrupt.workflow.phases.intake.decisionInputs.values.channel='Mobile';
   await assert.rejects(reader.review(corrupt,'intake'),error=>error.code==='ENGINE_STORAGE_CORRUPT'&&error.cause.code==='SUBMISSION_ROUTING_BINDING_CHANGED');
@@ -119,7 +119,7 @@ test('v2 routing validation rejects altered provenance, duplicate sources and un
 test('v2 proof reads preserve the actual storage deadline, permission and missing-content errors',async t=>{
   const f=await namespaceApprovalFixture(t,{configure});await f.submit('intake',{channel:'Web',confidence:75});
   const snapshot=await f.capture(),packet=snapshot.workflow.phases.intake.namespaceSubmission.record;
-  const observer=createNamespaceLifecycleObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
+  const observer=createNamespaceStoryObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
   for(const code of ['SDA_CONTENT_DEADLINE_EXCEEDED','SDA_CONTENT_PERMISSION_DENIED','SDA_CONTENT_NOT_FOUND']) {
     const original=Object.assign(new Error('Retained packet access failed.'),{code,details:{reference:packet,deadlineMs:1234}});
     const reader=createNamespaceSubmissionReader({observer:{...observer,async bytes(reference,...args){
@@ -144,7 +144,7 @@ test('an altered approved flag cannot make submitted routing values an approved 
   await f.submit('intake',{channel:'Web',confidence:75});
   const snapshot=await f.capture(),original=snapshot.workflow.phases.intake.namespaceSubmission.record;
   const forged=structuredClone(snapshot);forged.workflow.phases.intake.status='approved';
-  const observer=createNamespaceLifecycleObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
+  const observer=createNamespaceStoryObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
   const reader=createNamespaceSubmissionReader({observer,scope:f.scope,workId:f.inputs.workId});
   await assert.rejects(reader.inspectApprovedMany(forged,['intake']),
     error=>error.code==='ENGINE_STORAGE_CORRUPT'&&error.message.includes('human approval threshold'));
@@ -162,7 +162,7 @@ test('source approval proof requires real vote bytes and coalesces packet reads 
   const f=await namespaceApprovalFixture(t);await f.submit();
   await f.makeApproval().run('phase.approve',{phaseId:'intake',confirmation:await f.confirmation()});
   const snapshot=await f.capture(),phase=snapshot.workflow.phases.intake,packet=phase.namespaceSubmission.record;
-  const observer=createNamespaceLifecycleObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
+  const observer=createNamespaceStoryObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
   let packetReads=0;
   const reader=createNamespaceSubmissionReader({observer:{...observer,bytes(reference,...args){
     if(reference.sha256===packet.sha256)packetReads++;return observer.bytes(reference,...args);

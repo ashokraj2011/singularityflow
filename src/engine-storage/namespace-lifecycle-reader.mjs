@@ -1,23 +1,18 @@
 /** Explicit read-only lifecycle observation shared by persistence and read hosts. */
 import { createHash } from 'node:crypto';
+import {NODE_TEXT_DIGESTS} from '../records.mjs';
+import {namespaceLifecycleStoryKey as encodedStoryKey,validWorkId} from './namespace-lifecycle-codec.mjs';
+export {validWorkId} from './namespace-lifecycle-codec.mjs';
+export function namespaceLifecycleStoryKey(workId){return encodedStoryKey(workId,NODE_TEXT_DIGESTS);}
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { validateNamespaceStore,namespaceLimits } from '../sda/namespace/contract.mjs';
-import { namespaceJson,namespaceIdentityJson,namespaceIdentifier,namespaceScope,namespaceRevision,exactObject } from '../sda/namespace/values.mjs';
+import { namespaceJson,namespaceIdentifier,namespaceScope,namespaceRevision,exactObject } from '../sda/namespace/values.mjs';
 import { contentReference,validateContentStore } from '../sda/content/contract.mjs';
 import { LIFECYCLE_AUTHORITY_KEY,LIFECYCLE_STATE_MAXIMUM_BYTES,lifecycleAuthority,lifecycleConfiguration,lifecycleHead,lifecycleState } from './namespace-lifecycle-contract.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
-const identity=value=>hash(namespaceIdentityJson(value));
 const sameRef=(a,b)=>a.namespace===b.namespace&&a.sha256===b.sha256&&a.bytes===b.bytes;
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('The lifecycle operation was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
-export function validWorkId(value) {
-  if (typeof value !== 'string' || !value || value.length > 2048 || /[\u0000-\u001f\u007f]/u.test(value)) {
-    throw error('Lifecycle persistence needs an explicit bounded Story ID.', 'ENGINE_INPUT_INVALID');
-  }
-  return value;
-}
-export function namespaceLifecycleStoryKey(workId) { return `stories/${identity({ workId: validWorkId(workId) })}/head`; }
-
 export function createNamespaceLifecycleObserver({records,content,scope,workId,authority}={}) {
   validateNamespaceStore(records);validateContentStore(content);scope=namespaceScope(scope);workId=validWorkId(workId);
   exactObject(authority,['id','epoch']);authority=Object.freeze({id:namespaceIdentifier(authority.id,'Authority ID'),epoch:authority.epoch});

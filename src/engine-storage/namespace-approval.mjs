@@ -76,7 +76,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     const snapshot={workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The routed approval lost its original submitted packet.','ENGINE_STORAGE_CORRUPT');
-    const value=await votes.read(binding,s.phaseId,proof,{signal}),active=await votes.active(snapshot,s.phaseId,proof,{signal});
+    const value=await votes.read(binding,s.phaseId,proof,{signal}),active=await votes.activeAccepted(snapshot,s.phaseId,proof,{signal});
     if(!value.routing||value.operationId!==s.operationId||value.requestSha256!==s.requestSha256||value.baseRevision!==plan.basis.headVersion
       ||!same(value.configuration,plan.basis.head.configuration)||!same(value.actor,s.reviewer.actor)||value.agentId!==s.reviewer.agentId
       ||!same(link,namespaceApprovalReceipt(value,binding))
@@ -159,7 +159,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
       const proof=await packets.inspect(observed.snapshot,phaseId,{signal});
       if(!proof)throw error('Submit the published generation before requesting approval.','PHASE_SUBMISSION_REQUIRED',{
         workId,phase:phaseId,actions:[{operation:'phase.submit',inputs:{workId,phaseId}}]});
-      const {facts:initialFacts,reviewer:authenticated}=identified??await identity(signal),active=await votes.active(observed.snapshot,phaseId,proof,{signal});
+      const {facts:initialFacts,reviewer:authenticated}=identified??await identity(signal),active=await votes.activeAccepted(observed.snapshot,phaseId,proof,{signal});
       const reviewBinding={workId,phase:phaseId,generation:phase.generation,reviewPacketSha256:proof.review.packetSha256};
       const previous=active.votes.find(item=>item.value.actor.principalId===authenticated.actor.principalId);
       if(previous&&!same(previous.value.actor,authenticated.actor))throw error(

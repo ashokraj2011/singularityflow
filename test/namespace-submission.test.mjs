@@ -5,6 +5,7 @@ import {createNamespacePublicationEngine} from '../src/engine-storage/namespace-
 import {createNamespaceSubmissionEngine} from '../src/engine-storage/namespace-submission.mjs';
 import {createNamespaceReadEngine} from '../src/engine-storage/namespace-reader.mjs';
 import {createNamespaceLifecycleObserver} from '../src/engine-storage/namespace-lifecycle-reader.mjs';
+import {createNamespaceStoryObserver} from '../src/engine-storage/namespace-story-reader.mjs';
 import {LIFECYCLE_AUTHORITY_KEY} from '../src/engine-storage/namespace-lifecycle-contract.mjs';
 import {namespaceSubmissionValue,namespaceSubmissionBindingValue} from '../src/engine-storage/namespace-submission-contract.mjs';
 import {SingularityFlowError} from '../src/foundation/failures.mjs';
@@ -125,7 +126,7 @@ test('another authorized person creates their own submission without borrowing t
 
 test('malformed submitted inventories report storage corruption rather than a raw property exception',async t=>{
   const f=await namespacePreparationFixture(t);await published(f);await make(f).run('phase.submit',input);
-  const snapshot=await capture(f),observer=createNamespaceLifecycleObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
+  const snapshot=await capture(f),observer=createNamespaceStoryObserver({records:f.records,content:f.content,scope:f.scope,workId:f.inputs.workId,authority:f.authority});
   const reader=createNamespaceSubmissionReader({observer,scope:f.scope,workId:f.inputs.workId});
   for(const mutate of [value=>{value.workflow.phases.intake.artifacts=null;},value=>{value.workflow.lineage.submissions={};},
     value=>{value.workflow.phases.intake.publicationBindings={};}]) {

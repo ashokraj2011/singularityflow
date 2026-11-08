@@ -5,6 +5,7 @@ import {namespaceSubmissionValue,namespaceSubmissionBindingValue} from './namesp
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespaceApprovalReader} from './namespace-approval-reader.mjs';
 import {assertSubmittedRoutingSelection} from '../kernel/submission-routing.mjs';
+import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
@@ -17,8 +18,8 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     catch(cause){if(cause.code)throw cause;throw error('The review packet is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',cause);}
     return namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId});
   }
-  async function publication(value,{signal}={}) {
-    const published=await publications.read(value.publication,value.phase,{signal});
+  async function publication(value,options={}) {
+    const published=await publications.accepted(value.publication,value.phase,options);
     if(!same(published.configuration,value.configuration))throw error('The review packet has another configuration pin.','ENGINE_STORAGE_CORRUPT');
     return published;
   }
@@ -37,7 +38,11 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
       ||phase.submittedAt!==value.submittedAt||lineage?.packetSha256!==binding.record.sha256||!same(lineage.packetReference,binding.record)) {
       throw error('The current review is not the exact retained submission.','ENGINE_STORAGE_CORRUPT');
     }
-    const published=await publication(value,{signal});
+    const accepted=await namespaceAcceptedEvidence(observer,binding,value,'phase.submit',{signal,snapshot,cache:cache.receipts});
+    const submitted=accepted.state.workflow.phases[phaseId];
+    if(submitted?.generation!==value.generation||submitted.status!=='awaiting_approval'||!same(submitted.namespaceSubmission,binding)
+      ||submitted.submittedAt!==value.submittedAt)throw error('The accepted submission lost its exact review binding.','ENGINE_STORAGE_CORRUPT');
+    const published=await publication(value,{signal,snapshot,cache:cache.receipts});
     if(!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
       throw error('The submitted artifact metadata differs from its publication.','ENGINE_STORAGE_CORRUPT');
     }
@@ -59,30 +64,32 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     }
   }
   function inspectCached(snapshot,phaseId,signal,cache) {
-    if(!cache.has(phaseId))cache.set(phaseId,inspectOne(snapshot,phaseId,signal,cache));
-    return cache.get(phaseId);
+    if(!cache.packets.has(phaseId))cache.packets.set(phaseId,inspectOne(snapshot,phaseId,signal,cache));
+    return cache.packets.get(phaseId);
   }
   async function approved(snapshot,phaseId,signal,cache) {
     const proof=await inspectCached(snapshot,phaseId,signal,cache);if(!proof)return null;
-    const active=await votes.active(snapshot,phaseId,proof,{signal});
+    if(!cache.approvals.has(phaseId))cache.approvals.set(phaseId,votes.activeAccepted(snapshot,phaseId,proof,{signal,cache:cache.receipts}));
+    const active=await cache.approvals.get(phaseId);
     if(snapshot.workflow.phases[phaseId].status!=='approved'||active.votes.at(-1)?.value.thresholdReached!==true) {
       throw error('A reused decision input has no retained human approval threshold.','ENGINE_STORAGE_CORRUPT');
     }
     return proof;
   }
-  async function inspect(snapshot,phaseId,{signal}={}) {return inspectCached(snapshot,phaseId,signal,new Map());}
+  const traversal=()=>({packets:new Map(),approvals:new Map(),receipts:{}});
+  async function inspect(snapshot,phaseId,{signal}={}) {return inspectCached(snapshot,phaseId,signal,traversal());}
   async function context(snapshot,phaseId,{signal}={}) {
-    const cache=new Map(),proof=await inspectCached(snapshot,phaseId,signal,cache);
-    return {proof,sources:proof?(await Promise.all([...cache.values()])).filter(item=>item&&item!==proof):[]};
+    const cache=traversal(),proof=await inspectCached(snapshot,phaseId,signal,cache);
+    return {proof,sources:proof?(await Promise.all([...cache.packets.values()])).filter(item=>item&&item!==proof):[]};
   }
   async function inspectApprovedMany(snapshot,phaseIds,{signal}={}) {
-    const cache=new Map(),result=[];
+    const cache=traversal(),result=[];
     for(const phaseId of phaseIds)result.push(await approved(snapshot,phaseId,signal,cache));
     return result;
   }
   async function verifyRouting(snapshot,phaseId,value,{signal}={}) {
     namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId});
-    await routingProof(snapshot,phaseId,value,signal,new Map());
+    await routingProof(snapshot,phaseId,value,signal,traversal());
   }
   async function review(snapshot,phaseId,options) {
     if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;

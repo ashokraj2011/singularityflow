@@ -372,6 +372,20 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   // A person disagrees: a settled path takes an answer like any other, and that answer is theirs to take back.
   const convergenceRecord = path.join(root, `singularity/work-items/${WORK}/context/convergence/iteration-1.json`);
   const settledPackage = iteration.settledByPlan.find((item) => item.paths[0] === 'package.json');
+  // The one decisions list offers it beside what waits, and overrules the plan through the same write [SCS:REQ-035].
+  const listedNow = () => JSON.parse(sflow(root, ['decisions', WORK, '--json']).stdout).data;
+  const settledOn = (packet) => (packet.offered ?? []).find((entry) => entry.details?.convergence?.includes(settledPackage.id));
+  const beforeOverrule = listedNow();
+  assert.equal(settledOn(beforeOverrule)?.kind, 'convergence-settled', 'what the plan settled was not offered beside the list');
+  assert.equal(beforeOverrule.items.some((entry) => entry.details?.convergence?.includes(settledPackage.id)), false, 'what the plan settled was asked as open');
+  const overruleOnList = (packet, disposition, reason) => sflow(root, ['decisions', 'record', WORK, '--choose', `${settledOn(packet).id}=${disposition}`,
+    '--reason', `${settledOn(packet).id}=${reason}`, '--confirm', packet.packetSha256, '--json']);
+  overruleOnList(beforeOverrule, 'deferred', 'Overruled on the decisions list.');
+  const overruledOnList = listedNow();
+  assert.equal(settledOn(overruledOnList).kind, 'convergence-answer', 'an overrule did not read as an answer given');
+  overruleOnList(overruledOnList, 'dismissed', 'Changed on the decisions list.');
+  const settledRecord = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).settled.find((entry) => entry.id === settledPackage.id).decision;
+  assert.deepEqual([settledRecord.disposition, settledRecord.replaced.map((answer) => answer.disposition)], ['dismissed', ['deferred']], 'the overrule it replaced is gone');
   const overruled = JSON.parse(sflow(root, ['story', 'adjudicate', settledPackage.id, '--disposition', 'rework', '--json']).stdout);
   assert.equal(overruled.unresolvedBlockers.length, 1, 'overruling the plan did not block');
   await writeFile(convergenceRecord, serializeConvergence(iteration));

@@ -393,3 +393,79 @@ test('every host shows the offered answer and asks what a change needs', async (
   assert.match(shown, /6\. Convergence: no bound test result \(CF-999999999999\), answered Decide later\n {3}Decided: Decide later, by lead@example\.invalid/u);
   prompt.close();
 });
+
+// [SCS:REQ-035] What the approved plan settled is offered beside the list too: nobody is asked unless they disagree.
+const SETTLED = [
+  { id: 'CF-21034d278357', paths: ['package.json'], clauseIds: [], decision: null,
+    settledBy: { kind: 'supporting', phase: 'planning', generation: 1, class: 'build-configuration', text: 'names the retry test script so operators can run it.' } },
+  { id: 'CF-d481d2555b77', paths: ['test/setup.ts'], clauseIds: [], decision: null,
+    settledBy: { kind: 'amendment', id: 'PAM-001', clause: 'SDS-1:REQ-001', class: null, text: 'Test-only: a local storage stand-in.' } }
+];
+const settledOf = (packet) => (packet.offered ?? []).filter((entry) => entry.kind === 'convergence-settled');
+
+test('what the plan settled is offered beside the list: it asks nobody, holds nothing, and an answer overrules the plan', async () => {
+  const packet = packetOf(story(), { ...table(), settled: SETTLED });
+  const [supporting, amendment, ...more] = settledOf(packet);
+  assert.equal(more.length, 0);
+  assert.deepEqual((packet.offered ?? []).map((entry) => [entry.id, entry.kind]), [['d6', 'convergence-answer'], ['d7', 'convergence-settled'], ['d8', 'convergence-settled']]);
+  assert.equal(packet.open, 5, 'what the plan settled was counted as open');
+  assert.match(packet.headline, /^Convergence needs 5 decisions/u);
+  assert.equal(PENDING_ITEM_KINDS.includes('convergence-settled'), false);
+  assert.equal(pendingSummary(packet).items.some((entry) => entry.kind === 'convergence-settled'), false);
+  assert.equal(supporting.title, 'package.json: settled by the plan (CF-21034d278357)');
+  assert.equal(supporting.why, 'The plan says: a supporting file, names the retry test script so operators can run it. The approved plan accounts for it, so nobody is asked about it unless they disagree.'
+    + ' If you do, choose what it should be instead, with your reason. Nothing waits on it: Convergence\'s approvers may answer it until the step is published.');
+  assert.match(amendment.why, /^The plan says: PAM-001 under SDS-1:REQ-001, Test-only: a local storage stand-in\./u);
+  assert.equal(supporting.details.path, 'package.json', 'a page cannot open the file');
+  assert.deepEqual(supporting.details.settledBy, SETTLED[0].settledBy);
+  assert.deepEqual(supporting.decidedBy.groups, ['architecture-reviewers']);
+  for (const entry of supporting.options) {
+    assert.equal(entry.recommended, false);
+    assert.equal(entry.oneByOne, true, `${entry.id} could overrule the plan through one answer for all`);
+    assert.deepEqual(entry.needs.reason, { default: '', minimum: 1, maximum: 1000 }, `${entry.id} could overrule the plan without a reason`);
+    assert.deepEqual(entry.effects, [{ kind: 'convergence-adjudication', phase: 'convergence', items: ['CF-21034d278357'], disposition: entry.id, expect: DIGEST }]);
+  }
+  // An overrule is the one write of the table, beside any other answer.
+  const plan = (choose, reason = {}) => decisionRecordPlan(packet, parseDecisionAnswers({ choose, reason }), { at: AT });
+  assert.throws(() => plan({ d7: 'rework' }), /The reason for d7 must be 1 to 1000 characters/u);
+  const writes = [];
+  await runDecisionPlan(plan({ d5: 'deferred', d7: 'rework' }, { d5: 'Waits for the test environment.', d7: 'The retry script must not run against production.' }),
+    async (effect) => { writes.push(effect); return { recorded: effect.answers.map((entry) => entry.itemId), unchanged: [] }; });
+  assert.deepEqual(writes.map((effect) => effect.answers.map((entry) => [entry.itemId, entry.disposition])), [[['CF-111111111111', 'deferred'], ['CF-21034d278357', 'rework']]]);
+  // Overruled, it reads as any answer given, and a change keeps the one it replaces.
+  const overruled = packetOf(story(), { ...table(), settled: [{ ...SETTLED[0], decision: { disposition: 'rework', reason: 'Not this script.', clauseIds: [], actor: 'lead@example.invalid', at: '2026-11-07T09:00:00.000Z', replaced: [] } }] });
+  const answer = overruled.offered.find((entry) => entry.details.convergence.includes('CF-21034d278357'));
+  assert.equal(answer.kind, 'convergence-answer');
+  assert.equal(answer.title, 'package.json: settled by the plan (CF-21034d278357), answered Send back to fix');
+  assert.match(answer.why, /^Decided: Send back to fix, by lead@example\.invalid on 2026-11-07 \("Not this script\."\)\. The plan says: a supporting file, .* This answer overrules what the plan settled\. Choosing again/u);
+  assert.deepEqual(answer.options[1].effects[0].replaces, { disposition: 'rework', actor: 'lead@example.invalid' });
+  // Each host shows it, and opens its file.
+  const html = decideHtml({ ...packet, repositoryPath: '/repo' });
+  assert.match(html.slice(html.indexOf('<tr data-item="d7"')), /^<tr data-item="d7"[^>]*>\s*<td><button type="button" class="dc-link" data-open="package\.json">/u);
+  assert.deepEqual(cardRows(packet).slice(-2).map((entry) => entry.id), ['d7', 'd8']);
+  // Nobody but the approvers, and never once the step is published.
+  assert.equal(settledOf(packetOf(story({ anyone: false }), { ...table(), settled: SETTLED }))[0].decidedBy.allowed, false);
+  const published = story();
+  published.phases.convergence.status = 'awaiting_approval';
+  assert.deepEqual(settledOf(packetOf(published, { ...table(), settled: SETTLED })), []);
+  // No chat turn overrules the plan.
+  assert.deepEqual(decisionChatSteps(packet, [{ item: 'd7', option: 'rework', values: { reason: 'Not this script.' } }]), []);
+  assert.equal(supporting.options.some((entry) => entry.chat || DECISION_LIST_CHAT_OPTIONS.includes(entry.id)), false);
+});
+
+test('many settled files stay one row each, and a terminal passes over each with Enter', async () => {
+  const many = Array.from({ length: 12 }, (_, at) => ({ ...SETTLED[0], id: `CF-${String(at).padStart(12, '0')}`, paths: [`config/part-${at}.json`] }));
+  const packet = packetOf(story(), { ...table(), settled: many });
+  assert.equal(settledOf(packet).length, 12);
+  assert.equal(packet.open, 5);
+  // Not now is the default for every offered row: nothing is chosen for the person.
+  const input = Readable.from([...Array(5).fill('6\n'), ...Array(13).fill('\n')]);
+  input.isTTY = true;
+  const output = new PassThrough();
+  output.isTTY = true;
+  let shown = '';
+  output.on('data', (chunk) => { shown += chunk; });
+  const prompt = await promptDecisionAnswers(packet, { input, output, nothingChosen: 'Nothing chosen.' });
+  assert.equal(prompt, null);
+  assert.equal((shown.match(/Choose 1-6 \[6\]: /gu) ?? []).length, 18);
+});

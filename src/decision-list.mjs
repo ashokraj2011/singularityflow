@@ -1057,8 +1057,11 @@ function convergenceItems(workflow, context, list) {
  * Each answer already given at an open convergence step, offered beside the list so its approvers may choose again
  * [SCS:REQ-034]: one row per problem whose items carry the same answer. It holds nothing and is never counted. A change
  * is the same `story adjudicate --answers` write bound to the table's digest, always with a reason, and the record
- * keeps the answer it replaces and whose it was. A row the plan settled is not here: overruling the plan is the
- * Adjudicate page's for now.
+ * keeps the answer it replaces and whose it was.
+ *
+ * Each changed file the approved plan settled is offered too, one row each, as the Adjudicate page shows it
+ * [SCS:REQ-035]: nobody is asked about it unless they disagree, and an answer on it overrules the plan through the
+ * same write. Once overruled, it reads as any answer given.
  */
 function convergenceAnswerItems(workflow, context, list) {
   // Only while the step is open: once its generation is published, `story adjudicate` changes nothing.
@@ -1068,40 +1071,48 @@ function convergenceAnswerItems(workflow, context, list) {
   // The person's reason as they typed it, quoted: never run into the sentence around it.
   const given = (answer) => `${label(answer.disposition)}${answer.actor ? `, by ${answer.actor}` : ''}${answer.at ? ` on ${String(answer.at).slice(0, 10)}` : ''}${
     String(answer.reason ?? '').trim() ? ` ("${String(answer.reason).trim()}")` : ', with no reason given'}`;
-  return convergenceRows(list, { decided: true }).map((members) => {
-    const { ids, paths, clauses, plan, found, title } = convergenceSubject(workflow, members);
-    const current = members[0].decision;
-    const changes = current.disposition === 'update-intent' && current.clauseIds?.length ? ` Clauses to change: ${listWords(current.clauseIds.map((id) => clauseName(workflow, id)))}.` : '';
+  const until = (verb) => `Nothing waits on it: ${stepName(workflow, list.phase)}'s approvers may ${verb} it until the step is published.`;
+  const row = ({ ids, paths, clauses, plan, found, title }, current, settledBy = null) => {
+    const changes = current?.disposition === 'update-intent' && current.clauseIds?.length ? ` Clauses to change: ${listWords(current.clauseIds.map((id) => clauseName(workflow, id)))}.` : '';
     // The latest first: each answer replaced the one after it.
-    const earlier = [...(current.replaced ?? [])].reverse();
+    const earlier = [...(current?.replaced ?? [])].reverse();
     const why = [
-      `Decided: ${given(current)}.${changes}`,
+      ...(current ? [`Decided: ${given(current)}.${changes}`] : []),
       ...(earlier.length ? [`Earlier: ${earlier.map(given).join('; before that, ')}.`] : []),
       ...found,
       ...(plan ? [planSays(plan)] : []),
+      ...(settledBy && current ? ['This answer overrules what the plan settled.'] : []),
       ...(ids.length > 1 ? [`A change records each of ${listWords(ids)} by name.`] : []),
-      `Choosing again records your answer and reason in its place; the record keeps this one and whose it was. Nothing waits on it: ${stepName(workflow, list.phase)}'s approvers may change it until the step is published.`
+      current ? `Choosing again records your answer and reason in its place; the record keeps this one and whose it was. ${until('change')}`
+        : `The approved plan accounts for it, so nobody is asked about it unless they disagree. If you do, choose what it should be instead, with your reason. ${until('answer')}`
     ].filter(Boolean).join(' ');
     const options = (list.dispositions ?? []).map(({ id, label: words }) => ({ ...option(workflow, context, { id, label: words, words: DISPOSITION_EFFECT[id] ?? words,
       effects: [{ kind: 'convergence-adjudication', phase: list.phase, items: ids, disposition: id, expect: list.digest,
-        replaces: { disposition: current.disposition, actor: current.actor ?? null } }],
+        ...(current ? { replaces: { disposition: current.disposition, actor: current.actor ?? null } } : {}) }],
       needs: { ...(id === 'update-intent' ? { clause: { known: [...new Set([...clauses, ...(list.clauses ?? [])])], words: 'The clauses the specification should change', label: 'Clauses to change' } } : {}),
-        // A change always says why, whatever the answer it replaces needed.
+        // A change, or a word against the plan, always says why.
         reason: textNeed('', ADJUDICATION_REASON) } }),
-    // Another person's answer is changed on its own row, with its own reason: never by one answer for all.
+    // An answer someone gave, or what the plan settled, is changed on its own row with its own reason: never by one answer for all.
     oneByOne: true }));
     return {
-      kind: 'convergence-answer',
+      kind: current ? 'convergence-answer' : 'convergence-settled',
       // What it is, then the answer it has: a choice reads after it as "…, answered Decide later: Accept as is".
-      title: `${title.slice(0, 170)}, answered ${label(current.disposition)}`,
+      title: current ? `${title.slice(0, 170)}, answered ${label(current.disposition)}` : title.slice(0, 200),
       why, options,
       details: { convergence: ids, phase: list.phase, clauses,
-        answer: { disposition: current.disposition, reason: current.reason ?? null, clauseIds: current.clauseIds ?? [], actor: current.actor ?? null, at: current.at ?? null },
-        replaced: current.replaced ?? [],
-        ...(paths.length === 1 ? { path: paths[0] } : paths.length ? { paths } : {}), ...(plan ? { plan } : {}),
+        ...(current ? { answer: { disposition: current.disposition, reason: current.reason ?? null, clauseIds: current.clauseIds ?? [], actor: current.actor ?? null, at: current.at ?? null },
+          replaced: current.replaced ?? [] } : {}),
+        ...(settledBy ? { settledBy } : {}),
+        ...(paths.length === 1 ? { path: paths[0] } : paths.length ? { paths } : {}), ...(plan && !settledBy ? { plan } : {}),
         commands: [`singularity-flow story adjudicate --work-id ${workId}`] }
     };
+  };
+  const settled = (list.settled ?? []).map((entry) => {
+    const paths = entry.paths ?? [];
+    const subject = { ids: [entry.id], paths, clauses: entry.clauseIds ?? [], plan: entry.settledBy, found: [], title: `${listWords(paths) || entry.id}: settled by the plan (${entry.id})` };
+    return row(subject, entry.decision, entry.settledBy ?? {});
   });
+  return [...convergenceRows(list, { decided: true }).map((members) => row(convergenceSubject(workflow, members), members[0].decision)), ...settled];
 }
 
 /** The answers one convergence choice records, one per item it names. */

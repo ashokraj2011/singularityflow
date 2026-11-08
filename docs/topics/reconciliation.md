@@ -13,7 +13,7 @@ related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 15
+version: 16
 ---
 `sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
@@ -31,7 +31,7 @@ Use this topic when the current goal matches **reconciliation**. Start in a repo
 
 1. Reconcile the active work interval, then run `sflow story converge`.
 2. Record each human disposition with `sflow story adjudicate`. An `update-intent` decision must name the clause with `--clause` and blocks advancement just like rework.
-   A changed path no claim cites is not asked when the approved plan already accounts for it: a supporting file of a plan a person approved, or a change of a plan amendment that counts. The convergence record, the report and the decisions table say which entry settled it, and anyone in the group may still answer it with `sflow story adjudicate`. It is asked as usual when the file was deleted, is a protected path, a row expected it, or the entry's class is not what the path is. An entry binds no file content, so nothing checks that a change stayed within its stated reason: that part stays with the reviewer.
+   A changed path no claim cites is not asked when the approved plan already accounts for it: a supporting file of a plan a person approved, or a change of a plan amendment that counts. The convergence record, the report and the decisions table say which entry settled it, and anyone in the group may still answer it with `sflow story adjudicate`, or on the decisions list, which offers each settled file beside what waits: it asks nobody, holds nothing, and an answer on it, always with a reason, overrules the plan. It is asked as usual when the file was deleted, is a protected path, a row expected it, or the entry's class is not what the path is. An entry binds no file content, so nothing checks that a change stayed within its stated reason: that part stays with the reviewer.
    A plan amendment holds the hash of the file it accounted for: when that file has changed since, the path is asked again and says why. An amendment from before this has no hash and settles the path as it did, and so does one for a file that did not exist yet.
    A person may change an answer, whoever gave it. The answer it replaces stays on the record with who gave it and when, and the report's **Changed answers** table, `sflow story adjudications` and the decisions table all show it.
    While the convergence step is open, the decisions list (`sflow decisions`, `/decide` in Copilot CLI, the VS Code decisions card) offers each answer given beside what waits, with whose it is and what it replaced. It holds nothing and is never counted as open. An approver of the convergence step may choose again there, always with a reason: the same `story adjudicate --answers` write, bound to the list they saw. No chat turn records it.

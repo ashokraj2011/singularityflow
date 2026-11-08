@@ -202,11 +202,15 @@ async function departureFacts(root, config, workflow, phase) {
     if (!readings.length) return null;
     const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);
     const planRows = planRowsOf(mergePlannedClaimRecords((await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).planned ?? []));
+    // The register's words for each item a fix on the way carries, quoted [CQF:REQ-066]; one it cannot read shows its ID alone.
+    const fixed = [...new Set(readings.flatMap((entry) => entry.departure.findings ?? []))];
+    const findingTitles = fixed.length
+      ? await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'register', 'on-the-way.mjs')).href)).itemTitles(root, config, fixed) : {};
     const order = workflow.phaseOrder ?? [];
     const reopens = (departure) => order.slice(order.indexOf(departure.target?.phase) + 1, order.indexOf(departure.phase) + 1)
       .filter((id) => ['approved', 'awaiting_approval'].includes(workflow.phases?.[id]?.status) || id === departure.phase);
     return {
-      phase: phase.id, planRows, codeStepOpen: workflow.currentPhase === phase.id && phase.status === 'in_progress',
+      phase: phase.id, planRows, codeStepOpen: workflow.currentPhase === phase.id && phase.status === 'in_progress', findingTitles,
       entries: await Promise.all(readings.map(async (entry) => ({ ...entry, groups: await departureAuthorities(workflow, entry.departure),
         words: departureWords(entry.departure), acceptAll: acceptAllEligible(entry.departure) }))),
       acceptance: Object.fromEntries(readings.filter((entry) => ['plan-row', 'test', 'clause'].includes(entry.departure.kind))

@@ -234,6 +234,17 @@ export async function itemsOnTheWay(root, config, workflow, phase, { env = proce
   }
 }
 
+/** Each named item as the decisions table names it: its title, or its upgrade, quoted. An item not in the register is left out. Never throws. */
+export async function itemTitles(root, config, ids, { env = process.env } = {}) {
+  try {
+    const { readRegister } = await import('./store.mjs');
+    const read = await readRegister(root, { env, ledger: normalizeLedgerConfig(config.ledger ?? {}) });
+    const wanted = new Set(ids);
+    return Object.fromEntries(FEEDS.flatMap((feed) => read.register[feed].items).filter((item) => wanted.has(item.id)).map((item) => [item.id,
+      quoted(item.feed === 'tlm' ? `${item.component} ${item.currentVersion ?? '?'} → ${item.targetVersion}` : item.title, 120)]));
+  } catch { return {}; }
+}
+
 // The register moves with the fixes on the way: in a Story once recorded, open again once a person rejects
 // one, fixed awaiting proof once the code step is approved with it accepted. Each write is the register's
 // own (store.mjs) and never throws: the Story's records stand whatever the register does, and the result

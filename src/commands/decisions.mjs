@@ -153,7 +153,9 @@ function itemLines(item, index, { numbered = false } = {}) {
   const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, `   ${item.decidedBy.words}`];
   if (!item.decidedBy.allowed && item.decidedBy.share) lines.push(`   Share this with them: ${item.decidedBy.share}`);
   item.options.forEach((option, position) => {
-    const yours = option.action ? '  (yours to do; never recorded here)' : option.available === false ? '  (not available)' : '';
+    // An author's own step (accounting for what the person typed) is never the reader's to do.
+    const yours = option.action ? (option.decidedBy?.author ? '  (its author\'s step; never recorded here)' : '  (yours to do; never recorded here)')
+      : option.available === false ? '  (not available)' : '';
     lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${option.recommended ? '  [recommended]' : ''}${yours}`);
   });
   return lines;

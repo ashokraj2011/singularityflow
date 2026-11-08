@@ -63,6 +63,10 @@ export interface ApprovalEvidencePacket {
     entries: Array<{ id: string; package: string; installedVersion: string | null; fixedVersion: string | null; rule: string | null; severity: string;
       who: string; allowed: boolean; command: string; words: string }> };
   requiredChecks?: { status: string; words: string | null; checks: Array<{ name: string; status: string }> };
+  /** What the person typed after /sf-code or /sf-phase, quoted, with each instruction's account [SCS:REQ-043]. */
+  askedFor?: { words: string; unaccounted: number; more?: number;
+    instructions: Array<{ instruction: number; generation: number; text: string; truncated?: boolean;
+      account?: { as: string; clauses: string[]; departure: string | null } | null; accountWords?: string; words: string }> };
 }
 
 export interface DecisionPacket {

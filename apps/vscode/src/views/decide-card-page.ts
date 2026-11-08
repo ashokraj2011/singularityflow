@@ -98,8 +98,9 @@ const linked = (words: string, file: string | null | undefined) => (file && word
 /**
  * What the step's records say beside its decisions [CQF:REQ-031, REQ-033, REQ-034, REQ-052, REQ-055]: the
  * changed lines its tests ran, each criterion's tests, the findings the loop let through, the vulnerable new
- * package that holds the approval and the command a person who may accept it runs, and the required checks.
- * Evidence only: no choice here, and a held package's command is the person's own, typed into their terminal.
+ * package that holds the approval and the command a person who may accept it runs, the required checks, and what
+ * the person asked for with each instruction's account [SCS:REQ-043]. Evidence only: no choice here, and a held
+ * package's command is the person's own, typed into their terminal. What was typed is shown as text, never markup.
  */
 export function evidenceHtml(packet: DecisionPacket): string {
   const evidence = packet.approvalEvidence;
@@ -107,7 +108,7 @@ export function evidenceHtml(packet: DecisionPacket): string {
   const part = (title: string, body: string, warn: boolean) => `<section class="dc-ev${warn ? ' dc-ev-warn' : ''}"><h3>${escape(title)}</h3>${body}</section>`;
   const list = (items: string[]) => (items.length ? `<ul class="dc-ev-list">${items.map((item) => `<li>${item}</li>`).join('')}</ul>` : '');
   const more = (count?: number) => (count ? `<p class="muted">And ${count} more.</p>` : '');
-  const { coverage, proof, findings, hold, requiredChecks } = evidence;
+  const { coverage, proof, findings, hold, requiredChecks, askedFor } = evidence;
   // A held package whose command a row above already offers is not offered twice.
   const offered = new Set(decideRows(packet).filter((item) => item.decidedBy?.allowed).flatMap((item) => ownSteps(item).map((option) => option.action?.command)));
   const holdStep = (entry: NonNullable<typeof hold>['entries'][number], index: number) => (!entry.allowed
@@ -118,6 +119,8 @@ export function evidenceHtml(packet: DecisionPacket): string {
       <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
       <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
   const parts = [
+    askedFor ? part('Asked for', `<p class="muted">${escape(askedFor.words)}</p>${list(askedFor.instructions.map((entry) => `<q class="dc-asked">${escape(entry.text)}</q>${entry.accountWords
+      ? ` <span class="muted">${escape(entry.accountWords)}</span>` : ''}`))}${more(askedFor.more)}`, askedFor.unaccounted > 0) : '',
     coverage ? part('Changed-line coverage', `<p>${escape(coverage.words)}</p>${list((coverage.files ?? []).map((file) => linked(file.words, file.path)))}${more(coverage.more)}`,
       coverage.status !== 'measured' || coverage.below === true) : '',
     proof ? part('Criteria and the tests that prove them', `${list(proof.criteria.map((entry) => escape(entry.words)))}${more(proof.more)}${proof.assertionCheck
@@ -243,6 +246,7 @@ export const DECIDE_STYLE = `
 .dc-hold { display:grid; gap:.3rem; margin:.4rem 0; justify-items:start; min-width:0; }
 .dc-hold strong { overflow-wrap:anywhere; }
 .dc-check { font-weight:600; }
+.dc-asked { font-style:italic; overflow-wrap:anywhere; }
 .dc-check-passed { color:var(--sf-ok, var(--vscode-testing-iconPassed)); }
 .dc-check-failed { color:var(--sf-bad, var(--vscode-errorForeground)); }
 .dc-error { color:var(--vscode-errorForeground); margin:0; }

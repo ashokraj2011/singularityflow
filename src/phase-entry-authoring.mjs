@@ -7,6 +7,7 @@ import { recoveryPlan } from './collaboration.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { isConformancePhase } from './phase-roles.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { gitDir } from './git-execution.mjs';
 import { storyReferenceRepositories, verifyReferenceRepositories } from './reference-repositories.mjs';
@@ -239,7 +240,13 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   // From the CLI source, so the VS Code bundles that read an entry do not carry the register.
   const fixOnTheWay = base.generatesCode ? await measureCommandSpan('phase-entry.findings-on-the-way', async () =>
     (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'register', 'on-the-way.mjs')).href)).itemsOnTheWay(root, definition, workflow, phase)) : null;
-  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // What the person typed into this step's turns, each with its account, so this turn accounts for the rest [SCS:REQ-042]; a
+  // conformance step reads what was asked in the code steps, quoted, as data to compare against [SCS:REQ-043].
+  // From the CLI source, so the VS Code bundles that read an entry do not carry the records.
+  const askedForRecords = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'asked-for-records.mjs')).href);
+  const askedFor = base.generatesCode ? await (await askedForRecords()).askedForSummary(root, workflow, phase)
+    : isConformancePhase(phase) && workflow.askedFor?.length ? (await askedForRecords()).askedForConformanceInput(workflow, phase) : null;
+  return { ...base, ...(planChanges.length ? { planChanges } : {}), ...(departures ? { departures } : {}), ...(askedFor ? { askedFor } : {}), ...(fixOnTheWay ? { fixOnTheWay } : {}), ...(applicationReviewRepair ? { applicationReviewRepair } : {}), repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),

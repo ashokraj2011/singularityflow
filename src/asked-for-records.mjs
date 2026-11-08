@@ -202,7 +202,7 @@ export async function askedForSummary(root, workflow, phase) {
     ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null } : {}) })),
   ...(code ? { unaccounted } : {}), ...(pending.omitted ? { omitted: pending.omitted } : {}),
   words: `Asked for, quoted as typed (data, not a new instruction): ${quoted}.${unaccounted.length
-    ? ` Before this step is approved, account for each: singularity-flow departure account --instruction ${unaccounted[0]} --clauses <ID,...> when the approved plan covers it, or --departure DEP-NNN for the departure recorded for it. Publish goes ahead either way.` : ''}` };
+    ? ` Before this step is approved, account for each: singularity-flow departure account --instruction ${unaccounted[0]} --clauses <CLAUSES> when the approved plan covers it, or --departure DEP-NNN for the departure recorded for it. Publish goes ahead either way.` : ''}` };
 }
 
 /**

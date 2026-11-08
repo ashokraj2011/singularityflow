@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 import { CHECK_KINDS, scanGuidanceText } from '../guidance-scan.mjs';
+import { ciScannerSteps, ciStepFor } from '../findings/ci-scanners.mjs';
 
 export const ITEM_KINDS = Object.freeze(['process', 'step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool',
   'link', 'command', 'checkpoint', 'branch', 'script', 'withheld']);
@@ -37,6 +38,7 @@ const METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'head', 'optio
 const SCRIPT = /\.(?:sh|bash|zsh|ps1)$|(?:^|\/)(?:Makefile|Justfile)$/iu;
 const DOCUMENT = /\.(?:md|markdown|txt)$/iu;
 const MCP_FILE = /(?:^|\/)(?:\.vscode\/)?\.?mcp\.json$/iu;
+const CI_WORKFLOW = /(?:^|\/)\.github\/workflows\/[^/]+\.ya?ml$/u;
 
 function itemId(kind, where, line, name) {
   return `i-${createHash('sha256').update([kind, where, line, name].join('\0')).digest('hex').slice(0, 12)}`;
@@ -80,9 +82,11 @@ export function linkSkillFiles(items, roots, repository) {
 }
 
 /** What a found command is, and what the workflow can do with it, in words. */
-function commandDetail({ category, directory }) {
+function commandDetail({ command, category, directory }) {
   const where = directory ? ` (in ${directory}/)` : '';
-  if (CHECK_KINDS[category]) return `a ${category === 'typecheck' ? 'type-check' : category} command${where}; it can be a step's check, which sflow runs when the step is submitted`;
+  // A scanner's check reads its findings on the Story's changed lines [CQF:REQ-049].
+  const ci = ['security', 'static-analysis'].includes(category) ? ciStepFor(command) : null;
+  if (CHECK_KINDS[category]) return `a ${category === 'typecheck' ? 'type-check' : category} command${where}; it can be a step's check, which sflow runs when the step is submitted${ci ? `; ${ci}` : ''}`;
   if (category === 'deploy') return `a deployment command${where}; it stays with the agent, and sflow never runs it`;
   return `${category === 'other' ? 'a command' : `a${category === 'install' ? 'n' : ''} ${category} command`}${where} the agent runs; sflow never runs it`;
 }
@@ -219,6 +223,13 @@ export function inventoryCapture(capture, contents) {
     if (MCP_FILE.test(lower)) { mcpServers(file, text).forEach(push); continue; }
     if (SCRIPT.test(file.relative)) push(item('script', file.relative, file, { endLine: lines, foundBy: 'layout', detail: 'a script the team runs; recorded, never run' }));
     if (!kind && DOCUMENT.test(lower)) push(item('document', file.relative, file, { endLine: lines, foundBy: 'layout' }));
+    // A CI workflow's scanner `uses:` steps, which no run: line shows: what sflow proposes for each [CQF:REQ-049].
+    if (CI_WORKFLOW.test(lower)) {
+      for (const step of ciScannerSteps(text)) {
+        push(item('command', `uses: ${step.uses}`, file, { startLine: step.line, foundBy: 'pattern', detail: `a CI step${step.name ? ` (${step.name})` : ''} in job ${step.job}; ${step.words}`,
+          extra: { category: step.category, checkable: false, ci: { scanner: step.scanner, uses: step.uses, job: step.job, configuration: step.configuration } } }));
+      }
+    }
     if (!DOCUMENT.test(lower) && !SCRIPT.test(file.relative) && !kind) continue;
     const scan = scanGuidanceText(text);
     for (const call of scan.apiCalls) {

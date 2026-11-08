@@ -159,6 +159,31 @@ test('tests run once on unchanged code, however many later steps need them, and 
   assert.equal((await f.workflow()).status, 'closed', 'every final gate replays the one run');
 });
 
+test('a README edit after the code step reruns nothing, and the run still binds to the end [CQF:REQ-011]', slowLane({ timeout: 600_000 }), async (t) => {
+  const f = await storyAtCode(t);
+  const start = await f.runs();
+  f.publish();
+  f.sflow('submit', 'implementation');
+  f.sflow('approve', 'implementation', '--yes');
+  assert.equal(await f.runs(), start + 1);
+  // Documentation, as delivery evidence already defines it, edited and committed after the code was approved.
+  await f.write('README.md', '# Value\n\nReturns the approved value.\n');
+  f.must('git', ['add', 'README.md']); f.must('git', ['commit', '-q', '-m', 'Say what the module returns']);
+  const reviewed = await f.finishTesting();
+  assert.equal(await f.runs(), start + 1, 'the tests did not run again');
+  assert.match(reviewed.stderr, /Not run again: node-tests passed on this exact code \(TA-[a-f0-9]{20}, recorded by implementation\)/u);
+  const testing = (await f.workflow()).phases.testing;
+  const reused = testing.checks.find((check) => check.source === 'repository-tests');
+  const packet = (await f.workflow()).lineage.submissions.filter((entry) => entry.phase === 'testing').at(-1).projection;
+  assert.notEqual(reused.sourceTreeSha256, packet.sourceTreeSha256, 'the tree moved with the README');
+  assert.equal(reused.codeTreeSha256, packet.codeTreeSha256, 'the code did not');
+  assert.match(packet.documentationSha256, /^sha256:[a-f0-9]{64}$/u, 'the documentation is hashed separately');
+  f.sflow('approve', 'testing', '--yes');
+  await f.finishConformance();
+  assert.equal(await f.runs(), start + 1);
+  assert.equal((await f.workflow()).status, 'closed');
+});
+
 test('a different environment runs the tests again, and the real run is recorded as one', slowLane({ timeout: 600_000 }), async (t) => {
   const f = await storyAtCode(t);
   const start = await f.runs();
@@ -453,6 +478,11 @@ test('a run stands only while everything it ran on is the same', async (t) => {
   assert.match((await standing()).moved, /outside this branch's history/u);
   await attempt({ rawReports: [{ path: 'work/raw/gone.bin', sha256: 'f'.repeat(64), bytes: 1 }] });
   assert.match((await standing()).moved, /report of .* is not available/u);
+  // A documentation edit moves the tree but not the code a run ran on [CQF:REQ-011].
+  const coded = await attempt({ candidate: { commit, treeSha256: 'sha256:tree', codeTreeSha256: 'sha256:code', testInputSha256: 'sha256:inputs' } });
+  assert.equal((await standing({ treeSha256: 'sha256:readme-edited', codeTreeSha256: 'sha256:code' })).attempt.attemptId, coded.attemptId);
+  assert.equal((await standing({ treeSha256: 'sha256:readme-edited', codeTreeSha256: 'sha256:other' })).attempt, undefined, 'changed code still runs');
+  assert.equal((await standing({ treeSha256: 'sha256:readme-edited' })).attempt, undefined, 'without the code digest only the tree is compared');
 });
 
 test('runs disagree only on the same program, code, test inputs and environment; a copy or an environment\'s run never counts [CQF:REQ-013]', () => {

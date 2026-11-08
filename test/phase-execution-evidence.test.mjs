@@ -65,6 +65,23 @@ test('changed source/config, missing ancestry and amended command epochs cannot 
   'a retained, fully verified successor runner epoch is reusable; the old required marker alone is not a blocker');
 });
 
+test('a documentation edit neither unbinds a run nor makes it stale; a code edit does [CQF:REQ-011]', () => {
+  const code = `sha256:${'e'.repeat(64)}`;
+  const edited = `sha256:${'f'.repeat(64)}`;
+  const item = sample();
+  item.packet.checks[0].codeTreeSha256 = code;
+  item.packet.codeTreeSha256 = code;
+  Object.assign(item.current, { sourceTreeSha256: edited, codeTreeSha256: code });
+  assert.equal(projectExecutionPacket(item.packet, item.phase, item.current).checks[0].binding, 'matched', 'the README moved, the code did not');
+  item.packet.sourceTreeSha256 = edited;
+  assert.equal(projectExecutionPacket(item.packet, item.phase, item.current).checks[0].binding, 'matched', 'a packet submitted after the edit still binds it');
+  item.current.codeTreeSha256 = `sha256:${'1'.repeat(64)}`;
+  assert.equal(projectExecutionPacket(item.packet, item.phase, item.current).checks[0].binding, 'stale', 'a code edit is stale');
+  const old = sample();
+  Object.assign(old.current, { sourceTreeSha256: edited, codeTreeSha256: code });
+  assert.equal(projectExecutionPacket(old.packet, old.phase, old.current).checks[0].binding, 'stale', 'a check recorded before the code digest compares the whole tree');
+});
+
 test('failed, unavailable, skipped, timed out, signalled and invalid passing processes remain nonpassing', () => {
   for (const outcome of ['failed', 'blocked', 'unavailable', 'skipped-warning', 'unknown']) {
     const item = sample({ outcome, exitCode: 1 });

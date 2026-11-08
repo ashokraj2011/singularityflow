@@ -118,14 +118,16 @@ function ranCommand(attempt, command) {
  * cannot compare those values.
  */
 export async function unchangedTestRun(root, itemRelative, workflow, phaseId, command, {
-  commit, treeSha256, testInputSha256 = null, environmentSha256, pinSha256
+  commit, treeSha256, codeTreeSha256 = null, testInputSha256 = null, environmentSha256, pinSha256
 }) {
   const workId = workflow.workItem.id;
   let latest = null;
+  // A documentation edit is no change to the code a run ran on [CQF:REQ-011]; a run recorded before the code digest compares its whole tree.
+  const sameCode = (candidate) => candidate?.treeSha256 === treeSha256 || Boolean(codeTreeSha256 && candidate?.codeTreeSha256 === codeTreeSha256);
   for (const id of workflow.phaseOrder ?? [phaseId]) {
     for (const attempt of await stepAttempts(root, itemRelative, workId, id)) {
       if ((!ranCommand(attempt, command) && !ranCommand(attempt, command.testScope?.baseCommand))
-          || attempt.candidate?.treeSha256 !== treeSha256 || (attempt.candidate?.testInputSha256 ?? null) !== (testInputSha256 ?? null)) continue;
+          || !sameCode(attempt.candidate) || (attempt.candidate?.testInputSha256 ?? null) !== (testInputSha256 ?? null)) continue;
       if (!latest || attemptRecordedAt(attempt).localeCompare(attemptRecordedAt(latest)) >= 0) latest = attempt;
     }
   }

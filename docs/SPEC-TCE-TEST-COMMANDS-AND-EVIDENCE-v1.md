@@ -237,7 +237,8 @@ the later step's submit, and again on each retried publish. Conformance, approva
 - `[TCE:REQ-081]` "The same" means the application source digest, the separately hashed test inputs, program and
   arguments with the working folder and report form, the command's pin, and `environmentSha256`: `CI`, removed
   variables, declared variables, `NODE_OPTIONS` and toolchain versions. Anything else runs again, with a line
-  saying why. A run given an environment's values, the test-recovery pilot and a runner amendment's epoch
+  saying why. Documentation is hashed separately and is not part of that source here or of a run's binding
+  (`[CQF:REQ-011]`). A run given an environment's values, the test-recovery pilot and a runner amendment's epoch
   always run.
 - `[TCE:REQ-082]` A passing `tests run` counts as such a run (owner decision 3). A `tests run` itself always runs.
 - `[TCE:REQ-083]` A reused run never reads as a run of the reusing step: the check carries `reusedFrom` and the

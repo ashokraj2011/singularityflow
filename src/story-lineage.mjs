@@ -12,7 +12,7 @@ import { loadSession, setAgentSession } from './session.mjs';
 import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
 import { workflowBranchAllowed, workDir } from './story-paths.mjs';
-import { commitAndPublish, saveStoryDraft, sourceTreeHash, testInputTreeHash, storyWelEnrollmentStatus, workflowPublicationBranch } from './state-stores.mjs';
+import { commitAndPublish, saveStoryDraft, sourceTreeDigests, sourceTreeHash, testInputTreeHash, storyWelEnrollmentStatus, workflowPublicationBranch } from './state-stores.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, nowIso, run, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
@@ -480,7 +480,8 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     artifactSetSha256: reviewArtifactSetSha256(artifacts),
     ...(skillEvidence ? { skill: skillEvidence } : {})
   };
-  const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+  // The documentation is hashed separately, and the code without it binds the step's runs [CQF:REQ-011].
+  const { treeSha256: sourceTreeSha256, codeTreeSha256, documentationSha256 } = await sourceTreeDigests(root, config, workflow);
   const testInputSha256 = await testInputTreeHash(root, config, workflow);
   if (submissionEvidence.codeDelivery?.autoCandidate) {
     const candidate = validateAutoCandidateBinding(
@@ -515,7 +516,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     submittedBranch,
     submissionCommit: submittedCommit,
     sourceCommit: submittedCommit,
-    sourceTreeSha256,
+    sourceTreeSha256, codeTreeSha256, ...(documentationSha256 ? { documentationSha256 } : {}),
     ...(testInputSha256 ? { testInputSha256 } : {}),
     phase: phase.id,
     generation: phase.generation,

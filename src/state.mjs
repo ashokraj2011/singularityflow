@@ -108,7 +108,7 @@ import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
-  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, isDocumentationPath, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
@@ -3041,6 +3041,25 @@ function rebuildUsageAggregates(workflow) {
 const TEST_INPUT_SELECTION = Symbol('test-input-selection');
 
 export async function sourceTreeHash(root, ...governanceSources) {
+  const { selection, sourcePolicy, manifest } = await sourceTreeManifest(root, ...governanceSources);
+  return manifestDigest(selection === 'test-input' ? { policy: sourcePolicy, manifest } : manifest);
+}
+
+const manifestDigest = (value) => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
+
+/**
+ * The application source digest (`treeSha256`, exactly sourceTreeHash's), the same source without its
+ * documentation (`codeTreeSha256`), and the documentation's own digest, null when there is none, from one
+ * read [CQF:REQ-011]. Recorded digests keep their meaning; a run's reuse and binding compare the code one.
+ */
+export async function sourceTreeDigests(root, ...governanceSources) {
+  const { manifest } = await sourceTreeManifest(root, ...governanceSources);
+  const documentation = manifest.filter((entry) => isDocumentationPath(entry.path));
+  return { treeSha256: manifestDigest(manifest), codeTreeSha256: manifestDigest(manifest.filter((entry) => !isDocumentationPath(entry.path))),
+    documentationSha256: documentation.length ? manifestDigest(documentation) : null };
+}
+
+async function sourceTreeManifest(root, ...governanceSources) {
   const selection = governanceSources.at(-1) === TEST_INPUT_SELECTION ? 'test-input' : 'application';
   if (selection === 'test-input') governanceSources.pop();
   assertNoHiddenWorktreeChanges(root, 'Application source hashing');
@@ -3187,8 +3206,7 @@ export async function sourceTreeHash(root, ...governanceSources) {
     }
     regularFiles.forEach((entry, index) => { entry.object = hashed[index]; });
   }
-  return `sha256:${createHash('sha256').update(canonicalJson(selection === 'test-input'
-    ? { policy: sourcePolicy, manifest } : manifest)).digest('hex')}`;
+  return { selection, sourcePolicy, manifest };
 }
 
 /** A separate, exact binding for approved excluded directories and test configuration files. */
@@ -3400,7 +3418,9 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
       : refuse('the receipt does not describe the approved generation and passing executions.');
   }
   const currentTestInput = await testInputTreeHash(root, config, workflow);
-  if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)
+  // A documentation edit is no change to the tested code [CQF:REQ-011]; a receipt from before the code digest compares its whole tree.
+  const currentTree = await sourceTreeDigests(root, config, workflow);
+  if ((receipt.tree.codeTreeSha256 ? receipt.tree.codeTreeSha256 !== currentTree.codeTreeSha256 : receipt.tree.workingStateDigest !== currentTree.treeSha256)
       || (currentTestInput && receipt.tree.testInputSha256 !== currentTestInput)) {
     const repairTarget = reviewRepairTarget(workflow, phase);
     // Main's own changes, merged in after the code was approved, read as this Story's edits
@@ -3864,7 +3884,7 @@ export async function publishGeneration(root, config, workflow, {
     const receiptPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}.json`;
     const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
     await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
-    const workingStateDigest = await sourceTreeHash(root, config, workflow);
+    const { treeSha256: workingStateDigest, codeTreeSha256 } = await sourceTreeDigests(root, config, workflow);
     const testInputSha256 = await testInputTreeHash(root, config, workflow);
     const receipt = {
       schemaVersion: currentSchemaVersion('code-delivery'),
@@ -3917,7 +3937,7 @@ export async function publishGeneration(root, config, workflow, {
       ...(autoCandidateVerification ? {
         autoCandidateVerification: structuredClone(autoCandidateVerification)
       } : {}),
-      tree: { workingStateDigest, ...(testInputSha256 ? { testInputSha256 } : {}),
+      tree: { workingStateDigest, codeTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
         generationCommit: null, generationTree: null },
       model: {
         task: 'code',
@@ -4746,7 +4766,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   validateEnvironmentQualityCommandCatalog(declaration, catalog);
   const sourceCommit = head(root);
   // A base run's worktree holds other code by design: what must not change is that worktree's own.
-  const sourceTreeSha256 = await sourceTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
+  const { treeSha256: sourceTreeSha256, codeTreeSha256 } = await sourceTreeDigests(candidateIsOtherCode ? candidateRoot : root, config, workflow);
   const testInputSha256 = await testInputTreeHash(candidateIsOtherCode ? candidateRoot : root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
@@ -4910,7 +4930,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       const observed = {};
       await gateRun.attach(observed);
       const standing = await unchangedTestRun(root, workDirRelative(config, workflow.workItem.id), workflow, phase.id, value, {
-        commit: sourceCommit, treeSha256: sourceTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
+        commit: sourceCommit, treeSha256: sourceTreeSha256, codeTreeSha256, testInputSha256, environmentSha256: runEnvironmentSha256(observed.runEnvironment),
         ...(pinOf ? { pinSha256: pinOf(policy.id) } : {}) });
       if (standing.attempt) {
         // Nothing ran: the report staged for this run returns untouched.
@@ -4962,7 +4982,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...(isolationNeed?.excluded ?? [])] } : {}),
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-      sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+      sourceCommit, sourceTreeSha256, codeTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
       ...(policy.kind === 'test' ? { testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) } : {}),
       startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
@@ -5031,7 +5051,8 @@ function reusedQualityCheck(policy, command, standing, { testInputSha256, testRu
   const check = {
     id: policy.id, command, kind: policy.kind, requirement: policy.requirement, workingDirectory: policy.workingDirectory,
     resultIsolated: true, externalModelPolicy: policy.modelPolicy, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-    sourceCommit: attempt.candidate.commit, sourceTreeSha256: attempt.candidate.treeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+    sourceCommit: attempt.candidate.commit, sourceTreeSha256: attempt.candidate.treeSha256, ...(attempt.candidate.codeTreeSha256 ? { codeTreeSha256: attempt.candidate.codeTreeSha256 } : {}),
+    ...(testInputSha256 ? { testInputSha256 } : {}),
     testRuntime, startedAt: attempt.process.startedAt, completedAt: attempt.process.completedAt,
     status: 'passed', exitCode: 0, signal: null, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false,
     evidenceUse: 'reused', reusedFrom: { attemptId: attempt.attemptId, phase: attempt.phase, generation: attempt.generation, commit: attempt.candidate.commit,
@@ -5803,10 +5824,10 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   phase.validationVerdict = validation.verdict;
   if (codeDeliveryRequired) {
-    const validatedSourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+    const { treeSha256: validatedSourceTreeSha256, codeTreeSha256: validatedCodeTreeSha256 } = await sourceTreeDigests(root, config, workflow);
     const validatedTestInputSha256 = await testInputTreeHash(root, config, workflow);
     const changedAfterCheck = phase.checks.find((check) =>
-      check.sourceTreeSha256 && (check.sourceTreeSha256 !== validatedSourceTreeSha256
+      check.sourceTreeSha256 && ((check.sourceTreeSha256 !== validatedSourceTreeSha256 && !(check.codeTreeSha256 && check.codeTreeSha256 === validatedCodeTreeSha256))
         || (validatedTestInputSha256 && check.testInputSha256 !== validatedTestInputSha256)));
     if (changedAfterCheck) {
       throw new SingularityFlowError(
@@ -5897,7 +5918,7 @@ async function submitPhaseTransition(root, config, workflow, {
       ...(retainedRisk ? { testRecovery: structuredClone(phase.deliveryEvidence.testRecovery) } : {}),
       tree: {
         ...deliveryReceipt.tree,
-        workingStateDigest: validatedSourceTreeSha256,
+        workingStateDigest: validatedSourceTreeSha256, codeTreeSha256: validatedCodeTreeSha256,
         generationCommit: phase.generationCommit,
         generationTree
       },

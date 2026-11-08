@@ -1677,6 +1677,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     adapter: parsed?.adapter ?? command.result?.adapter ?? null,
     profile,
     candidate: { commit: check?.sourceCommit ?? null, treeSha256: check?.sourceTreeSha256 ?? null,
+      // The same source without its documentation, which reuse and run binding compare [CQF:REQ-011].
+      ...(check?.codeTreeSha256 ? { codeTreeSha256: check.codeTreeSha256 } : {}),
       ...(check?.testInputSha256 ? { testInputSha256: check.testInputSha256 } : {}) },
     process: {
       status: check?.status ?? 'not-run', exitCode: Number.isInteger(check?.exitCode) ? check.exitCode : null,

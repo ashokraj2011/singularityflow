@@ -353,7 +353,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,548,400 (measured 9,548,359): the printed review names a flaky command (print-phase-review.mjs); finding one stays lazy (verification/flaky-runs.mjs) [CQF:REQ-013].
     // 9,549,500 (measured 9,549,468): a non-code step's runs are bound into its packet and read by their counts (state.mjs +756, story-lineage.mjs +280,
     // evidence-consistency.mjs +167); running and binding them stays lazy (verification/repository-tests.mjs) [CQF:REQ-010, REQ-012].
-    assert.ok(closure.bytes <= 9_549_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,552,400 (measured 9,552,346): documentation is hashed apart from the code a run's reuse and binding compare (state.mjs sourceTreeDigests,
+    // delivery-evidence.mjs, phase-execution-evidence.mjs, attempts.mjs, story-lineage.mjs, code-delivery-tests.mjs) [CQF:REQ-011]. The gates themselves read it, so not lazy.
+    assert.ok(closure.bytes <= 9_552_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -530,7 +532,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,142,200 (measured 4,142,112): the same runner table and decisions.
   // 4,158,500 (measured 4,158,475): the same person-step-catalog.mjs as start, less what moved out of command-skills.mjs.
   // 4,158,510 (measured 4,158,509): the same --latest flag as root dispatch.
-  assert.ok(current.bytes <= 4_158_510, `session current loads ${current.bytes} source bytes`);
+  // 4,159,060 (measured 4,159,053): the one documentation definition exported, and a receipt's code digest (delivery-evidence.mjs, code-delivery-tests.mjs) [CQF:REQ-011].
+  assert.ok(current.bytes <= 4_159_060, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

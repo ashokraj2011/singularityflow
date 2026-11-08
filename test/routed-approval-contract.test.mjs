@@ -32,6 +32,13 @@ test('the explicit v2 vote profile binds branch, loop, ask and partial-threshold
     assert.equal(value.thresholdReached,value.routing.outcome!==null);assert.equal(value.routing.pendingKey!==null,value.routing.outcome?.kind==='pause');
   }
 });
+test('the nested v2 routing profile binds questions to their actual generation while v1 stays readable',()=>{
+  const {value,binding}=proposal('ask');
+  value.routing={...value.routing,schemaVersion:2,format:'sflow-namespace-phase-approval-routing/v2',generation:value.generation};
+  assert.equal(namespaceApprovalValue(value,binding),value);
+  value.routing.generation+=1;
+  assert.throws(()=>namespaceApprovalValue(value,binding),{code:'ENGINE_STORAGE_CORRUPT'});
+});
 test('malformed routing fields cannot masquerade as a human-approved pinned outcome',()=>{
   const {value,binding}=proposal();
   for(const change of [v=>{v.routing.decision='other';},v=>{v.routing.outcome.after='another-phase';},v=>{v.routing.outcome.target=null;},
@@ -45,7 +52,8 @@ test('malformed routing fields cannot masquerade as a human-approved pinned outc
 });
 test('future routed vote families preserve unsupported-schema errors rather than becoming missing evidence',()=>{
   const {value,binding}=proposal();
-  for(const change of [v=>{v.schemaVersion=NAMESPACE_APPROVAL_SCHEMAS.vote.maximumReadableVersion+1;},v=>{v.routing.schemaVersion=2;}]) {
+  for(const change of [v=>{v.schemaVersion=NAMESPACE_APPROVAL_SCHEMAS.vote.maximumReadableVersion+1;},
+    v=>{v.routing.schemaVersion=NAMESPACE_APPROVAL_SCHEMAS.routing.maximumReadableVersion+1;}]) {
     const changed=structuredClone(value);change(changed);
     assert.throws(()=>namespaceApprovalValue(changed,binding),{code:'ENGINE_STORAGE_UNSUPPORTED'});
   }

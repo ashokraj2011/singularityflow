@@ -2,7 +2,7 @@
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS} from '../foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS,namespaceApprovalRoutingProfile} from '../foundation/record-schema.mjs';
 import {phaseAccessIdentity,phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {assertApprovalReviewConfirmation,principalApprovalPlan} from '../kernel/approval-policy.mjs';
 import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase-admission.mjs';
@@ -18,7 +18,7 @@ import {createNamespaceLifecycleObserver,namespaceLifecycleStoryKey} from './nam
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
-import {createNamespaceApprovalReader} from './namespace-approval-reader.mjs';
+import {createNamespaceApprovalReader,namespaceRoutingQuestionKey} from './namespace-approval-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceApprovalValue,namespaceApprovalRecord,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision,
@@ -51,14 +51,14 @@ export function createNamespaceApprovalEngine({records,content,scope,workId,auth
     if(plan&&(plan.operation!=='phase.approve'||plan.inputsSha256!==s.requestSha256))throw error('This approval ID has another retained intent.','ENGINE_OPERATION_ID_REUSED');
     return plan;
   }
-  function routing(workflow,phase,reached,at) {
+  function routing(workflow,phase,reached,at,version=NAMESPACE_APPROVAL_SCHEMAS.routing.currentVersion) {
     const selected=routedApprovalSelection(workflow,phase,{reached,at});
-    const pendingKey=selected.pending?hash(canonicalJson(selected.pending)).slice(0,16):null;
-    return {selected,pending:selected.pending?{...selected.pending,key:pendingKey}:null,value:{schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.routing.currentVersion,
-      format:'sflow-namespace-phase-approval-routing/v1',decision:selected.decision,outcome:selected.outcome,pendingKey}};
+    const profile=namespaceApprovalRoutingProfile({schemaVersion:version}),pendingKey=namespaceRoutingQuestionKey(selected.pending,phase.generation,version);
+    return {selected,pending:selected.pending?{...selected.pending,key:pendingKey}:null,value:{schemaVersion:profile.version,
+      format:profile.format,decision:selected.decision,outcome:selected.outcome,pendingKey,...(profile.generationBound?{generation:phase.generation}:{})}};
   }
   function routedWorkflow(workflow,phaseId,value,binding) {
-    const selected=routing(workflow,workflow.phases[phaseId],value.thresholdReached,value.recordedAt);
+    const selected=routing(workflow,workflow.phases[phaseId],value.thresholdReached,value.recordedAt,value.routing.schemaVersion);
     if(!same(value.routing,selected.value)||value.currentPhase!==selected.selected.currentPhase)throw error('The routed vote differs from its original pinned outcome.','ENGINE_STORAGE_CORRUPT');
     const proposed=planRoutedApproval(workflow,phaseId,{decision:namespaceApprovalDecision(value,binding),reached:value.thresholdReached,
       at:value.recordedAt,actorId:value.actor.principalId,agentId:value.agentId,authorityGroup:value.authorityGroup,

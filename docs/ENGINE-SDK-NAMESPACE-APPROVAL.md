@@ -83,8 +83,9 @@ unchanged. A lost acknowledgement is reconciled through the retained candidate a
 ## Remaining scope
 
 This advances Phase 7 with real namespace human approval and sequential completion. Full application
-code and test execution, source review, checklists, witnesses, presence, automatic approval,
-human route-choice recording and other additional policies require their actual operation owners.
+code and test execution, source review, checklists, witnesses, presence, automatic approval
+and other additional policies require their actual operation owners. Human route choices now
+have their separate [context and writer](ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md).
 The initial profile returns `ENGINE_PORT_UNAVAILABLE` for those requirements instead of accepting
 readiness booleans or silently following a linear route. Existing-project migration and installed
 authority cutover remain Phase 8; final cleanup, distribution and performance remain Phase 9.

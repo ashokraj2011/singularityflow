@@ -1,0 +1,102 @@
+{
+  "baseline": "5edd773af",
+  "description": "Actual namespace v2 vote with the original v1 routing question profile.",
+  "scope": {
+    "projectId": "new-project"
+  },
+  "workId": "story-1",
+  "phase": "intake",
+  "reference": {
+    "bytes": 1803,
+    "namespace": "evidence",
+    "sha256": "2f6af377a6e94774081dcae50a4bfc884ed8cb2d9b339aafef65aeca76db9d14"
+  },
+  "value": {
+    "actor": {
+      "actorKind": "human",
+      "identity": {
+        "email": "independent@example.test",
+        "login": null,
+        "name": "Independent reviewer"
+      },
+      "principalId": "independent-reviewer"
+    },
+    "agentId": null,
+    "artifactSet": {
+      "bytes": 613,
+      "namespace": "evidence",
+      "sha256": "15e136f9a96e1a5896a342db9cd79865a101e585587ef69e452f5fb811a010cb"
+    },
+    "authorityGroup": "reviewers",
+    "baseRevision": "fs:d441580e-3c60-475b-9151-82ae434c4de4/record-2",
+    "configuration": {
+      "content": {
+        "bytes": 22832,
+        "namespace": "config",
+        "sha256": "ef1b14ab30b91e41932da9072031081c0917b82968d916c85469357bd2748d87"
+      },
+      "key": "configuration/versions/ef1b14ab30b91e41932da9072031081c0917b82968d916c85469357bd2748d87"
+    },
+    "currentPhase": "intake",
+    "format": "sflow-namespace-phase-approval-vote/v2",
+    "generation": 1,
+    "operationId": "approve-e08a000a2b2502cc5150ac807ed85fc47f2aafd6c4bf5a12f7695e20d5fbd6e2",
+    "phase": "intake",
+    "profile": "sflow-primary-document-approval/v2",
+    "projectId": "new-project",
+    "recordedAt": "2026-11-08T00:00:00.000Z",
+    "requestSha256": "bfb83f61b200b34cae4c11c01e7db16a3bfaa280cf3654ebb5b9bf4ff9a20a20",
+    "reviewPacket": {
+      "bytes": 1473,
+      "namespace": "evidence",
+      "sha256": "27796d40d9f6766efea26ce533609817eab3197136f68e9079987b6a0d322ca6"
+    },
+    "routing": {
+      "decision": "direction",
+      "format": "sflow-namespace-phase-approval-routing/v1",
+      "outcome": {
+        "after": "intake",
+        "by": "person",
+        "decision": "direction",
+        "kind": "pause",
+        "label": "Choose delivery",
+        "reason": "ask"
+      },
+      "pendingKey": "a76f0b44f9cc15f7",
+      "schemaVersion": 1
+    },
+    "schemaVersion": 2,
+    "selfApproval": false,
+    "thresholdReached": true,
+    "workId": "story-1"
+  },
+  "canonicalBytes": "{\n  \"actor\": {\n    \"actorKind\": \"human\",\n    \"identity\": {\n      \"email\": \"independent@example.test\",\n      \"login\": null,\n      \"name\": \"Independent reviewer\"\n    },\n    \"principalId\": \"independent-reviewer\"\n  },\n  \"agentId\": null,\n  \"artifactSet\": {\n    \"bytes\": 613,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"15e136f9a96e1a5896a342db9cd79865a101e585587ef69e452f5fb811a010cb\"\n  },\n  \"authorityGroup\": \"reviewers\",\n  \"baseRevision\": \"fs:d441580e-3c60-475b-9151-82ae434c4de4/record-2\",\n  \"configuration\": {\n    \"content\": {\n      \"bytes\": 22832,\n      \"namespace\": \"config\",\n      \"sha256\": \"ef1b14ab30b91e41932da9072031081c0917b82968d916c85469357bd2748d87\"\n    },\n    \"key\": \"configuration/versions/ef1b14ab30b91e41932da9072031081c0917b82968d916c85469357bd2748d87\"\n  },\n  \"currentPhase\": \"intake\",\n  \"format\": \"sflow-namespace-phase-approval-vote/v2\",\n  \"generation\": 1,\n  \"operationId\": \"approve-e08a000a2b2502cc5150ac807ed85fc47f2aafd6c4bf5a12f7695e20d5fbd6e2\",\n  \"phase\": \"intake\",\n  \"profile\": \"sflow-primary-document-approval/v2\",\n  \"projectId\": \"new-project\",\n  \"recordedAt\": \"2026-11-08T00:00:00.000Z\",\n  \"requestSha256\": \"bfb83f61b200b34cae4c11c01e7db16a3bfaa280cf3654ebb5b9bf4ff9a20a20\",\n  \"reviewPacket\": {\n    \"bytes\": 1473,\n    \"namespace\": \"evidence\",\n    \"sha256\": \"27796d40d9f6766efea26ce533609817eab3197136f68e9079987b6a0d322ca6\"\n  },\n  \"routing\": {\n    \"decision\": \"direction\",\n    \"format\": \"sflow-namespace-phase-approval-routing/v1\",\n    \"outcome\": {\n      \"after\": \"intake\",\n      \"by\": \"person\",\n      \"decision\": \"direction\",\n      \"kind\": \"pause\",\n      \"label\": \"Choose delivery\",\n      \"reason\": \"ask\"\n    },\n    \"pendingKey\": \"a76f0b44f9cc15f7\",\n    \"schemaVersion\": 1\n  },\n  \"schemaVersion\": 2,\n  \"selfApproval\": false,\n  \"thresholdReached\": true,\n  \"workId\": \"story-1\"\n}\n",
+  "pending": {
+    "after": "intake",
+    "anyStep": false,
+    "askedAt": "2026-11-08T00:00:00.000Z",
+    "by": [
+      "reviewers"
+    ],
+    "decision": "direction",
+    "key": "a76f0b44f9cc15f7",
+    "label": "Choose delivery",
+    "maxRounds": null,
+    "options": [
+      {
+        "id": "continue",
+        "label": "Continue",
+        "to": "next"
+      },
+      {
+        "id": "finish",
+        "label": "Finish",
+        "to": "end"
+      }
+    ],
+    "reason": "ask",
+    "round": null,
+    "schemaVersion": 1,
+    "values": {}
+  }
+}

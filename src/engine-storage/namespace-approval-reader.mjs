@@ -1,13 +1,21 @@
 /** Read exact vote bytes and recompute authority/quorum; never write or record a human decision. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {createHash} from 'node:crypto';
-import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespaceApprovalRoutingProfile} from '../foundation/record-schema.mjs';
 import {principalApprovalPlan} from '../kernel/approval-policy.mjs';
 import {decisionAfter} from '../kernel/workflow-decisions.mjs';
 import {routedApprovalSelection} from '../kernel/routed-approval.mjs';
 import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision} from './namespace-approval-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
+/** V1 hashes its native payload. V2 also binds generation, so coarse clocks cannot reuse a question. */
+export function namespaceRoutingQuestionKey(pending,generation,version) {
+  const profile=namespaceApprovalRoutingProfile({schemaVersion:version});
+  if(pending===null)return null;
+  if(!Number.isSafeInteger(generation)||generation<1)throw corrupt('A question needs its actual approved generation.');
+  const identity=profile.generationBound?{generation,question:pending}:pending;
+  return createHash('sha256').update(canonicalJson(identity)).digest('hex').slice(0,16);
+}
 export function createNamespaceApprovalReader({observer,scope,workId}) {
   async function json(reference,signal) {
     const data=await observer.bytes(reference,reference.bytes,signal);
@@ -52,9 +60,9 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
         if(plan.authorityGroup!==value.authorityGroup||plan.selfApproval!==value.selfApproval||plan.reached!==value.thresholdReached)throw Error('The recorded vote authority or quorum changed.');
         if(value.routing) {
           const selected=routedApprovalSelection(snapshot.workflow,phase,{reached:plan.reached,at:value.recordedAt});
-          const pendingKey=selected.pending?createHash('sha256').update(canonicalJson(selected.pending)).digest('hex').slice(0,16):null;
-          if(value.currentPhase!==selected.currentPhase||!same(value.routing,{schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.routing.currentVersion,
-            format:'sflow-namespace-phase-approval-routing/v1',decision:selected.decision,outcome:selected.outcome,pendingKey}))throw Error('The routed vote changed its pinned outcome.');
+          const profile=namespaceApprovalRoutingProfile(value.routing),pendingKey=namespaceRoutingQuestionKey(selected.pending,phase.generation,profile.version);
+          if(value.currentPhase!==selected.currentPhase||!same(value.routing,{schemaVersion:profile.version,format:profile.format,
+            decision:selected.decision,outcome:selected.outcome,pendingKey,...(profile.generationBound?{generation:phase.generation}:{})}))throw Error('The routed vote changed its pinned outcome.');
         }
       }catch(cause){throw corrupt('The retained approval does not match its human authority and quorum.',cause);}
       votes.push({value,binding:decision.namespaceVote});decisions.push(decision);

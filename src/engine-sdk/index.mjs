@@ -7,7 +7,7 @@ import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
-  upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
+  upstreamOperationAdmission,upstreamOperationRequest,decisionContextSelection,decisionContextManifest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest,phaseReviewResourcesManifest,phaseBeginSelection,phaseBeginResult,
   phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
@@ -111,6 +111,8 @@ const definitions = [
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'})),
   ...UPSTREAM_OPERATIONS,
+  {id:'decision.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'decisionContext',
+    stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
   {id:'story.guide',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyGuide',
     stages:Object.freeze(['load']),validate:'storyGuideInput',execute:'inspectStoryGuide'},
   {id:'story.next',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyNext',
@@ -746,6 +748,18 @@ async function inspectPhaseReviewResources(port,inputs,signal) {
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.review.resources',status:'inspected',subject:{kind:'story',id:binding.workId},
     phase:binding.phase,generation:binding.generation,revision:facts.revision,
     effects:{committed:false,pushed:false,humanReviewRecorded:false,approvalRecorded:false},manifest:phaseReviewResourcesManifest(binding,facts)});
+}
+
+async function inspectDecisionContext(port,inputs,signal) {
+  notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||!context.subject.id||context.subject.id!==context.workflow?.workItem?.id)throw new SingularityFlowError(
+    'The decision context port did not bind a Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  if(inputs.workId!=null&&inputs.workId!==context.subject.id)throw new SingularityFlowError('The requested Story does not match this question.',{code:'ACTIVE_SUBJECT_MISMATCH'});
+  const binding=data(decisionContextSelection(context.workflow)),observed=await port.read(context,binding,{signal});notCancelled(signal);let facts;
+  try{facts=data(observed);}catch(cause){throw new SingularityFlowError('The decision context port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'decision.context',status:'inspected',subject:{kind:'story',id:binding.workId},
+    phase:binding.phase,revision:facts.revision,effects:{committed:false,pushed:false,humanDecisionRecorded:false},
+    manifest:decisionContextManifest(binding,facts)});
 }
 
 /** Copy JSON data without executing accessors/toJSON or retaining caller-owned mutable values. */
@@ -1439,7 +1453,7 @@ export function createEngine(options = {}) {
     sourceBindingInput,bindSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
-    documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectStoryGuide, inspectStoryNext,
+    documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
     recordSingleDecision, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,

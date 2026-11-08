@@ -13,6 +13,7 @@ import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, name
   namespaceReadRecord,projectNamespaceLifecycleReadState } from './namespace-read-contract.mjs';
 import { createNamespaceLifecycleObserver,namespaceLifecycleStoryKey } from './namespace-lifecycle-reader.mjs';
 import { createNamespaceSubmissionReader } from './namespace-submission-reader.mjs';
+import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const unavailable = (message, code, details = null, cause = undefined) => new SingularityFlowError(message, { code, details, cause });
@@ -106,8 +107,10 @@ export function createNamespaceReadPorts({ records, content, localContent = null
         projected=projectNamespaceLifecycleReadState(workflow);
       }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
         throw unavailable('The canonical namespace read metadata is invalid.','ENGINE_STORAGE_CORRUPT',{workId},cause);}
+      const submissionReader=createNamespaceSubmissionReader({observer,scope,workId});
       return {subject:{kind:'story',id:workId},workflow:projected,policy,documents,
-        revision:snapshot.revision,lifecycleSnapshot:snapshot,submissionReader:createNamespaceSubmissionReader({observer,scope,workId}),
+        revision:snapshot.revision,lifecycleSnapshot:snapshot,submissionReader,
+        routingChoiceReader:createNamespaceRoutingChoiceReader({observer,scope,workId,packets:submissionReader}),
         lifecycle:{locatorRevision:selected.revision,key:selected.value.lifecycleHead,authorityVersion:basis.authorityVersion}};
     }
     const results = await Promise.allSettled([json(selected.value.state, signal), json(selected.value.policy, signal), json(selected.value.documents, signal)]);
@@ -249,5 +252,17 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     await unchanged(context, signal);
     return { id: record.id, revision: context.revision, observed: { sha256: record.content.sha256, bytes: record.content.bytes, binary: record.encoding === 'binary' }, content, extractionFailure: null };
   } };
-  return { phaseReview, phaseReviewResources, documentRead };
+  const decisionContext={async load(input,options) {
+    const context=await load(input,options);
+    if(!context.lifecycleSnapshot)throw unavailable('A routing question needs its canonical lifecycle owner.','ENGINE_PORT_UNAVAILABLE',{
+      required:['namespace-routing-question']});
+    return {...context,workflow:context.lifecycleSnapshot.workflow};
+  },async read(context,selected,{signal}={}) {
+    const retained=await context.routingChoiceReader.read(context.lifecycleSnapshot,{signal});
+    await unchanged(context,signal);
+    return {workId,phase:selected.phase,revision:context.revision,pendingKey:selected.question?.key??null,
+      proof:retained?{generation:retained.approved.value.generation,reviewPacketSha256:retained.proof.binding.record.sha256,
+        approvalSha256:retained.approved.binding.record.sha256}:null};
+  }};
+  return { phaseReview, phaseReviewResources, documentRead, decisionContext };
 }

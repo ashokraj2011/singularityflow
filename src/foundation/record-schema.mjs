@@ -195,8 +195,13 @@ export function namespaceSubmissionWriterProfile({routing=false}={}) {
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
   vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),binding:frozenFamily('namespace-phase-approval-binding'),
-  artifactSet:frozenFamily('namespace-primary-approval-artifact-set'),routing:frozenFamily('namespace-phase-approval-routing'),
+  artifactSet:frozenFamily('namespace-primary-approval-artifact-set'),
+  routing:Object.freeze({id:'namespace-phase-approval-routing',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   receipt:frozenFamily('namespace-phase-approval-receipt')
+});
+export const NAMESPACE_ROUTING_CHOICE_SCHEMAS=Object.freeze({
+  record:frozenFamily('namespace-routing-choice'),receipt:frozenFamily('namespace-routing-choice-receipt')
 });
 export function namespaceApprovalRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.vote,input);
@@ -205,6 +210,10 @@ export function namespaceApprovalRecordProfile(input) {
 }
 export function namespaceApprovalWriterProfile({routing=false}={}) {
   return namespaceApprovalRecordProfile({schemaVersion:routing?NAMESPACE_APPROVAL_SCHEMAS.vote.currentVersion:1});
+}
+export function namespaceApprovalRoutingProfile(input) {
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.routing,input);
+  return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-approval-routing/v${storedVersion}`,generationBound:storedVersion>1});
 }
 /** Portable publication reference metadata; acceptance and byte verification belong to its owners. */
 export function phasePublicationBindingValue(value) {

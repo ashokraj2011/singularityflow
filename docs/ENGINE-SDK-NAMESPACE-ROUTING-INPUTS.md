@@ -61,7 +61,8 @@ inputs, and submission leaves the phase awaiting approval. The
 [routed approval owner](ENGINE-SDK-NAMESPACE-ROUTED-APPROVAL.md) applies pinned branches and bounded
 rework only after the actual human threshold. It preserves original vote receipts across later
 generations and terminal completion. Ask and exhausted-loop outcomes retain an unanswered question;
-recording the human's route choice still needs its own runtime port.
+recording the human's route choice uses the separate
+[question context and writer](ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md).
 
 Reviewers receive [exact issued resource references](ENGINE-SDK-REVIEW-RESOURCES.md) to the routing
 packet and its retained sources. Complete production execution policy, existing-project migration,

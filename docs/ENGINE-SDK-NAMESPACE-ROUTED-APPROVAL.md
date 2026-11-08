@@ -18,6 +18,10 @@ structured outcome and, when waiting for a person, the exact pending-question ke
 threshold has no routing outcome. The source is the real v2 submitted input packet, including
 proved earlier sources for reused inputs.
 
+The [human-choice follow-up](ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md) versions the nested routing
+contract separately: new v2 routing records bind the question to its actual generation, while
+original v1 routing records retain their payload-derived keys and immutable bytes.
+
 Before counting an active v2 vote, the shared reader recomputes the original human quorum and
 pinned routing outcome. A v1 vote cannot stand in for routed evidence. Unknown future schemas,
 changed outcomes and malformed receipt inventories remain explicit errors.
@@ -64,8 +68,10 @@ basis. A revoked prepared vote remains retained until legitimate permission is r
 
 These are reviewed-document workflows. Actual code/test execution, source reviews, visual
 witnesses, presence, automatic dispositions and other production policies still need their real
-owners. Human route-choice context and `decision.choose` are the next separate runtime gate; an
-unanswered question is not a completed workflow. Existing-project migration must also verify
+owners. [Human route-choice context and recording](ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md) now have
+a separate runtime owner; reading an unanswered question is not a completed workflow. New nested
+v2 routing records bind question identity to generation while original v1 routing bytes and keys
+remain readable. Existing-project migration must also verify
 archived receipts across authority-epoch cutover, beyond the existing same-epoch fencing support.
 Phases 5, 7, 8 and 9 remain open with their complete scope.
 

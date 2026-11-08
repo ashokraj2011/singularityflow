@@ -2,8 +2,41 @@
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {MAX_PLAN_AMENDMENT_CHANGES,DECISION_CAUSE_LIMITS as CAUSE} from './decision-limits.mjs';
 import {isVisualVerificationPhase} from './phase-policy.mjs';
+import {canonicalJson} from '../foundation/record-schema.mjs';
+import {decisionAfter,decisionOutcomeFacts,pendingDecisionPayload,reopenableSteps} from './workflow-decisions.mjs';
 function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
+}
+
+/** A question is interpreted from pinned rules; a surface's echoed options confer no authority. */
+export function decisionContextSelection(workflow) {
+  const workId=workflow.workItem.id,pending=workflow.pendingDecision??null;
+  if(pending===null)return {workId,phase:null,question:null};
+  const phase=Object.hasOwn(workflow.phases,pending.after)?workflow.phases[pending.after]:null;
+  if(workflow.status!=='in_progress'||!phase||phase.status!=='approved'||workflow.currentPhase!==phase.id
+    ||!Number.isSafeInteger(phase.generation)||phase.generation<1||!decisionAfter(workflow,phase.id)
+    ||typeof pending.key!=='string'||!/^[a-f0-9]{16}$/u.test(pending.key))refused(
+    'The pending decision is not bound to the approved current phase.','DECISION_STATE_INVALID');
+  const outcome=decisionOutcomeFacts(workflow,phase),{key,...payload}=pending;
+  if(outcome?.kind!=='pause'||canonicalJson(payload)!==canonicalJson(pendingDecisionPayload(workflow,phase,outcome,{at:pending.askedAt})))refused(
+    'The pending question differs from the pinned decision.','DECISION_STATE_INVALID');
+  return {workId,phase:phase.id,question:{...structuredClone(pending),generation:phase.generation,
+    reopenableSteps:reopenableSteps(workflow,pending)}};
+}
+
+/** The host supplies observed provenance; wording, command rendering and human answers stay outside. */
+export function decisionContextManifest(binding,facts) {
+  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)
+    &&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+  const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
+  if(!exact(facts,['workId','phase','revision','pendingKey','proof'])||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||typeof facts.revision!=='string'||!facts.revision||facts.revision.length>2048
+    ||facts.pendingKey!==(binding.question?.key??null)
+    ||(binding.question===null?facts.proof!==null:!exact(facts.proof,['generation','reviewPacketSha256','approvalSha256'])
+      ||facts.proof.generation!==binding.question.generation||!digest(facts.proof.reviewPacketSha256)||!digest(facts.proof.approvalSha256)))refused(
+    'The decision context port returned differently bound provenance.','ENGINE_PORT_RESULT_INVALID');
+  return {schemaVersion:1,contract:'sflow-workflow-decision-context/v1',workId:binding.workId,phase:binding.phase,
+    observedRevision:facts.revision,question:structuredClone(binding.question),proof:structuredClone(facts.proof)};
 }
 
 /** Installed upstream admission: a list may inspect a closed Story; mutations require it open. */

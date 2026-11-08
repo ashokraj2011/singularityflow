@@ -37,8 +37,9 @@ exact phase, generation, resource kind and expected content reference.
 The shared kernel validates the manifest shape and references; the SDK owns coordination; SDA
 owns content/record reads. Native Git review output remains on its existing registered route. The
 new query does not route workflow decisions or finish the portable execution milestone. Versioned
-routed approvals and receipt recovery now have their own owner. Human choices and full application
-execution remain required Phase 7 work, followed by migration and final cleanup/qualification.
+routed approvals and receipt recovery now have their own owner, followed by the separate
+[human choice context and writer](ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md). Full application
+execution remains required Phase 7 work, followed by migration and final cleanup/qualification.
 
 ## Mac qualification
 

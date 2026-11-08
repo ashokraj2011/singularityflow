@@ -36,7 +36,7 @@ including the explicit model mode, then call `engine.run('story.next', { workId 
 contains ordered semantic actions, prerequisites and registered operation references. It contains
 no shell commands or model prompt. Reading the plan neither executes those actions nor records
 approval. External setup and human routes remain the host's responsibility. The namespace read
-host below still implements phase/document reads only; it does not provide this port.
+host below implements phase/document and pending-question reads; it does not provide this port.
 
 The core and `errors` exports are pure. Import storage explicitly when it is needed:
 
@@ -79,8 +79,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   submission, enforce pinned authority and quorum, and advance a reviewed-document workflow.
   Acknowledgement on another host preserves the original receipt and creates no new vote.
   Versioned routed votes apply pinned branches and rework, preserve receipts through successor
-  generations, and pause unanswered human choices. Actual code/test execution and route-choice
-  recording still need their separate runtime owners.
+  generations, and pause unanswered human choices. Actual code/test execution still needs its
+  separate runtime owners.
+- `hosts/namespace-routing-choice`: read the exact question through `decision.context` and record
+  an authorized human's `decision.choose`, retaining original receipts through later phases and
+  generation-bound question identities. Application delivery policies remain a separate gate.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,
@@ -114,7 +117,8 @@ the registered operations separately enforce lifecycle, source, tests and human 
 `docs/ENGINE-SDK-ARTIFACT-INSPECTION.md` for the exact boundary and host example.
 
 The read host needs one explicit Story scope, a metadata store, a content store and a previously
-saved read head. It implements `phase.review`, `phase.review.resources` and `document.read`; its
+saved read head. It implements `phase.review`, `phase.review.resources`, `document.read` and
+`decision.context`; its
 other operation ports remain unavailable. A saved projection cannot establish an approval
 binding. A canonical lifecycle head supplies the shared submission proof before returning one;
 the final observed head and authority are checked after those reads. It has no Git or provider fallback. The
@@ -134,7 +138,18 @@ for (const resource of context.manifest.resources) {
   const retained = await reader.run('document.read', { reference: resource.reference });
   // Present verified bytes; reading does not record a human decision.
 }
+
+// A canonical lifecycle can expose an exact unanswered human question without choosing a route.
+const decision = await reader.run('decision.context', { workId });
 ```
+
+The separate routing-choice host adds authenticated human access and an application clock. Read
+`decision.context`, present its exact question/options, then call `decision.choose` with `expected`
+set to the returned question key, either `option` or a permitted `to`, and the human's `reason`.
+The host requires fresh permission and pinned group membership for a new choice. Exact original
+receipt acknowledgement needs the original authenticated person, without a new vote or timestamp.
+New nested v2 routing records bind questions to generations under equal clocks; old v1 bytes and
+keys remain unchanged. See `docs/ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md` for the profile and scope.
 
 The content connection needs durable SQLite journaling and FULL/EXTRA synchronous writes. The
 application chooses its bounded lock-wait policy and closes the connection. Content tables need

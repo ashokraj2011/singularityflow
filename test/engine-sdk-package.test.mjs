@@ -286,6 +286,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
             id:'channel',label:'Channel',after:'intake',kind:'branch',inputs:[{name:'channel',values:['Web','Mobile']}],
             routes:['web','mobile'].map((id,index)=>({id,label:id,...(index===0?{when:{channel:'Web'}}:{}),to:'end',
               omits:structuredClone(packet.definition.workTypes.simple.omits)}))}]};
+          packet.definition.workTypes.choice={...structuredClone(packet.definition.workTypes.simple),label:'Human direction',decisions:[{
+            id:'direction',label:'Choose the reviewed direction',after:'intake',kind:'ask',
+            routes:['deliver','withdraw'].map(id=>({id,label:id,to:'end',omits:structuredClone(packet.definition.workTypes.simple.omits)}))}]};
           const reference=await text(JSON.stringify(packet));
           inputs={operationId:'approve-configuration',source:reference,expectedRevision:null,confirm:reference.sha256,reason:'Reviewed the complete workflow package.'};
           await writeFile('configuration-inputs.json',JSON.stringify(inputs));
@@ -295,7 +298,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         const head=await records.read(scope,'config',NAMESPACE_CONFIGURATION_HEAD_KEY);
         assert.equal(result.replayed,!fresh);assert.equal(result.revision,head.record.version);assert.equal(result.effects.configurationApproved,true);
         const compiled=JSON.parse(Buffer.from((await content.read(scope,result.configuration)).data).toString('utf8'));
-        assert.deepEqual(compiled.workTypeIds,['simple','routing']);assert.equal(compiled.definition.agentCatalog[0].id,'analyst');
+        assert.deepEqual(compiled.workTypeIds,['simple','routing','choice']);assert.equal(compiled.definition.agentCatalog[0].id,'analyst');
         assert.equal(compiled.workflows.simple.phases[0].defaultAgent,'analyst');
         assert.equal((await content.read(scope,compiled.agents[0].body)).status,'present');
         if(!fresh)assert.equal(calls,0);
@@ -624,6 +627,65 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const replay=JSON.parse(await run('routing-approval.mjs',source,['replay']));assert.deepEqual(replay,first);
   });
 
+  await t.test('installed human choice resumes the actual approved question and reopens its original receipt in another process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';import {readFile,writeFile} from 'node:fs/promises';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceStoryEngine} from '${packageName}/hosts/namespace-story';
+      import {createNamespacePreparationEngine} from '${packageName}/hosts/namespace-preparation';
+      import {createNamespacePublicationEngine} from '${packageName}/hosts/namespace-publication';
+      import {createNamespaceSubmissionEngine} from '${packageName}/hosts/namespace-submission';
+      import {createNamespaceApprovalEngine} from '${packageName}/hosts/namespace-approval';
+      import {createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE} from '${packageName}/hosts/namespace-routing-choice';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='choice-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const {DatabaseSync}=await import('node:sqlite'),database=new DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding});let privateDatabase=null;
+      try {
+        const clock={now(){if(!fresh)throw Error('An original choice cannot obtain another timestamp.');return '2026-11-08T19:00:00.000Z';}};
+        const humanAccess={current:()=>({projectId:scope.projectId,principalId:'independent-reviewer',actorKind:'human',agentId:fresh?null:'another-prompt',
+          identity:{name:'Independent reviewer',email:'independent@example.test'},permissions:fresh?['phase.approve','decision.choose']:[]})};
+        const common={records,content,scope,workId,authority,clock},chooser=createNamespaceRoutingChoiceEngine({...common,access:humanAccess});
+        let input;
+        if(fresh) {
+          const access={current:()=>({projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',agentId:'analyst',
+            identity:{name:'Example reviewer',email:'reviewer@example.test'},
+            permissions:['story.create','phase.prepare','phase.draft.read','phase.draft.write','phase.publish','phase.submit']})};
+          const options={...common,access},source=(await content.put(scope,'state',Buffer.from('# Reviewed direction\\n\\nA human must choose its disposition.\\n'))).reference;
+          await createNamespaceStoryEngine(options).run('story.create',{operationId:'create-choice-story',workId,title:'Human-directed review',
+            workTypeId:'choice',configurationId:'approve-configuration',source});
+          const localBinding={kind:'machine-local',deviceId:'choice-device'};
+          const localRecords=await createFilesystemNamespaceStore({root:path.resolve('choice-private-records'),binding:localBinding,create:true});
+          privateDatabase=new DatabaseSync(path.resolve('choice-private-content.db'));
+          const localContent=createSqliteContentStore({database:privateDatabase,binding:localBinding,create:true});
+          const author=createNamespacePreparationEngine({...options,localRecords,localContent});
+          await author.run('phase.prepare',{phaseId:'intake'});const draft=await author.run('phase.draft.read',{phaseId:'intake'});
+          const authored=(await localContent.put(scope,'local',Buffer.from('# Reviewed outcome\\n\\nThe actual document is retained for an independent human.\\n'))).reference;
+          await author.run('phase.draft.write',{operationId:'write-choice-report',workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,
+            content:authored,reason:'Retain the authored report.'});
+          await createNamespacePublicationEngine({...options,localRecords,localContent}).run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});
+          await createNamespaceSubmissionEngine(options).run('phase.submit',{phaseId:'intake'});
+          const reviewer=createNamespaceApprovalEngine({...common,access:humanAccess}),resources=await reviewer.run('phase.review.resources',{phaseId:'intake'});
+          for(const resource of resources.manifest.resources)assert.equal((await reviewer.run('document.read',{reference:resource.reference})).document.integrity,'matched');
+          await reviewer.run('phase.approve',{phaseId:'intake',confirmation:{workId,phase:'intake',generation:1,
+            reviewPacketSha256:resources.manifest.reviewBinding.packetSha256}});
+          const {manifest}=await chooser.run('decision.context');assert.equal(manifest.question.generation,1);
+          assert.match(manifest.proof.approvalSha256,/^[a-f0-9]{64}$/u);
+          input={workId,expected:manifest.question.key,option:'deliver',reason:'The human reviewed and chose the retained direction.'};
+          await writeFile('choice-inputs.json',JSON.stringify(input));
+        }else input=JSON.parse(await readFile('choice-inputs.json','utf8'));
+        assert.equal(NAMESPACE_ROUTING_CHOICE_PROFILE,'sflow-human-routing-choice/v1');
+        const result=await chooser.run('decision.choose',input);assert.equal(result.currentPhase,null);assert.equal(result.recordKind,'routing');
+        assert.equal(result.record.outcome.by,'person');assert.equal(result.actorId,'independent-reviewer');
+        assert.equal((await chooser.run('decision.context')).manifest.question,null);
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();privateDatabase?.close();}
+    `;
+    const first=JSON.parse(await run('choice.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('choice.mjs',source,['replay']));assert.deepEqual(replay,first);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -644,6 +706,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
       import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE } from '${packageName}/hosts/namespace-submission';
       import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
+      import { createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE } from '${packageName}/hosts/namespace-routing-choice';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
@@ -674,6 +737,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       engine.run('phase.enter',input);
       engine.run('workflow.assets',{workflowIds:['story:feature']});
       engine.run('story.status',{workId:'example'});
+      engine.run('decision.context',{workId:'example'});
+      engine.run('decision.choose',{workId:'example',expected:'a'.repeat(16),option:'continue',reason:'Human reviewed this route.'});
+      // @ts-expect-error A read-only context accepts no human answer.
+      engine.run('decision.context',{workId:'example',option:'continue'});
+      // @ts-expect-error A routing choice takes a logical question key, not an actor grant.
+      engine.run('decision.choose',{workId:'example',principalId:'administrator'});
+      const choiceProfile:'sflow-human-routing-choice/v1'=NAMESPACE_ROUTING_CHOICE_PROFILE;
+      void createNamespaceRoutingChoiceEngine;void choiceProfile;
       engine.run('story.guide',{workId:'example'});
       engine.run('project.enroll',{operationId:'enroll-1'});
       const configuration:EngineInputs['configuration.approve']={operationId:'approve-configuration',source:{namespace:'config',sha256:'a'.repeat(64),bytes:1},expectedRevision:null,confirm:'a'.repeat(64),reason:'Reviewed exact content.'};

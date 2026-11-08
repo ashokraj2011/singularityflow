@@ -1,6 +1,7 @@
 /** Immutable human votes and primary-document sets; no storage or actor discovery. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {NAMESPACE_APPROVAL_SCHEMAS,admitRecordSchemaVersion,canonicalJson,namespaceApprovalRecordProfile,namespaceApprovalWriterProfile} from '../foundation/record-schema.mjs';
+import {NAMESPACE_APPROVAL_SCHEMAS,admitRecordSchemaVersion,canonicalJson,namespaceApprovalRecordProfile,namespaceApprovalWriterProfile,
+  namespaceApprovalRoutingProfile} from '../foundation/record-schema.mjs';
 import {exactObject,namespaceIdentifier,namespaceKey,namespaceRevision,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
@@ -41,13 +42,15 @@ export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {ret
   if(profile.routing) {
     namespaceApprovalRoutingValue(value.routing);
     if(value.thresholdReached!==(value.routing.outcome!==null)||value.routing.outcome&&value.routing.outcome.after!==phaseId)throw Error('Another routed approval outcome.');
+    if(namespaceApprovalRoutingProfile(value.routing).generationBound&&value.routing.generation!==value.generation)throw Error('Another question generation.');
   }
   projectEnrollmentTimestamp(value.recordedAt);return value;
 });}
 
 export function namespaceApprovalRoutingValue(value) {return checked(()=>{
-  admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.routing,value);exactObject(value,['schemaVersion','format','decision','outcome','pendingKey']);
-  if(value.format!=='sflow-namespace-phase-approval-routing/v1')throw Error('Another routing format.');
+  const profile=namespaceApprovalRoutingProfile(value);
+  exactObject(value,['schemaVersion','format','decision','outcome','pendingKey',...(profile.generationBound?['generation']:[])]);
+  if(value.format!==profile.format||profile.generationBound&&(!Number.isSafeInteger(value.generation)||value.generation<1))throw Error('Another routing format.');
   namespaceIdentifier(value.decision);
   if(value.pendingKey!==null&&(typeof value.pendingKey!=='string'||!/^[a-f0-9]{16}$/u.test(value.pendingKey)))throw Error('Invalid pending question key.');
   const outcome=value.outcome;

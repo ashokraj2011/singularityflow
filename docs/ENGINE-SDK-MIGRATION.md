@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, sequential reviewed-document completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -85,14 +85,16 @@ submission records for pinned own/reused decision inputs while preserving decisi
 Shared proof readers verify source packets and actual human approval thresholds. This establishes
 input provenance. The [routed approval owner](ENGINE-SDK-NAMESPACE-ROUTED-APPROVAL.md) now applies
 pinned branches, rework and unanswered questions, preserving earlier receipts through successor
-generations and completion. Human route choices and full application execution remain Phase 7
-gates. Phases 5, 7, 8 and 9 remain open.
+generations and completion. The [human route-choice owner](ENGINE-SDK-NAMESPACE-ROUTING-CHOICES.md)
+now verifies and records exact human answers through the registry, including original receipt
+recovery and generation-bound question identity. Full application execution remains a Phase 7
+gate. Phases 5, 7, 8 and 9 remain open.
 
 The [review-resource query](ENGINE-SDK-REVIEW-RESOURCES.md) issues exact readable references to the
 retained packet, artifact and reused routing sources through a separate registry operation. Its
 proof traversal and final head/authority check do not change existing `phase.review` outputs or
-record a human review. Human route-choice recording and complete production policy/execution
-remain separate gates.
+record a human review. Human route-choice recording has its separate owner above. Complete
+production policy/execution and a unified headless composition remain required gates.
 
 The [namespace Story creation delivery](ENGINE-SDK-STORY-CREATION.md) connects actual enrollment,
 configuration approval, source retention and lifecycle genesis through the registry. The read

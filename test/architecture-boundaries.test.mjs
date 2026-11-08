@@ -74,7 +74,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-draft-contract.mjs','src/engine-storage/namespace-preparation.mjs',
     'src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-publication-contract.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-submission-contract.mjs',
-    'src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-approval-contract.mjs']);
+    'src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-approval-contract.mjs',
+    'src/engine-storage/namespace-routing-choice.mjs','src/engine-storage/namespace-routing-choice-contract.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -211,7 +212,8 @@ test('configuration path rules depend on a string-syntax contract and native bin
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',
-    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-submission-reader.mjs']);
+    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-submission-reader.mjs',
+    './namespace-routing-choice-reader.mjs']);
   const file = 'src/engine-storage/namespace-reader.mjs', text = await readFile(path.join(packageRoot, file), 'utf8');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const visit = node => {
@@ -245,7 +247,7 @@ test('the internal namespace lifecycle committer composes explicit ports without
   assert.deepEqual(report.problems, []);
   for (const file of await sourceFiles('src')) {
     if ([owner,'src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-submission.mjs',
-      'src/engine-storage/namespace-approval.mjs'].includes(file)) continue;
+      'src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-routing-choice.mjs'].includes(file)) continue;
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     assert.equal(text.includes('namespace-lifecycle-commit.mjs'), false, file + ' must not select the new authority before a verified cutover');
   }
@@ -508,6 +510,43 @@ test('namespace human approval has explicit ports, a pure vote contract and no i
       :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
       if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.'))assert.notEqual(
         path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,file+' cannot replace installed approval authority');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+});
+
+test('namespace route choices use explicit human ports and shared read-only question proofs',async()=>{
+  const owner='src/engine-storage/namespace-routing-choice.mjs',reader='src/engine-storage/namespace-routing-choice-reader.mjs';
+  const contract='src/engine-storage/namespace-routing-choice-contract.mjs';
+  const allowed=new Map([
+    [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../kernel/phase-preparation.mjs','../kernel/approval-policy.mjs','../kernel/routed-approval.mjs',
+      '../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
+      './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-configuration-reader.mjs',
+      './namespace-routing-choice-reader.mjs','./namespace-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-routing-choice-contract.mjs'])],
+    [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/decision-plan.mjs',
+      '../kernel/routed-approval.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs'])]
+  ]);
+  for(const [file,imports]of allowed) {
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(imports.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(file+' cannot discover a human or installed authority');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+      if(file===reader&&ts.isPropertyAccessExpression(node)&&['put','transact','commit','writeFile','unlink'].includes(node.name.text))assert.fail('Question proof reading cannot mutate');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+    ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(pure.problems,[]);
+  for(const file of await sourceFiles('src')) {
+    if(file===owner)continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{const specifier=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+      :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.'))assert.notEqual(
+        path.posix.normalize(path.posix.join(path.posix.dirname(file),specifier.text)),owner,file+' must not replace installed routing authority');
       ts.forEachChild(node,visit);
     };visit(ast);
   }

@@ -4751,8 +4751,12 @@ export function effectiveEnvironmentQualityCommandCatalog(
   const pinnedOtherPhaseCommands = (workflow?.resolution?.phases ?? [])
     .filter((entry) => entry.id !== phase?.id)
     .flatMap((entry) => entry.qualityCommands ?? []);
-  return [...pinnedOtherPhaseCommands, ...commands]
-    .map((entry, index) => normalizeExternalCommand(entry, index));
+  const running = commands.map((entry, index) => normalizeExternalCommand(entry, index));
+  // This phase's commands that do not run in this call are still its commands: a SonarQube scan runs
+  // only at submit, so a `checks` mapping for it, or for a test the scan's own call does not run, is known.
+  const ids = new Set(running.map((entry) => entry.id));
+  const resting = (phase?.qualityCommands ?? []).map((entry, index) => normalizeExternalCommand(entry, index)).filter((entry) => !ids.has(entry.id));
+  return [...pinnedOtherPhaseCommands.map((entry, index) => normalizeExternalCommand(entry, index)), ...resting, ...running];
 }
 
 /**

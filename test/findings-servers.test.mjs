@@ -6,7 +6,8 @@
  * was checked against a live service.
  */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -14,9 +15,12 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
-import { codeScanningRead, readReportTask, readSonarqubeServer, sonarScannerProperties, submitServerAnalyses } from '../src/findings/servers.mjs';
+import { readSonarqubeJson } from '../src/findings/readers/sonarqube.mjs';
+import { codeScanningRead, readReportTask, readSonarqubeServer, sonarScanCommand, sonarScannerProperties, submitServerAnalyses } from '../src/findings/servers.mjs';
 import { laterStepCodeScanning } from '../src/findings/code-step.mjs';
+import { markNewCode } from '../src/findings/model.mjs';
 import { githubCodeScanning } from '../src/github-evidence.mjs';
+import { javaProject, javaSonarServer, STANDIN, writeFiles } from './helpers/java-sonar-fixture.mjs';
 
 const fixture = (name) => readFile(new URL(`./fixtures/findings/${name}`, import.meta.url), 'utf8');
 const TOKEN = 'fixture-bearer-not-a-credential';
@@ -45,8 +49,8 @@ async function repository(t) {
   return root;
 }
 
-const scanner = (sonarqube) => normalizeExternalCommand({ id: 'sonar', kind: 'static-analysis', modelPolicy: 'never', environment: 'sonar',
-  argv: ['sonar-scanner'], result: { adapter: 'sonarqube', path: '.sflow/results/scannerwork/report-task.txt' }, sonarqube });
+const scanner = (sonarqube, argv = ['sonar-scanner']) => normalizeExternalCommand({ id: 'sonar', kind: 'static-analysis', modelPolicy: 'never', environment: 'sonar',
+  argv, result: { adapter: 'sonarqube', path: '.sflow/results/scannerwork/report-task.txt' }, sonarqube });
 
 test('a scan names where it analyses: the Story branch under the project, or only the scratch project', () => {
   assert.deepEqual(sonarScannerProperties(scanner({ project: 'payments-api', branchAnalysis: true }), { branch: 'sflow/pay-12' }), {
@@ -55,6 +59,90 @@ test('a scan names where it analyses: the Story branch under the project, or onl
     'sonar.qualitygate.wait': 'true', 'sonar.working.directory': '.sflow/results/scannerwork', 'sonar.projectKey': 'payments-api-sflow' });
   assert.deepEqual(readReportTask('projectKey=payments-api\nserverUrl=https://sonar.example.test\nserverVersion=10.6.0.92116\nbranch=sflow/pay-12\nceTaskId=AY1\n'),
     { projectKey: 'payments-api', serverUrl: 'https://sonar.example.test', serverVersion: '10.6.0.92116', branch: 'sflow/pay-12', ceTaskId: 'AY1' });
+  // report-task.txt is written where SFlow reads it; Maven keeps its work in each module's target/sonar.
+  const reportFile = path.resolve('/checkout/.sflow/results/scannerwork/report-task.txt');
+  assert.deepEqual(sonarScannerProperties(scanner({ project: 'com.example:shop', scratchProject: 'com.example:shop-sflow' }, ['./mvnw', '-B', 'verify', 'sonar:sonar']),
+    { branch: null, reportFile }), { 'sonar.qualitygate.wait': 'true', 'sonar.scanner.metadataFilePath': reportFile, 'sonar.projectKey': 'com.example:shop-sflow' });
+  assert.equal(sonarScannerProperties(scanner({ project: 'shop', scratchProject: 'shop-sflow' }, ['./gradlew', 'build', 'sonar']), { branch: null, reportFile })['sonar.working.directory'],
+    '.sflow/results/scannerwork', 'Gradle works in the report\'s folder: only the root project takes the environment\'s');
+});
+
+test('SFlow\'s properties outrank the command\'s own: last -D options for Maven, Gradle and sonar-scanner, the report\'s path in the environment only', () => {
+  const reportFile = path.resolve('/checkout/.sflow/results/scannerwork/report-task.txt');
+  const options = ['-Dsonar.qualitygate.wait=true', '-Dsonar.projectKey=shop-sflow'];
+  for (const argv of [['mvn', '-B', 'verify', 'sonar:sonar'], ['./mvnw', 'verify', 'sonar:sonar'], ['mvnw.cmd', 'verify', 'sonar:sonar'], ['mvnd', 'verify', 'sonar:sonar']]) {
+    // As SonarQube's setup page writes Maven's command: the main project's key on the command line.
+    const command = scanner({ project: 'shop', scratchProject: 'shop-sflow' }, [...argv, '-Dsonar.projectKey=shop']);
+    const scan = sonarScanCommand(command, sonarScannerProperties(command, { branch: null, reportFile }));
+    assert.deepEqual(scan.argv, [...argv, '-Dsonar.projectKey=shop', ...options], argv[0]);
+    assert.equal(JSON.parse(scan.env.SONAR_SCANNER_JSON_PARAMS)['sonar.scanner.metadataFilePath'], reportFile);
+    assert.equal(scan.env.SONARQUBE_SCANNER_PARAMS, scan.env.SONAR_SCANNER_JSON_PARAMS);
+  }
+  for (const argv of [['./gradlew', 'build', 'sonar'], ['gradlew.bat', 'build', 'sonar'], ['gradle', 'build', 'sonar'], ['sonar-scanner']]) {
+    const command = scanner({ project: 'shop', scratchProject: 'shop-sflow' }, argv);
+    assert.deepEqual(sonarScanCommand(command, sonarScannerProperties(command, { branch: null, reportFile })).argv,
+      [...argv, '-Dsonar.qualitygate.wait=true', '-Dsonar.working.directory=.sflow/results/scannerwork', '-Dsonar.projectKey=shop-sflow'], argv[0]);
+  }
+  const branch = scanner({ project: 'shop', branchAnalysis: true }, ['mvn', 'verify', 'sonar:sonar']);
+  assert.deepEqual(sonarScanCommand(branch, sonarScannerProperties(branch, { branch: 'sflow/shop-7', reportFile })).argv.slice(3),
+    ['-Dsonar.qualitygate.wait=true', '-Dsonar.projectKey=shop', '-Dsonar.branch.name=sflow/shop-7']);
+  // Another program's arguments are its own: SFlow's properties reach it in the environment only.
+  for (const argv of [['npx', 'sonar-scanner'], ['./scripts/scan.sh']]) {
+    const command = scanner({ project: 'shop', scratchProject: 'shop-sflow' }, argv);
+    const scan = sonarScanCommand(command, sonarScannerProperties(command, { branch: null, reportFile }));
+    assert.deepEqual(scan.argv, argv);
+    assert.equal(JSON.parse(scan.env.SONAR_SCANNER_JSON_PARAMS)['sonar.projectKey'], 'shop-sflow');
+  }
+});
+
+test('a Maven project\'s key holds a colon: a component without a path is the file after the whole key', () => {
+  const project = 'com.example:shop-sflow';
+  const read = readSonarqubeJson({ issues: [{ key: 'AZ1', rule: 'java:S3776', component: `${project}:core/src/main/java/com/example/core/Pricing.java`, project, line: 15,
+    type: 'CODE_SMELL', severity: 'CRITICAL', status: 'OPEN', message: 'Refactor this method.' }] });
+  assert.deepEqual(read.findings.map((finding) => [finding.file, finding.kind]), [['core/src/main/java/com/example/core/Pricing.java', 'complexity']]);
+  const hotspots = readSonarqubeJson({ hotspots: [{ key: 'AZ2', ruleKey: 'java:S4790', component: `${project}:core/src/main/java/com/example/core/Pricing.java`, project,
+    vulnerabilityProbability: 'LOW', status: 'TO_REVIEW', line: 37, message: 'Make sure this weak hash algorithm is not used.' }] });
+  assert.equal(hotspots.findings[0].file, 'core/src/main/java/com/example/core/Pricing.java');
+});
+
+test('the scanners put the report where SFlow reads it, analyse only the scratch project, and leave no work folder in a Maven module', { skip: process.platform === 'win32' }, async (t) => {
+  const server = await javaSonarServer(t, { lines: { complexity: 1, cipher: 1, digest: 1 } });
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-sonar-java-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const log = path.join(base, 'scans.jsonl');
+  const scans = [];
+  const scanned = async (tool, argv, properties) => {
+    const root = path.join(base, `${tool}-${scans.length}`);
+    await writeFiles(root, javaProject(tool, { log }));
+    const command = scanner({ project: 'com.example:shop', scratchProject: 'com.example:shop-sflow' }, argv);
+    const reportFile = path.join(root, '.sflow/results/scannerwork/report-task.txt');
+    const scan = properties ? { ...command, env: { SONAR_SCANNER_JSON_PARAMS: JSON.stringify(properties(command)) } }
+      : sonarScanCommand(command, sonarScannerProperties(command, { branch: null, reportFile }));
+    // Not spawnSync: the scanner reads the gate from this process's server while it waits.
+    const result = await new Promise((resolve) => execFile(process.execPath, [STANDIN, log, tool, ...scan.argv.slice(1)], { cwd: root, encoding: 'utf8',
+      env: { ...process.env, ...scan.env, SONAR_HOST_URL: server.url, SONAR_TOKEN: TOKEN } }, (error, _stdout, stderr) => resolve({ status: error ? error.code : 0, stderr })));
+    const ran = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line)).at(-1);
+    scans.push(ran);
+    const report = path.join(root, '.sflow/results/scannerwork/report-task.txt');
+    return { status: result.status, stderr: result.stderr, ran, task: existsSync(report) ? readReportTask(await readFile(report, 'utf8')) : null,
+      inModules: ['core', 'app'].filter((module) => existsSync(path.join(root, module, '.sflow'))) };
+  };
+  for (const [tool, argv] of [['maven', ['mvn', '-B', 'verify', 'sonar:sonar', '-Dsonar.projectKey=com.example:shop']], ['gradle', ['./gradlew', 'build', 'sonar']]]) {
+    const scan = await scanned(tool, argv);
+    assert.equal(scan.status, 1, `${tool}: the stand-in server's gate failed, so the scanner did too`);
+    assert.match(scan.stderr, /QUALITY GATE STATUS: FAILED/u);
+    assert.deepEqual([scan.task?.projectKey, scan.task?.serverUrl, scan.inModules], ['com.example:shop-sflow', server.url, []], tool);
+  }
+  assert.deepEqual(scans[0].workFolders, ['target/sonar', 'core/target/sonar', 'app/target/sonar'], 'Maven works in each module\'s build output');
+  assert.deepEqual(scans[1].workFolders, ['.sflow/results/scannerwork', '.sflow/results/scannerwork/core', '.sflow/results/scannerwork/app']);
+  // Built without compiling, Java is not analysed and no report is written.
+  const unbuilt = await scanned('maven', ['mvn', '-B', 'sonar:sonar']);
+  assert.match(unbuilt.ran.message, /provide compiled classes with sonar\.java\.binaries/u);
+  assert.equal(unbuilt.task, null);
+  // What the environment alone did before: a work folder in every Maven module, and the command's own key won.
+  const before = await scanned('maven', ['mvn', '-B', 'verify', 'sonar:sonar', '-Dsonar.projectKey=com.example:shop'], (command) => ({
+    'sonar.qualitygate.wait': 'true', 'sonar.working.directory': '.sflow/results/scannerwork', 'sonar.projectKey': command.sonarqube.scratchProject }));
+  assert.deepEqual([before.task?.projectKey, before.inModules], ['com.example:shop', ['core', 'app']]);
 });
 
 test('the server is read for the branch\'s new code with a bearer token, and a failed gate is a finding [CQF:REQ-048]', async (t) => {
@@ -70,6 +158,18 @@ test('the server is read for the branch\'s new code with a bearer token, and a f
   assert.match(read.findings.at(-1).message, /new_coverage 71\.4 \(LT 80\)/u);
   assert.deepEqual([read.gate.status, read.measures.new_coverage, read.counts.excepted], ['ERROR', 71.4, 1]);
   assert.doesNotMatch(JSON.stringify(read), new RegExp(TOKEN, 'u'), 'the token is in no result');
+  // The branch's failed gate is new code; the Story's changed lines cannot place it, so it stays so.
+  const gate = read.findings.at(-1);
+  assert.equal(gate.newCode, true);
+  assert.equal(markNewCode([gate], new Map()).at(0).newCode, true);
+
+  // A scratch project's new code is not the Story's: all its open issues are read, and its gate is shown, not counted.
+  const scratch = await readSonarqubeServer({ baseUrl: server.url, token: TOKEN, project: 'payments-api-sflow' });
+  const scratchReads = server.requests.slice(4);
+  assert.deepEqual(scratchReads.map((request) => [request.path, request.query.inNewCodePeriod, request.query.branch]), [
+    ['/api/issues/search', undefined, undefined], ['/api/hotspots/search', undefined, undefined],
+    ['/api/qualitygates/project_status', undefined, undefined], ['/api/measures/component', undefined, undefined]]);
+  assert.deepEqual([scratch.gate.status, scratch.findings.at(-1).rule, scratch.findings.at(-1).newCode], ['ERROR', 'quality-gate', false]);
 });
 
 test('submission scans once and reads its own server; never the main project, another project or another host', async (t) => {
@@ -79,8 +179,10 @@ test('submission scans once and reads its own server; never the main project, an
   const kernel = { qualityChecks: async (_root, _phase, _config, _workflow, [command]) => {
     ran.push(command);
     const properties = JSON.parse(command.env.SONAR_SCANNER_JSON_PARAMS);
-    await mkdir(path.join(root, '.sflow/results/scannerwork'), { recursive: true });
-    await writeFile(path.join(root, '.sflow/results/scannerwork/report-task.txt'),
+    // The scanner writes report-task.txt where SFlow told it to, and SFlow reads it there.
+    assert.equal(properties['sonar.scanner.metadataFilePath'], path.resolve(root, '.sflow/results/scannerwork/report-task.txt'));
+    await mkdir(path.dirname(properties['sonar.scanner.metadataFilePath']), { recursive: true });
+    await writeFile(properties['sonar.scanner.metadataFilePath'],
       `projectKey=${properties['sonar.projectKey']}\nserverUrl=${ran.length === 3 ? 'https://elsewhere.example.test' : server.url}\nserverVersion=10.6.0.92116\n`);
     return [{ id: command.id, status: 'passed', exitCode: 0, startedAt: 'a', completedAt: 'b' }];
   } };
@@ -94,6 +196,7 @@ test('submission scans once and reads its own server; never the main project, an
   const branch = await analyse([scanner({ project: 'payments-api', branchAnalysis: true })]);
   assert.equal(JSON.parse(ran[0].env.SONAR_SCANNER_JSON_PARAMS)['sonar.branch.name'], 'sflow/sq-1');
   assert.equal(branch.results[0].status, 'read');
+  assert.deepEqual([...new Set(branch.results[0].findings.map((finding) => finding.source))], ['sonar'], 'the command\'s own findings, as its check counts them');
   assert.deepEqual([branch.servers[0].gate.status, branch.servers[0].branch, branch.servers[0].serverVersion], ['ERROR', 'sflow/sq-1', '10.6.0.92116']);
   const scratch = await analyse([scanner({ project: 'payments-api', scratchProject: 'payments-api-sflow' })]);
   assert.equal(JSON.parse(ran[1].env.SONAR_SCANNER_JSON_PARAMS)['sonar.projectKey'], 'payments-api-sflow');

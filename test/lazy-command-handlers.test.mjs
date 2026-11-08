@@ -430,8 +430,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // records stay lazy (commands/departure.mjs, asked-for-records.mjs); no new eager file.
     // 9,606,600 (measured 9,606,573, commands/phase-lifecycle.mjs): a decisions record that only drafted an amendment says
     // nothing was recorded (narration/messages.mjs), and an amendment's changedClauses settle a row (upstream-routes.mjs) [SCS:REQ-020, REQ-023].
-    // 9,608,950 (measured 9,608,916, commands/phase-lifecycle.mjs): spec–code sync M1, M2 and M4 together, each one's growth above.
-    assert.ok(closure.bytes <= 9_608_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,606,900 (measured 9,606,853, commands/phase-lifecycle.mjs): an environment's checks mapping knows the phase's commands a
+    // call does not run, such as the SonarQube scan only submit runs (state.mjs effectiveEnvironmentQualityCommandCatalog), and
+    // a finding on no file keeps its reader's verdict (findings/model.mjs markNewCode) [CQF:REQ-048].
+    // 9,609,450 (measured 9,609,430, commands/phase-lifecycle.mjs): spec–code sync M1, M2 and M4 with the SonarQube fix above, each one's growth above.
+    assert.ok(closure.bytes <= 9_609_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

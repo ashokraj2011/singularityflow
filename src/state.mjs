@@ -6571,8 +6571,8 @@ export async function evaluateApproval(root, config, workflow, {
       await assertPhaseAppealsResolved(root, config, workflow, phase);
     });
     await stage('departures', async () => {
-      // Every departure from the approved documents is decided before the code step is approved [CQF:REQ-023].
-      const { assertDeparturesDecided } = await import('./departure-records.mjs');
+      // Every departure is decided before the code step is approved [CQF:REQ-023]; read from the CLI source, outside the VS Code bundles.
+      const { assertDeparturesDecided } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departure-records.mjs')).href);
       await assertDeparturesDecided(root, config, workflow, phase);
     });
     await stage('document-risks', async () => {

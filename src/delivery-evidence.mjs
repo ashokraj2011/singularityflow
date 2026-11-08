@@ -1298,7 +1298,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const unresolved = requireReconciled ? await unreconciledCandidatePaths(root, config, workflow, phase, scope) : [];
   // A file a person rejected as a departure goes back, by the model, in this generation [CQF:REQ-026].
   const rejected = unresolved.length && (workflow.departures ?? []).length
-    ? (await import('./departures.mjs')).rejectedDeparturePaths(workflow, phase.id) : new Map();
+    ? (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departures.mjs')).href)).rejectedDeparturePaths(workflow, phase.id) : new Map();
   const restore = unresolved.filter((candidate) => rejected.has(candidate));
   if (restore.length) throw new SingularityFlowError(
     `${[...new Set(restore.map((candidate) => rejected.get(candidate).id))].join(', ')} ${restore.length === 1 ? 'was' : 'were'} rejected, and ${restore.join(', ')} still ${restore.length === 1 ? 'holds' : 'hold'} the change. Restore each to what it held when this generation began (remove a file that is new), then recheck; nothing else is decided here.`, {

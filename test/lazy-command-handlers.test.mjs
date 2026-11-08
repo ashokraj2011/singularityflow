@@ -404,7 +404,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,560,500 (measured 9,560,457): the review says how many tests prove each criterion and whether each asserts
     // (phase-review.mjs, print-phase-review.mjs); the proof stays lazy (verification/criterion-proof.mjs) [CQF:REQ-033].
     // 9,586,200 (measured 9,586,127, commands/phase-lifecycle.mjs): test adequacy merged too; its growth is above.
-    assert.ok(closure.bytes <= 9_586_200, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,556,350 (measured 9,556,345): the departure reads load from the CLI source, outside the VS Code gateway bundle (state.mjs, delivery-evidence.mjs).
+    // 9,586,300 (measured 9,586,254, commands/phase-lifecycle.mjs): the departure modules load from the CLI source, out of the VS Code gateway bundle.
+    assert.ok(closure.bytes <= 9_586_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -596,6 +598,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,161,800 (measured 4,161,719): the changed-line coverage setting (code-delivery-policy.mjs) [CQF:REQ-031].
   // 4,162,700 (measured 4,162,646): the same warn-mode check at publication as start (delivery-evidence.mjs) [CQF:REQ-032].
   // 4,176,200 (measured 4,176,134): test adequacy merged too.
+  // 4,163,250 (measured 4,163,210): their reads load from the CLI source, outside the VS Code gateway bundle (delivery-evidence.mjs).
+  // 4,176,200 (measured 4,176,184): the same source-path loads.
   assert.ok(current.bytes <= 4_176_200, `session current loads ${current.bytes} source bytes`);
 });
 

@@ -16,7 +16,11 @@
  * Reads only. `decisions` reads all of it; readiness and next steps read it for the list's count
  * and first item, without reusable runs (readPendingList).
  */
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { blockingDecisionFacts, evidenceDecisionFacts, phaseEndsStory } from './decision-list-facts.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -192,7 +196,8 @@ async function departureFacts(root, config, workflow, phase) {
   if (!(workflow.departures ?? []).some((entry) => entry.phase === phase.id)) return null;
   try {
     const [{ departureReadings, departureAuthorities, acceptanceCommand }, { acceptAllEligible, departureHolds, departureWords }] = await Promise.all([
-      import('./departure-records.mjs'), import('./departures.mjs')]);
+      // From the CLI source: the VS Code bundles that read this list load the departures only for a Story that has one.
+      import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departure-records.mjs')).href), import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'departures.mjs')).href)]);
     const readings = (await departureReadings(root, workflow, phase.id)).filter((entry) => departureHolds(entry.status) && entry.status !== 'rejected');
     if (!readings.length) return null;
     const [{ loadActiveSpecRecords, mergePlannedClaimRecords }, { planRowsOf }] = await Promise.all([import('./specifications.mjs'), import('./plan-amendments.mjs')]);

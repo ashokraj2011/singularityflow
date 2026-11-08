@@ -49,6 +49,24 @@ async function submittedAttribution(root, config, workflow, phase) {
   return packet?.attribution ?? { status: 'unavailable', reason: 'the submitted packet could not be verified here' };
 }
 
+/**
+ * What the step's scanners recorded and its Story's GitHub required checks say, beside its review
+ * [CQF:REQ-052, REQ-054, REQ-055]: the findings that remain, the vulnerable packages its approval
+ * waits on, the scanners that could not run, and each required check's result on the submitted
+ * commit. Evidence only; {} when there is none.
+ */
+async function securityEvidence(root, config, workflow, phase) {
+  const recorded = phase.deliveryEvidence?.submittedFindings ?? phase.deliveryEvidence?.qualityFindings ?? null;
+  const findings = recorded ? (await import('../../findings/presentation.mjs')).publishedFindingsSummary(recorded) : null;
+  // Read only where an approver is looking: the current step, awaiting approval.
+  const required = (workflow.lineage?.requiredChecks ?? []).length && phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
+    ? await import('../../findings/required-checks.mjs').then(async ({ requiredCheckEvidence, requiredCheckWords }) => {
+      const evidence = await requiredCheckEvidence(root, config, workflow, { commit: phase.generationCommit ?? null });
+      return { ...evidence, words: requiredCheckWords(evidence) };
+    }) : null;
+  return { ...(findings ? { qualityFindings: findings } : {}), ...(required ? { requiredChecks: required } : {}) };
+}
+
 /** The approval check, and the step sheet built on it for the step that is current. */
 async function reviewAdvisories(root, config, workflow, phase, includeSheet) {
   const advisories = await (await import('../../approval-check.mjs')).approvalAdvisories(root, config, workflow, phase) ?? {};
@@ -202,6 +220,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     ...await reusedTestEvidence(root, config, workflow, phase),
     // Runs that stood because the code had not changed, and which tests the Story runs at all [TCE:REQ-083, REQ-094].
     ...testRunsReview(workflow, phase),
+    ...await securityEvidence(root, config, workflow, phase),
     evidenceConsistency,
     witnessReview,
     // What SF Guard recorded about who wrote the work, beside it; a label never refuses (REQ-042).

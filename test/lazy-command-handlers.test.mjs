@@ -375,7 +375,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // is not here is recorded as unavailable, not failed (state.mjs +1130) [CQF:REQ-054]; one refusal fewer (refusal-remediation.mjs -44).
     // 9,565,550 (measured 9,565,535, commands/phase-lifecycle.mjs): an advisory scanner that reads no findings and reported problems
     // is warned, not failed (state.mjs +662, lifecycle-evidence-policy.mjs +222) [CQF decision 6]. Import's readers stay lazy.
-    assert.ok(closure.bytes <= 9_565_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,565,850 (measured 9,565,815, commands/phase-lifecycle.mjs): the review text shows the findings and the required checks
+    // (print-phase-review.mjs +280) [CQF:REQ-055]. Their reads stay lazy (findings/required-checks.mjs).
+    assert.ok(closure.bytes <= 9_565_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

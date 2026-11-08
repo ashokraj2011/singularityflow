@@ -171,6 +171,9 @@ test('adding a package with a known critical advisory holds the step until a per
   assert.ok(hold, JSON.stringify(shown.approvalCheck.holds.map((entry) => entry.code)));
   assert.deepEqual([hold.owner, hold.who, hold.vulnerabilities[0].package], ['someone-decides', 'An approver of Implementation decides', 'minimist']);
   assert.match(hold.action.command, new RegExp(`^singularity-flow decision finding-risk ${WORK} --phase implementation --finding ${finding.id} `, 'u'));
+  // The review data the approval card reads carries the findings too; this Story names no required checks.
+  assert.deepEqual([shown.qualityFindings.held[0].package, shown.qualityFindings.held[0].fixedVersion, shown.requiredChecks], ['minimist', '1.2.8', undefined]);
+  assert.match(cli('phase', 'show', 'implementation').stdout, /^Findings: 1 known vulnerability in packages this Story added or upgraded holds the step's approval/mu, 'and so does the CLI\'s review text');
   const refused = story.run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /Implementation waits for a person: a known vulnerability in packages this Story added or upgraded: minimist@1\.2\.5/u);
@@ -244,4 +247,6 @@ test('a scanner or its database that cannot run is recorded and blocks nothing, 
     assert.match(of(id).stderr, /^Not run here: .*A scanner that cannot run is recorded and blocks nothing\.$/su, id);
   }
   assert.equal((await workflow()).phases.implementation.status, 'awaiting_approval');
+  // Shown to the step's approvers.
+  assert.deepEqual(JSON.parse(story.cli('phase', 'show', 'implementation', '--json').stdout).qualityFindings.unavailable, ['semgrep']);
 });

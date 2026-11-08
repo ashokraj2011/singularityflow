@@ -181,3 +181,17 @@ test('a Story that enforces a minimum refuses publication below it on a measured
   assert.equal(coverage.below, false, JSON.stringify(coverage));
   assert.equal(coverage.files.find((entry) => entry.path === 'src/discount.mjs').uncoveredLines, '');
 });
+
+test('a test that asserts nothing warns at publication, in the review and its packet, and the step still publishes [CQF:REQ-032]', slowLane({ timeout: 600_000 }), async (t) => {
+  const story = await storyAtCode(t);
+  await story.write('test/discount.test.mjs', ["import test from 'node:test';", "import { discount } from '../src/discount.mjs';", `// @ac:${AC2}`,
+    "test('halves a price', () => { discount(10); });", ''].join('\n'));
+  const published = story.publish();
+  assert.equal(published.status, 0, published.stdout + published.stderr);
+  assert.match(published.stderr, /Assertion check: 1 test asserts nothing it tests \('halves a price' at test\/discount\.test\.mjs:4\); .*It warns and refuses nothing\./u);
+  const review = story.json('phase', 'show', 'implement');
+  const check = (review.data ?? review).testEvidence.assertionCheck;
+  assert.equal(check.mode, 'warn');
+  assert.deepEqual(check.inadequate.map((entry) => [entry.path, entry.name, entry.adequacy, entry.clauseIds]), [['test/discount.test.mjs', 'halves a price', 'missing', [AC2]]]);
+  assert.match(story.sflow('phase', 'show', 'implement').stderr, /Assertion check: 1 test asserts nothing it tests/u);
+});

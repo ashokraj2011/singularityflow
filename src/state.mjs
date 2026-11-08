@@ -3722,7 +3722,9 @@ export async function publishGeneration(root, config, workflow, {
     // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
-    deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true });
+    deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase, { requireReconciled: true, assertionCheck: true });
+    // The assertion and edge-case check warns here and refuses nothing unless a Story enforces it [CQF:REQ-032].
+    if (['incomplete', 'unavailable'].includes(deliveryPreflight.assertionCheck?.status)) console.warn(deliveryPreflight.assertionCheck.words);
     if (testedSelection) {
       const commands = await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: deliveryPreflight },
         { executionMode: storyTestScope(workflow) });

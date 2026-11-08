@@ -208,6 +208,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
           : 'No acceptance criterion is tagged on a test in this delivery.'
       },
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.',
+      // Tests that assert nothing and changed edge cases no test matches, as publication checked them [CQF:REQ-032].
+      ...(phase.deliveryEvidence.assertionCheck ? { assertionCheck: phase.deliveryEvidence.assertionCheck } : {}),
       ...(localIntegrationRuns.length ? { localIntegrationRuns: localIntegrationRuns.map((receipt) => ({
         commandId: receipt.commandId, attemptId: receipt.attemptId, environment: receipt.boundEnvironment?.name ?? null,
         ranBy: receipt.ranBy ?? null, commit: receipt.candidate?.commit ?? null, countsForStep: receipt.countsForStep !== false,

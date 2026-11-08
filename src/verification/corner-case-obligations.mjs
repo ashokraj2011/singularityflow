@@ -687,6 +687,55 @@ export async function evaluateDeliveryCornerCaseGate(root, {
   };
 }
 
+const CHECK_LIST_LIMIT = 50;
+const CHECK_MODES = Object.freeze({ off: 'off', enforce: 'enforce' });
+
+/** A setting's mode at the gates [CQF:REQ-032]: unset, `advisory` and `warn` all warn; `off` and `enforce` keep their meaning. */
+export const cornerCaseCheckMode = (value) => CHECK_MODES[value] ?? 'warn';
+
+/**
+ * What the assertion and edge-case check found at a gate, compact enough for the Story's state and the
+ * review packet [CQF:REQ-032]: the tests that assert nothing or only a literal, and the changed edge cases
+ * no test signal matches, each bounded. Static syntax signals, never proof that a branch ran.
+ */
+export function cornerCaseCheckSummary(gate, { cornerCases = 'warn', assertions = 'warn' } = {}) {
+  const matrix = gate.matrix;
+  const inadequate = assertions === 'off' && cornerCases !== 'enforce' ? [] : (matrix.inadequateDeclarations ?? []).map((entry) => ({
+    path: entry.sourcePath, line: entry.line, name: entry.name, clauseIds: entry.clauseIds, adequacy: entry.adequacy, assertions: entry.assertionCount }));
+  const uncovered = cornerCases === 'off' ? [] : (matrix.uncoveredObligations ?? []).map((entry) => ({
+    path: entry.sourcePath, line: entry.line, symbol: entry.symbol, category: entry.category, requiredSignal: entry.requiredSignal }));
+  const mode = [cornerCases, assertions].includes('enforce') ? 'enforce' : 'warn';
+  const named = (list, label) => `${list.slice(0, 3).map(label).join('; ')}${list.length > 3 ? `; and ${list.length - 3} more` : ''}`;
+  const parts = [
+    inadequate.length ? `${inadequate.length === 1 ? '1 test asserts' : `${inadequate.length} tests assert`} nothing it tests (${named(inadequate, (entry) =>
+      `'${entry.name}' at ${entry.path}:${entry.line}${entry.adequacy === 'tautological' ? ', only a literal' : ''}`)})` : null,
+    uncovered.length ? `${uncovered.length === 1 ? '1 changed edge case has' : `${uncovered.length} changed edge cases have`} no matching test (${named(uncovered, (entry) =>
+      `${entry.category} in ${entry.symbol} at ${entry.path}:${entry.line}`)})` : null
+  ].filter(Boolean);
+  return {
+    mode, assurance: 'static-signal-only', status: parts.length ? 'incomplete' : matrix.status === 'not-applicable' ? 'not-applicable' : 'satisfied',
+    summary: { inspectedTests: matrix.summary.inspectedDeclarations, inadequateTests: inadequate.length, edgeCases: cornerCases === 'off' ? 0 : matrix.summary.total ?? 0, uncoveredEdgeCases: uncovered.length },
+    inadequate: inadequate.slice(0, CHECK_LIST_LIMIT), uncovered: uncovered.slice(0, CHECK_LIST_LIMIT),
+    words: parts.length ? `Assertion check: ${parts.join('; ')}. ${mode === 'enforce' ? 'Publication refuses it.' : 'It warns and refuses nothing.'}`
+      : matrix.status === 'not-applicable' ? 'Assertion check: no changed test or edge case to check.'
+        : 'Assertion check: every changed test asserts what it tests, and each changed edge case has a matching test signal.'
+  };
+}
+
+/**
+ * The check at a gate in warn mode [CQF:REQ-032]: it runs as enforce would, refuses nothing, and a check
+ * that cannot run (too many files, an unreadable one) says so instead of failing the gate.
+ */
+export async function warnedCornerCaseCheck(root, { changeSet, sourcePaths, testPaths, cornerCases = 'warn', assertions = 'warn' }) {
+  try {
+    const gate = await evaluateDeliveryCornerCaseGate(root, { changeSet, sourcePaths, testPaths, enforceCornerCases: false, enforceAssertionAdequacy: false });
+    return cornerCaseCheckSummary(gate, { cornerCases, assertions });
+  } catch (error) {
+    return { mode: 'warn', assurance: 'static-signal-only', status: 'unavailable', inadequate: [], uncovered: [],
+      words: `Assertion check not run: ${String(error?.message ?? error).slice(0, 200)} It refuses nothing.` };
+  }
+}
+
 /**
  * Read-only inspection of diff-scoped corner-case obligations and test assertion adequacy for an
  * open code generation (used by `phaseDraftCheck`).

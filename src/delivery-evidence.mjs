@@ -1215,7 +1215,7 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
 }
 
 /** Refuse a code phase before generation state or telemetry is mutated. */
-export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false } = {}) {
+export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false, assertionCheck = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
   excludeAlwaysLocalNames(root);
   if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
@@ -1545,6 +1545,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     || workflow.resolution?.codeDelivery?.assertionAdequacy === 'enforce'
     || config.governance?.requireAssertionAdequacy === true;
   let cornerCaseGate = null;
+  // Unset reads as warn [CQF:REQ-032]: at the gate the check runs and warns, refusing nothing; off and enforce keep their meaning.
+  const checkModes = { cornerCases: workflow.resolution?.codeDelivery?.cornerCaseObligations, assertions: workflow.resolution?.codeDelivery?.assertionAdequacy };
+  let assertionSummary = null;
   if (enforceCornerCases || enforceAssertionAdequacy) {
     const { evaluateDeliveryCornerCaseGate, compactCornerCaseMatrix } = await import(CORNER_CASE_MODULE);
     cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
@@ -1552,6 +1555,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     });
     reportAll(cornerCaseGate.problems, cornerCaseGate.problemFindings);
     cornerCaseGate.compactMatrix = compactCornerCaseMatrix(cornerCaseGate.matrix);
+  } else if (assertionCheck && (checkModes.cornerCases !== 'off' || checkModes.assertions !== 'off')) {
+    const { cornerCaseCheckMode, warnedCornerCaseCheck } = await import(CORNER_CASE_MODULE);
+    assertionSummary = await warnedCornerCaseCheck(root, { changeSet, sourcePaths, testPaths,
+      cornerCases: cornerCaseCheckMode(checkModes.cornerCases), assertions: cornerCaseCheckMode(checkModes.assertions) });
   }
   // The step's approvers may accept these exact problems for this exact candidate as a disputed
   // finding [recoverable-findings M2]; anything else, or any change, still refuses.
@@ -1688,7 +1695,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     excludedChanges,
     fulfillment: fulfillment.obligations,
     implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null,
-    ...(cornerCaseGate?.matrix ? { cornerCaseMatrix: cornerCaseGate.compactMatrix } : {})
+    ...(cornerCaseGate?.matrix ? { cornerCaseMatrix: cornerCaseGate.compactMatrix } : {}),
+    // Kept in the step's state for its review; never in the delivery receipt [CQF:REQ-032].
+    ...(assertionSummary ? { assertionCheck: assertionSummary } : {})
   };
   // Shown to whoever reads the result; not serialized into the delivery receipt, whose record
   // family is versioned separately. The dispute itself is the retained, reviewed record.

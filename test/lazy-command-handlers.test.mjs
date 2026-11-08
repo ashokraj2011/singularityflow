@@ -364,7 +364,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (code-delivery-policy.mjs, print-phase-review.mjs, phase-review.mjs, state.mjs); the read model stays lazy (verification/changed-line-coverage.mjs) [CQF:REQ-031].
     // 9,558,950 (measured 9,558,916): both coverage modules load from the CLI source, out of the VS Code gateway bundle, which they had
     // grown past its module ceiling (state.mjs, attempts.mjs, phase-review.mjs).
-    assert.ok(closure.bytes <= 9_558_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,560,350 (measured 9,560,306): the assertion and edge-case check runs at publication in warn mode, and the review shows it
+    // (delivery-evidence.mjs, state.mjs, phase-review.mjs, print-phase-review.mjs); the check stays lazy (verification/corner-case-obligations.mjs) [CQF:REQ-032].
+    assert.ok(closure.bytes <= 9_560_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -544,7 +546,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,159,060 (measured 4,159,053): the one documentation definition exported, and a receipt's code digest (delivery-evidence.mjs, code-delivery-tests.mjs) [CQF:REQ-011].
   // 4,161,000 (measured 4,160,916): the same coverage key and lcov reporter rule as start (external-command-policy.mjs, node-test-observation.mjs) [CQF:REQ-030].
   // 4,161,800 (measured 4,161,719): the changed-line coverage setting (code-delivery-policy.mjs) [CQF:REQ-031].
-  assert.ok(current.bytes <= 4_161_800, `session current loads ${current.bytes} source bytes`);
+  // 4,162,700 (measured 4,162,646): the same warn-mode check at publication as start (delivery-evidence.mjs) [CQF:REQ-032].
+  assert.ok(current.bytes <= 4_162_700, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

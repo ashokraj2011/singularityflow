@@ -373,7 +373,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (state.mjs +750) [CQF:REQ-052]. The hold loads from the CLI source only when a gate recorded one; no new eager file.
     // 9,564,700 (measured 9,564,651, commands/phase-lifecycle.mjs): a plain lint, static-analysis or security command whose program
     // is not here is recorded as unavailable, not failed (state.mjs +1130) [CQF:REQ-054]; one refusal fewer (refusal-remediation.mjs -44).
-    assert.ok(closure.bytes <= 9_564_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,565,550 (measured 9,565,535, commands/phase-lifecycle.mjs): an advisory scanner that reads no findings and reported problems
+    // is warned, not failed (state.mjs +662, lifecycle-evidence-policy.mjs +222) [CQF decision 6]. Import's readers stay lazy.
+    assert.ok(closure.bytes <= 9_565_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

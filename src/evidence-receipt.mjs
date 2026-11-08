@@ -26,7 +26,8 @@ function digest(value) {
 
 /**
  * Check counts by the same rule the gates apply (`qualityValidationVerdict`): blocked and unknown
- * statuses are failures, unavailable and skipped checks are unavailable, and a configured check with
+ * statuses are failures, unavailable and skipped checks are unavailable, an advisory scanner that
+ * reported problems is warned, and a configured check with
  * no record is unavailable. Every recorded check lands in exactly one count, so a receipt can never
  * read "1 passed · 0 failed · 0 unavailable" over a required check that did not run. A failure that
  * passed its transition under accepted risk stays a failure and is also counted as such.
@@ -45,6 +46,7 @@ function checkProjection(phase, packet) {
     passed: recorded.filter((check) => check?.status === 'passed').length,
     failed: verdict.failed.length,
     unavailable: verdict.unavailable.length + Math.max(0, configured - recorded.length),
+    ...(verdict.warned.length ? { warned: verdict.warned.length } : {}),
     ...(acceptedRisk ? { acceptedRisk } : {})
   };
 }

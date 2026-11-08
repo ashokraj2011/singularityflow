@@ -4554,11 +4554,16 @@ function safeEnvironmentMetadata(value, fallbackName = null) {
 /**
  * A lint, static-analysis or security command that reads no findings and could not run here (its
  * program is not installed, the shell answered 127, or it was blocked: no bound environment, past its
- * timeout) is recorded as unavailable and blocks nothing [CQF:REQ-054, decision 11]. Tests, builds and
- * formatters keep their rule. A finding command's own run is judged by the findings loop.
+ * timeout) is recorded as unavailable and blocks nothing [CQF:REQ-054, decision 11]. An advisory one
+ * that ran and reported problems is `warned`: its exit cannot say whether they are on the Story's new
+ * code, so it fails nothing [decision 6]. Tests, builds and formatters keep their rule. A finding
+ * command's own run is judged by the findings loop.
  */
 export function scannerUnavailableCheck(check, policy) {
   if (!FINDING_COMMAND_KINDS.includes(policy.kind) || findingCommand(policy)) return check;
+  if (check.status === 'failed' && check.exitCode !== 127 && (check.requirement ?? 'required') === 'advisory') {
+    return Object.assign(check, { status: 'warned', stderr: `Advisory scanner reported problems (exit ${check.exitCode}); it reads no findings, so it warns and fails nothing. ${String(check.stderr ?? '')}`.slice(0, 2000) });
+  }
   if (!(check.status === 'blocked' || check.infrastructureUnavailable || (check.status === 'failed' && check.exitCode === 127))) return check;
   return Object.assign(check, { status: 'unavailable', configuredRequirement: check.requirement ?? 'required', requirement: 'advisory', scannerUnavailable: true,
     stderr: `Not run here: ${String(check.stderr ?? '').trim() || `exit ${check.exitCode}`} A scanner that cannot run is recorded and blocks nothing.`.slice(0, 2000) });
@@ -5860,6 +5865,7 @@ async function submitPhaseTransition(root, config, workflow, {
     errors.push(`Required quality command was unavailable: ${unacceptedUnavailable.map((check) => check.command).join(', ')}`);
   }
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
+  for (const check of validation.warned) console.warn(`Warning: advisory scanner ${check.id} reported problems; it reads no findings, so it fails nothing.`);
   if (repositoryTestsFailed) {
     console.warn(`Warning: the repository's tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. `
       + `${phase.id} goes to its reviewer, who cannot approve it and returns it to the step that repairs it.`);

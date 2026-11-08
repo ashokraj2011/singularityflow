@@ -7,19 +7,21 @@ export function inputFindingSeverity(mode, optional, status) {
 }
 
 export function qualityValidationVerdict(checks = [], { required = false } = {}) {
-  const known = new Set(['passed', 'failed', 'blocked', 'skipped-warning', 'unavailable']);
+  const known = new Set(['passed', 'failed', 'blocked', 'skipped-warning', 'unavailable', 'warned']);
   const invalid = checks.filter((check) => !known.has(check?.status));
   const explicitFailures = checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
   // Unknown output is never passing evidence; the runtime gate and the simulator share this rule.
   const failed = [...explicitFailures, ...invalid];
   const unavailable = checks.filter((check) => ['skipped-warning', 'unavailable'].includes(check.status));
   const unavailableRequired = unavailable.filter((check) => (check.requirement ?? 'required') === 'required');
+  // An advisory scanner that reads no findings and reported problems: shown, and it fails nothing [CQF decision 6].
+  const warned = checks.filter((check) => check.status === 'warned');
   let verdict;
   if (!checks.length) verdict = required ? 'invalid' : 'not-required';
   else if (invalid.length) verdict = 'invalid';
   else if (explicitFailures.length) verdict = 'failed';
   else if (unavailable.length === checks.length) verdict = 'unavailable';
-  else if (unavailable.length) verdict = 'partial';
+  else if (unavailable.length || warned.length) verdict = 'partial';
   else verdict = 'passed';
-  return { verdict, failed, invalid, unavailable, unavailableRequired };
+  return { verdict, failed, invalid, unavailable, unavailableRequired, warned };
 }

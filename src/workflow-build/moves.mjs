@@ -10,6 +10,7 @@
  * Studio's own reviewed proposal and the check runs on exactly what would be published.
  */
 import { CHECK_KINDS } from '../guidance-scan.mjs';
+import { scannerCheck } from '../findings/ci-scanners.mjs';
 import { looksSecretName, looksSecretValue } from '../secret-looking.mjs';
 import { STUDIO_ID as ID } from '../agent-document-parser.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -544,8 +545,10 @@ function qualityCommand(check, taken) {
   taken.add(id);
   if (check.record) return { ...structuredClone(check.record), id, requirement: check.requirement ?? 'required' };
   const asWritten = /^[A-Za-z_][A-Za-z0-9_]*=|["'\\$`*?]/u.test(check.command);
-  return { id, modelPolicy: 'never', ...(asWritten ? { command: check.command } : { argv: check.command.split(/\s+/u) }),
-    kind: CHECK_KINDS[check.category], requirement: check.requirement ?? 'required', ...(check.directory ? { workingDirectory: check.directory } : {}) };
+  // A scanner reads its findings where a reader fits, else it is advisory unless the move says otherwise [CQF decision 6].
+  return scannerCheck({ id, modelPolicy: 'never', ...(asWritten ? { command: check.command } : { argv: check.command.split(/\s+/u) }),
+    kind: CHECK_KINDS[check.category], ...(check.requirement ? { requirement: check.requirement } : {}), ...(check.directory ? { workingDirectory: check.directory } : {}) },
+  check.category, { requirement: 'required' });
 }
 
 export function invalidMoves(findings) {

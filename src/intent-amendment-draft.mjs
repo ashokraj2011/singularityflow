@@ -8,6 +8,8 @@
  *
  * - a clause dispositioned `update-intent` in convergence gets a revise slot in its own row, with the
  *   finding and the reason a person gave;
+ * - a conformance row a person chose to update the spec for (the decision list's Update the spec
+ *   [SCS:REQ-020]) gets the same slot, holding the row's verdict, its Deviation cell and their reason;
  * - a clause of a closed Story that `spec drift decide --adopt --story <this Story>` handed here gets
  *   a new clause in this Story's namespace, with the old statement, the drift and the paths, and a
  *   planned-evidence row marking that code `existing`.
@@ -19,7 +21,8 @@ export const DRAFT_MARKER = 'sflow-draft:';
 
 /** One single-line comment slot, safe inside a table cell. */
 export function draftSlot(text) {
-  const clean = String(text ?? '').replace(/\s+/gu, ' ').replace(/-->/gu, '- ->').replace(/\|/gu, '/').trim().slice(0, 1200);
+  // Long enough for a row's verdict, what differs and a person's reason of up to 1,000 characters.
+  const clean = String(text ?? '').replace(/\s+/gu, ' ').replace(/-->/gu, '- ->').replace(/\|/gu, '/').trim().slice(0, 2000);
   return `<!-- ${DRAFT_MARKER} ${clean} -->`;
 }
 
@@ -49,9 +52,20 @@ function withSlot(line, slot) {
   return isRow(line) ? line.replace(/\s*\|\s*$/u, ` ${slot} |`) : `${line.replace(/\s+$/u, '')} ${slot}`;
 }
 
+/** What a conformance row says of its clause, for its slot: the verdict, the Deviation cell, and the person's reason. */
+function rowWords({ row = null, reason = null }) {
+  const said = (value, limit) => String(value ?? '').replace(/\s+/gu, ' ').trim().replace(/\.+$/u, '').slice(0, limit);
+  return [
+    ...(row ? [`Verdict: ${said(row.verdict, 40)}${row.report ? `, in the ${said(row.report, 80)}` : ''}.`,
+      `Deviation: ${said(row.difference, 400) || 'not stated in the row'}.`] : []),
+    ...(said(reason, 1000) ? [`Reason: ${said(reason, 1000)}.`] : [])
+  ].join(' ');
+}
+
 /**
  * The draft text and what it marked. `clauses` is `extractClauses` over `text`; `namespace` is this
- * Story's; `revisions` are `{ clauseId, why[] }`; `additions` are `{ fromWorkId, fromClauseId, type,
+ * Story's; `revisions` are `{ clauseId, why[], row?, reason? }`, where `row` is a conformance row's
+ * `{ verdict, difference, report }`; `additions` are `{ fromWorkId, fromClauseId, type,
  * statement, evidence[], productPaths[], testPaths[] }`.
  */
 export function buildIntentAmendmentDraft({ text, clauses, namespace, revisions = [], additions = [], proposeCommand }) {
@@ -63,7 +77,7 @@ export function buildIntentAmendmentDraft({ text, clauses, namespace, revisions 
     if (!clause) continue;
     const index = Number(clause.source?.line) - 1;
     if (!(index >= 0 && index < lines.length)) continue;
-    lines[index] = withSlot(lines[index], draftSlot(`revise ${clause.id} so it says what the code does. ${revision.why.join(' ')}`));
+    lines[index] = withSlot(lines[index], draftSlot(`revise ${clause.id} so it says what the code does. ${[...(revision.why ?? []), rowWords(revision)].join(' ')}`));
     slots.push({ kind: 'revise', clauseId: clause.id, line: index + 1 });
   }
   const used = new Map();

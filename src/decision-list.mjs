@@ -38,7 +38,8 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'routing', 'upstream-issue-decision']);
+// A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
+const EFFECT_ORDER = Object.freeze(['intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
@@ -86,7 +87,8 @@ function issueGroups(workflow, phaseId) {
 
 /** The approval groups that must decide one effect; null when anyone may (raising an issue). */
 function effectGroups(workflow, effect) {
-  if (effect.kind === 'upstream-issue') return null;
+  // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
+  if (effect.kind === 'upstream-issue' || effect.kind === 'intent-amendment-draft') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
   // `story adjudicate` checks the convergence step's approval authority.
   if (effect.kind === 'convergence-adjudication') return issueGroups(workflow, effect.phase);
@@ -201,18 +203,41 @@ function differenceItem(workflow, context, group) {
   const choices = gaps.flatMap((gap) => gap.choices ?? []);
   const fix = choices.find((choice) => choice.kind === 'fix-code' && choice.command);
   const update = choices.find((choice) => choice.kind === 'update-spec' && choice.command);
+  // A draft already written for these clauses, from the approved scope as it is now: writing it and proposing it is next [SCS:REQ-022].
+  const draft = context.facts.intentAmendmentDraft ?? null;
+  const drafted = Boolean(update && draft?.path && clauses.every((clause) => (draft.clauses ?? []).some((id) => sameClause(id, clause))));
+  if (drafted) why.splice(why.length - 1, 0, `A draft of ${stepName(workflow, update.owner)}'s scope with a slot for ${clauses.length === 1 ? 'it' : 'each of them'} is at ${draft.path}: `
+    + `write ${clauses.length === 1 ? 'it' : 'them'} as the code does it, then propose it.`);
   const options = [];
   if (fix) {
     options.push({ ...personalStep({ id: 'fix-code', label: `Fix the code: return to ${stepName(workflow, fix.owner)}`, command: fix.command,
       words: `The code is changed to do what ${names} ${clauses.length === 1 ? 'says' : 'say'}; the steps after it run again and the report is written again.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: reports[0] }], context) });
   }
-  if (update) {
+  if (update && drafted) {
+    // The wording is a person's or the Story's agent's [SCS:REQ-021]: propose refuses while a slot is left.
     const scopeName = stepName(workflow, update.owner);
-    options.push({ ...personalStep({ id: 'update-spec', label: `Update the spec: amend ${scopeName}`, command: update.command,
-      words: `Draft ${scopeName}'s scope with a slot for ${clauses.length === 1 ? 'this clause' : 'these clauses'}, write ${clauses.length === 1 ? 'it' : 'them'} as the code does it, `
-        + `and propose it (story intent-amendment propose). ${scopeName}'s approvers decide it; nothing is rewound.` }),
-    decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: update.owner }], context) });
+    const propose = `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file "${draft.path}" --reason "<why the specification changes>"`;
+    const words = `The draft is at ${draft.path}. Write ${clauses.length === 1 ? 'the clause' : 'each clause'} in place of its sflow-draft slot and delete the closing line, `
+      + `or ask the Story's agent (/sf-reject intent-amendment propose); then propose it. ${scopeName}'s approvers decide it.`;
+    const step = personalStep({ id: 'update-spec', label: 'Update the spec: write the draft and propose it', command: propose, words,
+      decidedBy: anyone(`Anyone working on this Story may write and propose it; ${scopeName}'s approvers decide it.`) });
+    // The file a host may open for the person: the engine's own path, never one a page sends back.
+    options.push({ ...step, action: { ...step.action, file: draft.path } });
+  } else if (update) {
+    // One choice drafts it [SCS:REQ-020]: built from the approved bytes with a slot per clause holding its row
+    // and the person's reason. It writes no record and decides nothing; the scope approvers decide the amendment.
+    const scopeName = stepName(workflow, update.owner);
+    const built = option(workflow, context, {
+      id: 'update-spec', label: `Update the spec: draft ${scopeName}'s amendment`,
+      words: `Writes a draft of ${scopeName}'s scope with a slot for ${clauses.length === 1 ? 'this clause' : 'each clause'}, holding the row and your reason; nothing is recorded or decided. `
+        + `Then write ${clauses.length === 1 ? 'it' : 'them'} as the code does it and propose it; ${scopeName}'s approvers decide it, and nothing is rewound until they do.`,
+      effects: [{ kind: 'intent-amendment-draft', phase: update.owner, clauses, path: draft?.path ?? null,
+        rows: gaps.map((gap) => ({ clauseId: gap.clauseId, verdict: gap.verdict, difference: gap.difference ? String(gap.difference).slice(0, 400) : null,
+          report: `${stepName(workflow, gap.report)} report` })) }],
+      needs: { reason: textNeed('', REASON) }
+    });
+    options.push({ ...built, decidedBy: anyone(`Anyone working on this Story may draft it; ${scopeName}'s approvers decide the amendment.`) });
   }
   options.push(option(workflow, context, {
     id: 'accept-risk', label: 'Accept the difference for now, until a date',
@@ -233,6 +258,7 @@ function differenceItem(workflow, context, group) {
     options,
     details: { clauses, verdicts, owner, reports, issue: issue?.id ?? null, issueStatus: issue?.status ?? (issue ? 'open' : 'unraised'),
       differences: gaps.map((gap) => ({ clause: gap.clauseId, verdict: gap.verdict, difference: gap.difference ?? null })),
+      draft: drafted ? { path: draft.path, clauses: draft.clauses } : null,
       supersedes: issue ? (context.facts.issues ?? []).filter((state) => state.supersededBy === issue.id).map((state) => state.issue.id) : [],
       reuse: null, rule: CONFORMANCE_GAP_RULE, commands: [...new Set(choices.map((choice) => choice.command).filter(Boolean))] }
   };
@@ -1264,7 +1290,10 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   // Each refusal approval names that no item carries becomes an item of its own; the approval itself
   // names the rest, so the list and the approval check never disagree [SPEC-OAP M3].
   const holds = awaiting ? (facts.approvalCheck?.holds ?? []) : [];
-  const carried = new Set(listed.map((item) => item.kind));
+  // A row whose amendment waits for its approvers is that amendment's item, which holds the approval in its place [SCS:REQ-023].
+  const amending = new Set((facts.gaps ?? []).filter((gap) => gap.status === 'amending' && gap.issue).map((gap) => gap.issue));
+  const amendmentItem = (item) => ['intent-amendment', 'forward-amendment'].includes(item.kind) && amending.has(item.details?.amendment);
+  const carried = new Set([...listed.map((item) => item.kind), ...(listed.some(amendmentItem) ? ['conformance-gap'] : [])]);
   // This checkout's own changes come first, as the door refuses them first, as d0 and outside the
   // digest: setting them aside changes neither which item a number means nor what a person chose.
   const dirty = holds.find((hold) => hold.owner === 'this-checkout');
@@ -1275,7 +1304,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
       : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
-  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && heldKinds.has(item.kind)
+  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item)) || (awaiting && heldKinds.has(item.kind)
     && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const items = built.map((item, index) => {
@@ -1514,6 +1543,10 @@ export function decisionRecordPlan(packet, answers, { at }) {
 
 /** One record a plan writes, in plain words with its record kind, for summaries and reports. */
 export function effectWords(workflow, effect, values = {}) {
+  if (effect.kind === 'intent-amendment-draft') {
+    return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
+      + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;
+  }
   if (effect.kind === 'evidence-reuse') {
     return `reuse ${stepName(workflow, effect.recordedBy)}'s recorded run for ${stepName(workflow, effect.phase)} (evidence reuse ${effect.attemptId})`;
   }

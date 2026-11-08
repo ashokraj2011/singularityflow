@@ -100,6 +100,14 @@ existed reads as `legacy` and keeps partial and missing only, so no approved rep
 
 ## M2 "Update the spec" in one choice `[SCS:REQ-020]`
 
+Built 2026-11-08 on the M2 branch. The choice is recorded like any other on the decisions card, the Copilot CLI
+`/sf-decide` forms and the terminal table, with a reason, and writes only the draft: no record, no decision. The
+draft is the Story's own draft file beside the checkout's Git data
+(`<git dir>/singularity-flow/intent-amendment-drafts/<WORK-ID>.md`), the one file a `/sf-reject` turn may
+edit, never committed until `propose`. A note beside it says which clauses it holds and which scope bytes it
+was built from. With that note, the list says where the draft is and that writing and proposing it is next.
+The list never writes over a draft someone changed.
+
 - `[SCS:REQ-020]` Choosing **Update the spec** drafts the intent amendment for the clause without a
   command to copy. In M1 the choice is the `story intent-amendment draft --clause` command. The draft is
   built from the approved bytes, model-free, with one marked slot per clause holding:

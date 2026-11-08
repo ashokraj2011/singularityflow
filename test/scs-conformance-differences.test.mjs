@@ -8,7 +8,8 @@ import test from 'node:test';
 
 import { verdictSummaryBlock } from '../src/conformance-readiness.mjs';
 import { conformanceVerdictGaps, decidesConformanceDifferences, unstatedConformanceDifferences } from '../src/conformance-verdicts.mjs';
-import { decisionGroups, decisionPacket, decisionRecordPlan, ISSUE_ONLY_OPTIONS, parseDecisionAnswers } from '../src/decision-list.mjs';
+import { recordableInApproval } from '../src/approval-decisions.mjs';
+import { decisionGroups, decisionPacket, decisionRecordPlan, effectWords, ISSUE_ONLY_OPTIONS, parseDecisionAnswers } from '../src/decision-list.mjs';
 import { DECISION_LIST_CHAT_OPTIONS } from '../src/person-step-catalog.mjs';
 import { normalizeSpecPolicy } from '../src/specifications.mjs';
 import { conformanceGapDecisions, conformanceGapRefusal, upstreamIssueStates } from '../src/upstream-routes.mjs';
@@ -116,7 +117,7 @@ test('a difference is settled by a dated risk, a dismissal, the spec following t
   // scope approvers holds the row as amending, and its approval settles it.
   const open = byClause(decided(story({ issues: [issue] })), 'REQ-003');
   assert.deepEqual([open.status, open.choices.map((choice) => choice.kind)], ['undecided', ['correct-report', 'update-spec', 'decide-upstream-issue', 'fix-code']]);
-  const proposedIntent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'proposed', clauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
+  const proposedIntent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'proposed', changedClauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
   assert.deepEqual([proposedIntent.status, proposedIntent.issue, proposedIntent.choices.map((choice) => choice.kind)],
     ['amending', 'AMD-001', ['decide-intent-amendment']]);
   // A forward amendment of a document step, proposed for the issue, holds it the same way.
@@ -130,8 +131,10 @@ test('a difference is settled by a dated risk, a dismissal, the spec following t
     forwardAmendmentDecisions: [{ amendment: 'FAM-001', phase: 'requirements', decision: 'approved', reason: 'r', at: AT }] } })), 'REQ-003');
   assert.deepEqual([approved.status, approved.outcome, approved.issue], ['decided', 'amended', 'FAM-001']);
   // So is an approved intent amendment naming the clause.
-  const intent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', clauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
+  const intent = byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', changedClauses: [`${W}:REQ-003`] }] } })), 'REQ-003');
   assert.deepEqual([intent.status, intent.outcome], ['decided', 'amended']);
+  // Read by the clauses a proposal records it changes (changedClauses), never by another clause's amendment.
+  assert.equal(byClause(decided(story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', changedClauses: [`${W}:REQ-006`] }] } })), 'REQ-003').status, 'unraised');
   // An unplanned row the code step already departed with, accepted by a person, is never asked again.
   const departure = { id: 'DEP-001', kind: 'path', phase: 'implementation', generation: 1, paths: ['src/cache.js'], clauses: [] };
   const amendment = { id: 'PAM-001', departures: ['DEP-001'], at: AT, contentHashes: {} };
@@ -157,8 +160,7 @@ test('the decision list shows a difference with its four choices, apart from gap
   assert.match(item.why, /It says: REQ-003: code waits 10 s; the clause says 5 s; REQ-004: src\/cache\.js adds a cache no clause asks for\./u);
   assert.deepEqual(item.options.map((entry) => entry.id), ['fix-code', 'update-spec', 'accept-risk', 'dismiss']);
   const update = item.options.find((entry) => entry.id === 'update-spec');
-  assert.match(update.action.command, /story intent-amendment draft --clause ORD-7:REQ-003/u);
-  assert.equal(update.recordable, false, 'the person or the Story\'s agent drafts and proposes it; the scope approvers decide it');
+  assert.notEqual(update.recordable, false, 'one choice drafts it, with no command to copy [SCS:REQ-020]');
   assert.deepEqual(item.options.find((entry) => entry.id === 'accept-risk').effects.map((effect) => [effect.kind, effect.phase ?? effect.issuePhase]),
     [['upstream-issue', 'requirements'], ['upstream-issue-decision', 'requirements']], 'accepting it for now is the scope approvers\' call');
   assert.ok(!DECISION_LIST_CHAT_OPTIONS.includes('update-spec') && ISSUE_ONLY_OPTIONS.includes('accept-risk'));
@@ -174,4 +176,71 @@ test('an older Story keeps its exact summary sentence; a new one names every ver
   const summary = verdictSummaryBlock(REPORT, story(), 'conformance', { now: AT });
   assert.match(summary, /`ORD-7:REQ-003`: deviated; no issue raised yet; requirements owns it\./u);
   assert.match(summary, /`ORD-7:REQ-005`: partial; no issue raised yet; implementation owns it\./u);
+});
+
+const DRAFT = '/repo/.git/singularity-flow/intent-amendment-drafts/ORD-7.md';
+
+function differencePacket(draft = { path: DRAFT, clauses: [] }, actor = { name: 'Someone Else', email: 'else@example.invalid', login: null }) {
+  const workflow = story({ extra: { resolution: { ...story().resolution, approvalAuthorities: {
+    ...story().resolution.approvalAuthorities, 'product-approvers': { label: 'Product approvers', allowAnyGitIdentity: false, members: [{ githubLogin: 'product-lead' }] } } } } });
+  const gaps = decided(workflow).filter((entry) => entry.status !== 'decided' && entry.verdict !== 'partial').map((entry) => ({ ...entry, report: 'conformance' }));
+  const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps, issues: upstreamIssueStates(workflow, AT), activeReuse: [], candidates: [],
+    reuseProblems: [], testRisks: [], unavailable: [], state: {}, intentAmendmentDraft: draft };
+  return { workflow, packet: decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities, actor, at: AT }) };
+}
+
+test('Update the spec drafts the amendment in one choice, with the rows and the person\'s reason, and decides nothing [SCS:REQ-020]', () => {
+  const { workflow, packet } = differencePacket();
+  const item = packet.items.find((entry) => entry.kind === 'conformance-gap');
+  const update = item.options.find((entry) => entry.id === 'update-spec');
+  assert.equal(update.action, undefined, 'no command for the person to copy');
+  assert.deepEqual(update.effects.map((effect) => [effect.kind, effect.phase, effect.clauses, effect.path]),
+    [['intent-amendment-draft', 'requirements', [`${W}:REQ-003`, `${W}:REQ-004`], DRAFT]]);
+  assert.deepEqual(update.effects[0].rows, [
+    { clauseId: `${W}:REQ-003`, verdict: 'deviated', difference: 'code waits 10 s; the clause says 5 s', report: 'Conformance report' },
+    { clauseId: `${W}:REQ-004`, verdict: 'unplanned', difference: 'src/cache.js adds a cache no clause asks for', report: 'Conformance report' }]);
+  assert.deepEqual([update.needs.reason.default, update.needs.reason.minimum], ['', 20], 'the reason in the slot is the person\'s own');
+  // Drafting decides nothing, so anyone on the Story may take it; deciding the difference stays with the scope approvers.
+  assert.equal(update.decidedBy.allowed, true);
+  assert.match(update.decidedBy.words, /Requirements's approvers decide the amendment/u);
+  assert.equal(item.options.find((entry) => entry.id === 'accept-risk').decidedBy.allowed, false, 'accepting it for now is still theirs alone');
+  assert.equal(recordableInApproval(update), false, 'an approval never carries a draft');
+  assert.ok(!DECISION_LIST_CHAT_OPTIONS.includes('update-spec'), 'a chat turn never writes it for the person');
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: ['d1=update-spec'], reason: ['d1=Legacy callers rely on the longer wait.'] }), { at: AT });
+  assert.deepEqual(plan.steps.map((step) => [step.option, step.values.reason]), [['update-spec', 'Legacy callers rely on the longer wait.']]);
+  assert.match(effectWords(workflow, plan.steps[0].effects[0]), new RegExp(`^draft Requirements's scope with a slot for REQ-003 and REQ-004 at ${DRAFT}; nothing is recorded or decided`, 'u'));
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: ['d1=update-spec'] }), { at: AT }), /reason for d1 must be 20 to 1000 characters/u);
+});
+
+test('once drafted, the list says where the draft is and that writing and proposing it is next [SCS:REQ-021, REQ-022]', () => {
+  const { packet } = differencePacket({ path: DRAFT, clauses: [`${W}:REQ-003`, `${W}:REQ-004`] });
+  const item = packet.items.find((entry) => entry.kind === 'conformance-gap');
+  assert.match(item.why, new RegExp(`A draft of Requirements's scope with a slot for each of them is at ${DRAFT}: write them as the code does it, then propose it\\.`, 'u'));
+  assert.deepEqual(item.details.draft, { path: DRAFT, clauses: [`${W}:REQ-003`, `${W}:REQ-004`] });
+  const update = item.options.find((entry) => entry.id === 'update-spec');
+  assert.equal(update.recordable, false, 'the wording is a person\'s or the Story\'s agent\'s');
+  assert.equal(update.action.command, `singularity-flow story intent-amendment propose --work-id ${W} --file "${DRAFT}" --reason "<why the specification changes>"`);
+  assert.equal(update.action.file, DRAFT, 'a host may open the engine\'s own path');
+  assert.match(update.words, /\/sf-reject intent-amendment propose/u);
+  assert.equal(update.decidedBy.allowed, true);
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: ['d1=update-spec'] }), { at: AT }), /is your own step, not a recorded decision/u);
+  // A draft for other clauses, or one from before an approved amendment (no clauses), drafts again.
+  const other = differencePacket({ path: DRAFT, clauses: [`${W}:REQ-003`] }).packet.items.find((entry) => entry.kind === 'conformance-gap');
+  assert.equal(other.options.find((entry) => entry.id === 'update-spec').effects[0].kind, 'intent-amendment-draft');
+  assert.equal(other.details.draft, null);
+});
+
+test('a proposed amendment is the row\'s item: it holds the approval, and the approval check adds no item of its own [SCS:REQ-023]', () => {
+  const workflow = story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'proposed', changedClauses: [`${W}:REQ-003`] }] } });
+  const gaps = decided(workflow).filter((entry) => entry.status !== 'decided' && entry.clauseId === `${W}:REQ-003`).map((entry) => ({ ...entry, report: 'conformance' }));
+  assert.deepEqual(gaps.map((entry) => [entry.status, entry.issue]), [['amending', 'AMD-001']]);
+  const words = `Phase 'conformance' cannot be approved until a person decides each clause: ${W}:REQ-003 remains deviated: AMD-001 is updating requirements's document to match the code.`;
+  const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps, issues: upstreamIssueStates(workflow, AT), activeReuse: [], candidates: [], reuseProblems: [], testRisks: [],
+    unavailable: [], state: {}, scopePhase: 'requirements', pending: { intentAmendments: workflow.intentAmendments },
+    approvalCheck: { holds: [{ code: 'CONFORMANCE_BLOCKING_VERDICTS', owner: 'someone-decides', summary: words, message: words },
+      { code: 'STORY_COMPLETION_REFUSED', owner: 'someone-decides', summary: `Story ${W} cannot finish yet.`, message: `Story ${W} cannot finish yet: AMD-001.` }] } };
+  const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
+    actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
+  assert.deepEqual(packet.items.map((item) => [item.kind, item.holdsApproval]), [['intent-amendment', true], ['approval', false]]);
+  assert.match(packet.items[0].title, /Decide intent amendment AMD-001/u);
 });

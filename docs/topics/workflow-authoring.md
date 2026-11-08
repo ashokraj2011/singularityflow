@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 93
+version: 94
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1652,7 +1652,10 @@ verdicts a person decides before the conformance step is approved. Under `decide
 `deviated` or `unplanned` row is decided like a `partial` or `missing` one, and it must say what
 differs in its Deviation cell or after its verdict. A person picks one of four choices:
 - fix the code (return to the code step);
-- update the spec (`story intent-amendment draft --clause ID`, then `propose`; the scope approvers decide it);
+- update the spec: this one choice, with a reason, drafts the scope's intent amendment beside the checkout's
+  Git data (the file `story intent-amendment draft` writes). The clause's slot holds the verdict, what differs
+  and the reason. Drafting records and decides nothing. A person or the Story's agent (`/sf-reject
+  intent-amendment propose`) writes the wording and proposes it, and the scope approvers decide it;
 - accept it for now until a date;
 - dismiss a wrong row.
 

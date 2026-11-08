@@ -428,8 +428,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // [SCS:REQ-042]: the approval's stage and hold words (state.mjs +422, approval-check.mjs +165), the list's item for it
     // (decision-list.mjs, step-sheet.mjs), `departure account` (command-registry.mjs +155, messages.mjs +199). The command and the
     // records stay lazy (commands/departure.mjs, asked-for-records.mjs); no new eager file.
-    // 9,608,700 (measured 9,608,682, commands/phase-lifecycle.mjs): spec–code sync M1 and M4 together, each one's growth above.
-    assert.ok(closure.bytes <= 9_608_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,606,600 (measured 9,606,573, commands/phase-lifecycle.mjs): a decisions record that only drafted an amendment says
+    // nothing was recorded (narration/messages.mjs), and an amendment's changedClauses settle a row (upstream-routes.mjs) [SCS:REQ-020, REQ-023].
+    // 9,608,950 (measured 9,608,916, commands/phase-lifecycle.mjs): spec–code sync M1, M2 and M4 together, each one's growth above.
+    assert.ok(closure.bytes <= 9_608_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

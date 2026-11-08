@@ -17,10 +17,14 @@ import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, evidencePaths, GUARD_WORDS, guardRoute, openRows,
+import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, openRows,
   type DecideDraft } from './decide-card-page.ts';
 
-export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; remaining?: string[]; next?: unknown }
+export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; next?: unknown }
+
+/** An absolute file the engine named, opened beside the page for the person to write in. */
+const openBeside = (file: string) => vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file), { viewColumn: vscode.ViewColumn.Beside, preview: false })
+  .then(undefined, () => vscode.window.showInformationMessage(`${file} could not be opened; it may have been moved.`));
 
 let open: vscode.WebviewPanel | null = null;
 
@@ -60,6 +64,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     let settled = false;
     let draft: DecideDraft | undefined;
     let recorded: string[] = [];
+    // Drafts written here: files, never records [SCS:REQ-020].
+    let drafted: string[] = [];
     let route: string | null = null;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
@@ -67,8 +73,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
     const finish = (result: DecideResult) => { if (settled) return; settled = true; resolve(result); panel.dispose(); };
-    const notNow = () => (recorded.length ? { status: 'recorded', recorded, message: `${recorded.length} recorded; the rest stay open.` }
-      : { status: 'cancelled', message: 'No decision was recorded.' });
+    const notNow = () => (recorded.length ? { status: 'recorded', recorded, ...(drafted.length ? { drafted } : {}), message: `${recorded.length} recorded; the rest stay open.${drafted.length ? ` ${drafted.join(' ')}` : ''}` }
+      : drafted.length ? { status: 'drafted', recorded, drafted, message: `No decision was recorded. ${drafted.join(' ')}` }
+        : { status: 'cancelled', message: 'No decision was recorded.' });
     const reread = async () => { packet = await readList(client, workId).catch(() => packet); };
     const optionOf = (message: InboundMessage) => packet.items.find((item) => item.id === stringField(message, 'item'))
       ?.options.find((option) => option.id === stringField(message, 'option'));
@@ -86,6 +93,11 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         if (!file || !packet.repositoryPath || !(packet.items.some((item) => item.details?.path === file) || evidencePaths(packet).includes(file))) return;
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(packet.repositoryPath, file)), { viewColumn: vscode.ViewColumn.Beside, preview: true })
           .then(undefined, () => vscode.window.showInformationMessage(`${file} is not in this checkout now; it may have been removed.`));
+      },
+      // The draft a row's own step names, from the list as read: never a path the page sends.
+      'decide.draft': async (message) => {
+        const file = optionOf(message)?.action?.file;
+        if (typeof file === 'string' && path.isAbsolute(file)) await openBeside(file);
       },
       'decide.copy': async (message) => {
         const command = commandOf(message);
@@ -129,13 +141,27 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         if (errors.length) return render(errors.join(' '));
         busy = true; render();
         try {
-          const confirmed = await collectReviewConfirmation({ title: `Record ${choices.length} decision${choices.length === 1 ? '' : 's'} on ${workId}`,
-            summary: 'Each one is recorded with its own reason, under your name.', detail: decideSummary(packet, choices), confirmLabel: 'Record these decisions' });
+          const writesOnly = draftsOnly(packet, choices);
+          const confirmed = await collectReviewConfirmation(writesOnly
+            ? { title: `Draft the amendment on ${workId}`, summary: 'A draft is written beside the checkout\'s Git data, with your reason in its slot; nothing is recorded or decided.',
+              detail: decideSummary(packet, choices), confirmLabel: 'Write the draft' }
+            : { title: `Record ${choices.length} decision${choices.length === 1 ? '' : 's'} on ${workId}`,
+              summary: 'Each one is recorded with its own reason, under your name.', detail: decideSummary(packet, choices), confirmLabel: 'Record these decisions' });
           if (!confirmed) { busy = false; panel.reveal(); return render(); }
           const outcome = decisionRecordOutcome(await record(client, packet, answers)).outcome;
           await refresh?.();
           const all = [...recorded, ...outcome.recorded];
           const decided = outcome.decided ?? [];
+          if (outcome.drafted?.length) {
+            // Writing and proposing the draft is next, on this list: the page stays, says where it is, and opens it beside.
+            // What the person typed on other rows stays on the page.
+            recorded = all; drafted = [...drafted, ...outcome.drafted]; busy = false;
+            await reread();
+            const file = draftFileOf(packet);
+            if (file) await openBeside(file);
+            panel.reveal();
+            return render(null, `${outcome.message} ${outcome.drafted.join(' ')}`);
+          }
           finish({ status: 'recorded', recorded: all, decided, remaining: outcome.remaining,
             message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : `${all.length} recorded.`}${outcome.remaining.length ? ` Still open: ${outcome.remaining.join('; ')}.` : ' All decided.'}` });
         } catch (error) {

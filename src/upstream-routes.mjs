@@ -266,11 +266,11 @@ const sameId = (left, right) => String(left ?? '').toUpperCase() === String(righ
 function differenceSettlement(workflow, gap, named, owner) {
   const done = (fields) => Object.freeze({ ...gap, status: 'decided', expiresAt: null, choices: Object.freeze([]), ...fields });
   const intent = (workflow?.intentAmendments ?? []).findLast((entry) => entry?.status === 'approved'
-    && (entry.clauses ?? []).some((id) => sameId(id, gap.clauseId)));
+    && (entry.changedClauses ?? []).some((id) => sameId(id, gap.clauseId)));
   if (intent) return done({ owner, issue: intent.id, outcome: 'amended' });
   const workId = workflow?.workItem?.id ?? '<WORK-ID>';
   const proposed = (workflow?.intentAmendments ?? []).findLast((entry) => entry?.status === 'proposed'
-    && (entry.clauses ?? []).some((id) => sameId(id, gap.clauseId)));
+    && (entry.changedClauses ?? []).some((id) => sameId(id, gap.clauseId)));
   if (proposed) {
     return Object.freeze({ ...gap, owner, status: 'amending', issue: proposed.id, outcome: null, expiresAt: null,
       choices: Object.freeze([gapChoice('decide-intent-amendment', owner, ['story', 'intent-amendment', 'decide', proposed.id, '--decision', 'approve|reject',

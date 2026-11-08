@@ -17,6 +17,10 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  * The Copilot guard lets an agent record here only options that write upstream-issue records, in a
  * /sf-decide turn; everything else is the person's own step, on a host's card or in their own terminal,
  * as for `decision evidence-reuse`, `decision test-risk`, `decision test-command` and a convergence adjudication.
+ *
+ * Update the spec on a deviated or unplanned row writes no record: it drafts the intent amendment beside
+ * the checkout's Git data, as `story intent-amendment draft` does, and the result says where (`drafted`)
+ * and that writing and proposing it is next [SCS:REQ-020].
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -119,8 +123,9 @@ function changedValues(packet, plan) {
 async function previewOf(workflow, packet, plan) {
   const [{ decisionApprovalFlags, decisionChatSteps, decisionRecordCommand, effectWords, ISSUE_ONLY_OPTIONS }, { recordableInApproval }] = await Promise.all([
     import('../decision-list.mjs'), import('../approval-decisions.mjs')]);
+  // A draft is written, never recorded: say so.
   const summary = plan.steps.map((step) => `${step.item}. ${listedItem(packet, step.item).title}: ${step.label}. `
-    + `Records: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}.`);
+    + `${step.effects.every((effect) => effect.kind === 'intent-amendment-draft') ? 'Writes' : 'Records'}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}.`);
   const chosen = { choices: plan.steps.map((step) => [step.item, step.option]), digest: packet.packetSha256, values: changedValues(packet, plan) };
   const command = plan.steps.length ? decisionRecordCommand(packet.workId, {
     phaseId: packet.record.interactive.includes(' --phase ') ? packet.phase : null, ...chosen
@@ -356,6 +361,11 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
 
 /** Write one effect with the function its own command uses; returns the record it wrote. */
 async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent }) {
+  if (effect.kind === 'intent-amendment-draft') {
+    // The draft command's own function, at the Story's own draft path: never one carried in the list.
+    const { draftIntentAmendment } = await import('./story.mjs');
+    return draftIntentAmendment(root, config, workflow, {}, { rows: effect.rows ?? [], reason: step.values.reason, keepEdits: true });
+  }
   if (effect.kind === 'upstream-issue') {
     const { commitUpstreamIssue } = await import('./upstream-issue.mjs');
     return commitUpstreamIssue(root, config, workflow, { phase: effect.phase, about: effect.about, problem: effect.problem,
@@ -498,7 +508,13 @@ async function record(root, options, workId, io) {
     const session = await loadSession(root, { required: false });
     const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
     const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent }));
-    const recorded = outcome.recorded.map((entry) => ({ item: entry.item, kind: entry.kind, record: recordId(entry.kind, entry.record), value: entry.record }));
+    const isDraft = (entry) => entry.kind === 'intent-amendment-draft';
+    const recorded = outcome.recorded.filter((entry) => !isDraft(entry)).map((entry) => ({ item: entry.item, kind: entry.kind, record: recordId(entry.kind, entry.record), value: entry.record }));
+    // What was drafted, where, and what is next: a file, not a record [SCS:REQ-020, REQ-021].
+    const drafted = outcome.recorded.filter(isDraft).map((entry) => ({ item: entry.item, path: entry.record.path, clauses: entry.record.clauses ?? [],
+      slots: (entry.record.slots ?? []).length, next: { command: entry.record.next.command, copilotCommand: '/sf-reject intent-amendment propose',
+        words: 'Write the wording in place of each sflow-draft slot and delete the closing line, or ask the Story\'s agent '
+          + '(/sf-reject intent-amendment propose); then propose it. The scope approvers decide it.' } }));
     const remaining = outcome.remaining.map((entry) => ({ item: entry.item, kind: entry.kind, words: effectWords(workflow, entry.effect,
       plan.steps.find((step) => step.item === entry.item)?.values ?? {}) }));
     if (outcome.failed) {
@@ -514,10 +530,13 @@ async function record(root, options, workId, io) {
     }
     const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
-    const decided = plan.steps.map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}` }));
+    const draftedItems = new Set(drafted.map((entry) => entry.item));
+    const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
+      .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}` }));
     if (!optionBoolean(options, 'json')) {
       for (const entry of plan.refused) console.log(`Not recorded: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
       for (const entry of decided) console.log(`Recorded ${entry.item}, ${entry.words}.`);
+      for (const entry of drafted) console.log(`Drafted ${entry.item} at ${entry.path}; nothing was recorded. ${entry.next.words}\n  ${entry.next.command}`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
     }
     const next = after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
@@ -525,12 +544,12 @@ async function record(root, options, workId, io) {
     emitCommandResult(commandResult({
       operation: { id: 'decisions.record', classification: 'mutation' },
       subject: { kind: 'story', id: workflow.workItem.id },
-      outcome: succeeded('decisions.record.succeeded', { count: String(plan.steps.length), records: String(recorded.length),
-        refused: String(plan.refused.length) }),
-      effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+      outcome: succeeded('decisions.record.succeeded', { count: String(plan.steps.length - drafted.length), records: String(recorded.length),
+        refused: String(plan.refused.length), ...(drafted.length ? { drafted: String(drafted.length) } : {}) }),
+      effects: effects({ stateChanged: recorded.length > 0, filesChanged: true, publicationCreated: recorded.length > 0 }),
       next: next.map((entry) => action(entry)),
-      data: { recorded, decided, refused: plan.refused, remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null,
-        packetSha256: after?.packetSha256 ?? null }
+      data: { recorded, decided, ...(drafted.length ? { drafted } : {}), refused: plan.refused,
+        remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {
     prompt?.close();

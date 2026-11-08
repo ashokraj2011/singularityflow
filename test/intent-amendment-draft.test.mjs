@@ -46,3 +46,17 @@ test('without a table of that kind the adopted clause gets a section of its own'
     proposeCommand: 'propose', additions: [{ fromWorkId: 'OLD-1', fromClauseId: 'OLD-1:AC-003', type: 'AC', statement: null, evidence: [], productPaths: [], testPaths: [] }] });
   assert.match(text, /\n## Adopted behaviour\n\n- \[QF-9:AC-001\] <!-- sflow-draft: state the behaviour that replaces OLD-1:AC-003 of closed Story OLD-1 as the code now has it\. -->\n/u);
 });
+
+test('a conformance row\'s slot holds its verdict, what differs and the person\'s reason, on one line [SCS:REQ-020]', () => {
+  const clauses = extractClauses(SPEC, { sourcePath: 'intake.md' });
+  const { text, slots } = buildIntentAmendmentDraft({ text: SPEC, clauses, namespace: 'QF-9', proposeCommand: 'propose',
+    revisions: [{ clauseId: 'QF-9:AC-001', why: [], row: { verdict: 'deviated', report: 'Conformance report', difference: 'the greeting says hi | not hello -->' },
+      reason: 'The product team wants the short greeting.' }] });
+  assert.deepEqual(slots, [{ kind: 'revise', clauseId: 'QF-9:AC-001', line: 7 }]);
+  assert.equal(text.split('\n')[6], '| [QF-9:AC-001] | The greeting says hello. <!-- sflow-draft: revise QF-9:AC-001 so it says what the code does. '
+    + 'Verdict: deviated, in the Conformance report. Deviation: the greeting says hi / not hello - ->. Reason: The product team wants the short greeting. --> |');
+  assert.deepEqual(extractClauses(text, { sourcePath: 'intake.md' }).map((clause) => clause.id), ['QF-9:AC-001'], 'the table stays a table');
+  const unstated = buildIntentAmendmentDraft({ text: SPEC, clauses, namespace: 'QF-9', proposeCommand: 'propose',
+    revisions: [{ clauseId: 'QF-9:AC-001', why: [], row: { verdict: 'unplanned', report: null, difference: null } }] }).text;
+  assert.match(unstated, /Verdict: unplanned\. Deviation: not stated in the row\. -->/u);
+});

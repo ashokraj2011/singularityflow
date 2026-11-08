@@ -40,6 +40,7 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
     return `<div class="dl-option yours" data-yours="${escape(option.id)}">
       <strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.notChoosable ?? '')} ${escape(option.words)}</small>
       ${option.yours.humanReview ? `<button type="button" class="compact-action" data-witness-item="${escape(item.id)}" data-witness-option="${escape(option.id)}">Review evidence and sign off</button>` : ''}
+      ${option.yours.file ? `<button type="button" class="compact-action" data-open-item="${escape(item.id)}" data-open-option="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.yours.command)}</code>
       <button type="button" class="secondary compact-action" data-copy-item="${escape(item.id)}" data-copy-option="${escape(option.id)}">Copy the command</button>
     </div>`;
@@ -77,6 +78,7 @@ function outcomeHtml(view: DecisionListView): string {
   const kind = outcome.kind === 'recorded' ? 'ok' : outcome.kind === 'stale' ? 'warning' : 'error';
   const lists = [
     outcome.recorded.length ? `<p><strong>Recorded:</strong></p><ul>${outcome.recorded.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : '',
+    outcome.drafted?.length ? `<p><strong>Drafted, not recorded:</strong></p><ul>${outcome.drafted.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : '',
     outcome.remaining.length ? `<p><strong>${outcome.kind === 'partial' ? 'Not recorded:' : 'Still to decide:'}</strong></p><ul>${outcome.remaining.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''
   ].join('');
   return `<div class="notice ${kind}" data-outcome="${escape(outcome.kind)}" role="status"><p><strong>${escape(outcome.message)}</strong></p>${lists}</div>`;
@@ -193,6 +195,8 @@ export const DECISION_LIST_SCRIPT = `
     }
     const witness = event.target.closest('[data-witness-item]');
     if (witness) { api.postMessage({ type: 'decisions.witness', item: witness.dataset.witnessItem, option: witness.dataset.witnessOption }); return; }
+    const open = event.target.closest('[data-open-item]');
+    if (open) { api.postMessage({ type: 'decisions.open', item: open.dataset.openItem, option: open.dataset.openOption }); return; }
     const copy = event.target.closest('[data-copy-item]');
     if (copy) { api.postMessage({ type: 'decisions.copy', item: copy.dataset.copyItem, option: copy.dataset.copyOption || '' }); return; }
     const action = event.target.closest('[data-action="refresh"]');

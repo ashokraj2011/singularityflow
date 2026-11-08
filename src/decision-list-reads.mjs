@@ -12,6 +12,7 @@
  * - Everything else that waits for a person (SPEC-OAP M3): the routing decision, intent and forward
  *   amendments, appeals of the step, sign-offs and scope items owed to the ending, what did not
  *   publish, and, while the step awaits approval, the approval check itself.
+ * - Convergence items, at an open convergence step: the table `story adjudications` reads [SCS:REQ-030].
  *
  * Reads only. `decisions` reads all of it; readiness and next steps read it for the list's count
  * and first item, without reusable runs (readPendingList).
@@ -224,6 +225,25 @@ async function departureFacts(root, config, workflow, phase) {
 }
 
 /**
+ * At an open convergence step, what a person adjudicates [SCS:REQ-030]: the same table `story adjudications`
+ * reads, with its digest, which `decisions record` writes through `story adjudicate --answers` bound to.
+ * Null anywhere else, and before the step is prepared; a table that cannot be read is named in `unavailable`.
+ */
+async function convergenceFacts(root, config, workflow, phase, unavailable) {
+  if (workflow.status !== 'in_progress' || phase.id !== workflow.currentPhase || phase.status !== 'in_progress') return null;
+  const { adjudicationList, openConvergencePhase } = await import('./convergence-adjudications.mjs');
+  if (openConvergencePhase(workflow)?.id !== phase.id) return null;
+  try {
+    const list = await adjudicationList(root, config, workflow, { actor: null });
+    return list.status === 'open' ? list : null;
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    unavailable.push({ phase: phase.id, reason: error.code ?? 'convergence-unreadable' });
+    return null;
+  }
+}
+
+/**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
  * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
@@ -311,6 +331,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   const nodePin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering }).catch(() => null);
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
+  blocking.unavailable = blocking.unavailable ?? [];
+  const convergence = await convergenceFacts(root, config, workflow, phase, blocking.unavailable);
   return {
     ...blocking,
     ...state,
@@ -326,6 +348,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
+    convergence,
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
@@ -344,6 +367,8 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       intentAmendments: (workflow.intentAmendments ?? []).map((entry) => `${entry.id}:${entry.status}:${entry.acknowledgedAt ? 1 : 0}`),
       forwardAmendments: (workflow.forwardAmendmentDecisions ?? []).length + (workflow.amendmentRevalidations ?? []).length,
       pendingDecision: workflow.pendingDecision?.key ?? null,
+      // The convergence table's own digest: an answer recorded meanwhile, or a new iteration, changes the list.
+      convergence: convergence?.digest ?? null,
       runs: reuse.candidates.map((entry) => `${entry.attemptId}:${entry.consumer}:${entry.treeSha256}`)
     }
   };

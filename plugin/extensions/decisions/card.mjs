@@ -121,7 +121,7 @@ function neededFields(item, option) {
   const needs = option.needs ?? {};
   const name = itemName(item);
   return {
-    ...(needs.clause ? { clause: { type: 'string', minLength: 1, title: clip(`Clauses that carry ${name}, separated by commas${needs.clause.known?.length ? ` (${needs.clause.known.slice(0, 4).join(', ')})` : ''}`) } } : {}),
+    ...(needs.clause ? { clause: { type: 'string', minLength: 1, title: clip(`${needs.clause.words ? `${needs.clause.words}, for ${name}` : `Clauses that carry ${name}`}, separated by commas${needs.clause.known?.length ? ` (${needs.clause.known.slice(0, 4).join(', ')})` : ''}`) } } : {}),
     ...(needs.article ? Object.fromEntries(needs.article.articles.flatMap(({ id, question }) => [[`article-${id}`, { type: 'string', title: clip(question), enum: needs.article.decisions }],
       [`why-${id}`, { type: 'string', title: clip(`Why, if not satisfied: ${id}`), maxLength: 500 }]])) : {}),
     ...(needs.reason ? { reason: textField('Reason', needs.reason) } : {}),
@@ -181,7 +181,7 @@ function checked(item, option, values, today = new Date().toISOString().slice(0,
     const real = Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === values.expires;
     if (!real || values.expires > needs.expires.latest || values.expires <= today) problems.push(`The date for ${name} must be YYYY-MM-DD, after today and no later than ${needs.expires.latest}. You gave "${values.expires ?? ''}".`);
   }
-  if (needs.clause && !String(values.clause ?? '').trim()) problems.push(`Name the clauses that carry ${name}.`);
+  if (needs.clause && !String(values.clause ?? '').trim()) problems.push(needs.clause.words ? `Name ${needs.clause.words.replace(/^The /u, 'the ')}, for ${name}.` : `Name the clauses that carry ${name}.`);
   if (needs.article) {
     const answers = values.article ?? [];
     if (needs.article.articles.some(({ id }) => !needs.article.decisions.includes(answers.find((entry) => entry.article === id)?.decision))) problems.push(`Answer every article of the checklist for ${name}.`);
@@ -201,7 +201,8 @@ export function confirmForm(packet, answers) {
     const item = items.get(entry.item);
     const label = item?.options.find((option) => option.id === entry.option)?.label ?? entry.option;
     const articles = entry.article?.map((answer) => `${answer.article}: ${answer.decision}${answer.reason ? ` (${answer.reason})` : ''}`).join('; ');
-    return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.clause ? ` Carried by ${entry.clause}.` : ''}${articles ? ` ${articles}.` : ''}${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause.replace(/\.+$/u, '')}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
+    const clauseLabel = item?.options.find((option) => option.id === entry.option)?.needs?.clause?.label;
+    return `${itemName(item ?? { title: entry.title })}: ${label}.${entry.clause ? ` ${clauseLabel ? `${clauseLabel}:` : 'Carried by'} ${entry.clause}.` : ''}${articles ? ` ${articles}.` : ''}${entry.expires ? ` Until ${entry.expires}.` : ''}${entry.cause ? ` What stops the tests: ${entry.cause.replace(/\.+$/u, '')}.` : ''}${entry.reason ? ` Reason: ${entry.reason}` : ''}`;
   });
   const left = openRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable) && !answers.some((entry) => entry.item === item.id));
   return { message: [`Record ${answers.length} decision${answers.length === 1 ? '' : 's'} on ${packet.workId}, each under your name:`, ...words,

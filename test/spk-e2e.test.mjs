@@ -379,6 +379,31 @@ test('a Story runs specification through release from a fresh clone', slowLane()
 
   // A host with no card: the whole table in a person's own terminal, the same write, each answer its own.
   const adjudications = () => JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout);
+
+  // The one decisions list carries the same items and records them through the same write [SCS:REQ-030].
+  const decisionList = () => JSON.parse(sflow(root, ['decisions', WORK, '--json']).stdout).data;
+  const listed = decisionList();
+  const convergenceRows = listed.items.filter((item) => item.kind === 'convergence-item');
+  assert.deepEqual(convergenceRows.flatMap((item) => item.details.convergence).sort(), adjudications().items.filter((item) => !item.decision).map((item) => item.id).sort(),
+    'the decisions list and the Adjudicate table disagree about what is open');
+  assert.ok(convergenceRows.every((item) => item.options.map((option) => option.id).join() === 'rework,accepted-deviation,dismissed,deferred,update-intent'));
+  const answersDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-answers-'));
+  t.after(() => rm(answersDirectory, { recursive: true, force: true }));
+  const listAnswers = path.join(answersDirectory, 'answers.json');
+  const [chosenRow] = convergenceRows;
+  await writeFile(listAnswers, JSON.stringify({ choose: { [chosenRow.id]: 'accepted-deviation' }, reason: { [chosenRow.id]: 'Accepted on the one decisions list.' }, confirm: listed.packetSha256 }));
+  const fromList = JSON.parse(sflow(root, ['decisions', 'record', WORK, '--answers', listAnswers, '--json']).stdout).data;
+  assert.deepEqual(fromList.recorded.map((entry) => [entry.item, entry.kind, entry.record]), [[chosenRow.id, 'convergence-adjudication', chosenRow.details.convergence.join(', ')]]);
+  assert.deepEqual(adjudications().items.filter((item) => chosenRow.details.convergence.includes(item.id)).map((item) => [item.decision.disposition, item.decision.reason]),
+    chosenRow.details.convergence.map(() => ['accepted-deviation', 'Accepted on the one decisions list.']));
+  assert.equal(decisionList().items.some((item) => item.kind === 'convergence-item' && item.details.convergence.includes(chosenRow.details.convergence[0])), false,
+    'a decided convergence item is still asked on the list');
+  // The same confirmation again: the list moved since, so nothing more is written.
+  const staleList = sflow(root, ['decisions', 'record', WORK, '--answers', listAnswers, '--json'], { allowFailure: true });
+  assert.notEqual(staleList.status, 0);
+  assert.match(staleList.output, /DECISIONS_PACKET_CHANGED/u);
+  await writeFile(convergenceRecord, serializeConvergence(iteration));
+
   const noTerminal = sflow(root, ['story', 'adjudicate'], { allowFailure: true });
   assert.notEqual(noTerminal.status, 0);
   assert.match(noTerminal.output, new RegExp(`Nothing was asked or recorded\\. Run it there: singularity-flow story adjudicate --work-id ${WORK}`));

@@ -38,7 +38,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
@@ -88,6 +88,8 @@ function issueGroups(workflow, phaseId) {
 function effectGroups(workflow, effect) {
   if (effect.kind === 'upstream-issue') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
+  // `story adjudicate` checks the convergence step's approval authority.
+  if (effect.kind === 'convergence-adjudication') return issueGroups(workflow, effect.phase);
   if (effect.kind === 'plan-amendment' || effect.kind === 'node-pin') return planAuthorities(workflow);
   if (EFFECTS_NAMING_GROUPS.includes(effect.kind)) return effect.groups ?? [];
   return testRunRiskAuthorities(workflow, effect.phase);
@@ -854,6 +856,98 @@ function departureItem(workflow, context, entry, facts) {
   };
 }
 
+// Convergence's items as one difference each, the way a conformance verdict names it, so a fact and what an
+// assisted pass proposed about the same clause are one problem [SCS:REQ-031].
+const CONVERGENCE_DIFFERENCE = Object.freeze({ 'absent-observed-claim': 'missing', 'unresolved-deviation': 'contradicts', 'unclaimed-changed-path': 'unplanned' });
+const CONVERGENCE_WORDS = Object.freeze({ 'absent-observed-claim': 'no recorded trace that it is delivered', 'unclaimed-changed-path': 'changed, and no clause claims it',
+  'stale-claim-binding': 'a claim with no source evidence bound to it', 'missing-bound-test': 'no bound test result', 'failing-bound-test': 'a bound test did not pass',
+  'claimed-withdrawn-clause': 'claimed, though the specification no longer has it', 'unresolved-deviation': 'an unresolved deviation',
+  'missing-required-evidence': 'required evidence is missing', 'verdict-against-superseded-clause': 'judged against wording that has since changed',
+  missing: 'proposed as missing', partial: 'proposed as partly delivered', contradicts: 'proposed as contradicting the clause', unplanned: 'proposed as unplanned' });
+const DISPOSITION_EFFECT = Object.freeze({
+  rework: 'The code changes to match the approved documents: once every item is decided, story rework returns the Story to the code step.',
+  'update-intent': 'The approved documents change to match the code: name the clauses, and the intent amendment drafted from these decisions goes to their approvers.',
+  'accepted-deviation': 'The difference stays, accepted with your reason; the clause keeps its wording.',
+  dismissed: 'It is not a real difference; the record keeps your reason.',
+  deferred: 'It is decided later; the record keeps your reason.'
+});
+const ADJUDICATION_REASON = Object.freeze({ minimum: 1, maximum: 1000 });
+// A fact's own words start lower case and may start with a path, which keeps its case.
+const found = (text) => (text ? `Convergence found that ${String(text).replace(/\.?$/u, '.')}` : '');
+
+/** One row per problem: a test setup is one change; a fact and the assisted proposals that cite it, or name its clauses and difference, are one. */
+function convergenceRows(list) {
+  const open = list.items.filter((item) => !item.decision);
+  const rows = new Map();
+  const rowOf = new Map();
+  const difference = (item) => item.classification ?? CONVERGENCE_DIFFERENCE[item.kind] ?? item.kind;
+  for (const item of open) {
+    const cited = (item.factIds ?? []).map((id) => rowOf.get(id)).find(Boolean);
+    const key = cited ?? (item.group ? `group:${item.group}` : item.clauseIds.length
+      ? `clause:${[...item.clauseIds].map((id) => id.toUpperCase()).sort().join(',')}:${difference(item)}` : `item:${item.id}`);
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key).push(item);
+    rowOf.set(item.id, key);
+  }
+  return [...rows.values()];
+}
+
+/**
+ * The items a person adjudicates at an open convergence step [SCS:REQ-030]: one row per problem, each
+ * disposition a choice, and every choice written by `story adjudicate --answers` bound to the table's
+ * own digest, under the convergence approvers' authority. No answer is chosen and no reason suggested.
+ * An open upstream issue on the same clause is named here, never asked again [SCS:REQ-031].
+ */
+function convergenceItems(workflow, context, list) {
+  const workId = workflow.workItem.id;
+  const phase = list.phase;
+  const issues = (context.facts.issues ?? []).filter((state) => ['open', 'expired'].includes(state.status));
+  return convergenceRows(list).map((members) => {
+    const ids = members.map((item) => item.id);
+    const paths = [...new Set(members.flatMap((item) => item.paths))];
+    const clauses = [...new Set(members.flatMap((item) => item.clauseIds))];
+    const group = members.find((item) => item.group)?.group ?? null;
+    const subject = group ? `Test setup ${listWords(paths)}` : clauses.length ? listWords(clauses.map((id) => clauseName(workflow, id))) : paths.length ? listWords(paths) : 'Convergence';
+    const words = [...new Set(members.map((item) => CONVERGENCE_WORDS[item.classification ?? item.kind] ?? item.kind))];
+    const named = issues.filter((state) => clauses.some((clause) => issueNamesClause(state.issue.about, clause)));
+    const plan = members.map((item) => item.plan).find(Boolean) ?? null;
+    const why = [
+      ...members.map((item) => (item.classification ? `The assisted pass proposed: "${String(item.text ?? '').slice(0, 400)}"` : found(item.detail))),
+      ...(group ? [list.groupWords?.[group] ?? ''] : []),
+      ...(plan ? [`The plan says: ${plan.kind === 'amendment' ? `${plan.id ?? 'an amendment'}${plan.clause ? ` under ${plan.clause}` : ''}` : 'a supporting file'}${plan.text ? `, ${plan.text}` : ''}${plan.askedBecause ? `; still asked: ${plan.askedBecause}` : ''}.`] : []),
+      ...named.map((state) => `${state.issue.id}, a problem reported against ${stepName(workflow, state.issue.phase)}, names it too; its approvers decide that issue.`),
+      ...(ids.length > 1 ? [`One answer records each of ${listWords(ids)} by name.`] : []),
+      `${stepName(workflow, phase)}'s approvers decide it; the report is generated again once every item is decided.`
+    ].filter(Boolean).join(' ');
+    // Rework on what the kernel found itself may go unexplained; any other answer, or one on a proposal, states its reason.
+    const deterministic = members.every((item) => !item.classification);
+    const shareable = members.every((item) => item.acceptAll);
+    const options = (list.dispositions ?? []).map(({ id, label }) => ({ ...option(workflow, context, { id, label, words: DISPOSITION_EFFECT[id] ?? label,
+      effects: [{ kind: 'convergence-adjudication', phase, items: ids, disposition: id, expect: list.digest }],
+      // The clauses the spec should change, not the clauses that carry it: each host asks and confirms in these words.
+      needs: { ...(id === 'update-intent' ? { clause: { known: [...new Set([...clauses, ...(list.clauses ?? [])])], words: 'The clauses the specification should change', label: 'Clauses to change' } } : {}),
+        reason: textNeed('', id === 'rework' && deterministic ? { ...ADJUDICATION_REASON, minimum: 0 } : ADJUDICATION_REASON) } }),
+    // Only a changed file no clause claims may share one reason with others, as on the Adjudicate page.
+    ...(id === 'accepted-deviation' && shareable ? {} : { oneByOne: true }) }));
+    return {
+      kind: 'convergence-item',
+      title: `${subject}: ${listWords(words)} (${ids[0]}${ids.length > 1 ? ` and ${ids.length - 1} more` : ''})`.slice(0, 200),
+      why, options,
+      details: { convergence: ids, phase, itemKinds: [...new Set(members.map((item) => item.classification ?? item.kind))], clauses,
+        ...(paths.length === 1 ? { path: paths[0] } : paths.length ? { paths } : {}), ...(plan ? { plan } : {}),
+        ...(named.length ? { issues: named.map((state) => state.issue.id) } : {}),
+        commands: [`singularity-flow story adjudicate --work-id ${workId}`] }
+    };
+  });
+}
+
+/** The answers one convergence choice records, one per item it names. */
+export function adjudicationAnswersOf(step) {
+  const [effect] = step.effects;
+  return effect.items.map((itemId) => ({ itemId, disposition: effect.disposition, reason: step.values.reason ?? '',
+    clauseIds: effect.disposition === 'update-intent' ? step.values.clause ?? [] : [] }));
+}
+
 /**
  * A changed path no row of the plan names: which row it belongs to, or that it is a supporting change,
  * is a choice for an approver of the plan. One item per path, each option its row, with no answer
@@ -963,7 +1057,8 @@ export const PENDING_CONCEPTS = Object.freeze({
   'unpushed-commits': Object.freeze({ kinds: ['story-publication'], machine: true }),
   'transport-intents': Object.freeze({ kinds: ['transport-intent'], machine: true }),
   // A code step's departures are decided on the list too [CQF:REQ-024].
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure'] }),
+  // Convergence items too: the Adjudicate page shows only these, for one release [SCS:REQ-030, REQ-033].
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -995,7 +1090,7 @@ export function holdItemKind(hold) {
 }
 
 // The kinds whose items are decided on this list itself; the digest binds their words and options.
-const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure']);
+const DECIDED_HERE = new Set(['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item']);
 
 /** Kinds that wait for the step's approval, never for its submission. */
 export const LATER_KINDS = Object.freeze(['owed-decision', 'departure']);
@@ -1003,7 +1098,7 @@ export const LATER_KINDS = Object.freeze(['owed-decision', 'departure']);
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'departure', 'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'departure', 'convergence-item', 'approval-hold', 'transport-intent', 'approval']);
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
@@ -1059,6 +1154,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(pending.forwardAmendments ?? []).map((blocker) => forwardAmendmentItem(workflow, context, blocker)),
     ...(pending.appeals ?? []).map((appeal) => appealItem(workflow, context, appeal)),
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
+    ...(facts.convergence ? convergenceItems(workflow, context, facts.convergence) : []),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.nodePin ? [nodePinItem(workflow, context, facts.nodePin)] : []),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
@@ -1347,6 +1443,12 @@ export function effectWords(workflow, effect, values = {}) {
     const words = (change) => (change.kind === 'add-location' ? `add ${change.path} to ${clauseName(workflow, change.clauseId)}` : `list ${change.path} as a supporting change, ${change.class}`);
     return `accept ${named}: ${(effect.changes ?? []).map(words).join(', ')} (plan amendment)`;
   }
+  if (effect.kind === 'convergence-adjudication') {
+    const answers = effect.answers ?? effect.items.map((itemId) => ({ itemId, disposition: effect.disposition, clauseIds: values.clause ?? [] }));
+    const words = (answer) => ({ rework: 'send it back to fix', 'update-intent': `change the spec${answer.clauseIds?.length ? ` for ${answer.clauseIds.map((id) => clauseName(workflow, id)).join(', ')}` : ''}`,
+      'accepted-deviation': 'accept it as is', dismissed: 'say it is not a real finding', deferred: 'decide it later' }[answer.disposition] ?? answer.disposition);
+    return `${answers.map((answer) => `${words(answer)} (${answer.itemId})`).join(', ')} (convergence adjudication, as story adjudicate --answers records it)`;
+  }
   if (effect.kind === 'node-pin') return `${effect.replaces ? `change ${effect.file} from ${effect.replaces} to ${effect.version}` : `create ${effect.file} holding ${effect.version}`} and list it as a supporting change, ${effect.class} (Node pin and plan amendment)`;
   if (effect.kind === 'scope-disposition') return `record scope item ${effect.item} as ${effect.disposition}${values.clause?.length ? `, carried by ${values.clause.map((id) => clauseName(workflow, id)).join(', ')}` : ''} (scope decision)`;
   if (effect.kind === 'completeness-review') return 'record that you reviewed the scope for completeness (completeness review)';
@@ -1372,7 +1474,9 @@ export async function runDecisionPlan(plan, apply) {
       // Departures given one answer are one record: one plan amendment, or one rejection, naming each.
       const effect = first.kind === 'departure'
         ? { ...first, departure: undefined, departures: batch.map((step) => step.effects[0].departure), changes: first.changes ? batch.flatMap((step) => step.effects[0].changes) : undefined }
-        : { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
+        // Every convergence answer is one write of the table it was read from: a second would find it changed.
+        : first.kind === 'convergence-adjudication' ? { kind: first.kind, phase: first.phase, expect: first.expect, answers: batch.flatMap(adjudicationAnswersOf) }
+          : { kind: 'plan-amendment', changes: batch.map((step) => step.effects[0].change) };
       try {
         const record = await apply(effect, batch[0], {});
         recorded.push(...batch.map((step) => ({ item: step.item, kind: effect.kind, record })));
@@ -1397,9 +1501,12 @@ export async function runDecisionPlan(plan, apply) {
   return { recorded, failed: null, remaining: [] };
 }
 
+const CONVERGENCE_BATCH = 'convergence';
+
 /**
  * The plan in the order it is written, with plan paths given the same reason together: one amendment, one
  * record and one commit, which a plan amendment's format has always held. A different reason is its own.
+ * Convergence answers are one batch whatever their reasons: one `story adjudicate --answers` write.
  */
 export function planBatches(plan) {
   const batches = [];
@@ -1408,9 +1515,11 @@ export function planBatches(plan) {
     const [effect] = step.effects;
     // A plan amendment, or departures decided alike, a wording one aside: each of those is its own forward amendment.
     const key = step.effects.length !== 1 ? null : effect.kind === 'plan-amendment' ? `plan\u0000${step.values.reason}`
-      : effect.kind === 'departure' && effect.writes !== 'forward-amendment' ? `departure\u0000${effect.decision}\u0000${effect.writes ?? ''}\u0000${step.values.reason}` : null;
+      : effect.kind === 'departure' && effect.writes !== 'forward-amendment' ? `departure\u0000${effect.decision}\u0000${effect.writes ?? ''}\u0000${step.values.reason}`
+        // Each convergence answer keeps its own reason in the one answers file `story adjudicate` takes.
+        : effect.kind === 'convergence-adjudication' ? CONVERGENCE_BATCH : null;
     const open = key ? byReason.get(key) : null;
-    if (open && open.length < MAX_PLAN_AMENDMENT_CHANGES) { open.push(step); continue; }
+    if (open && (key === CONVERGENCE_BATCH || open.length < MAX_PLAN_AMENDMENT_CHANGES)) { open.push(step); continue; }
     const batch = [step];
     batches.push(batch);
     if (key) byReason.set(key, batch);

@@ -7,9 +7,7 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
-import {
-  DEFAULT_CONFIGURATION_ASSET_POLICY, isConfigurationAssetPath
-} from './configuration-assets.mjs';
+import { DEFAULT_CONFIGURATION_ASSET_POLICY, isConfigurationAssetPath } from './engine-compatibility/node-configuration-path.mjs';
 
 const scopes = new AsyncLocalStorage();
 
@@ -84,3 +82,11 @@ export function configurationReadDefinition(root) {
   const scope = configurationReadScope(root);
   return scope?.compiledDefinition ? scope.compiledDefinition() : null;
 }
+
+// Native Git/materialization locations; logical asset rules do not own transport addresses.
+
+
+// Location declarations are shared by readers and writers without loading bootstrap/clone code.
+export const CONFIGURATION_BRANCH = 'sflow/config';
+
+export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';

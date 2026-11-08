@@ -15,7 +15,7 @@ import { versionLine } from './build-info.mjs';
 
 const DECIDING_MODULES = Object.freeze([
   'cli.mjs', 'capability-start.mjs', 'configuration-branch.mjs', 'story-intake-receipt.mjs',
-  'schema-migrations.mjs', 'foundation/record-schema.mjs', 'foundation/failures.mjs',
+  'schema-migrations.mjs', 'foundation/package.json', 'foundation/record-schema.mjs', 'foundation/failures.mjs',
   'story-intake-verification.mjs', 'build-info.mjs', 'version.mjs',
   'configuration-state-service.mjs', 'configuration-state-git.mjs', 'configuration-proposal.mjs',
   'configuration-definition-cache.mjs', 'configuration-object-store.mjs',
@@ -55,6 +55,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/step-action-policy.mjs',
   'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs', 'kernel/configuration-path-policies.mjs',
   'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
+  'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'configuration-read-scope.mjs',
   'records.mjs', 'kernel/workflow-obligations.mjs', 'kernel/phase-responsibilities.mjs',
   'engine-compatibility/node-workflow-obligations.mjs',
   'engine-compatibility/node-configuration-path.mjs',

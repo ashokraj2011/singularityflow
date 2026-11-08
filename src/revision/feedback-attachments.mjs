@@ -11,7 +11,8 @@ import path from 'node:path';
 import { gitCommonDir } from '../git.mjs';
 import { recordSha256 } from '../records.mjs';
 import { scanText } from '../secrets.mjs';
-import { SingularityFlowError, portableIdentifier } from '../util.mjs';
+import { SingularityFlowError } from '../util.mjs';
+import { portableIdentifier } from '../foundation/portable-paths.mjs';
 
 const DEFAULT_POLICY = Object.freeze({
   maximumFilesPerFeedback: 5,

@@ -1,3 +1,4 @@
+export { isPortableRepositoryPathComponent, portableIdentifier } from './foundation/portable-paths.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   accessSync, constants as FS_CONSTANTS, existsSync, readdirSync, readFileSync, realpathSync, statSync, lstatSync
@@ -38,8 +39,6 @@ export async function replaceWithSharingRetry(source, target, { renameCommand = 
 
 // Compatibility export: old imports and pure-contract imports share one constructor.
 export { SingularityFlowError };
-
-const WINDOWS_RESERVED_PORTABLE_BASENAME = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|(?:com|lpt)(?:[1-9]|[¹²³]))(?:\..*)?$/iu;
 const TEMPORARY_TREE_RETRYABLE_ERRORS = new Set([
   'EACCES', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'
 ]);
@@ -87,40 +86,6 @@ export function platformPathWithin(child, parent, platform = process.platform) {
   const api = platform === 'win32' ? path.win32 : path;
   const relative = api.relative(canonicalPathSync(parent), canonicalPathSync(child));
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative));
-}
-
-/**
- * Validate one exact component of a durable repository-relative path.
- *
- * Do not trim or normalize here: Git can retain names on macOS/Linux that Windows either aliases
- * to a DOS device (including a reserved stem with an extension) or resolves after removing a final
- * dot/space. Returning false for those spellings prevents one approved record from identifying
- * different filesystem objects on different hosts.
- */
-export function isPortableRepositoryPathComponent(value, { allowGit = false } = {}) {
-  return typeof value === 'string' && Boolean(value) && value === value.normalize('NFC')
-    && value !== '.' && value !== '..' && !value.includes('/') && !value.includes('\\')
-    && !/[\u0000-\u001f\u007f:*?"<>|]/u.test(value) && !/[. ]$/u.test(value)
-    && !WINDOWS_RESERVED_PORTABLE_BASENAME.test(value)
-    && (allowGit || value.toLocaleLowerCase('en-US') !== '.git');
-}
-
-/**
- * One filesystem identifier contract shared by workspace and governed repository records.
- *
- * Windows reserves device basenames even when an extension is present, and trims terminal dots and
- * spaces before resolving a path. Accepting those names on macOS/Linux creates approved maps that a
- * Windows laptop cannot materialize. Keep the contract deliberately narrower than a Git ref: these
- * identifiers become direct child directory names on every supported host.
- */
-export function portableIdentifier(value, label = 'Identifier') {
-  const id = String(value ?? '').trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)
-      || id === '.' || id === '..' || /[. ]$/.test(id)
-      || WINDOWS_RESERVED_PORTABLE_BASENAME.test(id)) {
-    throw new SingularityFlowError(`${label} must be a portable identifier and must not use a Windows reserved filename.`);
-  }
-  return id;
 }
 
 export function invariant(condition, message) {

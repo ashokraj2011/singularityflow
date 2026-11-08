@@ -13,7 +13,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
 import { recordSha256 } from '../records.mjs';
-import { isPortableRepositoryPathComponent, SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError } from '../util.mjs';
+import { isPortableRepositoryPathComponent } from '../foundation/portable-paths.mjs';
 
 const MAX_FILES = 2_000;
 const MAX_TREE_BYTES = 32 * 1024 * 1024;

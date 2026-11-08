@@ -4,8 +4,8 @@ import { lstat, mkdir, writeFile, rm, rmdir, chmod } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
-import { configurationAssetPolicy, mergeConfigurationAssetPolicies, isConfigurationAssetPath, configurationAssetSearchRoots,
-  portableConfigurationPath, portableFilesystemPathIdentity } from './configuration-assets.mjs';
+import { configurationAssetPolicy, mergeConfigurationAssetPolicies, isConfigurationAssetPath, configurationAssetSearchRoots, portableConfigurationPath } from './engine-compatibility/node-configuration-path.mjs';
+import { portableFilesystemPathIdentity } from './foundation/portable-paths.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { validateDefinition } from './config.mjs';
 import { loadSkillLibrary } from './skill-library.mjs';

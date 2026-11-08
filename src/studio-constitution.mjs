@@ -5,7 +5,7 @@ import YAML from 'yaml';
 import { generateConstitution, normalizeArticle, parseConstitution, policyValue } from './constitution.mjs';
 import { DEFAULT_CONSTITUTION_PATH, constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 import { resolveWorkType, validateDefinition } from './config.mjs';
-import { configurationAssetPolicy, isConfigurationAssetPath, portableConfigurationPath } from './configuration-assets.mjs';
+import { configurationAssetPolicy, isConfigurationAssetPath, portableConfigurationPath } from './engine-compatibility/node-configuration-path.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 

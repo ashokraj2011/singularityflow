@@ -1,0 +1,4292 @@
+{
+  "schemaVersion": 1,
+  "baseline": "4d460d0011abccf6f2f5749655f8370cca157344",
+  "contracts": [
+    {
+      "id": 0,
+      "label": "ordinary",
+      "request": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "analyze",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint"
+            ],
+            "writeScope": "artifact-only",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            }
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [],
+          "sourceScopes": {},
+          "artifactSets": {}
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:8f5af45b13b12cc6e2d178553f647ff303a4f44e03d7300b9b1a920d4a24320d",
+          "catalogSha256": "sha256:31af3ae5c81178e85012597684a49695eb94689752fb49b5aaecf64db6382eed",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:10b24d165a5b43dae375d40071cdd479136d4aa5b2f2741678e2a6b594b95ba6",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "before": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "analyze",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint"
+            ],
+            "writeScope": "artifact-only",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            }
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [],
+          "sourceScopes": {},
+          "artifactSets": {}
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:8f5af45b13b12cc6e2d178553f647ff303a4f44e03d7300b9b1a920d4a24320d",
+          "catalogSha256": "sha256:31af3ae5c81178e85012597684a49695eb94689752fb49b5aaecf64db6382eed",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:10b24d165a5b43dae375d40071cdd479136d4aa5b2f2741678e2a6b594b95ba6",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "compiled": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:31af3ae5c81178e85012597684a49695eb94689752fb49b5aaecf64db6382eed",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "confirmation": {
+            "candidateSha256": "sha256:10b24d165a5b43dae375d40071cdd479136d4aa5b2f2741678e2a6b594b95ba6",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:8f5af45b13b12cc6e2d178553f647ff303a4f44e03d7300b9b1a920d4a24320d",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "compilationSha256": "sha256:14e2ba726b960ebdc1f60aec4e766e8548c02257e062b321e4ec633f4b916564",
+        "compiler": "skp-contract/v1",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "analyze"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "artifact-only"
+        }
+      },
+      "configured": {
+        "approval": {
+          "allowSelfApproval": true,
+          "authorities": [
+            "security-reviewers"
+          ],
+          "changeRequests": {
+            "commentRequired": true,
+            "reopenCompleted": true
+          },
+          "maximumChangedPaths": null,
+          "minimum": 1,
+          "mode": "required",
+          "policy": null,
+          "rejectTo": [
+            "threat-model"
+          ],
+          "requiredAuthorities": []
+        },
+        "artifact": {
+          "allowedMediaTypes": [
+            "text/markdown"
+          ],
+          "kind": "custom:threat-model",
+          "maximumBytes": 131072,
+          "minimumBytes": 400,
+          "path": "artifacts/threat-model/threat-model.md"
+        },
+        "clarification": {
+          "markers": {
+            "mode": "off"
+          },
+          "maxQuestions": 3,
+          "mode": "when-needed",
+          "topics": []
+        },
+        "generation": {
+          "allowedProducers": [
+            "governed-agent"
+          ],
+          "defaultProducer": "governed-agent",
+          "requirement": "required",
+          "task": "analyze"
+        },
+        "inputs": [
+          {
+            "optional": false,
+            "phase": "requirements"
+          }
+        ],
+        "kind": "skill",
+        "label": "Threat model",
+        "qualityCommands": [
+          {
+            "argv": [
+              "markdownlint",
+              "artifacts/threat-model/threat-model.md"
+            ],
+            "command": null,
+            "id": "markdownlint",
+            "kind": "lint",
+            "modelPolicy": "never",
+            "requirement": "required",
+            "timeoutMs": null
+          }
+        ],
+        "skillBinding": {
+          "bindingRefs": {
+            "catalogSha256": "sha256:31af3ae5c81178e85012597684a49695eb94689752fb49b5aaecf64db6382eed",
+            "checks": [
+              {
+                "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+                "id": "markdownlint"
+              }
+            ],
+            "codeDeliverySha256": null,
+            "confirmation": {
+              "candidateSha256": "sha256:10b24d165a5b43dae375d40071cdd479136d4aa5b2f2741678e2a6b594b95ba6",
+              "draftRevision": 8,
+              "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "contractSha256": "sha256:8f5af45b13b12cc6e2d178553f647ff303a4f44e03d7300b9b1a920d4a24320d",
+            "inputs": [
+              {
+                "output": "primary",
+                "path": "artifacts/requirements/requirements.md",
+                "phase": "requirements",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "outputs": [
+              {
+                "claimRole": "findings",
+                "clauses": "optional",
+                "encoding": "utf-8",
+                "id": "threat-report",
+                "kind": "custom:threat-model",
+                "maximumBytes": 131072,
+                "mediaType": "text/markdown",
+                "minimumBytes": 400,
+                "path": "artifacts/threat-model/threat-model.md",
+                "required": true
+              }
+            ],
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "skill": {
+              "id": "threat-model",
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "sourceScope": null
+          },
+          "compilationSha256": "sha256:14e2ba726b960ebdc1f60aec4e766e8548c02257e062b321e4ec633f4b916564",
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "schemaVersion": 1
+        },
+        "writeScope": "artifact-only"
+      },
+      "binding": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:31af3ae5c81178e85012597684a49695eb94689752fb49b5aaecf64db6382eed",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "confirmation": {
+            "candidateSha256": "sha256:10b24d165a5b43dae375d40071cdd479136d4aa5b2f2741678e2a6b594b95ba6",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:8f5af45b13b12cc6e2d178553f647ff303a4f44e03d7300b9b1a920d4a24320d",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "compilationSha256": "sha256:14e2ba726b960ebdc1f60aec4e766e8548c02257e062b321e4ec633f4b916564",
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "schemaVersion": 1
+      },
+      "proposal": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:31af3ae5c81178e85012597684a49695eb94689752fb49b5aaecf64db6382eed",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "contractSha256": "sha256:8f5af45b13b12cc6e2d178553f647ff303a4f44e03d7300b9b1a920d4a24320d",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "candidateSha256": "sha256:10b24d165a5b43dae375d40071cdd479136d4aa5b2f2741678e2a6b594b95ba6",
+        "compiler": "skp-contract/v1",
+        "confirmation": "absent",
+        "eligibility": "candidate-producer",
+        "execution": "not-run",
+        "kind": "skp-skill-phase-proposal",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "analyze"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "artifact-only"
+        },
+        "proposalSha256": "sha256:2c2b05b136675edf3359ea0e3e970912a4b5e9d750c476e77dacf667eda86ec9",
+        "schemaVersion": 1,
+        "status": "proposal-only"
+      }
+    },
+    {
+      "id": 1,
+      "label": "source-code",
+      "request": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "code",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint",
+              "unit"
+            ],
+            "writeScope": "source-and-artifact",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            },
+            "sourceScope": "application"
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            },
+            "unit": {
+              "id": "unit",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "modelPolicy": "never",
+              "requirement": "required",
+              "kind": "test",
+              "result": {
+                "adapter": "node-tap",
+                "path": "artifacts/test-results/tap.txt",
+                "minimumDiscovered": 1,
+                "minimumPassed": 1
+              }
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [],
+          "sourceScopes": {
+            "application": {
+              "writeRoots": [
+                "src"
+              ]
+            }
+          },
+          "artifactSets": {},
+          "codeDelivery": {
+            "schemaVersion": 2,
+            "mode": "enforce",
+            "generationBoundary": {
+              "requireBegin": true,
+              "dirtyStart": "block"
+            },
+            "changeSet": {
+              "renameDetection": "required",
+              "includeCommitted": true,
+              "includeIndex": true,
+              "includeWorktree": true,
+              "includeUntracked": true,
+              "symlinks": "reject"
+            },
+            "tests": {
+              "requireExecutableSource": true,
+              "minimumDiscovered": 1,
+              "minimumPassed": 1,
+              "executionAssurance": "module",
+              "stringCommands": "reject",
+              "unknownModelPolicy": "block",
+              "requireResultAdapter": true,
+              "requireAffectedModuleCoverage": true
+            },
+            "traceability": {
+              "source": "pinned-spec-index",
+              "requireNamespaceQualifiedIds": true,
+              "bareIdCompatibility": "unique-only",
+              "sourceBindings": "enforce"
+            },
+            "publication": {
+              "idempotency": "generation-intent"
+            },
+            "display": {
+              "source": "reference-preview",
+              "previewBytes": 4096,
+              "fullDocumentMaximumBytes": 65536
+            },
+            "model": {
+              "minimumAssurance": "unavailable"
+            }
+          }
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:d45b2bce445c5cd32926bfc47210a81febb3f2840d5164ce89398f9420ff7f79",
+          "catalogSha256": "sha256:5e134c5dd603895253ad27b4b06b7ffaf722e36b1aaf4c7725fbb5baceab15f5",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:2537dc7cf06a873b0b4e5e48c502e56dc2ece81641a19a97cb25949828229827",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "before": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "code",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint",
+              "unit"
+            ],
+            "writeScope": "source-and-artifact",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            },
+            "sourceScope": "application"
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            },
+            "unit": {
+              "id": "unit",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "modelPolicy": "never",
+              "requirement": "required",
+              "kind": "test",
+              "result": {
+                "adapter": "node-tap",
+                "path": "artifacts/test-results/tap.txt",
+                "minimumDiscovered": 1,
+                "minimumPassed": 1
+              }
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [],
+          "sourceScopes": {
+            "application": {
+              "writeRoots": [
+                "src"
+              ]
+            }
+          },
+          "artifactSets": {},
+          "codeDelivery": {
+            "schemaVersion": 2,
+            "mode": "enforce",
+            "generationBoundary": {
+              "requireBegin": true,
+              "dirtyStart": "block"
+            },
+            "changeSet": {
+              "renameDetection": "required",
+              "includeCommitted": true,
+              "includeIndex": true,
+              "includeWorktree": true,
+              "includeUntracked": true,
+              "symlinks": "reject"
+            },
+            "tests": {
+              "requireExecutableSource": true,
+              "minimumDiscovered": 1,
+              "minimumPassed": 1,
+              "executionAssurance": "module",
+              "stringCommands": "reject",
+              "unknownModelPolicy": "block",
+              "requireResultAdapter": true,
+              "requireAffectedModuleCoverage": true
+            },
+            "traceability": {
+              "source": "pinned-spec-index",
+              "requireNamespaceQualifiedIds": true,
+              "bareIdCompatibility": "unique-only",
+              "sourceBindings": "enforce"
+            },
+            "publication": {
+              "idempotency": "generation-intent"
+            },
+            "display": {
+              "source": "reference-preview",
+              "previewBytes": 4096,
+              "fullDocumentMaximumBytes": 65536
+            },
+            "model": {
+              "minimumAssurance": "unavailable"
+            }
+          }
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:d45b2bce445c5cd32926bfc47210a81febb3f2840d5164ce89398f9420ff7f79",
+          "catalogSha256": "sha256:5e134c5dd603895253ad27b4b06b7ffaf722e36b1aaf4c7725fbb5baceab15f5",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:2537dc7cf06a873b0b4e5e48c502e56dc2ece81641a19a97cb25949828229827",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "compiled": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:5e134c5dd603895253ad27b4b06b7ffaf722e36b1aaf4c7725fbb5baceab15f5",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            },
+            {
+              "definitionSha256": "sha256:4077907947cb602d2dc7754b8d7c0fc8c53df50279341114079cd6125f616a20",
+              "id": "unit"
+            }
+          ],
+          "codeDeliverySha256": "sha256:a0e31583fc94b6b81ef08b92805f5d0f6e01d4c30be14ecb9230246fd077addb",
+          "confirmation": {
+            "candidateSha256": "sha256:2537dc7cf06a873b0b4e5e48c502e56dc2ece81641a19a97cb25949828229827",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:d45b2bce445c5cd32926bfc47210a81febb3f2840d5164ce89398f9420ff7f79",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": {
+            "definitionSha256": "sha256:6e8935d73ca51e9ff57a6e30ba46448614ae43959608c328c3aac2e72cc0602e",
+            "id": "application"
+          }
+        },
+        "compilationSha256": "sha256:21ee36e292aeb25ebe0b9b245fc3cc10903aac44dce0c227ee66882d024c202e",
+        "compiler": "skp-contract/v1",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "code"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            },
+            {
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "command": null,
+              "id": "unit",
+              "kind": "test",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "result": {
+                "adapter": "node-tap",
+                "minimumDiscovered": 1,
+                "minimumPassed": 1,
+                "path": "artifacts/test-results/tap.txt",
+                "sourceExtensions": []
+              },
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "source-and-artifact"
+        }
+      },
+      "configured": {
+        "approval": {
+          "allowSelfApproval": true,
+          "authorities": [
+            "security-reviewers"
+          ],
+          "changeRequests": {
+            "commentRequired": true,
+            "reopenCompleted": true
+          },
+          "maximumChangedPaths": null,
+          "minimum": 1,
+          "mode": "required",
+          "policy": null,
+          "rejectTo": [
+            "threat-model"
+          ],
+          "requiredAuthorities": []
+        },
+        "artifact": {
+          "allowedMediaTypes": [
+            "text/markdown"
+          ],
+          "kind": "custom:threat-model",
+          "maximumBytes": 131072,
+          "minimumBytes": 400,
+          "path": "artifacts/threat-model/threat-model.md"
+        },
+        "clarification": {
+          "markers": {
+            "mode": "off"
+          },
+          "maxQuestions": 3,
+          "mode": "when-needed",
+          "topics": []
+        },
+        "generation": {
+          "allowedProducers": [
+            "governed-agent"
+          ],
+          "defaultProducer": "governed-agent",
+          "requirement": "required",
+          "task": "code"
+        },
+        "inputs": [
+          {
+            "optional": false,
+            "phase": "requirements"
+          }
+        ],
+        "kind": "skill",
+        "label": "Threat model",
+        "qualityCommands": [
+          {
+            "argv": [
+              "markdownlint",
+              "artifacts/threat-model/threat-model.md"
+            ],
+            "command": null,
+            "id": "markdownlint",
+            "kind": "lint",
+            "modelPolicy": "never",
+            "requirement": "required",
+            "timeoutMs": null
+          },
+          {
+            "argv": [
+              "node",
+              "--test"
+            ],
+            "command": null,
+            "id": "unit",
+            "kind": "test",
+            "modelPolicy": "never",
+            "requirement": "required",
+            "result": {
+              "adapter": "node-tap",
+              "minimumDiscovered": 1,
+              "minimumPassed": 1,
+              "path": "artifacts/test-results/tap.txt",
+              "sourceExtensions": []
+            },
+            "timeoutMs": null
+          }
+        ],
+        "skillBinding": {
+          "bindingRefs": {
+            "catalogSha256": "sha256:5e134c5dd603895253ad27b4b06b7ffaf722e36b1aaf4c7725fbb5baceab15f5",
+            "checks": [
+              {
+                "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+                "id": "markdownlint"
+              },
+              {
+                "definitionSha256": "sha256:4077907947cb602d2dc7754b8d7c0fc8c53df50279341114079cd6125f616a20",
+                "id": "unit"
+              }
+            ],
+            "codeDeliverySha256": "sha256:a0e31583fc94b6b81ef08b92805f5d0f6e01d4c30be14ecb9230246fd077addb",
+            "confirmation": {
+              "candidateSha256": "sha256:2537dc7cf06a873b0b4e5e48c502e56dc2ece81641a19a97cb25949828229827",
+              "draftRevision": 8,
+              "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "contractSha256": "sha256:d45b2bce445c5cd32926bfc47210a81febb3f2840d5164ce89398f9420ff7f79",
+            "inputs": [
+              {
+                "output": "primary",
+                "path": "artifacts/requirements/requirements.md",
+                "phase": "requirements",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "outputs": [
+              {
+                "claimRole": "findings",
+                "clauses": "optional",
+                "encoding": "utf-8",
+                "id": "threat-report",
+                "kind": "custom:threat-model",
+                "maximumBytes": 131072,
+                "mediaType": "text/markdown",
+                "minimumBytes": 400,
+                "path": "artifacts/threat-model/threat-model.md",
+                "required": true
+              }
+            ],
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "skill": {
+              "id": "threat-model",
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "sourceScope": {
+              "definitionSha256": "sha256:6e8935d73ca51e9ff57a6e30ba46448614ae43959608c328c3aac2e72cc0602e",
+              "id": "application"
+            }
+          },
+          "compilationSha256": "sha256:21ee36e292aeb25ebe0b9b245fc3cc10903aac44dce0c227ee66882d024c202e",
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "schemaVersion": 1
+        },
+        "writeScope": "source-and-artifact"
+      },
+      "binding": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:5e134c5dd603895253ad27b4b06b7ffaf722e36b1aaf4c7725fbb5baceab15f5",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            },
+            {
+              "definitionSha256": "sha256:4077907947cb602d2dc7754b8d7c0fc8c53df50279341114079cd6125f616a20",
+              "id": "unit"
+            }
+          ],
+          "codeDeliverySha256": "sha256:a0e31583fc94b6b81ef08b92805f5d0f6e01d4c30be14ecb9230246fd077addb",
+          "confirmation": {
+            "candidateSha256": "sha256:2537dc7cf06a873b0b4e5e48c502e56dc2ece81641a19a97cb25949828229827",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:d45b2bce445c5cd32926bfc47210a81febb3f2840d5164ce89398f9420ff7f79",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": {
+            "definitionSha256": "sha256:6e8935d73ca51e9ff57a6e30ba46448614ae43959608c328c3aac2e72cc0602e",
+            "id": "application"
+          }
+        },
+        "compilationSha256": "sha256:21ee36e292aeb25ebe0b9b245fc3cc10903aac44dce0c227ee66882d024c202e",
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "schemaVersion": 1
+      },
+      "proposal": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:5e134c5dd603895253ad27b4b06b7ffaf722e36b1aaf4c7725fbb5baceab15f5",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            },
+            {
+              "definitionSha256": "sha256:4077907947cb602d2dc7754b8d7c0fc8c53df50279341114079cd6125f616a20",
+              "id": "unit"
+            }
+          ],
+          "codeDeliverySha256": "sha256:a0e31583fc94b6b81ef08b92805f5d0f6e01d4c30be14ecb9230246fd077addb",
+          "contractSha256": "sha256:d45b2bce445c5cd32926bfc47210a81febb3f2840d5164ce89398f9420ff7f79",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": {
+            "definitionSha256": "sha256:6e8935d73ca51e9ff57a6e30ba46448614ae43959608c328c3aac2e72cc0602e",
+            "id": "application"
+          }
+        },
+        "candidateSha256": "sha256:2537dc7cf06a873b0b4e5e48c502e56dc2ece81641a19a97cb25949828229827",
+        "compiler": "skp-contract/v1",
+        "confirmation": "absent",
+        "eligibility": "candidate-producer",
+        "execution": "not-run",
+        "kind": "skp-skill-phase-proposal",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "code"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            },
+            {
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "command": null,
+              "id": "unit",
+              "kind": "test",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "result": {
+                "adapter": "node-tap",
+                "minimumDiscovered": 1,
+                "minimumPassed": 1,
+                "path": "artifacts/test-results/tap.txt",
+                "sourceExtensions": []
+              },
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "source-and-artifact"
+        },
+        "proposalSha256": "sha256:372ae8462fdfccba89b095007cecf73d109a1febb628ce15ec8b0da72f9e1c72",
+        "schemaVersion": 1,
+        "status": "proposal-only"
+      }
+    },
+    {
+      "id": 2,
+      "label": "multiple",
+      "request": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "analyze",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              },
+              {
+                "id": "risk-register",
+                "path": "artifacts/threat-model/risks.md",
+                "kind": "review",
+                "minimumBytes": 100,
+                "maximumBytes": 10000,
+                "clauses": "none",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint"
+            ],
+            "writeScope": "artifact-only",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            },
+            "primaryOutput": "threat-report",
+            "artifactSet": "threat-bundle"
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [],
+          "sourceScopes": {},
+          "artifactSets": {
+            "threat-bundle": {
+              "primary": "threat-model.md",
+              "members": [
+                {
+                  "path": "threat-model.md",
+                  "role": "report",
+                  "required": true
+                },
+                {
+                  "path": "risks.md",
+                  "role": "risks",
+                  "required": true
+                }
+              ]
+            }
+          }
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:b2a279b350f53eb76c595a670517a905b9468b8456c2969f91247c21010886e7",
+          "catalogSha256": "sha256:66c8055f8e7a4d5c1a9ba1e640dc56b1c604fa1da3c99dd877c8d1fff5afb72a",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:1444e542c37a17f359318c84c2f893783b76f867644ac27ab1d12ac7380a2ea1",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "before": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "analyze",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              },
+              {
+                "id": "risk-register",
+                "path": "artifacts/threat-model/risks.md",
+                "kind": "review",
+                "minimumBytes": 100,
+                "maximumBytes": 10000,
+                "clauses": "none",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint"
+            ],
+            "writeScope": "artifact-only",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            },
+            "primaryOutput": "threat-report",
+            "artifactSet": "threat-bundle"
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [],
+          "sourceScopes": {},
+          "artifactSets": {
+            "threat-bundle": {
+              "primary": "threat-model.md",
+              "members": [
+                {
+                  "path": "threat-model.md",
+                  "role": "report",
+                  "required": true
+                },
+                {
+                  "path": "risks.md",
+                  "role": "risks",
+                  "required": true
+                }
+              ]
+            }
+          }
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:b2a279b350f53eb76c595a670517a905b9468b8456c2969f91247c21010886e7",
+          "catalogSha256": "sha256:66c8055f8e7a4d5c1a9ba1e640dc56b1c604fa1da3c99dd877c8d1fff5afb72a",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:1444e542c37a17f359318c84c2f893783b76f867644ac27ab1d12ac7380a2ea1",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "compiled": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:66c8055f8e7a4d5c1a9ba1e640dc56b1c604fa1da3c99dd877c8d1fff5afb72a",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "confirmation": {
+            "candidateSha256": "sha256:1444e542c37a17f359318c84c2f893783b76f867644ac27ab1d12ac7380a2ea1",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:b2a279b350f53eb76c595a670517a905b9468b8456c2969f91247c21010886e7",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            },
+            {
+              "claimRole": "findings",
+              "clauses": "none",
+              "id": "risk-register",
+              "kind": "review",
+              "maximumBytes": 10000,
+              "minimumBytes": 100,
+              "path": "artifacts/threat-model/risks.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "compilationSha256": "sha256:fcd9a7a787be22d578112aa26beca921d3d1eb32db06493ca307a76d896a4ee1",
+        "compiler": "skp-contract/v1",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "artifactSet": "threat-bundle",
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "analyze"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "artifact-only"
+        }
+      },
+      "configured": {
+        "approval": {
+          "allowSelfApproval": true,
+          "authorities": [
+            "security-reviewers"
+          ],
+          "changeRequests": {
+            "commentRequired": true,
+            "reopenCompleted": true
+          },
+          "maximumChangedPaths": null,
+          "minimum": 1,
+          "mode": "required",
+          "policy": null,
+          "rejectTo": [
+            "threat-model"
+          ],
+          "requiredAuthorities": []
+        },
+        "artifact": {
+          "allowedMediaTypes": [
+            "text/markdown"
+          ],
+          "kind": "custom:threat-model",
+          "maximumBytes": 131072,
+          "minimumBytes": 400,
+          "path": "artifacts/threat-model/threat-model.md"
+        },
+        "artifactSet": "threat-bundle",
+        "clarification": {
+          "markers": {
+            "mode": "off"
+          },
+          "maxQuestions": 3,
+          "mode": "when-needed",
+          "topics": []
+        },
+        "generation": {
+          "allowedProducers": [
+            "governed-agent"
+          ],
+          "defaultProducer": "governed-agent",
+          "requirement": "required",
+          "task": "analyze"
+        },
+        "inputs": [
+          {
+            "optional": false,
+            "phase": "requirements"
+          }
+        ],
+        "kind": "skill",
+        "label": "Threat model",
+        "qualityCommands": [
+          {
+            "argv": [
+              "markdownlint",
+              "artifacts/threat-model/threat-model.md"
+            ],
+            "command": null,
+            "id": "markdownlint",
+            "kind": "lint",
+            "modelPolicy": "never",
+            "requirement": "required",
+            "timeoutMs": null
+          }
+        ],
+        "skillBinding": {
+          "bindingRefs": {
+            "catalogSha256": "sha256:66c8055f8e7a4d5c1a9ba1e640dc56b1c604fa1da3c99dd877c8d1fff5afb72a",
+            "checks": [
+              {
+                "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+                "id": "markdownlint"
+              }
+            ],
+            "codeDeliverySha256": null,
+            "confirmation": {
+              "candidateSha256": "sha256:1444e542c37a17f359318c84c2f893783b76f867644ac27ab1d12ac7380a2ea1",
+              "draftRevision": 8,
+              "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "contractSha256": "sha256:b2a279b350f53eb76c595a670517a905b9468b8456c2969f91247c21010886e7",
+            "inputs": [
+              {
+                "output": "primary",
+                "path": "artifacts/requirements/requirements.md",
+                "phase": "requirements",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "outputs": [
+              {
+                "claimRole": "findings",
+                "clauses": "optional",
+                "encoding": "utf-8",
+                "id": "threat-report",
+                "kind": "custom:threat-model",
+                "maximumBytes": 131072,
+                "mediaType": "text/markdown",
+                "minimumBytes": 400,
+                "path": "artifacts/threat-model/threat-model.md",
+                "required": true
+              },
+              {
+                "claimRole": "findings",
+                "clauses": "none",
+                "id": "risk-register",
+                "kind": "review",
+                "maximumBytes": 10000,
+                "minimumBytes": 100,
+                "path": "artifacts/threat-model/risks.md",
+                "required": true
+              }
+            ],
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": []
+            },
+            "skill": {
+              "id": "threat-model",
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "sourceScope": null
+          },
+          "compilationSha256": "sha256:fcd9a7a787be22d578112aa26beca921d3d1eb32db06493ca307a76d896a4ee1",
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "schemaVersion": 1
+        },
+        "writeScope": "artifact-only"
+      },
+      "binding": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:66c8055f8e7a4d5c1a9ba1e640dc56b1c604fa1da3c99dd877c8d1fff5afb72a",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "confirmation": {
+            "candidateSha256": "sha256:1444e542c37a17f359318c84c2f893783b76f867644ac27ab1d12ac7380a2ea1",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:b2a279b350f53eb76c595a670517a905b9468b8456c2969f91247c21010886e7",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            },
+            {
+              "claimRole": "findings",
+              "clauses": "none",
+              "id": "risk-register",
+              "kind": "review",
+              "maximumBytes": 10000,
+              "minimumBytes": 100,
+              "path": "artifacts/threat-model/risks.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "compilationSha256": "sha256:fcd9a7a787be22d578112aa26beca921d3d1eb32db06493ca307a76d896a4ee1",
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "schemaVersion": 1
+      },
+      "proposal": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:66c8055f8e7a4d5c1a9ba1e640dc56b1c604fa1da3c99dd877c8d1fff5afb72a",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "contractSha256": "sha256:b2a279b350f53eb76c595a670517a905b9468b8456c2969f91247c21010886e7",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            },
+            {
+              "claimRole": "findings",
+              "clauses": "none",
+              "id": "risk-register",
+              "kind": "review",
+              "maximumBytes": 10000,
+              "minimumBytes": 100,
+              "path": "artifacts/threat-model/risks.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": []
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "candidateSha256": "sha256:1444e542c37a17f359318c84c2f893783b76f867644ac27ab1d12ac7380a2ea1",
+        "compiler": "skp-contract/v1",
+        "confirmation": "absent",
+        "eligibility": "candidate-producer",
+        "execution": "not-run",
+        "kind": "skp-skill-phase-proposal",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "artifactSet": "threat-bundle",
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "analyze"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "artifact-only"
+        },
+        "proposalSha256": "sha256:8bce0df85aa012afbe799e1563e398ec9ede7a4a3e91c0d08e80c61655be9de0",
+        "schemaVersion": 1,
+        "status": "proposal-only"
+      }
+    },
+    {
+      "id": 3,
+      "label": "unknown-output",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' produces[0].kind must be a registered-style kind or custom:<id>.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 4,
+      "label": "empty-output",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' needs at least one concrete required artifact output.",
+        "code": "SKP_CONTRACT_EMPTY",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 5,
+      "label": "optional-only",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' needs at least one required artifact output.",
+        "code": "SKP_CONTRACT_EMPTY",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 6,
+      "label": "missing-role",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' produces[0].claimRole must explicitly name a registered SKP role.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 7,
+      "label": "missing-encoding",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' produces[0] custom kind needs an explicit encoding.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 8,
+      "label": "reserved-output",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' produces[0].path must be an exact portable path under artifacts/threat-model.",
+        "code": "SKP_OUTPUT_PATH_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 9,
+      "label": "escaping-output",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' produces[0].path must be an exact portable path under artifacts/threat-model.",
+        "code": "SKP_OUTPUT_PATH_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 10,
+      "label": "unapproved-check",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' references unknown approved check 'invented'.",
+        "code": "SKP_CHECK_UNKNOWN",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 11,
+      "label": "shell-check",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Approved check 'markdownlint' must be an exact structured argv command.",
+        "code": "SKP_CHECK_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 12,
+      "label": "unknown-authority",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' references unknown approved authority 'other'.",
+        "code": "SKP_AUTHORITY_UNKNOWN",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 13,
+      "label": "extra-contract",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' contract contains unsupported field 'network'.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": {
+          "field": "network"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "label": "duplicate-policy",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase contains unsupported field 'artifact'.",
+        "code": "SKP_CONTRACT_CONFLICT",
+        "exitCode": 1,
+        "details": {
+          "field": "artifact"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "label": "management-agent",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill 'threat-model' is not an exact admitted producer in the approved catalog.",
+        "code": "SKP_SKILL_NOT_PHASE_PRODUCER",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 16,
+      "label": "upstream-order",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' consumes[0] must reference one earlier phase in the confirmed order.",
+        "code": "SKP_INPUT_ORDER",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 17,
+      "label": "upstream-output",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' consumes[0] references unknown output 'missing' from 'requirements'.",
+        "code": "SKP_INPUT_UNKNOWN",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 18,
+      "label": "unapproved-input",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' consumes[0].state must explicitly require approved output.",
+        "code": "SKP_INPUT_STATE_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 19,
+      "label": "source-without-code",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source-writing skill phase 'threat-model' must explicitly select task: code.",
+        "code": "SKP_CODE_TASK_REQUIRED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 20,
+      "label": "source-without-tests",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Source-writing skill phase 'threat-model' needs an approved required structured executable test with result adapter.",
+        "code": "SKP_SCOPE_REQUIRES_CHECKS",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 21,
+      "label": "source-protected",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Approved source scope 'application' names protected control path '.Github/agents'.",
+        "code": "SKP_SCOPE_UNAPPROVED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 22,
+      "label": "source-unknown-scope",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' references unknown approved source scope 'not-approved'.",
+        "code": "SKP_SCOPE_UNAPPROVED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 23,
+      "label": "multi-set-mismatch",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Artifact set 'threat-bundle' does not bind output 'risk-register' exactly.",
+        "code": "SKP_ARTIFACT_SET_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 24,
+      "label": "multi-set-absent",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' artifactSet must be a lower-case kebab-case ID.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 25,
+      "label": "unapproved-read",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' requests unapproved read path 'secrets/config'.",
+        "code": "SKP_READ_SCOPE_UNAPPROVED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 26,
+      "label": "approved-read",
+      "request": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "analyze",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint"
+            ],
+            "writeScope": "artifact-only",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": [
+                "src/model.js"
+              ]
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            }
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [
+            "src/model.js"
+          ],
+          "sourceScopes": {},
+          "artifactSets": {}
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:5e299f4fb4aa21378e5639f6ff34a1187cbd1f669e282268f6ebacf0cac0d2ac",
+          "catalogSha256": "sha256:6c4ae94fb150212544e3db37e4ac6a59644882eab37559400ce7c73b33f3f53b",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:fe1fdf10bd6eb021fbe123d5b0ce60cedfd409030c24bc430a03870332c05120",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "before": {
+        "phase": {
+          "id": "threat-model",
+          "kind": "skill",
+          "label": "Threat model",
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "contract": {
+            "task": "analyze",
+            "consumes": [
+              {
+                "phase": "requirements",
+                "output": "primary",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "produces": [
+              {
+                "id": "threat-report",
+                "path": "artifacts/threat-model/threat-model.md",
+                "kind": "custom:threat-model",
+                "mediaType": "text/markdown",
+                "encoding": "utf-8",
+                "minimumBytes": 400,
+                "maximumBytes": 131072,
+                "clauses": "optional",
+                "claimRole": "findings"
+              }
+            ],
+            "checks": [
+              "markdownlint"
+            ],
+            "writeScope": "artifact-only",
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": [
+                "src/model.js"
+              ]
+            },
+            "approval": {
+              "authorities": [
+                "security-reviewers"
+              ],
+              "minimum": 1
+            },
+            "clarification": {
+              "mode": "when-needed",
+              "maxQuestions": 3
+            }
+          }
+        },
+        "catalog": {
+          "skillPackages": {
+            "threat-model": {
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "eligibility": "candidate-producer"
+            }
+          },
+          "phases": {
+            "requirements": {
+              "outputs": [
+                {
+                  "id": "primary",
+                  "path": "artifacts/requirements/requirements.md"
+                }
+              ]
+            }
+          },
+          "checks": {
+            "markdownlint": {
+              "id": "markdownlint",
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "modelPolicy": "never",
+              "kind": "lint",
+              "requirement": "required"
+            }
+          },
+          "approvalAuthorities": {
+            "security-reviewers": {
+              "label": "Security reviewers",
+              "members": [
+                {
+                  "name": "Reviewer",
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "approvalSecurity": {
+            "profile": "team"
+          },
+          "readPaths": [
+            "src/model.js"
+          ],
+          "sourceScopes": {},
+          "artifactSets": {}
+        },
+        "phaseOrder": [
+          "intake",
+          "requirements",
+          "threat-model"
+        ],
+        "confirmation": {
+          "contractSha256": "sha256:5e299f4fb4aa21378e5639f6ff34a1187cbd1f669e282268f6ebacf0cac0d2ac",
+          "catalogSha256": "sha256:6c4ae94fb150212544e3db37e4ac6a59644882eab37559400ce7c73b33f3f53b",
+          "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "candidateSha256": "sha256:fe1fdf10bd6eb021fbe123d5b0ce60cedfd409030c24bc430a03870332c05120",
+          "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "draftRevision": 8
+        }
+      },
+      "compiled": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:6c4ae94fb150212544e3db37e4ac6a59644882eab37559400ce7c73b33f3f53b",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "confirmation": {
+            "candidateSha256": "sha256:fe1fdf10bd6eb021fbe123d5b0ce60cedfd409030c24bc430a03870332c05120",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:5e299f4fb4aa21378e5639f6ff34a1187cbd1f669e282268f6ebacf0cac0d2ac",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": [
+              "src/model.js"
+            ]
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "compilationSha256": "sha256:534bc3867176ed453f4e07410d6a4af2dd478ee1cebad822302026da27221753",
+        "compiler": "skp-contract/v1",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "analyze"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "artifact-only"
+        }
+      },
+      "configured": {
+        "approval": {
+          "allowSelfApproval": true,
+          "authorities": [
+            "security-reviewers"
+          ],
+          "changeRequests": {
+            "commentRequired": true,
+            "reopenCompleted": true
+          },
+          "maximumChangedPaths": null,
+          "minimum": 1,
+          "mode": "required",
+          "policy": null,
+          "rejectTo": [
+            "threat-model"
+          ],
+          "requiredAuthorities": []
+        },
+        "artifact": {
+          "allowedMediaTypes": [
+            "text/markdown"
+          ],
+          "kind": "custom:threat-model",
+          "maximumBytes": 131072,
+          "minimumBytes": 400,
+          "path": "artifacts/threat-model/threat-model.md"
+        },
+        "clarification": {
+          "markers": {
+            "mode": "off"
+          },
+          "maxQuestions": 3,
+          "mode": "when-needed",
+          "topics": []
+        },
+        "generation": {
+          "allowedProducers": [
+            "governed-agent"
+          ],
+          "defaultProducer": "governed-agent",
+          "requirement": "required",
+          "task": "analyze"
+        },
+        "inputs": [
+          {
+            "optional": false,
+            "phase": "requirements"
+          }
+        ],
+        "kind": "skill",
+        "label": "Threat model",
+        "qualityCommands": [
+          {
+            "argv": [
+              "markdownlint",
+              "artifacts/threat-model/threat-model.md"
+            ],
+            "command": null,
+            "id": "markdownlint",
+            "kind": "lint",
+            "modelPolicy": "never",
+            "requirement": "required",
+            "timeoutMs": null
+          }
+        ],
+        "skillBinding": {
+          "bindingRefs": {
+            "catalogSha256": "sha256:6c4ae94fb150212544e3db37e4ac6a59644882eab37559400ce7c73b33f3f53b",
+            "checks": [
+              {
+                "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+                "id": "markdownlint"
+              }
+            ],
+            "codeDeliverySha256": null,
+            "confirmation": {
+              "candidateSha256": "sha256:fe1fdf10bd6eb021fbe123d5b0ce60cedfd409030c24bc430a03870332c05120",
+              "draftRevision": 8,
+              "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "contractSha256": "sha256:5e299f4fb4aa21378e5639f6ff34a1187cbd1f669e282268f6ebacf0cac0d2ac",
+            "inputs": [
+              {
+                "output": "primary",
+                "path": "artifacts/requirements/requirements.md",
+                "phase": "requirements",
+                "required": true,
+                "state": "approved"
+              }
+            ],
+            "outputs": [
+              {
+                "claimRole": "findings",
+                "clauses": "optional",
+                "encoding": "utf-8",
+                "id": "threat-report",
+                "kind": "custom:threat-model",
+                "maximumBytes": 131072,
+                "mediaType": "text/markdown",
+                "minimumBytes": 400,
+                "path": "artifacts/threat-model/threat-model.md",
+                "required": true
+              }
+            ],
+            "readScope": {
+              "inputs": true,
+              "sourcePaths": [
+                "src/model.js"
+              ]
+            },
+            "skill": {
+              "id": "threat-model",
+              "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "sourceScope": null
+          },
+          "compilationSha256": "sha256:534bc3867176ed453f4e07410d6a4af2dd478ee1cebad822302026da27221753",
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "schemaVersion": 1
+        },
+        "writeScope": "artifact-only"
+      },
+      "binding": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:6c4ae94fb150212544e3db37e4ac6a59644882eab37559400ce7c73b33f3f53b",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "confirmation": {
+            "candidateSha256": "sha256:fe1fdf10bd6eb021fbe123d5b0ce60cedfd409030c24bc430a03870332c05120",
+            "draftRevision": 8,
+            "planSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "contractSha256": "sha256:5e299f4fb4aa21378e5639f6ff34a1187cbd1f669e282268f6ebacf0cac0d2ac",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": [
+              "src/model.js"
+            ]
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "compilationSha256": "sha256:534bc3867176ed453f4e07410d6a4af2dd478ee1cebad822302026da27221753",
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "schemaVersion": 1
+      },
+      "proposal": {
+        "bindingRefs": {
+          "catalogSha256": "sha256:6c4ae94fb150212544e3db37e4ac6a59644882eab37559400ce7c73b33f3f53b",
+          "checks": [
+            {
+              "definitionSha256": "sha256:52f7e6a11138af46028c9f08203290cd259ab797595340a1d0fcf2bf35c0d178",
+              "id": "markdownlint"
+            }
+          ],
+          "codeDeliverySha256": null,
+          "contractSha256": "sha256:5e299f4fb4aa21378e5639f6ff34a1187cbd1f669e282268f6ebacf0cac0d2ac",
+          "inputs": [
+            {
+              "output": "primary",
+              "path": "artifacts/requirements/requirements.md",
+              "phase": "requirements",
+              "required": true,
+              "state": "approved"
+            }
+          ],
+          "outputs": [
+            {
+              "claimRole": "findings",
+              "clauses": "optional",
+              "encoding": "utf-8",
+              "id": "threat-report",
+              "kind": "custom:threat-model",
+              "maximumBytes": 131072,
+              "mediaType": "text/markdown",
+              "minimumBytes": 400,
+              "path": "artifacts/threat-model/threat-model.md",
+              "required": true
+            }
+          ],
+          "readScope": {
+            "inputs": true,
+            "sourcePaths": [
+              "src/model.js"
+            ]
+          },
+          "skill": {
+            "id": "threat-model",
+            "packageSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "sourceScope": null
+        },
+        "candidateSha256": "sha256:fe1fdf10bd6eb021fbe123d5b0ce60cedfd409030c24bc430a03870332c05120",
+        "compiler": "skp-contract/v1",
+        "confirmation": "absent",
+        "eligibility": "candidate-producer",
+        "execution": "not-run",
+        "kind": "skp-skill-phase-proposal",
+        "phaseId": "threat-model",
+        "phasePolicy": {
+          "approval": {
+            "allowSelfApproval": true,
+            "authorities": [
+              "security-reviewers"
+            ],
+            "changeRequests": {
+              "commentRequired": true,
+              "reopenCompleted": true
+            },
+            "maximumChangedPaths": null,
+            "minimum": 1,
+            "mode": "required",
+            "policy": null,
+            "rejectTo": [
+              "threat-model"
+            ],
+            "requiredAuthorities": []
+          },
+          "artifact": {
+            "allowedMediaTypes": [
+              "text/markdown"
+            ],
+            "kind": "custom:threat-model",
+            "maximumBytes": 131072,
+            "minimumBytes": 400,
+            "path": "artifacts/threat-model/threat-model.md"
+          },
+          "clarification": {
+            "markers": {
+              "mode": "off"
+            },
+            "maxQuestions": 3,
+            "mode": "when-needed",
+            "topics": []
+          },
+          "generation": {
+            "allowedProducers": [
+              "governed-agent"
+            ],
+            "defaultProducer": "governed-agent",
+            "requirement": "required",
+            "task": "analyze"
+          },
+          "inputs": [
+            {
+              "optional": false,
+              "phase": "requirements"
+            }
+          ],
+          "label": "Threat model",
+          "qualityCommands": [
+            {
+              "argv": [
+                "markdownlint",
+                "artifacts/threat-model/threat-model.md"
+              ],
+              "command": null,
+              "id": "markdownlint",
+              "kind": "lint",
+              "modelPolicy": "never",
+              "requirement": "required",
+              "timeoutMs": null
+            }
+          ],
+          "writeScope": "artifact-only"
+        },
+        "proposalSha256": "sha256:1e655d38d308a5237399f3fecbd3079dc56b2b48ce82dd7a0331741f69bdaf96",
+        "schemaVersion": 1,
+        "status": "proposal-only"
+      }
+    },
+    {
+      "id": 27,
+      "label": "altered-after-confirmation",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' confirmation does not bind current candidateSha256.",
+        "code": "SKP_CONTRACT_UNCONFIRMED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 28,
+      "label": "invalid-plan-digest",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Confirmed plan digest must be a sha256:<64 lowercase hex> digest.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 29,
+      "label": "invalid-revision",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'threat-model' needs the exact confirmed draft revision.",
+        "code": "SKP_CONTRACT_UNCONFIRMED",
+        "exitCode": 1,
+        "details": null
+      }
+    }
+  ],
+  "portable": [
+    {
+      "id": 0,
+      "name": "isPortableRepositoryPathComponent",
+      "value": null,
+      "result": false
+    },
+    {
+      "id": 0,
+      "name": "portableIdentifier",
+      "value": null,
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 1,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "",
+      "result": false
+    },
+    {
+      "id": 1,
+      "name": "portableIdentifier",
+      "value": "",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 2,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "src",
+      "result": true
+    },
+    {
+      "id": 2,
+      "name": "portableIdentifier",
+      "value": "src",
+      "result": "src"
+    },
+    {
+      "id": 3,
+      "name": "isPortableRepositoryPathComponent",
+      "value": ".git",
+      "result": false
+    },
+    {
+      "id": 3,
+      "name": "portableIdentifier",
+      "value": ".git",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 4,
+      "name": "isPortableRepositoryPathComponent",
+      "value": ".GIT",
+      "result": false
+    },
+    {
+      "id": 4,
+      "name": "portableIdentifier",
+      "value": ".GIT",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 5,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "..",
+      "result": false
+    },
+    {
+      "id": 5,
+      "name": "portableIdentifier",
+      "value": "..",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 6,
+      "name": "isPortableRepositoryPathComponent",
+      "value": ".",
+      "result": false
+    },
+    {
+      "id": 6,
+      "name": "portableIdentifier",
+      "value": ".",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 7,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "folder/name",
+      "result": false
+    },
+    {
+      "id": 7,
+      "name": "portableIdentifier",
+      "value": "folder/name",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 8,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "folder\\name",
+      "result": false
+    },
+    {
+      "id": 8,
+      "name": "portableIdentifier",
+      "value": "folder\\name",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 9,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "name.",
+      "result": false
+    },
+    {
+      "id": 9,
+      "name": "portableIdentifier",
+      "value": "name.",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 10,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "name ",
+      "result": false
+    },
+    {
+      "id": 10,
+      "name": "portableIdentifier",
+      "value": "name ",
+      "result": "name"
+    },
+    {
+      "id": 11,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "CON",
+      "result": false
+    },
+    {
+      "id": 11,
+      "name": "portableIdentifier",
+      "value": "CON",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 12,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "con.md",
+      "result": false
+    },
+    {
+      "id": 12,
+      "name": "portableIdentifier",
+      "value": "con.md",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 13,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "com1",
+      "result": false
+    },
+    {
+      "id": 13,
+      "name": "portableIdentifier",
+      "value": "com1",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 14,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "LPT9.log",
+      "result": false
+    },
+    {
+      "id": 14,
+      "name": "portableIdentifier",
+      "value": "LPT9.log",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 15,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "com¹",
+      "result": false
+    },
+    {
+      "id": 15,
+      "name": "portableIdentifier",
+      "value": "com¹",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 16,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "conin$",
+      "result": false
+    },
+    {
+      "id": 16,
+      "name": "portableIdentifier",
+      "value": "conin$",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 17,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "CLOCK$",
+      "result": false
+    },
+    {
+      "id": 17,
+      "name": "portableIdentifier",
+      "value": "CLOCK$",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 18,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "a:b",
+      "result": false
+    },
+    {
+      "id": 18,
+      "name": "portableIdentifier",
+      "value": "a:b",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 19,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "a?b",
+      "result": false
+    },
+    {
+      "id": 19,
+      "name": "portableIdentifier",
+      "value": "a?b",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 20,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "a\u0000b",
+      "result": false
+    },
+    {
+      "id": 20,
+      "name": "portableIdentifier",
+      "value": "a\u0000b",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 21,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "é",
+      "result": true
+    },
+    {
+      "id": 21,
+      "name": "portableIdentifier",
+      "value": "é",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 22,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "é",
+      "result": false
+    },
+    {
+      "id": 22,
+      "name": "portableIdentifier",
+      "value": "é",
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Identifier must be a portable identifier and must not use a Windows reserved filename.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 23,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "alpha_1",
+      "result": true
+    },
+    {
+      "id": 23,
+      "name": "portableIdentifier",
+      "value": "alpha_1",
+      "result": "alpha_1"
+    },
+    {
+      "id": 24,
+      "name": "isPortableRepositoryPathComponent",
+      "value": "0",
+      "result": true
+    },
+    {
+      "id": 24,
+      "name": "portableIdentifier",
+      "value": "0",
+      "result": "0"
+    }
+  ],
+  "assets": {
+    "outcomes": [
+      {
+        "id": 0,
+        "value": {},
+        "result": {
+          "roots": [
+            ".github/agents",
+            "singularity/templates"
+          ],
+          "files": [
+            "apm.lock.yaml"
+          ],
+          "runtimeRoots": [
+            ".sdlc",
+            ".sflow",
+            ".singularity",
+            "portfolio",
+            "singularity/.product",
+            "singularity/identity-reservations",
+            "singularity/initiatives",
+            "singularity/knowledge",
+            "singularity/pins",
+            "singularity/seeds",
+            "singularity/sgos-drafts",
+            "singularity/telemetry",
+            "singularity/work-items",
+            "singularity/world-model"
+          ]
+        }
+      },
+      {
+        "id": 1,
+        "value": {
+          "templatesRoot": "policy/templates",
+          "agentPromptsRoot": "agents",
+          "worldModel": {
+            "outputDir": "generated/model",
+            "promptSource": "prompts/repo.md"
+          },
+          "workItemRoot": "stories"
+        },
+        "result": {
+          "roots": [
+            ".github/agents",
+            "agents",
+            "policy/templates"
+          ],
+          "files": [
+            "apm.lock.yaml",
+            "prompts/repo.md"
+          ],
+          "runtimeRoots": [
+            ".sdlc",
+            ".sflow",
+            ".singularity",
+            "generated/model",
+            "portfolio",
+            "singularity/.product",
+            "singularity/identity-reservations",
+            "singularity/initiatives",
+            "singularity/knowledge",
+            "singularity/pins",
+            "singularity/seeds",
+            "singularity/sgos-drafts",
+            "singularity/telemetry",
+            "singularity/work-items",
+            "singularity/world-model",
+            "stories"
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "value": {
+          "templatesRoot": "../escape"
+        },
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "templatesRoot must be a canonical repository-relative portable path: ../escape",
+          "code": "CONFIGURATION_ASSET_ROOT_INVALID",
+          "exitCode": null,
+          "details": null
+        }
+      },
+      {
+        "id": 3,
+        "value": {
+          "templatesRoot": "C:/escape"
+        },
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "templatesRoot must be a canonical repository-relative portable path: C:/escape",
+          "code": "CONFIGURATION_ASSET_ROOT_INVALID",
+          "exitCode": null,
+          "details": null
+        }
+      },
+      {
+        "id": 4,
+        "value": {
+          "templatesRoot": "CON"
+        },
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "templatesRoot must be a canonical repository-relative portable path: CON",
+          "code": "CONFIGURATION_ASSET_ROOT_INVALID",
+          "exitCode": null,
+          "details": null
+        }
+      },
+      {
+        "id": 5,
+        "value": {
+          "templatesRoot": "templates./assets"
+        },
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "templatesRoot must be a canonical repository-relative portable path: templates./assets",
+          "code": "CONFIGURATION_ASSET_ROOT_INVALID",
+          "exitCode": null,
+          "details": null
+        }
+      },
+      {
+        "id": 6,
+        "value": {
+          "templatesRoot": "templates/~1"
+        },
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "templatesRoot must be a canonical repository-relative portable path: templates/~1",
+          "code": "CONFIGURATION_ASSET_ROOT_INVALID",
+          "exitCode": null,
+          "details": null
+        }
+      },
+      {
+        "id": 7,
+        "value": {
+          "templatesRoot": "templates/é"
+        },
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "templatesRoot must be a canonical repository-relative portable path: templates/é",
+          "code": "CONFIGURATION_ASSET_ROOT_INVALID",
+          "exitCode": null,
+          "details": null
+        }
+      }
+    ],
+    "defaultPolicy": {
+      "roots": [
+        ".github/agents",
+        "singularity/templates"
+      ],
+      "files": [
+        "apm.lock.yaml"
+      ],
+      "runtimeRoots": [
+        ".sdlc",
+        ".sflow",
+        ".singularity",
+        "singularity/.product",
+        "singularity/identity-reservations",
+        "singularity/initiatives",
+        "singularity/knowledge",
+        "singularity/pins",
+        "singularity/seeds",
+        "singularity/sgos-drafts",
+        "singularity/telemetry",
+        "singularity/work-items",
+        "singularity/world-model"
+      ]
+    },
+    "merged": {
+      "roots": [
+        ".github/agents",
+        "custom",
+        "singularity/templates"
+      ],
+      "files": [
+        "apm.lock.yaml"
+      ],
+      "runtimeRoots": [
+        ".sdlc",
+        ".sflow",
+        ".singularity",
+        "singularity/.product",
+        "singularity/identity-reservations",
+        "singularity/initiatives",
+        "singularity/knowledge",
+        "singularity/pins",
+        "singularity/seeds",
+        "singularity/sgos-drafts",
+        "singularity/telemetry",
+        "singularity/work-items",
+        "singularity/world-model"
+      ]
+    },
+    "paths": [
+      {
+        "value": "singularity/workflow.yml",
+        "portable": "singularity/workflow.yml",
+        "asset": true,
+        "identity": "singularity/workflow.yml"
+      },
+      {
+        "value": "singularity/work-items/a/a.json",
+        "portable": "singularity/work-items/a/a.json",
+        "asset": false,
+        "identity": "singularity/work-items/a/a.json"
+      },
+      {
+        "value": "Singularity/work-items/a",
+        "portable": "Singularity/work-items/a",
+        "asset": false,
+        "identity": "singularity/work-items/a"
+      },
+      {
+        "value": "singularity/templates/spec.md",
+        "portable": "singularity/templates/spec.md",
+        "asset": true,
+        "identity": "singularity/templates/spec.md"
+      },
+      {
+        "value": ".github/agents/a.agent.md",
+        "portable": ".github/agents/a.agent.md",
+        "asset": true,
+        "identity": ".github/agents/a.agent.md"
+      },
+      {
+        "value": "singularity/configuration-source.json",
+        "portable": "singularity/configuration-source.json",
+        "asset": false,
+        "identity": "singularity/configuration-source.json"
+      },
+      {
+        "value": "../outside",
+        "portable": null,
+        "asset": false,
+        "identity": "/outside"
+      },
+      {
+        "value": "C:/outside",
+        "portable": null,
+        "asset": false,
+        "identity": "c:/outside"
+      },
+      {
+        "value": "singularity/CON",
+        "portable": null,
+        "asset": false,
+        "identity": "singularity/con"
+      },
+      {
+        "value": "singularity/../outside",
+        "portable": null,
+        "asset": false,
+        "identity": "singularity//outside"
+      },
+      {
+        "value": "policy/é",
+        "portable": "policy/é",
+        "asset": false,
+        "identity": "policy/é"
+      },
+      {
+        "value": "singularity/templates/readme.md.",
+        "portable": null,
+        "asset": false,
+        "identity": "singularity/templates/readme.md"
+      }
+    ],
+    "search": [
+      ".github/agents",
+      "apm.lock.yaml",
+      "singularity"
+    ]
+  },
+  "exports": {
+    "native": [
+      "SKP_CONTRACT_COMPILER",
+      "SKP_PHASE_BINDING_VERSION",
+      "compileConfirmedSkillPhase",
+      "compileSkillPhaseProposal",
+      "configurationPhaseFromCompiledSkill",
+      "skillCandidateCatalogSha256",
+      "skillContractSha256",
+      "skillPhaseCandidateSha256",
+      "validateConfiguredSkillPhase",
+      "validateSkillPhaseBindingHeader"
+    ],
+    "paths": [
+      "CONFIGURATION_BRANCH",
+      "CONFIGURATION_SOURCE_PATH",
+      "DEFAULT_CONFIGURATION_ASSET_POLICY",
+      "configurationAssetPolicy",
+      "configurationAssetSearchRoots",
+      "isConfigurationAssetPath",
+      "mergeConfigurationAssetPolicies",
+      "portableConfigurationPath",
+      "portableFilesystemPathIdentity"
+    ],
+    "portable": [
+      "BOOLEAN_OPTIONS",
+      "FREE_TEXT_OPTIONS",
+      "GIT_INDEX_LOCK_WAIT_MS",
+      "NETWORK_TIMEOUT_MS",
+      "SUBPROCESS_MAX_BUFFER_BYTES",
+      "SingularityFlowError",
+      "YAML_OUTPUT",
+      "assertCommitGitAdmission",
+      "bindRepositoryCommitPolicyProjection",
+      "canonicalPathSync",
+      "commandExists",
+      "commandLineFile",
+      "commitGitRequestDigest",
+      "commitPolicyEnforcedHint",
+      "commitPolicyGitVerb",
+      "defaultTimeoutFor",
+      "didYouMean",
+      "displayWidth",
+      "ensureDir",
+      "ensureSecureRepositoryDirectory",
+      "exists",
+      "gitHeadIsUnborn",
+      "gitOutsideRepository",
+      "gitReadOutput",
+      "gitWorkerCount",
+      "installCommitPolicyHintParser",
+      "invariant",
+      "invocationDirectory",
+      "isGitRefName",
+      "isPortableRepositoryPathComponent",
+      "isTransportIntentId",
+      "mapLimit",
+      "nearestNames",
+      "networkDisabled",
+      "nowIso",
+      "optionBoolean",
+      "optionNumber",
+      "optionString",
+      "optionStrings",
+      "padDisplay",
+      "parseArgs",
+      "platformPathWithin",
+      "platformShell",
+      "portableIdentifier",
+      "posix",
+      "readJson",
+      "recordSubprocessTiming",
+      "refuseUnreadableRepository",
+      "registerCommitPolicyMode",
+      "removeTemporaryTree",
+      "replaceWithSharingRetry",
+      "repoRelative",
+      "repositoryCommitPolicyModule",
+      "repositoryCommitPolicyProjection",
+      "requirePositional",
+      "retainedRepositoryCommitPolicy",
+      "run",
+      "samePlatformPath",
+      "secureRepositoryPath",
+      "sentenceList",
+      "signalProcessTree",
+      "snapshot",
+      "stateFingerprint",
+      "table",
+      "terminalWidth",
+      "truncate",
+      "truncateDisplay",
+      "withAdmittedCommitGit",
+      "writeAtomic",
+      "writeAtomicExclusive",
+      "writeBytes",
+      "writeJson",
+      "writeText"
+    ]
+  },
+  "functions": {
+    "src/skp-contract.mjs:checkedId": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "6839ad53ecbd3bcbb853b3e86fb75f5facaceea5184a3225223c27ebab55b2ee"
+    },
+    "src/skp-contract.mjs:jsonSafe": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "01f8f428330e963942cd73fb6eff8ef8708366d6e7ef0dda1b2e67c6be92f2bb"
+    },
+    "src/skp-contract.mjs:exactPath": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "9c2e4da34760f41a865900c5fda053fa344871d7844c1119ba9a9b363b635faf"
+    },
+    "src/skp-contract.mjs:skillContractSha256": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "b3ff59469b4808cc6c9d87d5b42ee9fb9db5c988fdfe40c14df1e148d6479a9a"
+    },
+    "src/skp-contract.mjs:skillCandidateCatalogSha256": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "849354cf4bb18edf17189c147758f4126bf99fb482e82c9c0d6a5b76287deee4"
+    },
+    "src/skp-contract.mjs:skillPhaseCandidateSha256": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "599be2e03b006a9798d1add18a2311643e6849baf0e8533973376ae2f0e0737e"
+    },
+    "src/skp-contract.mjs:outputsFor": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "147e955e14710cbf2e7f4eddb8b6367b499b0f70d840712050bbaa4547a89379"
+    },
+    "src/skp-contract.mjs:inputsFor": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "6c68ae741bde0b63f71292f217872787cdc6ba92e6289fe80b6d527025cb1d24"
+    },
+    "src/skp-contract.mjs:checksFor": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "2150e32aac20ed5793750ea8df2c07a6f3b9039e9061d7072d847dda7474458c"
+    },
+    "src/skp-contract.mjs:approvalFor": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "4eef6b8672ff856ce83af46174a8113c87e74f5517e688305f727de676c78f9c"
+    },
+    "src/skp-contract.mjs:effectsFor": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "eb06fe01be2adc5d06c7301b410b908667f4108926245724c0db838f58d268ab"
+    },
+    "src/skp-contract.mjs:compileConfirmedSkillPhase": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "1f40b337346906281f9365408d448eaea8dfe8ec34ec7a452478716e699cf8f3"
+    },
+    "src/skp-contract.mjs:compileSkillPhaseProposal": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "49494bf9ee35e547c501ac40fce36873cf6f5c9bedeef3d0c8a36c25de6f6dfd"
+    },
+    "src/skp-contract.mjs:compileSkillPhase": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "195c2c3d247b0b15d65849b4cf51c2309a9f74bf31f5da3b9de51e5051c7bef0"
+    },
+    "src/skp-contract.mjs:configurationPhaseFromCompiledSkill": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "6f2ac5659791f2cb36489f199a3955c4ab9e381c1b80e7e517d756d23728aade"
+    },
+    "src/skp-contract.mjs:validateConfiguredSkillPhase": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "a3c75b6f879b7c50b6fd37e5fb0477158ef83d6537fb71b217089d4c6c11d7ae"
+    },
+    "src/kernel/skill-binding-header.mjs:fail": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "fc68e3155b6cf05a845e1da309262e25ebf54d0cbbdf353eeda2ecaa5387ec95"
+    },
+    "src/kernel/skill-binding-header.mjs:plain": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "43fc6732aacb17da162ce3d85cd786d40dece780e4522ad575d0bd1700764d8e"
+    },
+    "src/kernel/skill-binding-header.mjs:closed": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "5743560d77334224f6992efa7064713a397275e0e6fb545faff612419e41d00b"
+    },
+    "src/kernel/skill-binding-header.mjs:checkedDigest": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "ace1da8e8ffb91ac6cfbf6cdb65afc676f7dec2d4c17449d6348fcdde8f777a6"
+    },
+    "src/kernel/skill-binding-header.mjs:validateSkillPhaseBindingHeader": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "c527fff6d367f0630efb3e3b0495e9a6a2d13b6a3c42b93405167c8a250f0316"
+    },
+    "src/util.mjs:isPortableRepositoryPathComponent": {
+      "owner": "src/foundation/portable-paths.mjs",
+      "factory": null,
+      "sha256": "91542df5290340b5cf2d6095be399e821dfab5d7b025ec5629fac824375a6ff0"
+    },
+    "src/util.mjs:portableIdentifier": {
+      "owner": "src/foundation/portable-paths.mjs",
+      "factory": null,
+      "sha256": "2ecb7c034728c82c2a67bebc413a594641353b9cf81fb708c25e349907c7cb47"
+    },
+    "src/configuration-assets.mjs:hasUnsafePortableComponent": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "d512c2968303e6a57dc555ee3d5b2c5251bc9620ad5dc6c94631a0c79ec3effc"
+    },
+    "src/configuration-assets.mjs:invalidRoot": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "dbe254ca16c3b479820807a13befabf589aa6d30b0829143cedfeb1be76f1005"
+    },
+    "src/configuration-assets.mjs:portablePath": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "d048d94b5eaf33fc8102499f90f45d25a4250599f0cba40245d552cb96e333a0"
+    },
+    "src/configuration-assets.mjs:unique": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "65aaf5c76e3663052aabc76ff8084b08841201596d1101712af7ff0e6f26619c"
+    },
+    "src/configuration-assets.mjs:configurationAssetPolicy": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "43eea80d34be0219e76143a9107aa49846846885f86f84ef048cd9a16756c00c"
+    },
+    "src/configuration-assets.mjs:mergeConfigurationAssetPolicies": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "b83365f3926eef8c0f2d6c3c1e7ca2749f5847be6a4d0dd05987fb302fe552a7"
+    },
+    "src/configuration-assets.mjs:within": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "0577d598af0c517afc5352aba220dc466a601ad6af479c662351f1ef5a93941d"
+    },
+    "src/configuration-assets.mjs:portableFilesystemPathIdentity": {
+      "owner": "src/foundation/portable-paths.mjs",
+      "factory": null,
+      "sha256": "54558ddd6d0b74ad07cece67a0d780a0635a7b1275beef5e8c6908128413a004"
+    },
+    "src/configuration-assets.mjs:withinFilesystemIdentity": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "1a44b3b233c56df963f344e61e0a8bd3a830a1ba3c9ce018bb8c91a495106b8e"
+    },
+    "src/configuration-assets.mjs:portableConfigurationPath": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "55fd9b4c4591a9353cd76dffb3078117c8138e5371da61f7c4cd721fe548aec0"
+    },
+    "src/configuration-assets.mjs:isConfigurationAssetPath": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "13aba3540469ebd7a6c5d0c6f137429bf4ed2cd6553bfbe09ed0f686457f4f5e"
+    },
+    "src/configuration-assets.mjs:configurationAssetSearchRoots": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "a88571052ab9bd67876b801a7ecc230acdc6624eef3680423d9534a32c8717d8"
+    }
+  },
+  "constants": {
+    "src/skp-contract.mjs:PHASE_POLICY_FIELDS": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "4478268a8f9d0a47f666a08d671d9a82c84b1d4a2caa236c3f1103dedcbd74ce"
+    },
+    "src/skp-contract.mjs:ID": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "e65023f0e501402647120ee8acfcf2b331dae5ae05e541b6abe6cbac9d6e6a94"
+    },
+    "src/skp-contract.mjs:KIND": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "1f4035ad3f8a6bd03206d52ef621e07b2f7090f230ce53c6dfbf1435151fce38"
+    },
+    "src/skp-contract.mjs:MEDIA_TYPE": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "ea7f31655c0f48a21bf6fd0040395e862020921b1912fc7fd1534c1af147695c"
+    },
+    "src/skp-contract.mjs:OUTPUT_ROLES": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "c84d43e125ea01e3a6e7c496254f4eb01c8d4f39df15b4f0ecf0ca75047a4980"
+    },
+    "src/skp-contract.mjs:CLAUSE_MODES": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "a8953df1feae44cb8c70c9e607abf176b7ba06c5f66565a949ea7d712d2cd179"
+    },
+    "src/skp-contract.mjs:COMMAND_FIELDS": {
+      "owner": "src/kernel/skill-phase-contract.mjs",
+      "factory": "createSkillPhaseContractCompiler",
+      "sha256": "718c73c170381357e48a1f2c4edea686fd6a79863924939f6e7999d8ea8fefb2"
+    },
+    "src/kernel/skill-binding-header.mjs:SKP_CONTRACT_COMPILER": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "f89250eacadd615f09aa570d567ec8bc37013d69556af24a58dc55b88c9d6a8f"
+    },
+    "src/kernel/skill-binding-header.mjs:SKP_PHASE_BINDING_VERSION": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+    },
+    "src/kernel/skill-binding-header.mjs:SHA256": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "a5459261b6162f3f8a9f215fd9559a687b23cbba7da5c0fb7f6c0e24c5fb873b"
+    },
+    "src/kernel/skill-binding-header.mjs:SKP_PARSER_PROFILE": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "factory": null,
+      "sha256": "035395b9f37a0bf9f063e069de128d583b8fb226bfa9b303cfd99efac7c9ff74"
+    },
+    "src/util.mjs:WINDOWS_RESERVED_PORTABLE_BASENAME": {
+      "owner": "src/foundation/portable-paths.mjs",
+      "factory": null,
+      "sha256": "6c018c2a0494e1c964f71f6420915ce67681695e1263166fba29c3b6cbad4f84"
+    },
+    "src/configuration-assets.mjs:CONFIGURATION_BRANCH": {
+      "owner": "src/configuration-read-scope.mjs",
+      "factory": null,
+      "sha256": "9f7387a1c78387e5de65df9af79cf9a5410539151aeff0595a61a5a1db7a5cbf"
+    },
+    "src/configuration-assets.mjs:CONFIGURATION_SOURCE_PATH": {
+      "owner": "src/configuration-read-scope.mjs",
+      "factory": null,
+      "sha256": "37e2950baf115ce902aa3c7a4b5890205369b970aab9957cb5a87ad7cc09c206"
+    },
+    "src/configuration-assets.mjs:DEFAULT_RUNTIME_ROOTS": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "be27d013dcc0c2b8e05585b3fa642064f508762ad5abacd24402d5264e63f0c1"
+    },
+    "src/configuration-assets.mjs:WINDOWS_RESERVED_COMPONENT": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "e4f3961112a2adde67e25201436cb4aec48b8f359ea91f2239af71e5e2abc3c6"
+    },
+    "src/configuration-assets.mjs:DEFAULT_CONFIGURATION_ASSET_POLICY": {
+      "owner": "src/kernel/configuration-path-policies.mjs",
+      "factory": "configurationAssetPolicies",
+      "sha256": "4542c6c9fc4489d806776c648a1f0c10b72924b997a77fac279b096cc5f5e09a"
+    }
+  }
+}

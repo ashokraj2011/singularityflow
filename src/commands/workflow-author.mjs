@@ -12,7 +12,8 @@ import { recordSha256 } from '../records.mjs';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { safeCommandGuidance, commandRouteLines } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
-import { SingularityFlowError, isPortableRepositoryPathComponent, optionBoolean } from '../util.mjs';
+import { SingularityFlowError, optionBoolean } from '../util.mjs';
+import { isPortableRepositoryPathComponent } from '../foundation/portable-paths.mjs';
 import { parseLocalStoryInventorySubjects, SKP_STORY_INVENTORY_LIMITS } from '../skp-story-inventory-request.mjs';
 import { parseCrossRepositoryStoryInventorySubjects } from '../skp-cross-repository-story-inventory.mjs';
 

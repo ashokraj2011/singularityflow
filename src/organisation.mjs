@@ -66,7 +66,7 @@ import {
   legacyStateMirrorMatchesRepository, readConfigurationSource, retainStateConfigurationHistory,
   stateConfigurationHistoryBranch,
 } from './configuration-branch.mjs';
-import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
+import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './engine-compatibility/node-configuration-path.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { normalizeSourceRoots } from "./engine-compatibility/node-configuration-path.mjs";
 import { createAndPushTransportIntent, pendingPublicationNote } from './transport-intents.mjs';

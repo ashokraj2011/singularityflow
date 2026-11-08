@@ -7,10 +7,10 @@
  * - OPERATION_ID_REUSE: the operation ID returned with different bytes. Refuse the new payload.
  * - OUTCOME_UNKNOWN: the write may have been accepted. Reconcile its exact operation and digest.
  */
-export const OUTCOME_CLASSES = Object.freeze(['REVISION_CONFLICT', 'OPERATION_ID_REUSE', 'OUTCOME_UNKNOWN']);
+export const OUTCOME_CLASSES = /* @__PURE__ */ Object.freeze(['REVISION_CONFLICT', 'OPERATION_ID_REUSE', 'OUTCOME_UNKNOWN']);
 
 /** Existing refusal codes keep their public names and meanings (SDA §7.1). */
-export const OUTCOME_CLASS_BY_CODE = Object.freeze({
+export const OUTCOME_CLASS_BY_CODE = /* @__PURE__ */ Object.freeze({
   SGOS_OPERATIONAL_CAS_MISMATCH: 'REVISION_CONFLICT',
   SGOS_AUTHORITY_CAS_MISMATCH: 'REVISION_CONFLICT',
   WCA_DRAFT_CONFLICT: 'REVISION_CONFLICT',
@@ -30,7 +30,7 @@ export const OUTCOME_CLASS_BY_CODE = Object.freeze({
 });
 
 /** Statuses saved in push and journal records. */
-export const OUTCOME_CLASS_BY_STATUS = Object.freeze({
+export const OUTCOME_CLASS_BY_STATUS = /* @__PURE__ */ Object.freeze({
   'remote-diverged': 'REVISION_CONFLICT',
   'transport-indeterminate': 'OUTCOME_UNKNOWN',
   'outcome-unknown': 'OUTCOME_UNKNOWN'

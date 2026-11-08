@@ -112,6 +112,23 @@ test('kernel tree shaking is backed by pure initialization and no side-effect-on
   }
 });
 
+test('only the portable value helper is declared side-effect-free in the foundation package', async () => {
+  const { sideEffects } = JSON.parse(await readFile(path.join(packageRoot, 'src/foundation/package.json'), 'utf8'));
+  assert.ok(Array.isArray(sideEffects));
+  const files = await sourceFiles('src/foundation');
+  assert.deepEqual(files.filter(file => !sideEffects.includes('./' + path.basename(file))), ['src/foundation/portable-paths.mjs']);
+  assert.deepEqual([...sideEffects].sort(), files.filter(file => !file.endsWith('/portable-paths.mjs')).map(file => './' + path.basename(file)).sort());
+  const file = 'src/foundation/portable-paths.mjs';
+  const ast = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
+  for (const statement of ast.statements) {
+    if (ts.isImportDeclaration(statement)) assert.ok(statement.importClause, 'no side-effect-only imports');
+    else if (ts.isVariableStatement(statement)) {
+      assert.ok(statement.declarationList.flags & ts.NodeFlags.Const);
+      for (const declaration of statement.declarationList.declarations) assert.ok(declaration.initializer && ts.isRegularExpressionLiteral(declaration.initializer));
+    } else assert.ok(ts.isFunctionDeclaration(statement), 'no module-time execution');
+  }
+});
+
 test('next-step hosts execute one registered plan and keep native observations out of command handlers', async () => {
   const command = await readFile(path.join(packageRoot, 'src/commands/nextsteps.mjs'), 'utf8');
   assert.match(command, /binding\.engine\.run\('story\.next'/);
@@ -603,7 +620,7 @@ test('entry wrappers use the registry; native composition does not decide admiss
 });
 
 test('configuration and SKP validation use pure clarification policy instead of native record I/O',async()=>{
-  for(const file of ['src/kernel/workflow-configuration.mjs','src/skp-contract.mjs']) {
+  for(const file of ['src/kernel/workflow-configuration.mjs','src/kernel/skill-phase-contract.mjs']) {
     const source=await readFile(path.join(packageRoot,file),'utf8');
     assert.match(source,/import \{\s*normalizeClarificationPolicy\s*\} from '\.\/(?:kernel\/)?phase-inputs.mjs'/);
     assert.doesNotMatch(source,/from '\.\/clarifications.mjs'/);

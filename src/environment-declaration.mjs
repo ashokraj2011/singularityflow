@@ -16,7 +16,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
-import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
+import { portableFilesystemPathIdentity } from './foundation/portable-paths.mjs';
 import { recordSha256 } from './records.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { SingularityFlowError } from './util.mjs';

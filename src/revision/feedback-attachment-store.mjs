@@ -9,7 +9,8 @@ import { recordSha256 } from '../records.mjs';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
-import { SingularityFlowError, portableIdentifier, writeAtomicExclusive } from '../util.mjs';
+import { SingularityFlowError, writeAtomicExclusive } from '../util.mjs';
+import { portableIdentifier } from '../foundation/portable-paths.mjs';
 
 const MAX_OBJECT_BYTES = 10 * 1024 * 1024;
 const MAX_OBJECTS_PER_RECEIPT = 10;

@@ -4,9 +4,8 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from "./engine-compatibility/node-configuration-path.mjs";
 import { sourcePathPolicy } from "./kernel/configuration-path-policies.mjs";
-import {
-  exists, portableIdentifier, secureRepositoryPath, SingularityFlowError
-} from './util.mjs';
+import { exists, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { portableIdentifier } from './foundation/portable-paths.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from "./kernel/auto-policy.mjs";
 import { recordSha256 } from './records.mjs';

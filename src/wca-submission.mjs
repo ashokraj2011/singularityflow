@@ -9,7 +9,7 @@ import { workflowDraftPackageProposalFiles, revalidateWorkflowDraftPackage,
 import { consumeActionAuthorization } from './action-authorization.mjs';
 import { proposeConfigurationChange } from './configuration-proposal.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
-import { configurationAssetPolicy, DEFAULT_CONFIGURATION_ASSET_POLICY } from './configuration-assets.mjs';
+import { configurationAssetPolicy, DEFAULT_CONFIGURATION_ASSET_POLICY } from './engine-compatibility/node-configuration-path.mjs';
 import { recordSha256 } from './records.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';

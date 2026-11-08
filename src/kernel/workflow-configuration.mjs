@@ -1,3 +1,4 @@
+import { createSkillPhaseContractCompiler } from './skill-phase-contract.mjs';
 import { createWorkflowObligationCompiler } from './workflow-obligations.mjs';
 import { specificationQualityPolicy, isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specification-policy.mjs';
 import { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './phase-policy.mjs';
@@ -94,7 +95,6 @@ const CONFIGURATION_COLLABORATORS = Object.freeze([
     "normalizeApplicationReview",
     "normalizeCommitPolicyRuntime",
     "normalizeMarketplaces",
-    "validateConfiguredSkillPhase",
     "worldModelStateAuthority",
     "pathSyntax",
     "textDigests"
@@ -123,7 +123,6 @@ export function createWorkflowConfigurationCompiler(dependencies) {
     normalizeApplicationReview,
     normalizeCommitPolicyRuntime,
     normalizeMarketplaces,
-    validateConfiguredSkillPhase,
     worldModelStateAuthority,
     pathSyntax,
     textDigests
@@ -133,11 +132,11 @@ export function createWorkflowConfigurationCompiler(dependencies) {
     normalizeApplicationReview,
     normalizeCommitPolicyRuntime,
     normalizeMarketplaces,
-    validateConfiguredSkillPhase,
     worldModelStateAuthority
   ].some(value => typeof value !== 'function') || !(AUTHORING_SKILL_ID instanceof RegExp)) {
     throw new SingularityFlowError('Configuration compilation requires every packaged policy collaborator.', { code: 'ENGINE_CONFIGURATION_COMPILER_INVALID' });
   }
+  const { validateConfiguredSkillPhase } = createSkillPhaseContractCompiler(pathSyntax, textDigests);
   const compileObligationGraph = createWorkflowObligationCompiler(textDigests);
   const { path, posix } = configurationPathSyntax(pathSyntax);
   const { constitutionPolicy } = constitutionConfigurationPolicies(pathSyntax);

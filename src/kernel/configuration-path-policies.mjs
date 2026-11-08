@@ -1,9 +1,13 @@
+import { portableFilesystemPathIdentity } from '../foundation/portable-paths.mjs';
 /** Configuration path rules use explicit string primitives, never filesystem or repository access. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
 export const CONFIGURATION_PATH_SYNTAX = 'sflow-configuration-path-syntax/v1';
-const METHODS = Object.freeze(['isAbsolute','normalize','parse','posixIsAbsolute','posixNormalize','posixBasename','toPosix']);
-const SYNTAX = new WeakMap();
+export const CONFIGURATION_PATH_SYNTAX_V2 = 'sflow-configuration-path-syntax/v2';
+// Private literal tables and binding caches do not need initialization in hosts using no path rules.
+const METHODS = /* @__PURE__ */ Object.freeze(['isAbsolute','normalize','parse','posixIsAbsolute','posixNormalize','posixBasename','toPosix']);
+const METHODS_V2 = /* @__PURE__ */ Object.freeze([...METHODS, 'posixDirname', 'posixRelative', 'win32IsAbsolute']);
+const SYNTAX = /* @__PURE__ */ new WeakMap();
 const invalidSyntax = () => { throw new SingularityFlowError('Configuration path rules need one frozen, explicit path-syntax port.', {
   code: 'ENGINE_CONFIGURATION_PATH_SYNTAX_INVALID'
 }); };
@@ -11,22 +15,40 @@ const invalidSyntax = () => { throw new SingularityFlowError('Configuration path
 /** Capture once, without calling a primitive or evaluating a caller's accessor. */
 export function configurationPathSyntax(port) {
   if (!port || typeof port !== 'object' || ![Object.prototype,null].includes(Object.getPrototypeOf(port)) || !Object.isFrozen(port)) invalidSyntax();
+  const profile = Object.getOwnPropertyDescriptor(port, 'profile');
+  if (!profile || !Object.hasOwn(profile, 'value') || ![CONFIGURATION_PATH_SYNTAX, CONFIGURATION_PATH_SYNTAX_V2].includes(profile.value)) invalidSyntax();
+  const extended = profile.value === CONFIGURATION_PATH_SYNTAX_V2;
+  const methods = extended ? METHODS_V2 : METHODS;
   const keys = Reflect.ownKeys(port);
-  if (keys.length !== METHODS.length + 2 || keys.some(key => typeof key !== 'string' || !['profile','grammar'].includes(key) && !METHODS.includes(key))) invalidSyntax();
-  for (const key of ['profile','grammar',...METHODS]) {
+  if (keys.length !== methods.length + 2 || keys.some(key => typeof key !== 'string' || !['profile','grammar'].includes(key) && !methods.includes(key))) invalidSyntax();
+  for (const key of ['profile','grammar',...methods]) {
     const descriptor = Object.getOwnPropertyDescriptor(port,key);
     if (!descriptor?.enumerable || !Object.hasOwn(descriptor,'value')
-      || (key === 'profile' ? descriptor.value !== CONFIGURATION_PATH_SYNTAX
+      || (key === 'profile' ? descriptor.value !== profile.value
         : key === 'grammar' ? !['posix','win32'].includes(descriptor.value) : typeof descriptor.value !== 'function')) invalidSyntax();
   }
   if (SYNTAX.has(port)) return SYNTAX.get(port);
-  const bound = Object.fromEntries(METHODS.map(key => [key,port[key].bind(port)]));
+  const bound = Object.fromEntries(methods.map(key => {
+    const method = Object.getOwnPropertyDescriptor(port, key).value;
+    return [key, extended ? (...args) => Reflect.apply(method, port, args) : method.bind(port)];
+  }));
   const value = Object.freeze({ grammar: port.grammar, path: Object.freeze({ isAbsolute: bound.isAbsolute, normalize: bound.normalize, parse: bound.parse,
-    posix: Object.freeze({ isAbsolute: bound.posixIsAbsolute, normalize: bound.posixNormalize, basename: bound.posixBasename }) }), posix: bound.toPosix });
+    posix: Object.freeze({ isAbsolute: bound.posixIsAbsolute, normalize: bound.posixNormalize, basename: bound.posixBasename,
+      ...(extended ? { dirname: bound.posixDirname, relative: bound.posixRelative } : {}) }),
+    ...(extended ? { win32: Object.freeze({ isAbsolute: bound.win32IsAbsolute }) } : {}) }), posix: bound.toPosix });
   SYNTAX.set(port,value); return value;
 }
 
-const POLICIES = new WeakMap();
+/** v1 keeps its original methods; compiled skills and asset rules require the explicit v2 extension. */
+export function configurationPathSyntaxV2(port) {
+  const syntax = configurationPathSyntax(port);
+  if (port.profile !== CONFIGURATION_PATH_SYNTAX_V2) throw new SingularityFlowError(
+    'Compiled skill and configuration-asset rules require the path-syntax v2 capability.',
+    { code: 'ENGINE_CONFIGURATION_PATH_SYNTAX_UNSUPPORTED' });
+  return syntax;
+}
+
+const POLICIES = /* @__PURE__ */ new WeakMap();
 
 function pathPolicy(port, name, create) {
   const syntax = configurationPathSyntax(port);
@@ -104,7 +126,7 @@ export const ENVIRONMENT_IDENTIFIER = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)
 
 const VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/;
 
-const RESERVED_VARIABLES = new Set([
+const RESERVED_VARIABLES = /* @__PURE__ */ new Set([
   'PATH', 'NODE_OPTIONS', 'NODE_PATH', 'HOME', 'SHELL', 'COMSPEC', 'PATHEXT',
   'SYSTEMROOT', 'USERPROFILE', 'TMP', 'TEMP', 'SSH_AUTH_SOCK',
   'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'
@@ -128,7 +150,7 @@ export { VARIABLE as environmentDeclarationVARIABLE, RESERVED_VARIABLES as envir
 
 // test-recovery-policy.mjs
 
-export const TRP_RISK_CATEGORIES = Object.freeze([
+export const TRP_RISK_CATEGORIES = /* @__PURE__ */ Object.freeze([
   'known-test-failure', 'reduced-coverage', 'nonessential-document',
   'new-test-failure', 'validation-unavailable'
 ]);
@@ -1010,5 +1032,186 @@ function normalizeTestRecoveryPolicy(value) {
   };
 }
     return { normalizeTestRecoveryPolicy, fail };
+  });
+}
+
+/** Bounded configuration-asset transport rules; string capabilities do not grant file access. */
+export function configurationAssetPolicies(port) {
+  configurationPathSyntaxV2(port);
+  return pathPolicy(port, 'configurationAssetPolicies', ({ path }) => {
+
+
+const DEFAULT_RUNTIME_ROOTS = Object.freeze([
+  '.sdlc',
+  '.sflow',
+  '.singularity',
+  'singularity/initiatives',
+  'singularity/work-items',
+  'singularity/seeds',
+  'singularity/world-model',
+  'singularity/knowledge',
+  'singularity/pins',
+  'singularity/identity-reservations',
+  'singularity/sgos-drafts',
+  'singularity/telemetry',
+  'singularity/.product'
+]);
+
+const WINDOWS_RESERVED_COMPONENT = /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|com[1-9]|lpt[1-9])(?:\.|$)/i;
+
+
+function hasUnsafePortableComponent(candidate) {
+  return candidate.split('/').some((component) => {
+    const folded = component.toLowerCase();
+    return folded === '.git'
+      || component.endsWith('.') || component.endsWith(' ')
+      || component.includes(':')
+      || /[*?"<>|]/u.test(component)
+      || /~[0-9]/u.test(component)
+      || /[\u0000-\u001f]/u.test(component)
+      || WINDOWS_RESERVED_COMPONENT.test(component);
+  });
+}
+
+
+function invalidRoot(label, value) {
+  const error = new Error(`${label} must be a canonical repository-relative portable path: ${value}`);
+  error.name = 'SingularityFlowError';
+  error.code = 'CONFIGURATION_ASSET_ROOT_INVALID';
+  return error;
+}
+
+
+function portablePath(value, label) {
+  const candidate = String(value ?? '').trim();
+  if (!candidate || candidate.includes('\0') || candidate.includes('\\')
+      || path.posix.isAbsolute(candidate) || path.win32.isAbsolute(candidate)
+      || path.posix.normalize(candidate) !== candidate
+      || candidate.normalize('NFC') !== candidate
+      || /[^\x20-\x7e]/u.test(candidate)
+      || candidate === '.' || candidate.endsWith('/')
+      || candidate.split('/').includes('..')
+      || hasUnsafePortableComponent(candidate)) {
+    throw invalidRoot(label, value);
+  }
+  return candidate;
+}
+
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+
+/**
+ * Build the one bounded path policy used to transport and mount approved configuration.
+ *
+ * `singularity/` remains the conventional policy root, but its runtime children are excluded.
+ * Generated world-model output remains runtime state even when the repository chooses a custom
+ * destination. It is published and reconciled independently on the state branch; treating that
+ * destination as configuration would copy generated bytes into Story branches and let a
+ * configuration refresh overwrite the independently published model.
+ */
+function configurationAssetPolicy(workflow = {}, portfolio = {}) {
+  const configuredWorldModelRoot = portablePath(
+    workflow.worldModel?.outputDir ?? 'singularity/world-model', 'worldModel.outputDir'
+  );
+  const roots = unique([
+    portablePath(workflow.templatesRoot ?? 'singularity/templates', 'templatesRoot'),
+    // Governed Agent Markdown is discovered from this canonical repository location by every
+    // runtime. `agentPromptsRoot` may add an organisation/editor transport root, but it cannot
+    // remove the framework-agent authority that refresh/reinitialize must mirror and validate.
+    '.github/agents',
+    portablePath(workflow.agentPromptsRoot ?? '.github/agents', 'agentPromptsRoot'),
+    portablePath(portfolio.templatesRoot ?? workflow.templatesRoot ?? 'singularity/templates',
+      'portfolio.templatesRoot')
+  ]);
+  const files = unique([
+    // Which agents in .github/agents APM deployed, with each file's hash: read with them wherever
+    // configuration is read (a Story's base, the approved configuration) [APM].
+    'apm.lock.yaml',
+    workflow.worldModel?.promptSource && workflow.worldModel.promptSource !== 'builtin'
+      ? portablePath(workflow.worldModel.promptSource, 'worldModel.promptSource')
+      : null
+  ]);
+  const runtimeRoots = unique([
+    ...DEFAULT_RUNTIME_ROOTS,
+    configuredWorldModelRoot,
+    workflow.workItemRoot
+      ? portablePath(workflow.workItemRoot, 'workItemRoot')
+      : 'singularity/work-items',
+    portfolio.initiativeRoot
+      ? portablePath(portfolio.initiativeRoot, 'portfolio.initiativeRoot')
+      : 'singularity/initiatives'
+  ]);
+  return Object.freeze({
+    roots: Object.freeze(roots),
+    files: Object.freeze(files),
+    runtimeRoots: Object.freeze(runtimeRoots)
+  });
+}
+
+
+function mergeConfigurationAssetPolicies(...policies) {
+  return Object.freeze({
+    roots: Object.freeze(unique(policies.flatMap((policy) => policy?.roots ?? []))),
+    files: Object.freeze(unique(policies.flatMap((policy) => policy?.files ?? []))),
+    runtimeRoots: Object.freeze(unique(policies.flatMap((policy) => policy?.runtimeRoots ?? [])))
+  });
+}
+
+
+const DEFAULT_CONFIGURATION_ASSET_POLICY = configurationAssetPolicy();
+
+
+function within(relative, root) {
+  return relative === root || relative.startsWith(`${root}/`);
+}
+
+
+function withinFilesystemIdentity(relative, root) {
+  // Configuration paths are portable Git spellings, but the checkout may live on a
+  // case-insensitive Windows or macOS filesystem. Runtime exclusion is a safety boundary, so use
+  // the most restrictive portable identity here without collapsing legitimate configured search
+  // roots on a case-sensitive filesystem.
+  const candidate = portableFilesystemPathIdentity(relative);
+  const boundary = portableFilesystemPathIdentity(root);
+  return candidate === boundary || candidate.startsWith(`${boundary}/`);
+}
+
+
+function portableConfigurationPath(value) {
+  const relative = String(value ?? '').replace(/^\.\//, '');
+  if (!relative || relative.includes('\0') || relative.includes('\\')
+      || path.posix.isAbsolute(relative) || path.win32.isAbsolute(relative)
+      || path.posix.normalize(relative) !== relative || relative.normalize('NFC') !== relative
+      || relative.split('/').includes('..')
+      || hasUnsafePortableComponent(relative)) return null;
+  return relative;
+}
+
+
+function isConfigurationAssetPath(value, policy = DEFAULT_CONFIGURATION_ASSET_POLICY) {
+  const relative = portableConfigurationPath(value);
+  if (!relative || relative === 'singularity/configuration-source.json') return false;
+  // Runtime ownership is the stronger boundary. In particular, a custom world-model output must
+  // never become configuration merely because it is nested under a configured template/agent root.
+  if (policy.runtimeRoots.some((root) => withinFilesystemIdentity(relative, root))) return false;
+  if (policy.files.includes(relative) || policy.roots.some((root) => within(relative, root))) return true;
+  if (!within(relative, 'singularity')) return false;
+  return true;
+}
+
+
+/** Bounded Git/path-walk roots; never collapse custom roots into the repository root. */
+function configurationAssetSearchRoots(policy = DEFAULT_CONFIGURATION_ASSET_POLICY) {
+  return unique([
+    'singularity',
+    ...policy.roots.filter((root) => !within(root, 'singularity')),
+    ...policy.files.filter((file) => !within(file, 'singularity'))
+  ]);
+}
+    return { configurationAssetPolicy, mergeConfigurationAssetPolicies, DEFAULT_CONFIGURATION_ASSET_POLICY,
+      portableConfigurationPath, isConfigurationAssetPath, configurationAssetSearchRoots };
   });
 }

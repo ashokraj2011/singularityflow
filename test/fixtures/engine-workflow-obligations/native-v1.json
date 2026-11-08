@@ -8209,7 +8209,6 @@
     "src/sgos/store.mjs": "0be032cac0ec4058aaff3dea37dde9785426915f7fcc9c1c0a6c5f474c417bd4",
     "src/sgos/story-authority.mjs": "b6228f7fe8d5b49c6718753aff6bbc711ea13ed2cbbce15c51a4c95007dccfa0",
     "src/sgos/workflow-generator.mjs": "bb69c408bd9731e32bf533ba3a39bed0418f624846eb7eabb9fa81338da7d093",
-    "src/skp-contract.mjs": "7bb6917e6c6c868739065bc58f209443987ebbcea1c9c8ca11991d227b838bef",
     "src/skp-cross-repository-story-inventory.mjs": "1ed3db53bd7aac2cc910dfb706c40b4014b03b8588d6c7874d048784c2750ec3",
     "src/skp-package.mjs": "b5ebdd0b45a9e524d62990f87cbddd63af87bfa8b5ae2fa39b8d8797a4fa7c80",
     "src/skp-story-inventory-request.mjs": "ba6a39dd1dc10129a4cbf0dea7270bf89a2f95a0352ce7e25d7e099d0b57308f",
@@ -8267,5 +8266,12 @@
     "src/workflow-snapshots.mjs": "2228ed2074388bf349bca2cba131ea40c2d9b99bbffdeab1cdc188e6aa5607a9",
     "src/workspace-clone-claim.mjs": "2dfd1589bf4149021323b8dd6688c77e4e5ab701a9ac03894c6d2cdd505e3c53",
     "src/worktree-fingerprint.mjs": "7fc76c6ed1c6b0ed5216e875951053501b6c8ea82f13cb66900588ded738aca5"
+  },
+  "supersededImportOnlyBodies": {
+    "src/skp-contract.mjs": {
+      "sha256": "7bb6917e6c6c868739065bc58f209443987ebbcea1c9c8ca11991d227b838bef",
+      "coveredBy": "engine-skill-phase-contracts/native-v1.json",
+      "reason": "Complete contract bodies move into the kernel in this delivery."
+    }
   }
 }

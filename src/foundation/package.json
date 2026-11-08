@@ -1,0 +1,3 @@
+{
+  "sideEffects": ["./failures.mjs", "./record-schema.mjs", "./traceability-ids.mjs"]
+}

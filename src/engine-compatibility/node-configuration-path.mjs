@@ -1,12 +1,13 @@
 /** Native path-value binding only. Workflow rules remain in the kernel; no project discovery or I/O. */
 import path from 'node:path';
-import { CONFIGURATION_PATH_SYNTAX, sourceScopePolicies, workItemLocationPolicies, artifactSetPolicies, astConfigurationPolicies, faultRepairConfigurationPolicies, constitutionConfigurationPolicies, injectionConfigurationPolicies, externalCommandConfigurationPolicies, testSelectionPolicies, trpDocumentPolicies, testRecoveryConfigurationPolicies } from '../kernel/configuration-path-policies.mjs';
+import { CONFIGURATION_PATH_SYNTAX_V2, configurationAssetPolicies, sourceScopePolicies, workItemLocationPolicies, artifactSetPolicies, astConfigurationPolicies, faultRepairConfigurationPolicies, constitutionConfigurationPolicies, injectionConfigurationPolicies, externalCommandConfigurationPolicies, testSelectionPolicies, trpDocumentPolicies, testRecoveryConfigurationPolicies } from '../kernel/configuration-path-policies.mjs';
 
-export const NODE_CONFIGURATION_PATH_SYNTAX = Object.freeze({
-  profile: CONFIGURATION_PATH_SYNTAX, grammar: path.sep === '\\' ? 'win32' : 'posix',
+// Capturing fixed node:path references has no external effects; omit the binding when unused.
+export const NODE_CONFIGURATION_PATH_SYNTAX = /* @__PURE__ */ (() => Object.freeze({
+  profile: CONFIGURATION_PATH_SYNTAX_V2, grammar: path.sep === '\\' ? 'win32' : 'posix',
   isAbsolute: path.isAbsolute, normalize: path.normalize, parse: path.parse,
-  posixIsAbsolute: path.posix.isAbsolute, posixNormalize: path.posix.normalize, posixBasename: path.posix.basename, toPosix: value => value.split(path.sep).join('/')
-});
+  posixIsAbsolute: path.posix.isAbsolute, posixNormalize: path.posix.normalize, posixBasename: path.posix.basename, posixDirname: path.posix.dirname, posixRelative: path.posix.relative, win32IsAbsolute: path.win32.isAbsolute, toPosix: value => value.split(path.sep).join('/')
+}))();
 
 // Fixed factories return frozen own data without invoking primitives. Pure projections let small
 // hosts omit unused policy families without importing the legacy filesystem/process utilities.
@@ -67,3 +68,12 @@ export const normalizeDocumentObligations = /* @__PURE__ */ (() => trpDocumentPo
 const testRecoveryConfigurationPoliciesBinding = /* @__PURE__ */ testRecoveryConfigurationPolicies(NODE_CONFIGURATION_PATH_SYNTAX);
 export const normalizeTestRecoveryPolicy = /* @__PURE__ */ (() => testRecoveryConfigurationPoliciesBinding.normalizeTestRecoveryPolicy)();
 export const testRecoveryIntakeFail = /* @__PURE__ */ (() => testRecoveryConfigurationPoliciesBinding.fail)();
+
+// Fixed Node string primitives derive the same default asset policy as the original native owner.
+const configurationAssets = /* @__PURE__ */ configurationAssetPolicies(NODE_CONFIGURATION_PATH_SYNTAX);
+export const configurationAssetPolicy = /* @__PURE__ */ (() => configurationAssets.configurationAssetPolicy)();
+export const mergeConfigurationAssetPolicies = /* @__PURE__ */ (() => configurationAssets.mergeConfigurationAssetPolicies)();
+export const DEFAULT_CONFIGURATION_ASSET_POLICY = /* @__PURE__ */ (() => configurationAssets.DEFAULT_CONFIGURATION_ASSET_POLICY)();
+export const portableConfigurationPath = /* @__PURE__ */ (() => configurationAssets.portableConfigurationPath)();
+export const isConfigurationAssetPath = /* @__PURE__ */ (() => configurationAssets.isConfigurationAssetPath)();
+export const configurationAssetSearchRoots = /* @__PURE__ */ (() => configurationAssets.configurationAssetSearchRoots)();

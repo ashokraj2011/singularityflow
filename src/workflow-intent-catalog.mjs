@@ -150,6 +150,7 @@ async function capture(root, authority) {
   const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-references.mjs', 'phase-overrides.mjs', 'kernel/workflow-configuration.mjs', 'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs',
     'kernel/configuration-path-policies.mjs', 'engine-compatibility/node-configuration-path.mjs',
     'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
+    'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'foundation/package.json', 'configuration-read-scope.mjs',
     'kernel/workflow-obligations.mjs', 'kernel/phase-responsibilities.mjs',
     'engine-compatibility/node-workflow-obligations.mjs', 'foundation/record-schema.mjs', 'records.mjs',
     'kernel/auto-policy.mjs', 'kernel/adhoc-policy.mjs', 'kernel/mcp-policy.mjs', 'kernel/step-action-policy.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs', 'workflow-intent-capabilities.mjs', 'commands/workflow-intent.mjs']

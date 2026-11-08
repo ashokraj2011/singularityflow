@@ -52,11 +52,7 @@ import {
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { acquireFileLease, inspectFileLease } from './file-lease.mjs';
-import {
-  configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY,
-  isConfigurationAssetPath,
-  mergeConfigurationAssetPolicies
-} from './configuration-assets.mjs';
+import { configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY, isConfigurationAssetPath, mergeConfigurationAssetPolicies } from './engine-compatibility/node-configuration-path.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { recordSha256 } from './records.mjs';
 import { compiledConfiguration, copyCompiledDefinition } from './configuration-definition-cache.mjs';
@@ -70,7 +66,7 @@ import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
 
-import { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH } from './configuration-assets.mjs';
+import { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH } from './configuration-read-scope.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 export { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH };
 export const STATE_CONFIGURATION_BRANCH = 'state';

@@ -13,7 +13,8 @@ import { createGitRuntime } from '../git-access.mjs';
 import { recordSha256 } from '../records.mjs';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord, stampCurrentRecord } from '../schema-migrations.mjs';
-import { isPortableRepositoryPathComponent, SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError } from '../util.mjs';
+import { isPortableRepositoryPathComponent } from '../foundation/portable-paths.mjs';
 import { verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';
 import {
   readRevisionBrokeredResultBytes, revisionBrokeredParentSha256

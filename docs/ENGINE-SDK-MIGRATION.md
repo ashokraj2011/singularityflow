@@ -284,6 +284,12 @@ an explicit UTF-8 SHA-256 capability replaces the native graph-validator callbac
 identities, omission findings, record bytes and legacy exceptions retain their original values.
 The remaining native admission and complete namespace runtime gates are still required.
 
+[Portable skill-phase compilation](ENGINE-SDK-SKILL-PHASE-CONTRACTS.md) gives complete lowering
+and compiled-policy hash validation one kernel owner over explicit primitives, leaving eight
+composition entries. Header-only inspection stays narrow. Path syntax v2 supplies the additional
+operations without changing the v1 reader, and portable identifiers/asset boundaries have shared
+pure owners. WCA/package provenance, human confirmation and activation remain separate gates.
+
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first

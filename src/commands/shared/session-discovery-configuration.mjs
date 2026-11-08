@@ -3,7 +3,7 @@ import { sessionRepositoryAuthority } from './session-repository-authority.mjs';
 import { configurationReadAuthority } from '../../configuration-read-scope.mjs';
 import { loadDefinition as loadConfig } from '../../config.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { CONFIGURATION_BRANCH } from '../../configuration-assets.mjs';
+import { CONFIGURATION_BRANCH } from '../../configuration-read-scope.mjs';
 import { refExists, fetchRemote, branch } from '../../git.mjs';
 import { definitionAtRef } from './definition-at-ref.mjs';
 import { WORKFLOW_PATH } from '../../config.mjs';

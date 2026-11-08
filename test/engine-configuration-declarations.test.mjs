@@ -58,7 +58,7 @@ test('compatibility exports retain the shared identities and diagnostic state', 
 });
 
 test('the installed compiler binds these rules directly and refuses all 16 replacements', () => {
-  assert.equal(Object.keys(installed.dependencies).length, 9);
+  assert.equal(Object.keys(installed.dependencies).length, 8);
   for (const name of baseline.compilerDependencies) {
     assert.equal(Object.hasOwn(installed.dependencies, name), false, name);
     assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, [name]: () => ({ ready: true }) }),

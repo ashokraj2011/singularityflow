@@ -5,8 +5,7 @@ import { lstat, mkdir, mkdtemp, readFile, rm, writeFile, chmod } from 'node:fs/p
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { CONFIGURATION_BRANCH, resolveConfigurationRemote } from './configuration-branch.mjs';
-import { configurationAssetPolicy, mergeConfigurationAssetPolicies, isConfigurationAssetPath,
-  portableConfigurationPath, configurationAssetSearchRoots } from './configuration-assets.mjs';
+import { configurationAssetPolicy, mergeConfigurationAssetPolicies, isConfigurationAssetPath, portableConfigurationPath, configurationAssetSearchRoots } from './engine-compatibility/node-configuration-path.mjs';
 import { enterpriseGitEnvironment, withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { frozenRemoteTransport, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from './git-execution.mjs';

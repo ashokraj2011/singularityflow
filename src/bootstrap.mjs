@@ -26,7 +26,8 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { gitReadOutput, portableIdentifier, SingularityFlowError, run } from './util.mjs';
+import { gitReadOutput, SingularityFlowError, run } from './util.mjs';
+import { portableIdentifier } from './foundation/portable-paths.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 import { assertCapabilityAppId, CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';

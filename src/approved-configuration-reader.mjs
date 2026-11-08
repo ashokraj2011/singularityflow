@@ -8,9 +8,7 @@ import {
   configurationReadScope, isConfigurationReadPath, withConfigurationReadRoot,
   withoutConfigurationReadScope
 } from './configuration-read-scope.mjs';
-import {
-  configurationAssetPolicy, configurationAssetSearchRoots
-} from './configuration-assets.mjs';
+import { configurationAssetPolicy, configurationAssetSearchRoots } from './engine-compatibility/node-configuration-path.mjs';
 import {
   configuredRemoteIdentity, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';

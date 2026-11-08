@@ -13,7 +13,8 @@ import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { isGitRefName, portableIdentifier, SingularityFlowError } from './util.mjs';
+import { isGitRefName, SingularityFlowError } from './util.mjs';
+import { portableIdentifier } from './foundation/portable-paths.mjs';
 import { assertProposedWorkspaceRepositoryPaths } from './workspace-repository-paths.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';

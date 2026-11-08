@@ -107,7 +107,7 @@ import { workflowCodeGeneration, codeOutcomeReviewOffer } from './code-delivery-
 import { captureEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
 import { ENVIRONMENT_DECLARATION_PATH } from "./kernel/configuration-path-policies.mjs";
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
-import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
+import { portableFilesystemPathIdentity } from './foundation/portable-paths.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';

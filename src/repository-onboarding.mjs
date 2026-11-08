@@ -20,9 +20,7 @@ import {
   configurationTreeEntries, isConfigurationAsset, legacyStateMirrorMatchesRepository,
   stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
-import {
-  DEFAULT_CONFIGURATION_ASSET_POLICY, configurationAssetSearchRoots
-} from './configuration-assets.mjs';
+import { DEFAULT_CONFIGURATION_ASSET_POLICY, configurationAssetSearchRoots } from './engine-compatibility/node-configuration-path.mjs';
 import {
   capabilityTree, flattenCapabilityTree, loadCapabilities
 } from './capabilities.mjs';

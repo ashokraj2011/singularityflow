@@ -21,7 +21,7 @@ import {
 } from './configuration-branch.mjs';
 import { assertWorkflowReadinessChanges, validateDefinition } from './config.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
-import { configurationAssetPolicy } from './configuration-assets.mjs';
+import { configurationAssetPolicy } from './engine-compatibility/node-configuration-path.mjs';
 import { createGitRuntime } from './git-access.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides

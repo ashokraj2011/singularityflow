@@ -56,7 +56,6 @@ import { normalizeWorkTypeIntelligence } from "./kernel/configuration-policy.mjs
 import { normalizeTokenEconomy } from "./kernel/configuration-policy.mjs";
 
 import { worldModelSourceScope } from "./engine-compatibility/node-configuration-path.mjs";
-import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { disabledArchitectureIntent } from "./kernel/configuration-declarations.mjs";
 import { worldModelStateAuthority } from './state-authority.mjs';
 import { INITIALIZATION_MAPPINGS } from './initialization-assets.mjs';
@@ -100,7 +99,6 @@ const {
   normalizeApplicationReview,
   normalizeCommitPolicyRuntime,
   normalizeMarketplaces,
-  validateConfiguredSkillPhase,
   worldModelStateAuthority,
   pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX,
   textDigests: NODE_TEXT_DIGESTS

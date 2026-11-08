@@ -1,5 +1,6 @@
 /** A bounded declarative XML subset. No DOM, HTML recovery, DTD, entities, imports or execution. */
-import { SingularityFlowError, isPortableRepositoryPathComponent } from './util.mjs';
+import { SingularityFlowError } from './util.mjs';
+import { isPortableRepositoryPathComponent } from './foundation/portable-paths.mjs';
 
 export const WORKFLOW_MARKUP_LIMITS = Object.freeze({ bytes: 256 * 1024, nodes: 2048, depth: 16, attributes: 24 });
 const NAME = /^[a-z][a-z0-9-]*/u;

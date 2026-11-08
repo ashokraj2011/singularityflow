@@ -34,7 +34,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { AGENT_MAPPING_PATH } from './agents.mjs';
 import { loadDefinition } from './config.mjs';
-import { configurationAssetPolicy, isConfigurationAssetPath } from './configuration-assets.mjs';
+import { configurationAssetPolicy, isConfigurationAssetPath } from './engine-compatibility/node-configuration-path.mjs';
 import { copyCompiledDefinition } from './configuration-definition-cache.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';

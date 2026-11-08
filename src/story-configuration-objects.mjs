@@ -1,7 +1,7 @@
 /** Verify one configuration closure, never the application's ancestors or unrelated subtrees. */
 import YAML from 'yaml';
 import { readObjectsBatch, treeEntries } from './git-ref-tree.mjs';
-import { configurationAssetPolicy, configurationAssetSearchRoots, isConfigurationAssetPath } from './configuration-assets.mjs';
+import { configurationAssetPolicy, configurationAssetSearchRoots, isConfigurationAssetPath } from './engine-compatibility/node-configuration-path.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 
 export function configurationObjectClosure(root, commit, { env, runCommand, limits }) {

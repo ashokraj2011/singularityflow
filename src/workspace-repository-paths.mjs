@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
-import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
+import { portableFilesystemPathIdentity } from './foundation/portable-paths.mjs';
+import { SingularityFlowError } from './util.mjs';
+import { isPortableRepositoryPathComponent } from './foundation/portable-paths.mjs';
 
 function repositoryPath(id, repository) {
   return repository?.path ?? `repos/${id}`;

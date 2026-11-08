@@ -27,9 +27,8 @@ import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { SKP_CONTRACT_COMPILER } from './kernel/skill-binding-header.mjs';
 import { inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, verifySkillPackage } from './skp-package.mjs';
 import { SKP_PARSER_PROFILE } from './kernel/skill-binding-header.mjs';
-import {
-  portableConfigurationPath, portableFilesystemPathIdentity
-} from './configuration-assets.mjs';
+import { portableConfigurationPath } from './engine-compatibility/node-configuration-path.mjs';
+import { portableFilesystemPathIdentity } from './foundation/portable-paths.mjs';
 import {
   AGENT_LOCK_PATH, AGENT_MAPPING_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
   portableVendoredPath, validateAgentCatalog

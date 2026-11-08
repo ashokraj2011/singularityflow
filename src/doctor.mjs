@@ -5,7 +5,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, pinnedInitializationStatus, WORKFLOW_PATH } from './config.mjs';
-import { CONFIGURATION_SOURCE_PATH } from './configuration-assets.mjs';
+import { CONFIGURATION_SOURCE_PATH } from './configuration-read-scope.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';

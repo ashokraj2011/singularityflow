@@ -2,7 +2,8 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { isGitRefName, isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
+import { isGitRefName, SingularityFlowError } from './util.mjs';
+import { isPortableRepositoryPathComponent } from './foundation/portable-paths.mjs';
 import { readRecord } from './schema-migrations.mjs';
 
 export const BRANCH_CHECKOUT_RECORD = 'singularity-flow/branch-checkout.json';

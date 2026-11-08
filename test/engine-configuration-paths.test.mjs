@@ -74,7 +74,7 @@ test('native APIs and compiler use the same cached policies over the one native 
   assert.equal(core.sourceScopePolicies(NODE_CONFIGURATION_PATH_SYNTAX), families.scope);
   assert.equal(native.normalizeSourceRoots, families.scope.normalizeSourceRoots);
   assert.equal(Object.isFrozen(families.recovery), true);
-  assert.equal(Object.keys(installed.dependencies).length, 9);
+  assert.equal(Object.keys(installed.dependencies).length, 8);
   for (const name of [...baseline.compilerDependencies,...baseline.primitiveDependencies]) {
     assert.equal(Object.hasOwn(installed.dependencies,name), false, name);
     assert.throws(() => createWorkflowConfigurationCompiler({ ...installed.dependencies, [name]: () => ({ ready: true }) }),
@@ -85,7 +85,7 @@ test('native APIs and compiler use the same cached policies over the one native 
 test('syntax admission does not call primitives, access getters or accept mutable/extended ports', () => {
   let calls = 0, getter = false;
   const supplied = Object.fromEntries(Object.keys(NODE_CONFIGURATION_PATH_SYNTAX).map(key => [key,
-    key === 'profile' ? core.CONFIGURATION_PATH_SYNTAX : key === 'grammar' ? 'posix' : () => { calls++; throw new Error('not a constructor effect'); }]));
+    key === 'profile' ? NODE_CONFIGURATION_PATH_SYNTAX.profile : key === 'grammar' ? 'posix' : () => { calls++; throw new Error('not a constructor effect'); }]));
   const valid = Object.freeze(supplied);
   core.configurationPathSyntax(valid);
   for (const factory of [...new Set(Object.values(baseline.owners).map(entry => entry.factory).filter(Boolean))]) core[factory](valid);

@@ -16,10 +16,8 @@ import {
   retainStateConfigurationHistory,
   stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
-import {
-  configurationAssetPolicy, configurationAssetSearchRoots, mergeConfigurationAssetPolicies,
-  portableConfigurationPath, portableFilesystemPathIdentity
-} from './configuration-assets.mjs';
+import { configurationAssetPolicy, configurationAssetSearchRoots, mergeConfigurationAssetPolicies, portableConfigurationPath } from './engine-compatibility/node-configuration-path.mjs';
+import { portableFilesystemPathIdentity } from './foundation/portable-paths.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { SMART_INITIALIZATION_ASSETS } from './initialization-assets.mjs';
 import { parseAgentDependencies } from './agents.mjs';

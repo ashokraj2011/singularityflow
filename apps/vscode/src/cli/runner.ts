@@ -94,7 +94,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'confirm-evidence', 'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'design-review', 'dev', 'dry-run', 'evidence', 'no-index', 'not-applicable',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'discard-pending-publications', 'draft-stdin', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-artifact', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'include-local-documents', 'include-local-metadata', 'independent', 'isolated-worktree',
-  'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
+  'git-shadow', 'git-speed', 'keep', 'latest', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'review-only', 'risk-status', 'send-test', 'set', 'set-aside', 'sign', 'solo',

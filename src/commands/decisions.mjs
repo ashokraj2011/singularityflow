@@ -142,6 +142,9 @@ function itemLines(item, index, { numbered = false } = {}) {
   return lines;
 }
 
+/** The VS Code command that opens the decisions card, as its Command Palette shows it. */
+const VSCODE_DECISIONS_CARD = 'Command Palette: Singularity Flow: Decide Everything This Step Waits On';
+
 function packetText(packet) {
   const lines = [packet.headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
     ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
@@ -151,7 +154,10 @@ function packetText(packet) {
   for (const [index, item] of (packet.offered ?? []).entries()) lines.push(...itemLines(item, index), '');
   if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
   if ([...packet.items, ...(packet.offered ?? [])].some((item) => item.options.some((option) => option.recordable !== false))) {
-    lines.push('Decide them in this terminal:', ...formatCommandRouteLines({ command: packet.record.interactive, copilotCommand: packet.record.copilotCommand }));
+    // VS Code's decisions card records the same choices with no model (paid run, 8 November: the
+    // route said "not available", and the model repeated it to the person).
+    lines.push('Decide them in this terminal:', ...formatCommandRouteLines({ command: packet.record.interactive, copilotCommand: packet.record.copilotCommand,
+      modelFreeCommand: VSCODE_DECISIONS_CARD }));
     if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.copilotCommand }));
     if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
   } else if (packet.next) lines.push('Next:', ...formatCommandRouteLines(packet.next));

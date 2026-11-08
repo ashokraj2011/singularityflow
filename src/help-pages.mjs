@@ -2798,6 +2798,17 @@ const PAGES = Object.freeze({
   }
 });
 
+/** Flags as comma-separated lines no wider than a synopsis reads comfortably. */
+function wrappedFlags(flags, width = 88) {
+  const lines = [];
+  for (const flag of flags) {
+    const last = lines.at(-1);
+    if (last !== undefined && `${last}, ${flag}`.length <= width) lines[lines.length - 1] = `${last}, ${flag}`;
+    else lines.push(flag);
+  }
+  return lines.map((line, index) => (index < lines.length - 1 ? `${line},` : line));
+}
+
 function section(title, body) {
   return body.length ? [title, ...body.map((line) => (line ? `    ${line}` : '')), ''] : [];
 }
@@ -2820,9 +2831,12 @@ function catalogPage(command, definition, synopsis) {
       'refuses unknown forms rather than guessing. Read the linked topic before using an unfamiliar',
       'mutation, and re-read current state after it completes.'
     ],
+    // One entry for the flags with nothing of their own to say: a page that repeated the same line for
+    // each of a large command's flags outgrew what an agent is shown whole.
     options: [
       ['--help', 'Show this command page without running the operation.'],
-      ...flags.filter((flag) => flag !== '--help').map((flag) => [flag, 'Accepted only by the synopsis form that lists it.'])
+      ...(flags.some((flag) => flag !== '--help')
+        ? [[wrappedFlags(flags.filter((flag) => flag !== '--help')), 'Each is accepted only by the synopsis form that lists it.']] : [])
     ],
     examples: [[synopsis[0] ?? `singularity-flow ${command} --help`, 'Start from the canonical form supported by this build.']],
     seeAlso: definition?.classification === 'read'
@@ -2859,7 +2873,7 @@ export function renderCommandHelp(name) {
     'arguments before it reads or changes state.'
   ]));
   if (page?.options?.length) {
-    out.push(...section('OPTIONS', page.options.flatMap(([flag, detail]) => [flag, `  ${detail}`, ''])));
+    out.push(...section('OPTIONS', page.options.flatMap(([flag, detail]) => [...[flag].flat(), `  ${detail}`, ''])));
   }
   if (page?.examples?.length) {
     out.push(...section('EXAMPLES', page.examples.flatMap(([example, detail]) => (detail

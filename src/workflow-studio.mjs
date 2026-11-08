@@ -65,7 +65,7 @@ import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } fr
 export { preserveYamlFormatting };
 import { HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations } from "./kernel/step-action-policy.mjs";
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
-import { isSpecificationDefinitionPhase } from './specifications.mjs';
+import { isSpecificationDefinitionPhase } from './kernel/specification-policy.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 import { userDefinedAgentFiles, userDefinedAgentHeader } from './user-defined-agents.mjs';
 import { userDefinedAgentWorkType } from './user-defined-agent-identity.mjs';

@@ -112,7 +112,8 @@ import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 
 import { planRowsOf } from './plan-amendments.mjs';
-import { buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes, evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, readBoundSpecificationClaimMap, predecessorSpecClauses, plannedClaimsForObservedPhase } from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes, evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, mergePlannedClaimRecords, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, readBoundSpecificationClaimMap, predecessorSpecClauses, plannedClaimsForObservedPhase } from './specifications.mjs';
+import { isSpecificationDefinitionPhase } from './kernel/specification-policy.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';

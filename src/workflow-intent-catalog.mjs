@@ -149,6 +149,7 @@ async function capture(root, authority) {
   const source = { kind: authority.kind, ref: authority.ref ?? null, commit: authority.commit ?? null };
   const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-references.mjs', 'phase-overrides.mjs', 'kernel/workflow-configuration.mjs', 'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs',
     'kernel/configuration-path-policies.mjs', 'engine-compatibility/node-configuration-path.mjs',
+    'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
     'kernel/auto-policy.mjs', 'kernel/adhoc-policy.mjs', 'kernel/mcp-policy.mjs', 'kernel/step-action-policy.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs', 'workflow-intent-capabilities.mjs', 'commands/workflow-intent.mjs']
     .map(async file => ({ file, sha256: sha(await readFile(path.join(PACKAGE_ROOT, 'src', file), 'utf8')) })));
   const sourceSha256 = sha({ format: WORKFLOW_INTENT_CATALOG_FORMAT, interpretation, source, definition: sha(rawText),

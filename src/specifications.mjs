@@ -1,3 +1,5 @@
+import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './kernel/specification-policy.mjs';
+export { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole, SPECIFICATION_DEFINITION_KINDS } from './kernel/specification-policy.mjs';
 import { DEFAULT_SPECIFICATION_LIMITS as DEFAULT_LIMITS, normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
 export { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
 import { createHash } from 'node:crypto';
@@ -14,7 +16,6 @@ import {
   applicationPathContext, isApplicationChangePath, isApplicationPath
 } from './application-paths.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
-import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './foundation/traceability-ids.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
@@ -28,8 +29,6 @@ import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue, path
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
-export const SPECIFICATION_DEFINITION_KINDS = Object.freeze(['requirements', 'implementation-spec']);
-const SPECIFICATION_DEFINITION_KIND_SET = new Set(SPECIFICATION_DEFINITION_KINDS);
 // Work IDs may be mixed case. Clause identity is nevertheless canonical and
 // case-insensitive: every parsed namespace is normalized to upper case. This
 // keeps starter templates valid for IDs such as `work-1` without creating two
@@ -55,44 +54,6 @@ function canonicalize(value) {
 
 export function canonicalJson(value) {
   return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
-}
-
-/**
- * Read the declared role of the exact primary output after the configuration/Story owner has
- * verified the compiled binding. A secondary report, a phase name, and clause-like text cannot
- * promote the primary artifact to a normative source.
- */
-export function skillPhasePrimaryOutputRole(phase) {
-  if (!phase || typeof phase !== 'object' || phase.kind !== 'skill') return null;
-  let binding;
-  try { binding = validateSkillPhaseBindingHeader(phase.skillBinding, phase.id); }
-  catch { return null; }
-  const artifact = phase.requiredArtifact ?? phase.artifact;
-  const outputs = binding.bindingRefs?.outputs;
-  if (!Array.isArray(outputs)) return null;
-  const matches = outputs.filter((output) =>
-    output?.path === artifact?.path && output.kind === artifact?.kind && output.required === true);
-  return matches.length === 1 ? matches[0].claimRole : null;
-}
-
-/**
- * Only producer artifacts that define requirements may contribute clauses to the authoritative
- * specification universe. Reports may cite clauses without creating new requirements.
- */
-export function isSpecificationDefinitionPhase(phase) {
-  // Skill contracts use their reviewed role even when the chosen artifact kind happens to be
-  // called requirements. Findings and evidence therefore remain references, never new law.
-  if (typeof phase === 'object' && (phase?.kind === 'skill' || phase?.skillBinding != null)) {
-    return skillPhasePrimaryOutputRole(phase) === 'criteria';
-  }
-  const kind = typeof phase === 'string'
-    ? phase
-    : phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
-  // Historical workflow snapshots did not persist the artifact kind on every phase. They remain
-  // readable as definition producers; current snapshots always carry the kind and therefore
-  // exclude reports/convergence artifacts explicitly. Treating an absent legacy field as a
-  // reference-only report would silently erase already-approved clauses from grounding.
-  return kind == null || SPECIFICATION_DEFINITION_KIND_SET.has(kind);
 }
 
 /**

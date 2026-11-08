@@ -32,16 +32,14 @@ import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
 import { normalizeLedgerConfig } from "./kernel/configuration-declarations.mjs";
 
-import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from "./engine-compatibility/node-configuration-path.mjs";
 
-import { assertPhaseTopology, PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE, phaseTopologyFindings } from './phase-semantics.mjs';
+import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
 import { analysisLimits } from "./kernel/configuration-declarations.mjs";
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from "./engine-compatibility/node-configuration-path.mjs";
 
 import { normalizeMarketplaces } from './marketplace.mjs';
-import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specifications.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { normalizeHarnessImports } from "./kernel/configuration-policy.mjs";
 import { loadImpactDefinition } from './impact-config.mjs';
@@ -96,17 +94,12 @@ const {
   assertRelative,
   declaredCatalogValue
 } = createWorkflowConfigurationCompiler({
-  ARA_PHASE_SEMANTICS_PROFILE,
   AUTHORING_SKILL_ID,
-  PHASE_SEMANTICS_PROFILE,
   authoringSkillCatalog,
   compileObligationGraph,
-  isSpecificationDefinitionPhase,
   normalizeApplicationReview,
   normalizeCommitPolicyRuntime,
   normalizeMarketplaces,
-  skillPhasePrimaryOutputRole,
-  specificationQualityPolicy,
   validateConfiguredSkillPhase,
   worldModelStateAuthority,
   pathSyntax: NODE_CONFIGURATION_PATH_SYNTAX

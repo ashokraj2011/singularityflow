@@ -1,3 +1,5 @@
+import { specificationQualityPolicy, isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specification-policy.mjs';
+import { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './phase-policy.mjs';
 import { configurationPathSyntax, constitutionConfigurationPolicies, artifactSetPolicies, astConfigurationPolicies, externalCommandConfigurationPolicies, faultRepairConfigurationPolicies, sourceScopePolicies, testRecoveryConfigurationPolicies, workItemLocationPolicies, injectionConfigurationPolicies } from './configuration-path-policies.mjs';
 import { analysisLimits, assertCodeDeliveryConfiguration, assertNoAutonomousConvergence, assertStoryBranchNaming, compiledSkillStep, disabledArchitectureIntent, dropRemovedSettings, isAgentTemplateReference, normalizeLedgerConfig, normalizeLogging, normalizeSourceBoundary, normalizeStorage, parseAgentTemplateReference, pinCodeDeliveryTask, stepOutputKind, validateTokenReportingPolicy } from './configuration-declarations.mjs';
 import { normalizeAdhocPolicy } from './adhoc-policy.mjs';
@@ -86,17 +88,12 @@ export function mergePhaseOverride(phase, override = {}) {
 }
 
 const CONFIGURATION_COLLABORATORS = Object.freeze([
-    "ARA_PHASE_SEMANTICS_PROFILE",
     "AUTHORING_SKILL_ID",
-    "PHASE_SEMANTICS_PROFILE",
     "authoringSkillCatalog",
     "compileObligationGraph",
-    "isSpecificationDefinitionPhase",
     "normalizeApplicationReview",
     "normalizeCommitPolicyRuntime",
     "normalizeMarketplaces",
-    "skillPhasePrimaryOutputRole",
-    "specificationQualityPolicy",
     "validateConfiguredSkillPhase",
     "worldModelStateAuthority",
     "pathSyntax"
@@ -120,17 +117,12 @@ export function createWorkflowConfigurationCompiler(dependencies) {
     }
   }
   const {
-    ARA_PHASE_SEMANTICS_PROFILE,
     AUTHORING_SKILL_ID,
-    PHASE_SEMANTICS_PROFILE,
     authoringSkillCatalog,
     compileObligationGraph,
-    isSpecificationDefinitionPhase,
     normalizeApplicationReview,
     normalizeCommitPolicyRuntime,
     normalizeMarketplaces,
-    skillPhasePrimaryOutputRole,
-    specificationQualityPolicy,
     validateConfiguredSkillPhase,
     worldModelStateAuthority,
     pathSyntax
@@ -138,15 +130,12 @@ export function createWorkflowConfigurationCompiler(dependencies) {
   if ([
     authoringSkillCatalog,
     compileObligationGraph,
-    isSpecificationDefinitionPhase,
     normalizeApplicationReview,
     normalizeCommitPolicyRuntime,
     normalizeMarketplaces,
-    skillPhasePrimaryOutputRole,
-    specificationQualityPolicy,
     validateConfiguredSkillPhase,
     worldModelStateAuthority
-  ].some(value => typeof value !== 'function') || !(AUTHORING_SKILL_ID instanceof RegExp) || typeof PHASE_SEMANTICS_PROFILE !== 'string' || typeof ARA_PHASE_SEMANTICS_PROFILE !== 'string') {
+  ].some(value => typeof value !== 'function') || !(AUTHORING_SKILL_ID instanceof RegExp)) {
     throw new SingularityFlowError('Configuration compilation requires every packaged policy collaborator.', { code: 'ENGINE_CONFIGURATION_COMPILER_INVALID' });
   }
   const { path, posix } = configurationPathSyntax(pathSyntax);

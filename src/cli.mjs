@@ -170,7 +170,8 @@ import { consumeActionAuthorization, issueActionAuthorization } from './action-a
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
-import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
+import { isSpecificationDefinitionPhase } from './kernel/specification-policy.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
 import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, reusableAssistedRecord, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';

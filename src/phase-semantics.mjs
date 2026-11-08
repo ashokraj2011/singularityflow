@@ -1,13 +1,12 @@
+import { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './kernel/phase-policy.mjs';
+export { PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE } from './kernel/phase-policy.mjs';
 /** Versioned, read-only phase interpretation and runtime-topology admission. */
 import { bindAcceptedPhaseInterpretation, artifactKindOf, isConvergencePhase,
   isConformancePhase, isVisualVerificationPhase } from './kernel/phase-policy.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phaseRequiresCodeDelivery } from './kernel/phase-policy.mjs';
 import { phaseResponsibilities } from './evidence/responsibilities.mjs';
 import { isKnownPackagedAssetHash } from './packaged-asset-history.mjs';
 import { SingularityFlowError } from './util.mjs';
-
-export const PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/v1';
-export const ARA_PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/ara-v1';
 const SUPPORTED_PHASE_PROFILES = new Set([PHASE_SEMANTICS_PROFILE, ARA_PHASE_SEMANTICS_PROFILE]);
 const LEGACY_CONVERGENCE_TEMPLATE = 'singularity/templates/spec-driven/convergence.md';
 

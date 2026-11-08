@@ -10,7 +10,7 @@ import { assertWorkTypeStartable, resolveWorkType, validateDefinition } from './
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
-import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './specifications.mjs';
+import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './kernel/specification-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKP_WORKFLOW_RECIPE_FORMAT = 'sflow-skill-workflow-recipe/v1';

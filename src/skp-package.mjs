@@ -1,3 +1,5 @@
+import { SKP_PARSER_PROFILE } from './kernel/skill-binding-header.mjs';
+export { SKP_PARSER_PROFILE } from './kernel/skill-binding-header.mjs';
 /**
  * Inert, bounded capture of one explicitly selected local skill directory.
  *
@@ -15,7 +17,6 @@ import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKP_PACKAGE_FORMAT = 'sflow-skill-package/v1';
-export const SKP_PARSER_PROFILE = 'skp-skill-text/v1';
 export const SKP_DECLARATION_FORMAT = 'sflow-skill-declarations/v1';
 export const SKP_CAPTURE_LIMITS = Object.freeze({
   files: 256,

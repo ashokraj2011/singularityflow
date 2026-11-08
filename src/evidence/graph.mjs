@@ -29,10 +29,8 @@ import { witnessContextBindings, witnessRecordResults } from '../verification/wi
 import { applicabilityStatus } from './applicability.mjs';
 import { phaseOwnsScope } from '../kernel/phase-policy.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
-import {
-  extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
-  readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
-} from '../specifications.mjs';
+import { extractClauses, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex, readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase } from '../specifications.mjs';
+import { isSpecificationDefinitionPhase } from '../kernel/specification-policy.mjs';
 
 function itemDirectory(root, definition, workId) {
   return path.join(root, definition.workItemRoot ?? 'singularity/work-items', workId);

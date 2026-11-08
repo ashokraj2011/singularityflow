@@ -10,6 +10,7 @@ export async function workflowIntentCapabilities() {
   const required = ['commands/workflow.mjs', 'commands/workflow-intent.mjs', 'commands/workflow-markup.mjs',
     'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-references.mjs', 'phase-overrides.mjs', 'kernel/workflow-configuration.mjs', 'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs',
     'kernel/configuration-path-policies.mjs', 'engine-compatibility/node-configuration-path.mjs',
+    'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
     'kernel/auto-policy.mjs', 'kernel/adhoc-policy.mjs', 'kernel/mcp-policy.mjs', 'kernel/step-action-policy.mjs', 'workflow-intent-capabilities.mjs'];
   const hash = createHash('sha256');
   for (const file of required) hash.update(file).update('\0').update(await readFile(path.join(PACKAGE_ROOT, 'src', file)));

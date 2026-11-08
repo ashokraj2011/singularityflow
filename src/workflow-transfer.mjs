@@ -20,14 +20,13 @@ import { inspectApprovedSkillPackage } from './configuration-branch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { normalizeCodeDeliveryPolicy } from "./kernel/configuration-policy.mjs";
-import { ARA_PHASE_SEMANTICS_PROFILE } from './phase-semantics.mjs';
+import { ARA_PHASE_SEMANTICS_PROFILE } from './kernel/phase-policy.mjs';
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { normalizeIntegrations } from "./kernel/step-action-policy.mjs";
-import { SKP_CONTRACT_COMPILER, validateConfiguredSkillPhase } from './skp-contract.mjs';
-import {
-  inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
-  verifySkillPackage
-} from './skp-package.mjs';
+import { validateConfiguredSkillPhase } from './skp-contract.mjs';
+import { SKP_CONTRACT_COMPILER } from './kernel/skill-binding-header.mjs';
+import { inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, verifySkillPackage } from './skp-package.mjs';
+import { SKP_PARSER_PROFILE } from './kernel/skill-binding-header.mjs';
 import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';

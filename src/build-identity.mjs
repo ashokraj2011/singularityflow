@@ -54,6 +54,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/mcp-policy.mjs',
   'kernel/step-action-policy.mjs',
   'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs', 'kernel/configuration-path-policies.mjs',
+  'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
   'engine-compatibility/node-configuration-path.mjs',
   'kernel/workflow-configuration.mjs', 'kernel/phase-admission.mjs', 'kernel/lifecycle-transitions.mjs', 'sequence.mjs', 'phase-actor-policy.mjs',
   'kernel/phase-entry.mjs', 'phase-entry.mjs', 'phase-entry-context.mjs',

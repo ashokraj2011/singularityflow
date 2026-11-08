@@ -23,16 +23,8 @@ import { evaluateVisualCoverage, missingProfileRoutes } from './visual-coverage.
 import { listVisualComparisons } from './visual-compare.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { verifyImpactPlanBinding, verifyImpactReceipt } from './impact.mjs';
-import {
-  changedRepositoryPaths,
-  configuredAcceptanceCommandSetSha256,
-  evaluateSpecAcceptance,
-  evaluateSpecCoverage,
-  isSpecificationDefinitionPhase,
-  loadActiveSpecRecords,
-  loadBoundActiveSpecRecords,
-  specificationSourceTreeHash
-} from './specifications.mjs';
+import { changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, loadBoundActiveSpecRecords, specificationSourceTreeHash } from './specifications.mjs';
+import { isSpecificationDefinitionPhase } from './kernel/specification-policy.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import {

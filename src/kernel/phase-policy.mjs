@@ -885,3 +885,9 @@ export function advancementBlocked(projection) {
   }
   return reasons;
 }
+
+
+
+export const PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/v1';
+
+export const ARA_PHASE_SEMANTICS_PROFILE = 'sflow-phase-semantics/ara-v1';

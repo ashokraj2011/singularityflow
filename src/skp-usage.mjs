@@ -11,7 +11,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { assertCredentialFreeRemote, isPortableAbsoluteGitPath } from './git-remote-diagnostics.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { scanEntries } from './secrets.mjs';
-import { skillPhasePrimaryOutputRole } from './specifications.mjs';
+import { skillPhasePrimaryOutputRole } from './kernel/specification-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SKP_USAGE_LIMITS = Object.freeze({ phases: 512, workflows: 256, agents: 256,

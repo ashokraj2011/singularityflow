@@ -24,8 +24,8 @@ import { assertTestCommandAmendmentPolicyScope, assertTestCommandCandidateGlobal
 import { verifyTestCommandReviewOrigin } from './test-command-amendment-origin.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
-import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
-  verifySkillPackage } from './skp-package.mjs';
+import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, verifySkillPackage } from './skp-package.mjs';
+import { SKP_PARSER_PROFILE } from './kernel/skill-binding-header.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, FROZEN_REMOTE_ALIAS, frozenRemoteTransport, sanitizeRemote

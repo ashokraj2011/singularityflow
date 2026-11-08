@@ -1,0 +1,1988 @@
+{
+  "schemaVersion": 1,
+  "baseline": "5234c0edd270c1db7f95d3ede6df6eabb2ca92ea",
+  "results": [
+    {
+      "id": 0,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false
+      }
+    },
+    {
+      "id": 1,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        null
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false
+      }
+    },
+    {
+      "id": 2,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {}
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false
+      }
+    },
+    {
+      "id": 3,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "mode": "enforce",
+          "approvalChecklist": "required",
+          "exceptionAuthority": "quality",
+          "assisted": true,
+          "scenarioCoverage": "required"
+        }
+      ],
+      "value": {
+        "mode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "approvalChecklist": "required",
+        "exceptionAuthority": "quality",
+        "assisted": true,
+        "scenarioCoverage": "required"
+      }
+    },
+    {
+      "id": 4,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "mode": "invalid"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.mode must be one of off, warn, enforce; got 'invalid'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 5,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "checklist": ""
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.checklist must name a checklist definition.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 6,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "checklist": " "
+        }
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": " ",
+        "exceptionAuthority": null,
+        "assisted": false
+      }
+    },
+    {
+      "id": 7,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "approvalChecklist": "yes"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.approvalChecklist must be off or required.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 8,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "exceptionAuthority": " "
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.exceptionAuthority must name an approval authority group.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 9,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "exceptionAuthority": 1
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.exceptionAuthority must name an approval authority group.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 10,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "assisted": "false"
+        }
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": true
+      }
+    },
+    {
+      "id": 11,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "scenarioCoverage": "yes"
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.scenarioCoverage must be off or required.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 12,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1"
+          }
+        }
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false,
+        "witnessedClauses": {
+          "profile": "witnessed-v1",
+          "clauseTypes": [
+            "acceptance"
+          ],
+          "enforceableWitnessTypes": [
+            "test"
+          ],
+          "lexicalHints": "off",
+          "limits": {
+            "maxClauses": 500,
+            "maxFieldBytes": 4096,
+            "maxReportBytes": 262144
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": null
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses must be an object.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 14,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": []
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses must be an object.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 15,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "extra": true
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses contains unknown field 'extra'. Allowed: profile, clauseTypes, enforceableWitnessTypes, lexicalHints, limits.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 16,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "unknown"
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.profile must be 'witnessed-v1'.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 17,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": []
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.clauseTypes must be a non-empty array.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 18,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance",
+              "acceptance"
+            ]
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.clauseTypes must not contain duplicates.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 19,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "requirement"
+            ]
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.clauseTypes contains unsupported value 'requirement'. Allowed: acceptance.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 20,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "enforceableWitnessTypes": [
+              "manual"
+            ]
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.enforceableWitnessTypes contains unsupported value 'manual'. Allowed: test.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 21,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "lexicalHints": "advisory"
+          }
+        }
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false,
+        "witnessedClauses": {
+          "profile": "witnessed-v1",
+          "clauseTypes": [
+            "acceptance"
+          ],
+          "enforceableWitnessTypes": [
+            "test"
+          ],
+          "lexicalHints": "advisory",
+          "limits": {
+            "maxClauses": 500,
+            "maxFieldBytes": 4096,
+            "maxReportBytes": 262144
+          }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "lexicalHints": "enforce"
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.lexicalHints must be off or advisory.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 23,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": {
+              "maxClauses": 10000,
+              "maxFieldBytes": 1048576,
+              "maxReportBytes": 10485760
+            }
+          }
+        }
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false,
+        "witnessedClauses": {
+          "profile": "witnessed-v1",
+          "clauseTypes": [
+            "acceptance"
+          ],
+          "enforceableWitnessTypes": [
+            "test"
+          ],
+          "lexicalHints": "off",
+          "limits": {
+            "maxClauses": 10000,
+            "maxFieldBytes": 1048576,
+            "maxReportBytes": 10485760
+          }
+        }
+      }
+    },
+    {
+      "id": 24,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": {
+              "maxReportBytes": 2048
+            }
+          }
+        }
+      ],
+      "value": {
+        "mode": "off",
+        "checklist": "requirements-quality-v1",
+        "exceptionAuthority": null,
+        "assisted": false,
+        "witnessedClauses": {
+          "profile": "witnessed-v1",
+          "clauseTypes": [
+            "acceptance"
+          ],
+          "enforceableWitnessTypes": [
+            "test"
+          ],
+          "lexicalHints": "off",
+          "limits": {
+            "maxClauses": 500,
+            "maxFieldBytes": 4096,
+            "maxReportBytes": 2048
+          }
+        }
+      }
+    },
+    {
+      "id": 25,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": {
+              "maxReportBytes": 2047
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.limits.maxReportBytes must be an integer from 2048 to 10485760.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 26,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": {
+              "maxClauses": 10001
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.limits.maxClauses must be an integer from 1 to 10000.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 27,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": {
+              "maxFieldBytes": 0
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.limits.maxFieldBytes must be an integer from 1 to 1048576.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 28,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": {
+              "unknown": 2
+            }
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.limits contains unknown field 'unknown'. Allowed: maxClauses, maxFieldBytes, maxReportBytes.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 29,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "refused",
+      "input": [
+        {
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "limits": []
+          }
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "specificationQuality.witnessedClauses.limits must be an object.",
+        "code": null,
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 30,
+      "family": "quality",
+      "name": "specificationQualityPolicy",
+      "status": "returned",
+      "input": [
+        {
+          "mode": "warn",
+          "scenarioCoverage": "off",
+          "approvalChecklist": "off",
+          "extra": "legacy field remains ignored"
+        }
+      ],
+      "value": {
+        "mode": "warn",
+        "checklist": "requirements-quality-v1",
+        "approvalChecklist": "off",
+        "exceptionAuthority": null,
+        "assisted": false,
+        "scenarioCoverage": "off"
+      }
+    },
+    {
+      "id": 31,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase binding must be a plain object.",
+        "code": "SKP_PHASE_BINDING_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 32,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        null
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase binding must be a plain object.",
+        "code": "SKP_PHASE_BINDING_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 33,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "returned",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {}
+        }
+      ],
+      "value": {
+        "schemaVersion": 1,
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bindingRefs": {}
+      }
+    },
+    {
+      "id": 34,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "returned",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {}
+        },
+        "criteria"
+      ],
+      "value": {
+        "schemaVersion": 1,
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bindingRefs": {}
+      }
+    },
+    {
+      "id": 35,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        {
+          "schemaVersion": 2,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {}
+        },
+        "criteria"
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase 'criteria' has an unsupported binding or parser version.",
+        "code": "SKP_PHASE_BINDING_UNSUPPORTED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 36,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "other/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {}
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase has an unsupported binding or parser version.",
+        "code": "SKP_PHASE_BINDING_UNSUPPORTED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 37,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "other/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {}
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase has an unsupported binding or parser version.",
+        "code": "SKP_PHASE_BINDING_UNSUPPORTED",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 38,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {}
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase compilation digest must be a sha256:<64 lowercase hex> digest.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 39,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "bindingRefs": {}
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase compilation digest must be a sha256:<64 lowercase hex> digest.",
+        "code": "SKP_CONTRACT_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 40,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {},
+          "extra": true
+        }
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase binding contains unsupported field 'extra'.",
+        "code": "SKP_PHASE_BINDING_INVALID",
+        "exitCode": 1,
+        "details": {
+          "field": "extra"
+        }
+      }
+    },
+    {
+      "id": 41,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "refused",
+      "input": [
+        []
+      ],
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Skill phase binding must be a plain object.",
+        "code": "SKP_PHASE_BINDING_INVALID",
+        "exitCode": 1,
+        "details": null
+      }
+    },
+    {
+      "id": 42,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "returned",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": null
+        }
+      ],
+      "value": {
+        "schemaVersion": 1,
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bindingRefs": null
+      }
+    },
+    {
+      "id": 43,
+      "family": "binding",
+      "name": "validateSkillPhaseBindingHeader",
+      "status": "returned",
+      "input": [
+        {
+          "schemaVersion": 1,
+          "compiler": "skp-contract/v1",
+          "parserProfile": "skp-skill-text/v1",
+          "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bindingRefs": {
+            "outputs": []
+          }
+        }
+      ],
+      "value": {
+        "schemaVersion": 1,
+        "compiler": "skp-contract/v1",
+        "parserProfile": "skp-skill-text/v1",
+        "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bindingRefs": {
+          "outputs": []
+        }
+      }
+    },
+    {
+      "id": 44,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [],
+      "value": null
+    },
+    {
+      "id": 45,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        null
+      ],
+      "value": null
+    },
+    {
+      "id": 46,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {}
+      ],
+      "value": null
+    },
+    {
+      "id": 47,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "kind": "template"
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 48,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": "criteria"
+    },
+    {
+      "id": 49,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "findings"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": "findings"
+    },
+    {
+      "id": 50,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "evidence"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": "evidence"
+    },
+    {
+      "id": 51,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                },
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 52,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": false,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 53,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/other.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 54,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "report",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 55,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 2,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {}
+          }
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 56,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          },
+          "requiredArtifact": {
+            "path": "artifacts/criteria/new.md",
+            "kind": "requirements"
+          }
+        }
+      ],
+      "value": null
+    },
+    {
+      "id": 57,
+      "family": "roles",
+      "name": "skillPhasePrimaryOutputRole",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": null,
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          },
+          "requiredArtifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          }
+        }
+      ],
+      "value": "criteria"
+    },
+    {
+      "id": 58,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [],
+      "value": true
+    },
+    {
+      "id": 59,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        null
+      ],
+      "value": true
+    },
+    {
+      "id": 60,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {}
+      ],
+      "value": true
+    },
+    {
+      "id": 61,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        "requirements"
+      ],
+      "value": true
+    },
+    {
+      "id": 62,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        "implementation-spec"
+      ],
+      "value": true
+    },
+    {
+      "id": 63,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        "test-evidence"
+      ],
+      "value": false
+    },
+    {
+      "id": 64,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        "conformance-report"
+      ],
+      "value": false
+    },
+    {
+      "id": 65,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "artifact": {
+            "kind": "requirements"
+          }
+        }
+      ],
+      "value": true
+    },
+    {
+      "id": 66,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "artifact": {
+            "kind": "delivery-plan"
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 67,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "requiredArtifact": {
+            "kind": "test-evidence"
+          },
+          "artifact": {
+            "kind": "requirements"
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 68,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": true
+    },
+    {
+      "id": 69,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "findings"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 70,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "evidence"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 71,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "planning"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 72,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "template",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bindingRefs": {
+              "outputs": [
+                {
+                  "path": "artifacts/criteria/intent.md",
+                  "kind": "requirements",
+                  "required": true,
+                  "claimRole": "criteria"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "value": false
+    },
+    {
+      "id": 73,
+      "family": "roles",
+      "name": "isSpecificationDefinitionPhase",
+      "status": "returned",
+      "input": [
+        {
+          "id": "criteria",
+          "kind": "skill",
+          "artifact": {
+            "path": "artifacts/criteria/intent.md",
+            "kind": "requirements"
+          },
+          "skillBinding": {
+            "schemaVersion": 1,
+            "compiler": "skp-contract/v1",
+            "parserProfile": "skp-skill-text/v1",
+            "compilationSha256": "invalid",
+            "bindingRefs": {}
+          }
+        }
+      ],
+      "value": false
+    }
+  ],
+  "data": {
+    "checklist": {
+      "id": "requirements-quality-v1",
+      "version": 1,
+      "articles": [
+        {
+          "id": "completeness",
+          "title": "Completeness",
+          "question": "Does the specification cover every scenario the work is expected to serve, including failure and empty states?"
+        },
+        {
+          "id": "ambiguity",
+          "title": "Ambiguity",
+          "question": "Is every requirement free of wording that two competent readers could implement differently?"
+        },
+        {
+          "id": "consistency",
+          "title": "Consistency",
+          "question": "Do the requirements agree with each other, with the scenarios, and with the cited constitution articles?"
+        },
+        {
+          "id": "verifiability",
+          "title": "Verifiability",
+          "question": "Can each requirement be proved or disproved by a stated test, check, or observation?"
+        },
+        {
+          "id": "boundary-conditions",
+          "title": "Boundary conditions",
+          "question": "Are limits, sizes, counts, and timeouts stated, with the behaviour at and beyond each one?"
+        },
+        {
+          "id": "non-functional",
+          "title": "Non-functional requirements",
+          "question": "Are latency, availability, privacy, accessibility and retention stated as measurable numbers rather than adjectives?"
+        }
+      ]
+    },
+    "modes": [
+      "off",
+      "warn",
+      "enforce"
+    ],
+    "witnessProfile": "witnessed-v1",
+    "definitionKinds": [
+      "requirements",
+      "implementation-spec"
+    ],
+    "compiler": "skp-contract/v1",
+    "bindingVersion": 1,
+    "parser": "skp-skill-text/v1",
+    "phaseProfile": "sflow-phase-semantics/v1",
+    "applicationReviewPhaseProfile": "sflow-phase-semantics/ara-v1"
+  },
+  "exports": {
+    "quality": [
+      "CHECKLIST_DECISIONS",
+      "MARKER_FINDING_KINDS",
+      "SPECIFICATION_QUALITY_MODES",
+      "STARTER_CHECKLIST",
+      "WITNESSED_CLAUSE_PROFILE",
+      "WITNESS_TYPES",
+      "analyzeSpecification",
+      "evaluateMarkerPolicy",
+      "evaluateSpecificationQuality",
+      "markerPolicy",
+      "policyHash",
+      "specificationQualityPolicy",
+      "validateChecklistDecisions",
+      "witnessedClauseReviewFields"
+    ],
+    "roles": [
+      "FULFILLMENT_TYPES",
+      "SOURCE_CHANGING_FULFILLMENT",
+      "SPECIFICATION_DEFINITION_KINDS",
+      "applicationPathContext",
+      "buildSpecIndex",
+      "canonicalJson",
+      "changedRepositoryPaths",
+      "clauseReferences",
+      "codeCoverageEnforcement",
+      "configuredAcceptanceCommandSetSha256",
+      "deriveObservedClaimMap",
+      "derivePlannedClaimMap",
+      "evaluateSpecAcceptance",
+      "evaluateSpecCoverage",
+      "extractClauses",
+      "ignoredRanges",
+      "inspectPlannedClaimMap",
+      "isIgnored",
+      "isSpecificationDefinitionPhase",
+      "loadActiveSpecRecords",
+      "loadBoundActiveSpecRecords",
+      "loadSpecRecords",
+      "mergeObservedClaimRecords",
+      "mergePlannedClaimRecords",
+      "normalizeClaimMap",
+      "normalizeSpecPolicy",
+      "planSupportingFiles",
+      "plannedClaimSource",
+      "plannedClaimsForObservedPhase",
+      "plannedImplementationPaths",
+      "plannedProductSourcePaths",
+      "plannedSupportingFiles",
+      "predecessorSpecClauses",
+      "readBoundSpecificationClaimMap",
+      "readBoundSpecificationIndex",
+      "readStructuredFile",
+      "readSubmittedSpecificationIndex",
+      "renderClauseContext",
+      "runSpecAcceptance",
+      "selectActiveSpecRecords",
+      "selectClauseContext",
+      "skillPhasePrimaryOutputRole",
+      "specificationSourceTreeHash",
+      "testOnlyClaimEvidence",
+      "traceClause",
+      "traceCsv",
+      "validatePlannedEvidenceTypes"
+    ],
+    "binding": [
+      "SKP_CONTRACT_COMPILER",
+      "SKP_PHASE_BINDING_VERSION",
+      "compileConfirmedSkillPhase",
+      "compileSkillPhaseProposal",
+      "configurationPhaseFromCompiledSkill",
+      "skillCandidateCatalogSha256",
+      "skillContractSha256",
+      "skillPhaseCandidateSha256",
+      "validateConfiguredSkillPhase",
+      "validateSkillPhaseBindingHeader"
+    ],
+    "packages": [
+      "SKP_CAPTURE_LIMITS",
+      "SKP_DECLARATION_FORMAT",
+      "SKP_PACKAGE_FORMAT",
+      "SKP_PARSER_PROFILE",
+      "assertSkillPackagePath",
+      "assertStableSkillCapture",
+      "inspectSkillPackage",
+      "inspectSkillPackageContents",
+      "readBoundedSkillFile",
+      "readSealedSkillPackage",
+      "sealSkillPackageContents",
+      "skillInspectionView",
+      "verifySkillPackage"
+    ],
+    "phases": [
+      "ARA_PHASE_SEMANTICS_PROFILE",
+      "PHASE_SEMANTICS_PROFILE",
+      "assertPhaseTopology",
+      "installAcceptedPhaseInterpretation",
+      "needsAcceptedPhaseInterpretation",
+      "phaseTopologyFindings"
+    ]
+  },
+  "functions": {
+    "specification-quality.mjs:rejectUnknownKeys": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "2aa929b69a8952430f88286cd1f1d98f42c23af0143677bf9aa514f2667e3e0b"
+    },
+    "specification-quality.mjs:normalizedUniqueArray": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "0fb5ef93ac631b92b701e7401723a08cade483b65d2ecb4b124f962f4a2eed6d"
+    },
+    "specification-quality.mjs:witnessedClausePolicy": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "51bba803a47709ec40e15cffc72977e3ef51816d1e65e73835860744b9c88cf2"
+    },
+    "specification-quality.mjs:specificationQualityPolicy": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "c837e2854a78b0d6f38de3855460eed090879570c989f2657abbba70130100f1"
+    },
+    "specifications.mjs:skillPhasePrimaryOutputRole": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "fb8901c6366d8133d49be4a8a92914c06b5e2671c9126cf416ad7ac2868c77e3"
+    },
+    "specifications.mjs:isSpecificationDefinitionPhase": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "f92ec935017c17a47631aa05c52b1e2395b80112e7079d29fa586176d7a8c7f5"
+    },
+    "skp-contract.mjs:fail": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "fc68e3155b6cf05a845e1da309262e25ebf54d0cbbdf353eeda2ecaa5387ec95"
+    },
+    "skp-contract.mjs:plain": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "43fc6732aacb17da162ce3d85cd786d40dece780e4522ad575d0bd1700764d8e"
+    },
+    "skp-contract.mjs:closed": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "5743560d77334224f6992efa7064713a397275e0e6fb545faff612419e41d00b"
+    },
+    "skp-contract.mjs:checkedDigest": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "ace1da8e8ffb91ac6cfbf6cdb65afc676f7dec2d4c17449d6348fcdde8f777a6"
+    },
+    "skp-contract.mjs:validateSkillPhaseBindingHeader": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "c527fff6d367f0630efb3e3b0495e9a6a2d13b6a3c42b93405167c8a250f0316"
+    }
+  },
+  "constants": {
+    "specification-quality.mjs:SPECIFICATION_QUALITY_MODES": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "bec22e804ee435a7c7808f7ff57a334e4101c421fe900c05094903947edbb404"
+    },
+    "specification-quality.mjs:WITNESSED_CLAUSE_PROFILE": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "030bafd53d8cbcdc736ae7c980a4563fa798f4658ddbbe3e2a8fac42011a1ca8"
+    },
+    "specification-quality.mjs:ENFORCEABLE_WITNESS_TYPES": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "ae343adad86c0ac7fc27b665de56ccd18c89edb0d73ed7607cbd7bc7ad87aa15"
+    },
+    "specification-quality.mjs:WITNESSED_CLAUSE_TYPES": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "ec360f5cbd0cde84ad738efcc3f1481790eccb69da7899caeb06b0150fa4138a"
+    },
+    "specification-quality.mjs:WITNESSED_LEXICAL_HINT_MODES": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "37b2efd0935f0c977afbf8a25f7555b7bee9946eca4dc78d6775ec09b7528f3c"
+    },
+    "specification-quality.mjs:DEFAULT_WITNESSED_LIMITS": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "c6bca968fda696f38652f98deb27d44c57548d580a7d74480762a464e61b26a7"
+    },
+    "specification-quality.mjs:WITNESSED_LIMIT_MAXIMUMS": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "a9afb8ddf1f0789e67a9fea023cbfe8976e7b146c794bc61e0d0f0a0ef0a6f41"
+    },
+    "specifications.mjs:SPECIFICATION_DEFINITION_KINDS": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "cd2a2731abd9fed04cac59ae5e55ec7b08ee442b040c15d4dce1caff3e75a9ce"
+    },
+    "specifications.mjs:SPECIFICATION_DEFINITION_KIND_SET": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "sha256": "98fd387cbbd996db31f45995cd898517194add22959310e74d8c63b22dc8940b"
+    },
+    "skp-contract.mjs:SKP_CONTRACT_COMPILER": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "f89250eacadd615f09aa570d567ec8bc37013d69556af24a58dc55b88c9d6a8f"
+    },
+    "skp-contract.mjs:SKP_PHASE_BINDING_VERSION": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+    },
+    "skp-contract.mjs:SHA256": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "a5459261b6162f3f8a9f215fd9559a687b23cbba7da5c0fb7f6c0e24c5fb873b"
+    },
+    "skp-package.mjs:SKP_PARSER_PROFILE": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "sha256": "035395b9f37a0bf9f063e069de128d583b8fb226bfa9b303cfd99efac7c9ff74"
+    },
+    "phase-semantics.mjs:PHASE_SEMANTICS_PROFILE": {
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "1d725e208a50ab937ffde1b77e2d9bb24c99ceec115d7f5b202f1c6c00d2d8ad"
+    },
+    "phase-semantics.mjs:ARA_PHASE_SEMANTICS_PROFILE": {
+      "owner": "src/kernel/phase-policy.mjs",
+      "sha256": "0b9e323e5e80c26f02db55f171046ef9ac65a490e148b9a85f7ad3f3a8a8276e"
+    }
+  },
+  "owners": {
+    "src/specification-quality.mjs": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "exports": [
+        "specificationQualityPolicy",
+        "SPECIFICATION_QUALITY_MODES",
+        "WITNESSED_CLAUSE_PROFILE"
+      ]
+    },
+    "src/specifications.mjs": {
+      "owner": "src/kernel/specification-policy.mjs",
+      "exports": [
+        "isSpecificationDefinitionPhase",
+        "skillPhasePrimaryOutputRole",
+        "SPECIFICATION_DEFINITION_KINDS"
+      ]
+    },
+    "src/skp-contract.mjs": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "exports": [
+        "validateSkillPhaseBindingHeader",
+        "SKP_CONTRACT_COMPILER",
+        "SKP_PHASE_BINDING_VERSION"
+      ]
+    },
+    "src/skp-package.mjs": {
+      "owner": "src/kernel/skill-binding-header.mjs",
+      "exports": [
+        "SKP_PARSER_PROFILE"
+      ]
+    },
+    "src/phase-semantics.mjs": {
+      "owner": "src/kernel/phase-policy.mjs",
+      "exports": [
+        "PHASE_SEMANTICS_PROFILE",
+        "ARA_PHASE_SEMANTICS_PROFILE"
+      ]
+    }
+  },
+  "policyHashes": [
+    {
+      "id": 0,
+      "sha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5"
+    },
+    {
+      "id": 1,
+      "sha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5"
+    },
+    {
+      "id": 2,
+      "sha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5"
+    },
+    {
+      "id": 3,
+      "sha256": "27ac90f07f74e3d3af59ec7c5e1fb891e3db8b92a0f900563db8f0238d72c229"
+    },
+    {
+      "id": 6,
+      "sha256": "3f48bfcde5cde510afee5edea43c91d93a57667a9fa0a6dc7a45db330a92d0c4"
+    },
+    {
+      "id": 10,
+      "sha256": "f638f4215619917ce956e70609ab5ea36df7cc4d2c5ebf56fa6868fc4520b844"
+    },
+    {
+      "id": 12,
+      "sha256": "e202a1939391b1251b2a487ae6309f67bcb104640b51f09c576e7df0dfac1861"
+    },
+    {
+      "id": 21,
+      "sha256": "1c77cb5e4dfd20fb5680b35c94fa3b47447af280e0c0ad6af7c64900a68141a4"
+    },
+    {
+      "id": 23,
+      "sha256": "bf03c5563afc1e4def0db654d9f416d26f8098acdbfc52a043fda0f6fea4e3dd"
+    },
+    {
+      "id": 24,
+      "sha256": "7432dc7c01276378678605bfc72f16b461e1ec01ca80452753dae673543d0f74"
+    },
+    {
+      "id": 30,
+      "sha256": "bd079300cf6babdb1874d75c309b5835d4383295531beb6556f0dbb2593daf2e"
+    }
+  ],
+  "checklistSha256": "e5a9a8d1baf914c36e98fbe7869dd7f1df6ee3f13a3ed0e93a716f9c21ccea56",
+  "compilerDependencies": [
+    "ARA_PHASE_SEMANTICS_PROFILE",
+    "PHASE_SEMANTICS_PROFILE",
+    "isSpecificationDefinitionPhase",
+    "skillPhasePrimaryOutputRole",
+    "specificationQualityPolicy"
+  ]
+}

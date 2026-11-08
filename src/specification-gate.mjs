@@ -24,10 +24,8 @@ import { readFile } from 'node:fs/promises';
 
 import { markerQuestionHash } from './clarification-markers.mjs';
 import { answeredMarkerHashes, readClarificationRecord, resolvedClarificationPolicy } from './clarifications.mjs';
-import {
-  CHECKLIST_DECISIONS, MARKER_FINDING_KINDS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality,
-  policyHash, specificationQualityPolicy, validateChecklistDecisions
-} from './specification-quality.mjs';
+import { CHECKLIST_DECISIONS, MARKER_FINDING_KINDS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality, policyHash, validateChecklistDecisions } from './specification-quality.mjs';
+import { specificationQualityPolicy } from './kernel/specification-policy.mjs';
 import { matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { exists } from './util.mjs';
 

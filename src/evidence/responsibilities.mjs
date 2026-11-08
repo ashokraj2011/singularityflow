@@ -14,8 +14,8 @@
  *
  * `complete` is the kernel's duty at every endpoint, so no step holds it.
  */
-import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
-import { isSpecificationDefinitionPhase } from '../specifications.mjs';
+import { phaseRequiresCodeDelivery } from '../kernel/phase-policy.mjs';
+import { isSpecificationDefinitionPhase } from '../kernel/specification-policy.mjs';
 
 const VERIFY_ARTIFACT_KINDS = new Set(['test-evidence', 'visual-test-evidence']);
 const PLAN_ARTIFACT_KINDS = new Set(['delivery-plan', 'implementation-plan']);

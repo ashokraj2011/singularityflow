@@ -8,7 +8,7 @@ import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecur
 import { repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';
 import { normalizeReworkLoops, normalizeRepairBudget } from "./kernel/configuration-policy.mjs";
 import { advanceCompletedPhase, reopenPhaseRange } from './kernel/lifecycle-transitions.mjs';
-import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
+import { validateSkillPhaseBindingHeader } from './kernel/skill-binding-header.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import path from 'node:path';
 import { assertPlannedClaimsReady } from './config.mjs';

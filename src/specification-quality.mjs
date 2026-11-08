@@ -1,3 +1,5 @@
+import { specificationQualityPolicy, SPECIFICATION_CHECKLIST_ID } from './kernel/specification-policy.mjs';
+export { specificationQualityPolicy, SPECIFICATION_QUALITY_MODES, WITNESSED_CLAUSE_PROFILE } from './kernel/specification-policy.mjs';
 /**
  * Specification quality: "is the requirement good enough?" `[SPK:REQ-050]` … `[SPK:REQ-056]`
  *
@@ -25,102 +27,8 @@ import { extractClauses, ignoredRanges, isIgnored } from './specifications.mjs';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectSpecificationScenarios } from './specification-scenarios.mjs';
-
-export const SPECIFICATION_QUALITY_MODES = Object.freeze(['off', 'warn', 'enforce']);
-
-/**
- * The first witnessed-clause profile is intentionally small. `[WEL:REQ-002]` … `[WEL:REQ-005]`
- *
- * These values describe specification structure only. In particular, accepting `Witness:
- * inspection` here does not make inspection enforce-grade evidence; that requires a separate typed
- * evidence contract. v0.2 permits only `test` in the policy's enforceable set.
- */
-export const WITNESSED_CLAUSE_PROFILE = 'witnessed-v1';
 export const WITNESS_TYPES = Object.freeze(['test', 'inspection', 'metric', 'runtime', 'manual']);
-const ENFORCEABLE_WITNESS_TYPES = Object.freeze(['test']);
-const WITNESSED_CLAUSE_TYPES = Object.freeze(['acceptance']);
-const WITNESSED_LEXICAL_HINT_MODES = Object.freeze(['off', 'advisory']);
-const DEFAULT_WITNESSED_LIMITS = Object.freeze({
-  maxClauses: 500,
-  maxFieldBytes: 4096,
-  maxReportBytes: 262144
-});
-const WITNESSED_LIMIT_MAXIMUMS = Object.freeze({
-  maxClauses: 10000,
-  maxFieldBytes: 1024 * 1024,
-  maxReportBytes: 10 * 1024 * 1024
-});
 const WITNESSED_FIELDS = Object.freeze(['behavior', 'observable', 'witness']);
-
-function rejectUnknownKeys(value, allowed, label) {
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) {
-      throw new SingularityFlowError(`${label} contains unknown field '${key}'. Allowed: ${allowed.join(', ')}.`);
-    }
-  }
-}
-
-function normalizedUniqueArray(value, { label, fallback, allowed }) {
-  const entries = value ?? fallback;
-  if (!Array.isArray(entries) || !entries.length || entries.some((entry) => typeof entry !== 'string' || !entry)) {
-    throw new SingularityFlowError(`${label} must be a non-empty array.`);
-  }
-  if (new Set(entries).size !== entries.length) throw new SingularityFlowError(`${label} must not contain duplicates.`);
-  for (const entry of entries) {
-    if (!allowed.includes(entry)) throw new SingularityFlowError(`${label} contains unsupported value '${entry}'. Allowed: ${allowed.join(', ')}.`);
-  }
-  return Object.freeze([...entries]);
-}
-
-/** Normalize the opt-in `specificationQuality.witnessedClauses` extension. */
-function witnessedClausePolicy(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SingularityFlowError('specificationQuality.witnessedClauses must be an object.');
-  }
-  rejectUnknownKeys(
-    value,
-    ['profile', 'clauseTypes', 'enforceableWitnessTypes', 'lexicalHints', 'limits'],
-    'specificationQuality.witnessedClauses'
-  );
-  if (value.profile !== WITNESSED_CLAUSE_PROFILE) {
-    throw new SingularityFlowError(`specificationQuality.witnessedClauses.profile must be '${WITNESSED_CLAUSE_PROFILE}'.`);
-  }
-  const clauseTypes = normalizedUniqueArray(value.clauseTypes, {
-    label: 'specificationQuality.witnessedClauses.clauseTypes',
-    fallback: WITNESSED_CLAUSE_TYPES,
-    allowed: WITNESSED_CLAUSE_TYPES
-  });
-  const enforceableWitnessTypes = normalizedUniqueArray(value.enforceableWitnessTypes, {
-    label: 'specificationQuality.witnessedClauses.enforceableWitnessTypes',
-    fallback: ENFORCEABLE_WITNESS_TYPES,
-    allowed: ENFORCEABLE_WITNESS_TYPES
-  });
-  const lexicalHints = value.lexicalHints ?? 'off';
-  if (!WITNESSED_LEXICAL_HINT_MODES.includes(lexicalHints)) {
-    throw new SingularityFlowError(`specificationQuality.witnessedClauses.lexicalHints must be ${WITNESSED_LEXICAL_HINT_MODES.join(' or ')}.`);
-  }
-  const configuredLimits = value.limits ?? {};
-  if (!configuredLimits || typeof configuredLimits !== 'object' || Array.isArray(configuredLimits)) {
-    throw new SingularityFlowError('specificationQuality.witnessedClauses.limits must be an object.');
-  }
-  rejectUnknownKeys(configuredLimits, Object.keys(DEFAULT_WITNESSED_LIMITS), 'specificationQuality.witnessedClauses.limits');
-  const limits = { ...DEFAULT_WITNESSED_LIMITS, ...configuredLimits };
-  for (const [key, maximum] of Object.entries(WITNESSED_LIMIT_MAXIMUMS)) {
-    const minimum = key === 'maxReportBytes' ? 2048 : 1;
-    if (!Number.isSafeInteger(limits[key]) || limits[key] < minimum || limits[key] > maximum) {
-      throw new SingularityFlowError(
-        `specificationQuality.witnessedClauses.limits.${key} must be an integer from ${minimum} to ${maximum}.`
-      );
-    }
-  }
-  return Object.freeze({
-    profile: WITNESSED_CLAUSE_PROFILE,
-    clauseTypes,
-    enforceableWitnessTypes,
-    lexicalHints,
-    limits: Object.freeze(limits)
-  });
-}
 
 /**
  * The starter checklist `[SPK:REQ-052]`.
@@ -131,7 +39,7 @@ function witnessedClausePolicy(value) {
  * evidence for them; it never answers them.
  */
 export const STARTER_CHECKLIST = Object.freeze({
-  id: 'requirements-quality-v1',
+  id: SPECIFICATION_CHECKLIST_ID,
   version: 1,
   articles: Object.freeze([
     { id: 'completeness', title: 'Completeness', question: 'Does the specification cover every scenario the work is expected to serve, including failure and empty states?' },
@@ -149,55 +57,6 @@ export const CHECKLIST_DECISIONS = Object.freeze(['satisfied', 'exception', 'not
 /** Sections the starter template leads with, and whose absence is checkable. */
 // One list, shared with preparation so a prepared specification always carries these sections.
 const REQUIRED_SECTIONS = SPECIFICATION_REQUIRED_SECTIONS;
-
-/** Normalize and validate a `specificationQuality` policy `[SPK:REQ-050]`. */
-export function specificationQualityPolicy(value = {}) {
-  const mode = value?.mode ?? 'off';
-  if (!SPECIFICATION_QUALITY_MODES.includes(mode)) {
-    throw new SingularityFlowError(`specificationQuality.mode must be one of ${SPECIFICATION_QUALITY_MODES.join(', ')}; got '${mode}'.`);
-  }
-  const checklist = value?.checklist ?? STARTER_CHECKLIST.id;
-  if (typeof checklist !== 'string' || !checklist) {
-    throw new SingularityFlowError('specificationQuality.checklist must name a checklist definition.');
-  }
-  const approvalChecklist = value?.approvalChecklist;
-  if (approvalChecklist !== undefined && !['off', 'required'].includes(approvalChecklist)) {
-    throw new SingularityFlowError('specificationQuality.approvalChecklist must be off or required.');
-  }
-  /**
-   * Who may take an exception `[SPK:REQ-061]`.
-   *
-   * Absent means the phase's own approval authority is enough: whoever may approve may also record
-   * a reasoned exception. Naming a group narrows it — useful when "we are shipping without stated
-   * latency numbers" should be a decision an architect takes rather than anyone with an approval
-   * bit. Never a way to make an exception cheaper, only a way to make it dearer.
-   */
-  const exceptionAuthority = value?.exceptionAuthority ?? null;
-  if (exceptionAuthority !== null && (typeof exceptionAuthority !== 'string' || !exceptionAuthority.trim())) {
-    throw new SingularityFlowError('specificationQuality.exceptionAuthority must name an approval authority group.');
-  }
-  const witnessedClauses = value?.witnessedClauses === undefined
-    ? undefined
-    : witnessedClausePolicy(value.witnessedClauses);
-  const scenarioCoverage = value?.scenarioCoverage;
-  if (scenarioCoverage !== undefined && !['off', 'required'].includes(scenarioCoverage)) {
-    throw new SingularityFlowError('specificationQuality.scenarioCoverage must be off or required.');
-  }
-  return Object.freeze({
-    mode,
-    checklist,
-    // Keep the omitted field absent so existing normalized policies and their hashes do not change.
-    ...(approvalChecklist === undefined ? {} : { approvalChecklist }),
-    exceptionAuthority,
-    // Assisted analysis is opt-in and never the default; the deterministic path must stand alone.
-    assisted: Boolean(value?.assisted ?? false),
-    // Omitted stays omitted: installing this checker never changes an existing policy digest.
-    ...(scenarioCoverage === undefined ? {} : { scenarioCoverage }),
-    // Omission is preserved rather than normalized to a disabled object. This keeps old policy
-    // digests and old Story behaviour byte-for-byte stable when WEL was never configured.
-    ...(witnessedClauses ? { witnessedClauses } : {})
-  });
-}
 
 /** The hash a report binds itself to, so a finding set is traceable to the policy that produced it. */
 export function policyHash(policy, checklist = STARTER_CHECKLIST) {

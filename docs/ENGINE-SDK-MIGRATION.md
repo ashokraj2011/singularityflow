@@ -272,6 +272,12 @@ commands, document and test policies. Node supplies string operations only; actu
 source-control, provider and execution effects remain outside the kernel. The complete namespace
 configuration and Story runtime still require their remaining admission and execution ports.
 
+[Shared specification semantics](ENGINE-SDK-SPECIFICATION-SEMANTICS.md) remove five more compiler
+collaborators through pure quality-policy, phase-role and binding-header rules. Nine explicit
+entries remain. Native APIs preserve function identities, profile values, legacy clause roles,
+checklist content and policy hashes. Header admission does not replace complete compilation,
+package retention or human authority. Prompt/checklist questions stay outside the kernel.
+
 [Namespace lifecycle persistence](NAMESPACE-LIFECYCLE-COMMIT.md) now retains terminal Story bodies
 through an explicit v2 state format. It reads preserved v1 records without migration, including
 prepared operations and their original receipts. This removes a persistence gap before the first

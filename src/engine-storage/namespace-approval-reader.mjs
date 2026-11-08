@@ -1,7 +1,10 @@
 /** Read exact vote bytes and recompute authority/quorum; never write or record a human decision. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {createHash} from 'node:crypto';
+import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS} from '../foundation/record-schema.mjs';
 import {principalApprovalPlan} from '../kernel/approval-policy.mjs';
+import {decisionAfter} from '../kernel/workflow-decisions.mjs';
+import {routedApprovalSelection} from '../kernel/routed-approval.mjs';
 import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision} from './namespace-approval-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
@@ -11,10 +14,15 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}
     catch(cause){throw corrupt('The retained approval evidence is not UTF-8 JSON.',cause);}
   }
-  async function read(binding,phaseId,proof,{signal}={}) {
+  async function decode(binding,phaseId,{signal}={}) {
     namespaceApprovalBindingValue(binding);
     const value=namespaceApprovalValue(await json(binding.record,signal),{projectId:scope.projectId,workId,phaseId});
-    if(value.generation!==binding.generation||value.generation!==proof.value.generation||!same(value.reviewPacket,proof.binding.record)
+    if(value.generation!==binding.generation)throw corrupt('The vote belongs to another submitted review.');
+    return value;
+  }
+  async function read(binding,phaseId,proof,{signal}={}) {
+    const value=await decode(binding,phaseId,{signal});
+    if(value.generation!==proof.value.generation||!same(value.reviewPacket,proof.binding.record)
       ||!same(value.configuration,proof.value.configuration))throw corrupt('The vote belongs to another submitted review.');
     const set=namespaceApprovalArtifactSetValue(await json(value.artifactSet,signal),{projectId:scope.projectId,workId,phaseId});
     if(set.generation!==value.generation||!same(set.reviewPacket,value.reviewPacket)||!same(set.artifact,
@@ -36,14 +44,22 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
       if(!decision.namespaceVote)throw new SingularityFlowError('A retained vote needs its evidence owner.',{
         code:'ENGINE_PORT_UNAVAILABLE',details:{required:['retained-approval-vote']}});
       const value=await read(decision.namespaceVote,phaseId,proof,{signal});
+      if(!value.routing&&decisionAfter(snapshot.workflow,phaseId))throw new SingularityFlowError('A routed approval needs its versioned outcome proof.',{
+        code:'ENGINE_PORT_UNAVAILABLE',details:{required:['routed-approval-proof']}});
       try {
         if(!same(decision,namespaceApprovalDecision(value,decision.namespaceVote)))throw Error('The canonical vote metadata changed.');
         const plan=principalApprovalPlan(snapshot.workflow,phase,{actor:value.actor,agentId:value.agentId},{author:proof.published.actor,active:decisions});
         if(plan.authorityGroup!==value.authorityGroup||plan.selfApproval!==value.selfApproval||plan.reached!==value.thresholdReached)throw Error('The recorded vote authority or quorum changed.');
+        if(value.routing) {
+          const selected=routedApprovalSelection(snapshot.workflow,phase,{reached:plan.reached,at:value.recordedAt});
+          const pendingKey=selected.pending?createHash('sha256').update(canonicalJson(selected.pending)).digest('hex').slice(0,16):null;
+          if(value.currentPhase!==selected.currentPhase||!same(value.routing,{schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.routing.currentVersion,
+            format:'sflow-namespace-phase-approval-routing/v1',decision:selected.decision,outcome:selected.outcome,pendingKey}))throw Error('The routed vote changed its pinned outcome.');
+        }
       }catch(cause){throw corrupt('The retained approval does not match its human authority and quorum.',cause);}
       votes.push({value,binding:decision.namespaceVote});decisions.push(decision);
     }
     return {votes,decisions};
   }
-  return Object.freeze({read,active});
+  return Object.freeze({decode,read,active});
 }

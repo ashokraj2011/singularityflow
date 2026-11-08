@@ -3,6 +3,7 @@ import type {NamespaceStore,NamespaceScope} from '../namespace.mjs';
 import type {ContentStore} from '../content.mjs';
 import type {NamespaceStoryAccessFacts} from './namespace-story.mjs';
 export declare const NAMESPACE_APPROVAL_PROFILE:'sflow-primary-document-approval/v1';
+export declare const NAMESPACE_ROUTED_APPROVAL_PROFILE:'sflow-primary-document-approval/v2';
 /** Authenticated application identity, independent of the phase author's prompt or agent. */
 export interface NamespaceApprovalAccess {current(request:{readonly projectId:string;readonly workId:string;readonly operation:'phase.approve';readonly signal?:AbortSignal|null}):
   (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>}

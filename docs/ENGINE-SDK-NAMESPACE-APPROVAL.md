@@ -40,6 +40,11 @@ revision, timestamp, authority group, self-approval disclosure and resulting thr
 revisions are opaque; no Git commit, test execution, visual witness or application acceptance is
 fabricated. The canonical phase keeps a typed reference to that vote.
 
+A phase with a pinned decision uses the explicit
+[routed v2 approval profile](ENGINE-SDK-NAMESPACE-ROUTED-APPROVAL.md). Sequential phases keep
+their exact v1 wire meaning. V2 binds the selected branch, rework or unanswered human question;
+reading an old v1 record never gives it routing semantics.
+
 The kernel uses the existing pinned group membership, self-approval and distinct-human quorum
 rules. Explicit principals also prevent a person gaining independence by changing their email.
 Required groups need the distinct reviewers the policy specifies. Before counting active votes,
@@ -65,8 +70,9 @@ the newer state.
 After acceptance, the same authenticated human can acknowledge the original receipt on another
 host without new approval permission or a clock sample, including after the writer is fenced.
 The original audit agent stays on that receipt even if the current prompt uses another agent.
-Changing the authenticated human identity is refused. An explicitly supplied stale confirmation
-is still refused. Retrying cannot append another vote or acquire another required group's authority.
+Changing the authenticated human identity is refused. A confirmation must match the selected
+current packet or the exact original receipt being acknowledged. Retrying cannot append another
+vote or acquire another required group's authority.
 
 The v1 SDK result acknowledges the original accepted transaction: its `revision`, threshold and
 `currentPhase` describe that vote's outcome. A previous below-threshold vote can be acknowledged
@@ -78,12 +84,12 @@ unchanged. A lost acknowledgement is reconciled through the retained candidate a
 
 This advances Phase 7 with real namespace human approval and sequential completion. Full application
 code and test execution, source review, checklists, witnesses, presence, automatic approval,
-branch/loop/choice routing and other additional policies require their actual operation owners.
+human route-choice recording and other additional policies require their actual operation owners.
 The initial profile returns `ENGINE_PORT_UNAVAILABLE` for those requirements instead of accepting
 readiness booleans or silently following a linear route. Existing-project migration and installed
 authority cutover remain Phase 8; final cleanup, distribution and performance remain Phase 9.
 
-## Mac qualification
+## Mac qualification of the original sequential slice
 
 191 distinct checks across 13 affected files passed on macOS with Node 26.12.0. The final
 93-case set passed without failures, cancellations or skips; overlapping earlier cases are counted

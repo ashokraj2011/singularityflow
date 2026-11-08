@@ -277,7 +277,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           const body=await text('Apply the verified requirements and retain evidence.\\n');
           const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',
             definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md',approval:{authorities:['reviewers'],minimum:1,rejectTo:['intake']}}},
-              approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'}]}},
+              approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'},{email:'independent@example.test'}]}},
               workTypes:{simple:{label:'Simple',phases:['intake'],
                 omits:['scope','plan','implement','verify'].map(responsibility=>({responsibility,reason:'This workflow produces a reviewed document, without delivering application behavior.',authority:'reviewers'}))}}},
             agents:[{id:'analyst',label:'Analyst',phases:['intake'],defaultFor:['intake'],mode:'read-write',body,skills:[],instructions:[]}],
@@ -593,6 +593,37 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,status:'retained',effects:{committed:false,pushed:false}});
   });
 
+  await t.test('installed routed approval records an independent human outcome and acknowledges it in another process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceApprovalEngine,NAMESPACE_ROUTED_APPROVAL_PROFILE} from '${packageName}/hosts/namespace-approval';
+      const fresh=process.argv[2]==='fresh',binding={kind:'shared'},scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='routing-story';
+      const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
+      const database=new (await import('node:sqlite')).DatabaseSync(path.resolve('configuration-content.db'));
+      const content=createSqliteContentStore({database,binding});
+      try {
+        const access={current:()=>({projectId:scope.projectId,principalId:'independent-reviewer',actorKind:'human',agentId:null,
+          identity:{name:'Independent reviewer',email:'independent@example.test'},permissions:fresh?['phase.approve']:[]})};
+        const clock={now(){if(!fresh)throw Error('Reopen the original routed receipt.');return '2026-11-08T18:00:00.000Z';}};
+        const engine=createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock});
+        assert.equal(NAMESPACE_ROUTED_APPROVAL_PROFILE,'sflow-primary-document-approval/v2');
+        let confirmation;
+        if(fresh) {
+          const {manifest}=await engine.run('phase.review.resources',{phaseId:'intake'});
+          for(const resource of manifest.resources)assert.equal((await engine.run('document.read',{reference:resource.reference})).document.integrity,'matched');
+          confirmation={workId,phase:'intake',generation:manifest.generation,reviewPacketSha256:manifest.reviewBinding.packetSha256};
+        }
+        const result=await engine.run('phase.approve',{phaseId:'intake',...(confirmation?{confirmation}:{})});
+        assert.equal(result.approval.thresholdReached,true);assert.equal(result.approval.selfApproval,false);assert.equal(result.currentPhase,null);
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();}
+    `;
+    const first=JSON.parse(await run('routing-approval.mjs',source,['fresh']));
+    const replay=JSON.parse(await run('routing-approval.mjs',source,['replay']));assert.deepEqual(replay,first);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -612,7 +643,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
       import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
       import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE } from '${packageName}/hosts/namespace-submission';
-      import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
+      import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import type { ContentStore, ContentReference } from '${packageName}/content';
@@ -729,6 +760,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         authority:{id:'application-authority',epoch:1},access:{current:()=>({projectId:'example',principalId:'human-reviewer',permissions:['configuration.approve'],actorKind:'human'})},
         clock:{now:()=> '2026-11-08T00:00:00.000Z'}});}
       function approvalHost(records:NamespaceStore,content:ContentStore) {
+        const routedProfile:'sflow-primary-document-approval/v2'=NAMESPACE_ROUTED_APPROVAL_PROFILE;void routedProfile;
         const options={records,content,scope:{projectId:'example'},workId:'example',authority:{id:'application-authority',epoch:1},
           access:{current:()=>({projectId:'example',principalId:'human-reviewer',actorKind:'human' as const,agentId:null,
             permissions:['phase.approve'],identity:{name:'Example reviewer',email:'reviewer@example.test'}})},

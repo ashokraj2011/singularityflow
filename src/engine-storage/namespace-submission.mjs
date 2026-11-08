@@ -98,7 +98,7 @@ export function createNamespaceSubmissionEngine({records,content,scope,workId,au
     async load(input,{signal}={}) {
       cancelled(signal);if(input.workId!=null&&input.workId!==workId)throw error('Submission is bound to another Story.','ACTIVE_SUBJECT_MISMATCH');
       const observed=await observer.inspect({signal}),workflow=observed.snapshot.workflow,phaseId=input.phaseId??workflow.currentPhase;
-      const phase=workflow.phases[phaseId];if(!phase)throw error('The selected phase is unavailable.','ENGINE_PHASE_UNAVAILABLE',{phaseId});
+      const phase=workflow.phases[phaseId];if(!Object.hasOwn(workflow.phases,phaseId))throw error('The selected phase is unavailable.','ENGINE_PHASE_UNAVAILABLE',{phaseId});
       if(phase.publicationBindings!==undefined&&!Array.isArray(phase.publicationBindings))throw error('The retained publication inventory is invalid.','ENGINE_STORAGE_CORRUPT');
       if(!hasPublishedPhaseGeneration(phase)||phase.status!=='awaiting_approval'&&phaseNeedsGeneration(workflow,phase))throw error('Publish the actual phase generation before submission.','PHASE_GENERATION_REQUIRED',{workId,phase:phaseId});
       const publication=(phase.publicationBindings??[]).find(item=>item.generation===phase.generation);

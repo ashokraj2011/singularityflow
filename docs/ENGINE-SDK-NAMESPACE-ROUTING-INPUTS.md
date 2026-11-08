@@ -57,18 +57,18 @@ values notice and retained-result meaning are unchanged.
 ## Deliberate execution boundary
 
 An `ask` decision has no invented human answer: its submitted routing record can have no own
-inputs, and submission leaves the phase awaiting approval. Branch execution, human choices,
-bounded rework loops and historical routed-approval outcomes still need their runtime owner.
-The namespace approval host therefore continues refusing `workflow-routing`; this packet delivery
-does not claim routed Story completion.
+inputs, and submission leaves the phase awaiting approval. The
+[routed approval owner](ENGINE-SDK-NAMESPACE-ROUTED-APPROVAL.md) applies pinned branches and bounded
+rework only after the actual human threshold. It preserves original vote receipts across later
+generations and terminal completion. Ask and exhausted-loop outcomes retain an unanswered question;
+recording the human's route choice still needs its own runtime port.
 
-Before enabling that owner, reviewers must receive exact issued resource references to the routing
-packet, and routed approvals must preserve original receipts through rework and reopened phases.
-Those requirements remain part of Phase 7. Production execution policy, existing-project migration,
+Reviewers receive [exact issued resource references](ENGINE-SDK-REVIEW-RESOURCES.md) to the routing
+packet and its retained sources. Complete production execution policy, existing-project migration,
 writer fencing, cleanup and distribution/performance qualification retain their full Phase 5–9
 scope.
 
-## Local qualification
+## Local qualification of the initial input-packet slice
 
 Disposable Mac fixtures exercise actual publication/submission on filesystem, SQLite and
 application stores, accepted and prepared retries, schema/metadata corruption and original I/O

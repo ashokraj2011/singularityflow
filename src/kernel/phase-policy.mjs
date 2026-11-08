@@ -300,6 +300,12 @@ export function phaseNeedsGeneration(workflow, phase) {
   if (!phase || phase.generation < 1) return true;
   if (phase.reworkRevalidation
       && phase.generation <= phase.reworkRevalidation.generation) return true;
+  // A retained immutable publication is causal evidence of a successor generation. Its logical
+  // generation supersedes rework even when an application's clock is coarse or moves backward.
+  // Legacy unbound records keep their original timestamp-based compatibility rule below.
+  if (phase.reworkRevalidation && phase.generation > phase.reworkRevalidation.generation
+      && hasPublishedPhaseGeneration(phase) && Array.isArray(phase.publicationBindings)
+      && phase.publicationBindings.some(binding => phasePublicationBindingValue(binding).generation === phase.generation)) return false;
   if (!phase.rejectedAt) return false;
   return !(workflow.history ?? []).some((event) =>
     event.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt);

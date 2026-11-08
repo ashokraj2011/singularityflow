@@ -482,11 +482,12 @@ test('namespace human approval has explicit ports, a pure vote contract and no i
   const allowed=new Map([
     [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/phase-preparation.mjs','../kernel/approval-policy.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs',
-      '../kernel/publication-intent.mjs','../kernel/lifecycle-transitions.mjs','../kernel/workflow-decisions.mjs','../kernel/project-enrollment.mjs',
+      '../kernel/publication-intent.mjs','../kernel/lifecycle-transitions.mjs','../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','../kernel/project-enrollment.mjs',
       '../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs',
       './namespace-configuration-reader.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-reader.mjs',
       './namespace-lifecycle-contract.mjs','./namespace-approval-contract.mjs'])],
-    [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs','./namespace-approval-contract.mjs'])]
+    [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',
+      '../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','./namespace-approval-contract.mjs'])]
   ]);
   for(const [file,imports]of allowed){const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     const visit=node=>{

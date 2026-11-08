@@ -193,9 +193,19 @@ export function namespaceSubmissionWriterProfile({routing=false}={}) {
   return namespaceSubmissionRecordProfile({schemaVersion:routing?NAMESPACE_SUBMISSION_SCHEMAS.packet.currentVersion:1});
 }
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
-  vote:frozenFamily('namespace-phase-approval-vote'),binding:frozenFamily('namespace-phase-approval-binding'),
-  artifactSet:frozenFamily('namespace-primary-approval-artifact-set')
+  vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),binding:frozenFamily('namespace-phase-approval-binding'),
+  artifactSet:frozenFamily('namespace-primary-approval-artifact-set'),routing:frozenFamily('namespace-phase-approval-routing'),
+  receipt:frozenFamily('namespace-phase-approval-receipt')
 });
+export function namespaceApprovalRecordProfile(input) {
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.vote,input);
+  return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-approval-vote/v${storedVersion}`,
+    profile:`sflow-primary-document-approval/v${storedVersion}`,routing:storedVersion>1});
+}
+export function namespaceApprovalWriterProfile({routing=false}={}) {
+  return namespaceApprovalRecordProfile({schemaVersion:routing?NAMESPACE_APPROVAL_SCHEMAS.vote.currentVersion:1});
+}
 /** Portable publication reference metadata; acceptance and byte verification belong to its owners. */
 export function phasePublicationBindingValue(value) {
   admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.binding,value);

@@ -48,8 +48,11 @@ for(const backend of ['filesystem','sqlite','application'])test(`${backend}: nor
     .run('phase.submit',{phaseId:'intake',decisionValues:{channel:'Mobile',confidence:1}});
   assert.equal(replay.status,'retained');assert.equal(replay.submission.reviewPacket,result.submission.reviewPacket);
   assert.deepEqual((await f.capture()).workflow.phases.intake.decisionInputs,phase.decisionInputs);
-  await assert.rejects(f.makeApproval().run('phase.approve',{phaseId:'intake',confirmation:await f.confirmation()}),
-    error=>error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.includes('workflow-routing'));
+  const approval=await f.makeApproval().run('phase.approve',{phaseId:'intake',confirmation:await f.confirmation()});
+  assert.equal(approval.approval.thresholdReached,true);assert.equal(approval.currentPhase,null);
+  const complete=await f.capture();assert.equal(complete.workflow.status,'closed');
+  const vote=JSON.parse(Buffer.from((await f.content.read(f.scope,complete.workflow.phases.intake.approvals[0].namespaceVote.record)).data));
+  assert.equal(vote.schemaVersion,2);assert.equal(vote.routing.outcome.kind,'end');
 });
 
 test('missing, unknown and out-of-range inputs cannot record a submission or sample a new clock',async t=>{

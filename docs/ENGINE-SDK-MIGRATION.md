@@ -83,13 +83,16 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 The [immutable routing-input delivery](ENGINE-SDK-NAMESPACE-ROUTING-INPUTS.md) adds versioned
 submission records for pinned own/reused decision inputs while preserving decision-free v1 bytes.
 Shared proof readers verify source packets and actual human approval thresholds. This establishes
-input provenance; branch/ask/loop execution and routed historical receipt semantics still require
-their Phase 7 owner. Phases 5, 7, 8 and 9 remain open.
+input provenance. The [routed approval owner](ENGINE-SDK-NAMESPACE-ROUTED-APPROVAL.md) now applies
+pinned branches, rework and unanswered questions, preserving earlier receipts through successor
+generations and completion. Human route choices and full application execution remain Phase 7
+gates. Phases 5, 7, 8 and 9 remain open.
 
 The [review-resource query](ENGINE-SDK-REVIEW-RESOURCES.md) issues exact readable references to the
 retained packet, artifact and reused routing sources through a separate registry operation. Its
 proof traversal and final head/authority check do not change existing `phase.review` outputs or
-record a human review. Routed execution and historical approval receipt semantics remain open.
+record a human review. Human route-choice recording and complete production policy/execution
+remain separate gates.
 
 The [namespace Story creation delivery](ENGINE-SDK-STORY-CREATION.md) connects actual enrollment,
 configuration approval, source retention and lifecycle genesis through the registry. The read
@@ -155,7 +158,7 @@ votes and artifact-set evidence through the conditional writer. Pinned authority
 distinct-human quorum and sequential transitions remain kernel rules. Acknowledgement on another
 host retains the original human vote, timestamp and outcome without granting a new decision.
 The installed archive and all three metadata backends complete reviewed-document journeys;
-application code/testing, branch/loop/choice execution and additional policy owners remain required.
+application code/testing, human route-choice recording and additional policy owners remain required.
 
 That approval slice passed 191 distinct Mac checks across 13 affected files; the final 93-case set
 passed without failures, cancellations or skips. Source validation passed 3,823 checks across 191

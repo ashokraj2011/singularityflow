@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {namespaceApprovalFixture} from './helpers/namespace-approval-fixture.mjs';
 import {createNamespaceReadEngine} from '../src/engine-storage/namespace-reader.mjs';
 import {LIFECYCLE_AUTHORITY_KEY} from '../src/engine-storage/namespace-lifecycle-contract.mjs';
-import {canonicalJson} from '../src/foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS} from '../src/foundation/record-schema.mjs';
 import {createNamespaceLifecycleCommitter} from '../src/engine-storage/namespace-lifecycle-commit.mjs';
 const input={phaseId:'intake'};
 const other={name:'Independent reviewer',email:'independent@example.test',login:null};
@@ -223,7 +223,7 @@ test('future vote schemas retain their upgrade error and are never interpreted a
   const f=await namespaceApprovalFixture(t);await f.submit();const confirmation=await f.confirmation();
   await f.makeApproval().run('phase.approve',{...input,confirmation});const head=await f.head();
   const body=JSON.parse(Buffer.from((await f.content.read(f.scope,head.record.value.state)).data)),decision=body.workflow.phases.intake.approvals[0];
-  const vote=JSON.parse(Buffer.from((await f.content.read(f.scope,decision.namespaceVote.record)).data));vote.schemaVersion=2;
+  const vote=JSON.parse(Buffer.from((await f.content.read(f.scope,decision.namespaceVote.record)).data));vote.schemaVersion=NAMESPACE_APPROVAL_SCHEMAS.vote.maximumReadableVersion+1;
   decision.namespaceVote.record=(await f.content.put(f.scope,'evidence',Buffer.from(canonicalJson(vote)))).reference;
   const future=(await f.content.put(f.scope,'state',Buffer.from(canonicalJson(body)))).reference;
   await f.records.transact(f.scope,{operationId:'inject-future-vote',preconditions:[{namespace:'state',key:head.record.key,version:head.record.version}],

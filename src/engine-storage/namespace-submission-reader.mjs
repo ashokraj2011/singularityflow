@@ -29,6 +29,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     namespaceSubmissionBindingValue(binding);
     // A successor can retain old submission history without becoming submitted itself.
     if(binding.generation!==phase.generation)return null;
+    if(['in_progress','not_started'].includes(phase.status)&&phase.reworkRevalidation?.generation===phase.generation)return null;
     const value=await decode(binding,phaseId,{signal}),bindings=phase.publicationBindings,submissions=snapshot.workflow.lineage?.submissions;
     if(!Array.isArray(bindings)||!Array.isArray(submissions))throw error('The submitted publication or lineage inventory is invalid.','ENGINE_STORAGE_CORRUPT');
     const current=bindings.find(item=>item?.generation===phase.generation),lineage=submissions.findLast(item=>item?.phase===phaseId&&item.generation===phase.generation);

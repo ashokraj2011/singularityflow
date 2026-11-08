@@ -78,6 +78,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `hosts/namespace-approval`: record an explicitly confirmed human vote over that exact shared
   submission, enforce pinned authority and quorum, and advance a reviewed-document workflow.
   Acknowledgement on another host preserves the original receipt and creates no new vote.
+  Versioned routed votes apply pinned branches and rework, preserve receipts through successor
+  generations, and pause unanswered human choices. Actual code/test execution and route-choice
+  recording still need their separate runtime owners.
 
 The Story host binds the same stores, scope and authority as project setup, plus an explicit
 `workId`, creator access port and clock. `story.create` takes `operationId`, `workId`, `title`,

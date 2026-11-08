@@ -1,12 +1,13 @@
 /** Immutable human votes and primary-document sets; no storage or actor discovery. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {NAMESPACE_APPROVAL_SCHEMAS,admitRecordSchemaVersion,canonicalJson} from '../foundation/record-schema.mjs';
-import {exactObject,namespaceIdentifier,namespaceKey,namespaceRevision} from '../sda/namespace/values.mjs';
+import {NAMESPACE_APPROVAL_SCHEMAS,admitRecordSchemaVersion,canonicalJson,namespaceApprovalRecordProfile,namespaceApprovalWriterProfile} from '../foundation/record-schema.mjs';
+import {exactObject,namespaceIdentifier,namespaceKey,namespaceRevision,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 export const NAMESPACE_APPROVAL_PROFILE='sflow-primary-document-approval/v1';
+export const NAMESPACE_ROUTED_APPROVAL_PROFILE='sflow-primary-document-approval/v2';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 function checked(validate) {
@@ -22,10 +23,10 @@ export function namespaceApprovalBindingValue(value) {return checked(()=>{
   evidence(value.record);return value;
 });}
 export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
-  admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.vote,value);
+  const profile=namespaceApprovalRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256',
-    'baseRevision','configuration','reviewPacket','artifactSet','actor','agentId','recordedAt','authorityGroup','selfApproval','thresholdReached','currentPhase']);
-  if(value.format!=='sflow-namespace-phase-approval-vote/v1'||value.profile!==NAMESPACE_APPROVAL_PROFILE||value.projectId!==projectId
+    'baseRevision','configuration','reviewPacket','artifactSet','actor','agentId','recordedAt','authorityGroup','selfApproval','thresholdReached','currentPhase',...(profile.routing?['routing']:[])]);
+  if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another approval binding.');
   for(const field of ['projectId','workId','phase','operationId','authorityGroup'])namespaceIdentifier(value[field]);
   if(namespaceRevision(value.baseRevision)===null)throw Error('Approval needs its original canonical revision.');
@@ -37,7 +38,80 @@ export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {ret
   if(typeof value.selfApproval!=='boolean'||typeof value.thresholdReached!=='boolean'
     ||value.currentPhase!==null&&typeof value.currentPhase!=='string'||!value.thresholdReached&&value.currentPhase!==phaseId)throw Error('Invalid approval outcome.');
   if(value.currentPhase!==null)namespaceIdentifier(value.currentPhase);
+  if(profile.routing) {
+    namespaceApprovalRoutingValue(value.routing);
+    if(value.thresholdReached!==(value.routing.outcome!==null)||value.routing.outcome&&value.routing.outcome.after!==phaseId)throw Error('Another routed approval outcome.');
+  }
   projectEnrollmentTimestamp(value.recordedAt);return value;
+});}
+
+export function namespaceApprovalRoutingValue(value) {return checked(()=>{
+  admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.routing,value);exactObject(value,['schemaVersion','format','decision','outcome','pendingKey']);
+  if(value.format!=='sflow-namespace-phase-approval-routing/v1')throw Error('Another routing format.');
+  namespaceIdentifier(value.decision);
+  if(value.pendingKey!==null&&(typeof value.pendingKey!=='string'||!/^[a-f0-9]{16}$/u.test(value.pendingKey)))throw Error('Invalid pending question key.');
+  const outcome=value.outcome;
+  if(outcome!==null) {
+    const common=['decision','label','after','kind','by'];
+    const keys=outcome.kind==='pause'&&outcome.reason==='ask'?[...common,'reason']
+      :outcome.kind==='pause'?[...common,'reason','route','routeLabel','round','maxRounds','values','because','goal']
+        :outcome.kind==='loop'?[...common,'route','routeLabel','target','round','maxRounds','values','because','goal']
+          :[...common,'route','routeLabel','target','skipped','values','because'];
+    exactObject(outcome,keys);namespaceIdentifier(outcome.after);
+    if(outcome.decision!==value.decision||typeof outcome.label!=='string'||!outcome.label.length||outcome.label.length>2048
+      ||!['next','forward','end','loop','pause'].includes(outcome.kind)
+      ||outcome.by!==(outcome.kind==='pause'&&outcome.reason==='ask'?'person':'rule'))throw Error('Invalid pinned routing outcome.');
+    if(outcome.kind==='pause') {if(!['ask','limit'].includes(outcome.reason))throw Error('Invalid pause reason.');}
+    else {
+      if(outcome.kind==='end'?outcome.target!==null:outcome.target===null)throw Error('Invalid routed target.');
+      if(outcome.target!==null)namespaceIdentifier(outcome.target);
+    }
+    if(Object.hasOwn(outcome,'skipped')) {
+      if(!Array.isArray(outcome.skipped)||new Set(outcome.skipped).size!==outcome.skipped.length)throw Error('Invalid skipped range.');
+      outcome.skipped.forEach(id=>namespaceIdentifier(id));
+    }
+    if(Object.hasOwn(outcome,'route')) {
+      namespaceIdentifier(outcome.route);if(typeof outcome.routeLabel!=='string'||!outcome.routeLabel.length||outcome.routeLabel.length>2048)throw Error('Invalid route label.');
+    }
+    if(Object.hasOwn(outcome,'round')&&(!Number.isSafeInteger(outcome.round)||outcome.round<1||!Number.isSafeInteger(outcome.maxRounds)||outcome.maxRounds<1))throw Error('Invalid loop round.');
+  }
+  if((value.pendingKey!==null)!==(outcome?.kind==='pause'))throw Error('The question key does not match the outcome.');
+  namespaceJson(value);return value;
+});}
+
+/** A routing contract is explicit; ordinary approvals continue writing their original v1 bytes. */
+export function namespaceApprovalRecord(value,{routing=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing'].some(key=>Object.hasOwn(value,key))) {
+    throw new SingularityFlowError('Approval wire metadata must use its registered profile.',{code:'ENGINE_INPUT_INVALID'});
+  }
+  const profile=namespaceApprovalWriterProfile({routing:routing!==null});
+  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{})};
+}
+
+export function namespaceApprovalReceiptValue(value,{projectId,workId}={}) {return checked(()=>{
+  admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.receipt,value);
+  exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','principalId','operationId','reviewPacketSha256','record']);
+  if(value.format!=='sflow-namespace-phase-approval-receipt/v1'||value.projectId!==projectId||value.workId!==workId
+    ||!Number.isSafeInteger(value.generation)||value.generation<1||!digest(value.reviewPacketSha256)
+    ||typeof value.principalId!=='string'||!value.principalId.length||value.principalId.length>512||/[\u0000-\u0020\u007f]/u.test(value.principalId))throw Error('Invalid approval receipt link.');
+  for(const field of ['projectId','workId','phase','operationId'])namespaceIdentifier(value[field]);
+  evidence(value.record);return value;
+});}
+export function namespaceApprovalReceipt(value,binding) {
+  namespaceApprovalBindingValue(binding);
+  if(!value.routing||binding.generation!==value.generation)throw new SingularityFlowError('Another routed approval receipt generation.',{code:'ENGINE_STORAGE_CORRUPT'});
+  return namespaceApprovalReceiptValue({schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.receipt.currentVersion,format:'sflow-namespace-phase-approval-receipt/v1',
+    projectId:value.projectId,workId:value.workId,phase:value.phase,generation:value.generation,principalId:value.actor.principalId,
+    operationId:value.operationId,reviewPacketSha256:value.reviewPacket.sha256,record:binding.record},{projectId:value.projectId,workId:value.workId});
+}
+export function namespaceApprovalReceipts(workflow,{projectId,workId}) {return checked(()=>{
+  const values=Object.hasOwn(workflow,'namespaceApprovalReceipts')?workflow.namespaceApprovalReceipts:[];
+  if(!Array.isArray(values))throw Error('Invalid approval receipt inventory.');
+  const seen=new Set();
+  for(const value of values) {
+    namespaceApprovalReceiptValue(value,{projectId,workId});if(seen.has(value.operationId))throw Error('Duplicate approval receipt.');seen.add(value.operationId);
+  }
+  return values;
 });}
 export function namespaceApprovalArtifactSetValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
   admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.artifactSet,value);

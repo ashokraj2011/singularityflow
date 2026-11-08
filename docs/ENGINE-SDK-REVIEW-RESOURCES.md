@@ -25,8 +25,8 @@ submission, record a human review, cast a vote or authorize a route.
 A real current submitted review can return its fresh review binding. An approved historical phase
 can expose its current-generation resources without becoming a new approval opportunity. Existing
 `document.read` references still enforce their exact generation; after rework, clients request the
-new manifest rather than rewriting old references. Older-generation receipt acknowledgement is a
-separate approval concern.
+new manifest rather than rewriting old references. Older-generation receipt acknowledgement uses
+the [routed approval owner](ENGINE-SDK-NAMESPACE-ROUTED-APPROVAL.md), rather than a document read.
 
 An unprepared phase points to registered preparation; an already-published but unsubmitted phase
 points to submission. A projection-only read head explicitly requires a canonical submission
@@ -37,8 +37,8 @@ exact phase, generation, resource kind and expected content reference.
 The shared kernel validates the manifest shape and references; the SDK owns coordination; SDA
 owns content/record reads. Native Git review output remains on its existing registered route. The
 new query does not route workflow decisions or finish the portable execution milestone. Versioned
-routed approval outcomes, historical receipt recovery, human choices and bounded loops remain
-required Phase 7 work, followed by existing-project migration and final cleanup/qualification.
+routed approvals and receipt recovery now have their own owner. Human choices and full application
+execution remain required Phase 7 work, followed by migration and final cleanup/qualification.
 
 ## Mac qualification
 
@@ -47,7 +47,7 @@ failures, cancellations or skips in their final runs. They cover actual filesyst
 application-backed packet/artifact reads; original storage errors; a moved authority; malformed
 references; generation guidance; existing review/document compatibility; exact pre-routing v1
 approval bytes; and the installed package's separate-process and NodeNext checks. The complete
-reused-routing journey still needs the routed approval owner.
+reused-routing journey is qualified separately with the routed approval owner.
 
 Source validation passed 3,828 checks across 191 skills, VS Code typechecking passed, and the Git
 ownership audit retained its existing 2,011 process/Git sites. All 13 bundle budgets passed with

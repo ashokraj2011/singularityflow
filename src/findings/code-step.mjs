@@ -14,8 +14,8 @@
  * - `off`: none of it runs in the loop.
  *
  * A scanner that is missing, offline, not allowed to run with the model off, or that wrote no report,
- * is recorded as unavailable and blocks nothing [decision 11]. Under enforce, a required one holds the
- * step until a person accepts it as unavailable. A run on unchanged code, under the same tool version
+ * is recorded as unavailable, shown to the step's approvers, and blocks nothing, in every mode
+ * [CQF:REQ-054, decision 11]. A run on unchanged code, under the same tool version
  * and ruleset digest, stands for a later gate [CQF:REQ-045]. A suppression added on a changed line is
  * itself a finding [CQF:REQ-044].
  */
@@ -241,7 +241,7 @@ function databaseAge(database, at) {
   return { live: database.live === true, updatedAt: database.updatedAt ?? null, stale: age != null && age > DATABASE_STALE_DAYS * DAY };
 }
 
-/** The scanners that could not be read, and under enforce those a person has not accepted as unavailable. */
+/** The scanners that could not be read, each with a person's acceptance of it when one was recorded. */
 function unavailableScanners(workflow, phase, outcome, { at }) {
   return outcome.results.filter((result) => result.status === 'unavailable').map((result) => {
     const finding = scannerUnavailableFinding(result.command);
@@ -304,25 +304,11 @@ function warnDependencies(phase, outcome, dependencies, { at }) {
 
 const findingWords = (list) => list.slice(0, 3).map((finding) => `${finding.tool} ${finding.rule ?? ''} at ${finding.file ?? '?'}:${finding.line ?? '?'}`.replace(/\s+/gu, ' ')).join('; ');
 
+/** A scanner that cannot run is recorded for the approvers and blocks nothing, under enforce too [decision 11]. */
 function warnUnavailable(mode, unavailable) {
   for (const entry of unavailable) {
-    const held = mode === 'enforce' && entry.requirement === 'required' && !entry.accepted;
-    console.warn(`Warning: scanner ${entry.commandId} is unavailable (${entry.reason}); ${held ? 'under enforce a person accepts it with decision finding-risk' : 'it is recorded and blocks nothing'}.`);
+    console.warn(`Warning: scanner ${entry.commandId} is unavailable (${entry.reason}); it is recorded for the step's approvers and blocks nothing.`);
   }
-}
-
-/** Under enforce, a required scanner that cannot run here holds the step until a person accepts it [CQF:REQ-046]. */
-function heldScannerRefusal(workflow, phase, mode, unavailable, operation) {
-  const held = mode === 'enforce' ? unavailable.filter((entry) => entry.requirement === 'required' && !entry.accepted) : [];
-  if (!held.length) return null;
-  return new SingularityFlowError(
-    `Phase ${phase.id} enforces its findings, and required scanner${held.length === 1 ? '' : 's'} ${held.map((entry) => entry.commandId).join(', ')} could not run here. `
-    + `Make it available, or a person accepts it as unavailable with decision finding-risk; nothing was ${operation === 'submit' ? 'submitted' : 'published'}.`,
-    { code: 'CODE_QUALITY_SCANNER_UNAVAILABLE', details: { phase: phase.id, workId: workflow.workItem.id,
-      qualityFindings: { mode, unavailable: held.map(({ commandId, reason }) => ({ commandId, reason })), findings: [held[0].finding].map(returned) },
-      recoveryCommands: held.slice(0, 3).map((entry) => ({ command: findingRiskDecisionCommand(workflow, { phaseId: phase.id, finding: entry.finding }),
-        label: `A person who may decide (${findingRiskAuthorities(workflow, phase.id, entry.finding).join(', ') || 'the step approvers'}) accepts that ${entry.commandId} cannot run here.` })) } }
-  );
 }
 
 /** Under enforce, findings that remain once the loop is spent hold the step for a person [decision 8]. */
@@ -345,8 +331,6 @@ async function decideLoop(root, workflow, phase, outcome, { mode, generation }) 
   const unavailable = unavailableScanners(workflow, phase, outcome, { at });
   warnUnavailable(mode, unavailable);
   const workId = workflow.workItem.id;
-  const scanners = heldScannerRefusal(workflow, phase, mode, unavailable, 'publish');
-  if (scanners) throw scanners;
   warnDependencies(phase, outcome, dependencies, { at });
   if (!counted.length) return findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: 'passed', dependencies, at });
   const rounds = await generationFindingRounds(root, workId, phase.id, generation);
@@ -410,9 +394,9 @@ function findingCheck(result, { mode, candidate, counted, status, reason = null 
   const own = counted.filter((finding) => finding.source === command.id).length;
   return {
     id: command.id, command: command.command ?? command.argv.join(' '), kind: command.kind,
-    // Unavailable under warn informs: the verdict never counts it as a required check missing [decision 11].
-    // An audit with no changed manifest to read was not needed, in any mode [CQF:REQ-050].
-    requirement: (status === 'unavailable' && mode !== 'enforce') || result.status === 'not-needed' ? 'advisory' : command.requirement ?? 'required',
+    // Unavailable informs, in every mode: the verdict never counts it as a required check missing [decision 11].
+    // An audit with no changed manifest to read was not needed [CQF:REQ-050].
+    requirement: status === 'unavailable' || result.status === 'not-needed' ? 'advisory' : command.requirement ?? 'required',
     externalModelPolicy: command.modelPolicy, workingDirectory: command.workingDirectory ?? null,
     sourceCommit: result.reused?.candidate?.commit ?? candidate.commit, sourceTreeSha256: candidate.treeSha256,
     ...(candidate.testInputSha256 ? { testInputSha256: candidate.testInputSha256 } : {}),
@@ -464,8 +448,6 @@ export async function submitCheckFindings(root, config, workflow, phase, command
   const dependencies = newDependencyFindings(workflow, phase, outcome, { at });
   const unavailable = unavailableScanners(workflow, phase, outcome, { at });
   warnUnavailable(mode, unavailable);
-  const scanners = heldScannerRefusal(workflow, phase, mode, unavailable, 'submit');
-  if (scanners) throw scanners;
   warnDependencies(phase, outcome, dependencies, { at });
   if (counted.length && mode === 'enforce') {
     throw heldFindingsRefusal(workflow, phase, { mode, findings: counted.slice(0, RETURNED_FINDINGS).map(returned),

@@ -1,6 +1,7 @@
 /**
  * A person accepts one finding [CQF:REQ-047]: a lint, static-analysis or security finding on new code
- * that the step keeps, or a scanner that cannot run here under enforce [CQF:REQ-046]. Modelled on the
+ * that the step keeps, a vulnerable package the Story added [CQF:REQ-052], or a scanner that cannot run
+ * here, which blocks nothing in any mode but may be recorded as accepted [decision 11]. Modelled on the
  * test-run risk (src/test-run-risk.mjs): a reason of at least 20 characters, an expiry at most 90 days
  * ahead, append-only, revocable, and never the model's.
  *

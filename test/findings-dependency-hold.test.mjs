@@ -87,14 +87,16 @@ const PLAN = (WORK) => [
 
 /**
  * A Story at its implementation step that adds minimist 1.2.5, which has a known critical advisory,
- * with npm audit as its security command. `securityReviewers` names that group's one member.
+ * with npm audit as its security command beside `otherCommands`. `securityReviewers` names that
+ * group's one member.
  */
-async function storyAddingMinimist(t, WORK, { securityReviewers = null } = {}) {
+async function storyAddingMinimist(t, WORK, { securityReviewers = null, otherCommands = [], staticAnalysis = null } = {}) {
   const audit = { id: 'npm-audit', kind: 'security', modelPolicy: 'never', argv: [process.execPath, 'tools/print-audit.mjs'],
     result: { adapter: 'npm-audit', path: '.sflow/results/npm-audit.json' } };
   const lock = (packages) => `${JSON.stringify({ name: 'value-app', lockfileVersion: 3, requires: true, packages: { '': { name: 'value-app' }, ...packages } }, null, 2)}\n`;
   const story = await approvedSpecificationStory(t, WORK, { configure: (configuration) => {
-    configuration.phases.implementation.qualityCommands = [audit];
+    configuration.phases.implementation.qualityCommands = [audit, ...otherCommands];
+    if (staticAnalysis) configuration.codeDelivery = { ...(configuration.codeDelivery ?? {}), staticAnalysis };
     if (securityReviewers) {
       configuration.approvalAuthorities['security-reviewers'] = { label: 'Security reviewers', members: [{ email: securityReviewers }] };
       // Not enrolled into every group, as the proof-of-concept profile would enrol the Story's creator.
@@ -217,4 +219,29 @@ test('with security reviewers named, only they accept a vulnerable package, howe
   assert.deepEqual([decision.authorityGroup, decision.kind, decision.security], ['security-reviewers', 'dependency', true]);
   const approved = story.run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], { allowFailure: true });
   assert.equal(approved.status, 0, `${approved.stdout}\n${approved.stderr}`);
+});
+
+test('a scanner or its database that cannot run is recorded and blocks nothing, under enforce too [CQF:REQ-054, decision 11]', slowLane({ timeout: 900_000 }), async (t) => {
+  const WORK = 'CQF-503';
+  const story = await storyAddingMinimist(t, WORK, { staticAnalysis: { mode: 'enforce' }, otherCommands: [
+    { id: 'semgrep', kind: 'security', modelPolicy: 'never', argv: ['sflow-test-scanner-that-is-not-installed', '--sarif'], result: { adapter: 'sarif', path: '.sflow/results/semgrep.sarif' } },
+    { id: 'plain-lint', kind: 'lint', modelPolicy: 'never', argv: ['sflow-test-linter-that-is-not-installed', 'src'] },
+    { id: 'plain-audit', kind: 'security', modelPolicy: 'never', command: 'sflow-test-audit-that-is-not-installed --check' }] });
+  const { workflow } = story;
+  const published = story.run(process.execPath, [CLI, '--no-model', 'phase', 'prepublish', 'implementation', '--for-agent', '--json', '--publish-if-ready'], { allowFailure: true });
+  const text = published.stdout.trim() || published.stderr.trim();
+  const value = completeAgentResult(text.slice(text.indexOf('{')));
+  assert.equal(published.status, 0, JSON.stringify(value).slice(0, 3000));
+  assert.deepEqual(value.publishIfReady.qualityFindings.unavailable, ['semgrep'], 'under enforce the missing scanner is recorded, and publication goes ahead');
+  const submitted = story.run(process.execPath, [CLI, '--no-model', 'submit', 'implementation'], { allowFailure: true });
+  assert.equal(submitted.status, 0, `${submitted.stdout}\n${submitted.stderr}`);
+  const checks = (await workflow()).phases.implementation.checks;
+  const of = (id) => checks.find((check) => check.id === id);
+  assert.deepEqual([of('semgrep').status, of('semgrep').requirement], ['unavailable', 'advisory']);
+  // A plain lint or security command whose program is not here: not installed (ENOENT), or the shell's 127.
+  for (const id of ['plain-lint', 'plain-audit']) {
+    assert.deepEqual([of(id).status, of(id).requirement, of(id).configuredRequirement, of(id).scannerUnavailable], ['unavailable', 'advisory', 'required', true], id);
+    assert.match(of(id).stderr, /^Not run here: .*A scanner that cannot run is recorded and blocks nothing\.$/su, id);
+  }
+  assert.equal((await workflow()).phases.implementation.status, 'awaiting_approval');
 });

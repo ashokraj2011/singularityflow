@@ -1,6 +1,7 @@
 /**
  * `decision finding-risk`: a person accepts one lint, static-analysis or security finding a code step
- * keeps, or a scanner that cannot run here under enforce, or revokes such a decision [CQF:REQ-047].
+ * keeps (a vulnerable package the Story added among them), or a scanner that cannot run here, which blocks
+ * nothing but may be recorded as accepted, or revokes such a decision [CQF:REQ-047, REQ-052].
  * See src/finding-risk.mjs.
  *
  *   singularity-flow decision finding-risk [WORK-ID] --phase PHASE --finding F-ID [--fingerprint sha256:... --rule RULE --tool TOOL [--tool-version V] [--kind KIND]] --reason TEXT --expires YYYY-MM-DD

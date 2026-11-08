@@ -4551,6 +4551,19 @@ function safeEnvironmentMetadata(value, fallbackName = null) {
 }
 
 /** The blocked check an environment-linked command records instead of running. */
+/**
+ * A lint, static-analysis or security command that reads no findings and could not run here (its
+ * program is not installed, the shell answered 127, or it was blocked: no bound environment, past its
+ * timeout) is recorded as unavailable and blocks nothing [CQF:REQ-054, decision 11]. Tests, builds and
+ * formatters keep their rule. A finding command's own run is judged by the findings loop.
+ */
+export function scannerUnavailableCheck(check, policy) {
+  if (!FINDING_COMMAND_KINDS.includes(policy.kind) || findingCommand(policy)) return check;
+  if (!(check.status === 'blocked' || check.infrastructureUnavailable || (check.status === 'failed' && check.exitCode === 127))) return check;
+  return Object.assign(check, { status: 'unavailable', configuredRequirement: check.requirement ?? 'required', requirement: 'advisory', scannerUnavailable: true,
+    stderr: `Not run here: ${String(check.stderr ?? '').trim() || `exit ${check.exitCode}`} A scanner that cannot run is recorded and blocks nothing.`.slice(0, 2000) });
+}
+
 function environmentBlockedCheck(policy, { environment, errorCode, reason, sourceCommit, sourceTreeSha256, startedAt }) {
   return {
     id: policy.id,
@@ -4781,7 +4794,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       sourceCommit, sourceTreeSha256, startedAt, localIntegration
     });
     if (environmentGate.block) {
-      checks.push(environmentGate.block);
+      checks.push(scannerUnavailableCheck(environmentGate.block, policy));
       continue;
     }
     // The runner boundary: values for this one process, never a durable field [RUN rule 3].
@@ -4792,12 +4805,12 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         sourceRoots: workflow?.resolution?.capability?.sourceScope?.sourceRoots ?? [], workingDirectory: policy.workingDirectory })
         .catch((error) => (String(error?.code).startsWith('ENV_FILE_') ? { refusal: error } : null));
       if (materialized?.status !== 'bound') {
-        checks.push(environmentBlockedCheck(policy, {
+        checks.push(scannerUnavailableCheck(environmentBlockedCheck(policy, {
           environment: safeEnvironmentMetadata(materialized?.environment, environmentGate.run.environmentId),
           errorCode: materialized?.refusal?.code ?? 'ENVIRONMENT_BINDING_UNAVAILABLE',
           reason: materialized?.refusal?.message ?? `Environment '${environmentGate.run.environmentId}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`,
           sourceCommit, sourceTreeSha256, startedAt
-        }));
+        }), policy));
         continue;
       }
     }
@@ -5025,7 +5038,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     if (findingsReport) Object.defineProperty(check, 'findingRoots', { value: { isolated: isolation?.root ?? null }, configurable: true });
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     qualityCommandResults.set(check, result);
-    checks.push(check);
+    checks.push(scannerUnavailableCheck(check, policy));
     activeTransientRestore = null;
   }
   } catch (error) {

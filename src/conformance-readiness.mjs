@@ -286,8 +286,8 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
       rowsQualified, expected: rowsQualified ? [] : await traceableConformanceIds(root, config, workflow)
     }),
     ...inspectSelfApprovalDisclosures(markdown, workflow),
-    // A person deciding a deviated or unplanned row needs the difference in words [SCS:REQ-011]. The
-    // author repairs it in the same turn; no gate reads this, so an approved report is never refused for it.
+    // A person deciding a deviated or unplanned row needs the difference in words [SCS:REQ-011]. The author
+    // repairs it in the same turn: the draft check, publication, submission and approval read it; the gate's own report checks do not.
     ...(decidesConformanceDifferences(workflow) ? unstatedConformanceDifferences(markdown).map((row) => ({
       code: 'conformance.deviation-unstated', clauseId: row.clauseId, line: row.line,
       message: `conformance ${row.clauseId} is ${row.verdict} on line ${row.line} but does not say what differs: write it in the row's Deviation cell`

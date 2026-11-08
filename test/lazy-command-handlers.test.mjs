@@ -379,7 +379,20 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // words (state.mjs, approval-check.mjs, decision-list.mjs), prepublish and publication recording them (phase-lifecycle.mjs), the catalog row and the
     // command (person-step-catalog.mjs, command-registry.mjs, command-skills.mjs, messages.mjs). The records and their reads stay lazy (departures.mjs, departure-records.mjs).
     // 9,573,550 (measured 9,573,488, commands/phase-lifecycle.mjs): test results carry forward, departures and the findings loop merged; each one's growth is above.
-    assert.ok(closure.bytes <= 9_573_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,562,800 (measured 9,562,771, commands/phase-lifecycle.mjs): the dependency audits' readers and a report the tool prints
+    // (external-command-policy.mjs +1564, state.mjs +375) [CQF:REQ-050]. The readers and manifest comparison stay lazy (findings/).
+    // 9,563,550 (measured 9,563,521, commands/phase-lifecycle.mjs): the approval waits on a vulnerable package the Story added
+    // (state.mjs +750) [CQF:REQ-052]. The hold loads from the CLI source only when a gate recorded one; no new eager file.
+    // 9,564,700 (measured 9,564,651, commands/phase-lifecycle.mjs): a plain lint, static-analysis or security command whose program
+    // is not here is recorded as unavailable, not failed (state.mjs +1130) [CQF:REQ-054]; one refusal fewer (refusal-remediation.mjs -44).
+    // 9,565,550 (measured 9,565,535, commands/phase-lifecycle.mjs): an advisory scanner that reads no findings and reported problems
+    // is warned, not failed (state.mjs +662, lifecycle-evidence-policy.mjs +222) [CQF decision 6]. Import's readers stay lazy.
+    // 9,565,850 (measured 9,565,815, commands/phase-lifecycle.mjs): the review text shows the findings and the required checks
+    // (print-phase-review.mjs +280) [CQF:REQ-055]. Their reads stay lazy (findings/required-checks.mjs).
+    // 9,566,000 (measured 9,565,950, commands/phase-lifecycle.mjs): the vulnerable new dependency hold names its catalog entry
+    // (finding-catalog.mjs +135) [CQF:REQ-052].
+    // 9,578,650 (measured 9,578,606, commands/phase-lifecycle.mjs): security checks merged too; their growth is above.
+    assert.ok(closure.bytes <= 9_578_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -565,7 +578,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,165,750 (measured 4,165,714): the same code-delivery-policy.mjs +294 as start.
   // 4,163,200 (measured 4,163,160): the same departures as start; no new file.
   // 4,171,000 (measured 4,170,977): the same three merged.
-  assert.ok(current.bytes <= 4_171_000, `session current loads ${current.bytes} source bytes`);
+  // 4,167,300 (measured 4,167,278): the same external-command-policy.mjs +1564 as phase-lifecycle [CQF:REQ-050].
+  // 4,172,600 (measured 4,172,541): security checks merged too.
+  assert.ok(current.bytes <= 4_172_600, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

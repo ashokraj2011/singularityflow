@@ -1,6 +1,7 @@
 /**
  * A person accepts one finding [CQF:REQ-047]: a lint, static-analysis or security finding on new code
- * that the step keeps, or a scanner that cannot run here under enforce [CQF:REQ-046]. Modelled on the
+ * that the step keeps, a vulnerable package the Story added [CQF:REQ-052], or a scanner that cannot run
+ * here, which blocks nothing in any mode but may be recorded as accepted [decision 11]. Modelled on the
  * test-run risk (src/test-run-risk.mjs): a reason of at least 20 characters, an expiry at most 90 days
  * ahead, append-only, revocable, and never the model's.
  *
@@ -25,10 +26,16 @@ export function securityFinding(finding) {
   return finding?.feed === 'security' || SECURITY_KINDS.has(finding?.kind);
 }
 
-/** Who may accept `finding` on `phaseId`: the security reviewers for a security finding when the workflow names them, else the step approvers. */
+/**
+ * Who may accept `finding` on `phaseId`: the security reviewers for a security finding when the workflow
+ * names them, else the step approvers. A finding whose kind is not known (named on another checkout
+ * without --kind) is treated as a security finding, so leaving the kind out never moves a decision
+ * away from the security reviewers [decision 10].
+ */
 export function findingRiskAuthorities(workflow, phaseId, finding) {
   const registry = workflow?.resolution?.approvalAuthorities ?? {};
-  if (securityFinding(finding) && (registry[SECURITY_REVIEWERS]?.members?.length || registry[SECURITY_REVIEWERS]?.allowAnyGitIdentity === true)) {
+  const security = securityFinding(finding) || !finding?.kind;
+  if (security && (registry[SECURITY_REVIEWERS]?.members?.length || registry[SECURITY_REVIEWERS]?.allowAnyGitIdentity === true)) {
     return [SECURITY_REVIEWERS];
   }
   return testRunRiskAuthorities(workflow, phaseId);
@@ -66,7 +73,7 @@ export function recordFindingRisk(workflow, { phaseId, finding, reason, expires,
     id: `FRK-${String(workflow.findingRisks.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
     phase: phaseId, findingId: finding.id ?? null, fingerprint: finding.fingerprint, rule: finding.rule ?? null, tool: finding.tool,
     toolVersion: finding.toolVersion ?? null, ...(finding.file ? { file: finding.file } : {}), ...(finding.severity ? { severity: finding.severity } : {}),
-    ...(finding.kind ? { kind: finding.kind } : {}), security: securityFinding(finding),
+    ...(finding.kind ? { kind: finding.kind } : {}), security: securityFinding(finding) || !finding.kind,
     reason: why, expiresAt: expiry.toISOString(), actor, authorityGroup, identityAssurance, at
   };
   workflow.findingRisks.push(decision);

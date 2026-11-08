@@ -20,6 +20,7 @@ import { fileMedia } from './formats.mjs';
 import { initializeDefinition } from '../config.mjs';
 import { SKILL_ATTACHMENTS_PATH } from '../skill-library.mjs';
 import { CHECK_KINDS, classifyCommand } from '../guidance-scan.mjs';
+import { scannerCheck } from '../findings/ci-scanners.mjs';
 
 const WORKFLOW_FILE = 'singularity/workflow.yml';
 
@@ -31,7 +32,9 @@ function frontMatter(fields) {
  * A phase's checks as sflow runs them: each named, of its kind, and using no model, so a check is
  * never left unavailable because its model behaviour is unknown. A test command the completer could
  * finish (`completed`, compile.mjs) is written in full, with its variables, folder, module and result,
- * so a code step can publish with it [TCE:REQ-063]; any other stays as the source wrote it.
+ * so a code step can publish with it [TCE:REQ-063]. A scanner is read through its finding reader where
+ * one fits, else imported as advisory (scannerCheck) [CQF decision 6]; any other stays as the source
+ * wrote it.
  */
 function qualityChecks(commands, completed = new Map()) {
   const taken = new Set();
@@ -42,7 +45,8 @@ function qualityChecks(commands, completed = new Map()) {
     taken.add(id);
     const full = completed.get(command);
     if (full) return { ...structuredClone(full), id };
-    return { id, modelPolicy: 'never', argv: [...command.argv], kind: CHECK_KINDS[classifyCommand(command.argv.join(' '))] ?? 'other' };
+    const category = classifyCommand(command.argv.join(' '));
+    return scannerCheck({ id, modelPolicy: 'never', argv: [...command.argv], kind: CHECK_KINDS[category] ?? 'other' }, category);
   });
 }
 

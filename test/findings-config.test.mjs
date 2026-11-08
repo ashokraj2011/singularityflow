@@ -26,7 +26,7 @@ test('a finding command names its reader, its report under .sflow/results and it
   assert.deepEqual(normalized.gate, { failOn: ['blocker', 'high'] }, 'in severity order');
   assert.equal(findingCommand(normalized), true);
   assert.deepEqual(DEFAULT_FINDING_GATE.failOn, ['blocker', 'critical', 'high']);
-  assert.deepEqual(FINDING_RESULT_ADAPTERS, ['eslint-json', 'sarif', 'sonarqube']);
+  assert.deepEqual(FINDING_RESULT_ADAPTERS, ['eslint-json', 'sarif', 'sonarqube', 'npm-audit', 'pnpm-audit', 'pip-audit', 'osv-scanner', 'dependency-check']);
   // As a test report's, the path is the command folder's: a command in web/ writes web/.sflow/results/semgrep.sarif.
   assert.equal(normalizeExternalCommand({ ...eslint, workingDirectory: 'web', result: { adapter: 'sarif', path: '.sflow/results/semgrep.sarif' } }).result.path,
     '.sflow/results/semgrep.sarif');

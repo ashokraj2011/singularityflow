@@ -69,3 +69,76 @@ export function ciStepFor(command) {
   if (/^sonar-scanner\b|sonar:sonar|\bsonar\b/u.test(text)) return 'in GitHub CI it is the SonarSource/sonarqube-scan-action step';
   return null;
 }
+
+// The scanners whose machine report a finding reader reads, how each is asked for it, and the flags that
+// would send it to a file of the tool's own instead of standard output.
+const READ_SCANNERS = Object.freeze([
+  { tool: 'npm', subcommand: 'audit', adapter: 'npm-audit', extension: 'json', format: { flags: ['--json'] }, files: [] },
+  { tool: 'pnpm', subcommand: 'audit', adapter: 'pnpm-audit', extension: 'json', format: { flags: ['--json'] }, files: [] },
+  { tool: 'pip-audit', adapter: 'pip-audit', extension: 'json', format: { option: ['-f', '--format'], value: 'json' }, files: ['-o', '--output'] },
+  { tool: 'osv-scanner', adapter: 'osv-scanner', extension: 'json', format: { option: ['-f', '--format'], value: 'json' }, files: ['--output', '--output-file'] },
+  { tool: 'semgrep', adapter: 'sarif', extension: 'sarif', format: { flags: ['--sarif'], replaces: ['--json', '--text', '--emacs', '--vim', '--junit-xml', '--gitlab-sast', '--gitlab-secrets'] },
+    files: ['-o', '--output', '--sarif-output', '--json-output', '--text-output'] },
+  { tool: 'eslint', adapter: 'eslint-json', extension: 'json', format: { option: ['-f', '--format'], value: 'json' }, files: ['-o', '--output-file'] }
+]);
+const PACKAGE_RUNNERS = new Set(['npx', 'pnpx', 'bunx', 'yarn', 'pnpm', 'uv', 'pipx', 'poetry', 'pdm', 'hatch']);
+
+/** Where the scanner's own program is in `argv`, past a package runner (`npx`, `pnpm exec`, `uv run`, `python -m`). */
+function scannerAt(argv, scanner) {
+  const name = (value) => String(value ?? '').split(/[\\/]/u).at(-1).replace(/\.(?:cmd|exe)$/iu, '').replace(/_/gu, '-');
+  if (scanner.subcommand) return name(argv[0]) === scanner.tool && argv[1] === scanner.subcommand ? 1 : -1;
+  for (const [index, argument] of argv.entries()) {
+    if (name(argument) === scanner.tool) return index;
+    const runner = PACKAGE_RUNNERS.has(name(argument)) || /^python(?:3(?:\.\d+)?)?$/u.test(name(argument)) || ['exec', 'run', 'dlx', '-m', '--'].includes(argument);
+    if (!runner) return -1;
+  }
+  return -1;
+}
+
+/**
+ * The finding reader an imported scanner check is read through [decision 6]: npm and pnpm audit,
+ * pip-audit, osv-scanner, semgrep and ESLint each print a report a reader reads when asked for their
+ * machine format, so the import asks for it (the format flag is added, or its value set to the one
+ * the reader reads) and SFlow writes what it prints to `.sflow/results/<id>`; then only findings on
+ * the Story's new code count. Null when no reader fits: another scanner, or a command that sends its
+ * report to a file of its own. The caller imports that one as advisory.
+ */
+export function importedScannerCommand(argv, id) {
+  const words = [...(argv ?? [])].map(String);
+  for (const scanner of READ_SCANNERS) {
+    const at = scannerAt(words, scanner);
+    if (at < 0) continue;
+    const rest = words.slice(at + 1);
+    if (rest.some((argument) => scanner.files.some((flag) => argument === flag || argument.startsWith(`${flag}=`)))) return null;
+    let next = [...words];
+    const { flags = [], replaces = [], option = [], value = null } = scanner.format;
+    if (flags.length) {
+      next = next.filter((argument, index) => index <= at || !replaces.includes(argument));
+      for (const flag of flags) if (!next.includes(flag)) next.push(flag);
+    } else {
+      const given = next.findIndex((argument, index) => index > at && (option.includes(argument) || option.some((flag) => argument.startsWith(`${flag}=`))));
+      if (given < 0) next.push(option.at(-1), value);
+      else if (next[given].includes('=')) next[given] = `${next[given].slice(0, next[given].indexOf('='))}=${value}`;
+      else next[given + 1] = value;
+    }
+    const stem = String(id ?? scanner.adapter).replace(/[^A-Za-z0-9._-]+/gu, '-').slice(0, 80) || scanner.adapter;
+    return { argv: next, result: { adapter: scanner.adapter, path: `.sflow/results/${stem}.${scanner.extension}`, from: 'stdout' } };
+  }
+  return null;
+}
+
+// The categories (src/guidance-scan.mjs) that are scanners: a type check or a build is not one.
+const SCANNER_CATEGORIES = new Set(['lint', 'security', 'static-analysis']);
+
+/**
+ * An imported check, read as a scanner where it is one [decision 6]: through its finding reader
+ * (importedScannerCommand) when one fits, so only findings on new code count; else as advisory, since
+ * its exit cannot tell new code's findings from existing ones: it warns and never fails submit. A
+ * requirement the check already names is kept; `requirement` is what any other check gets.
+ */
+export function scannerCheck(check, category, { requirement = null } = {}) {
+  if (!SCANNER_CATEGORIES.has(category)) return requirement && !check.requirement ? { ...check, requirement } : check;
+  const read = check.argv ? importedScannerCommand(check.argv, check.id) : null;
+  if (read) return { ...check, argv: read.argv, result: read.result, ...(check.requirement || requirement ? { requirement: check.requirement ?? requirement } : {}) };
+  return { ...check, requirement: check.requirement ?? 'advisory' };
+}

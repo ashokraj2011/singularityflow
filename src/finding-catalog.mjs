@@ -43,7 +43,9 @@ const CODE_SECTIONS = new Map(Object.entries({
   'Grounding findings': ['phase.grounding.required', 'phase.grounding.not-ready'],
   'Files outside the step': ['phase_artifact_only_changes', 'phase_source_change_ungoverned'],
   // A code step's lint, static-analysis and security findings on changed lines, and its scanners [CQF M4].
-  'Code quality findings': ['code_quality_findings', 'code_quality_findings_held', 'code_quality_scanner_unavailable']
+  'Code quality findings': ['code_quality_findings', 'code_quality_findings_held'],
+  // A vulnerable package the Story added, which holds the step's approval for a person [CQF:REQ-052].
+  'Vulnerable new dependencies': ['dependency_vulnerability_held']
 }).flatMap(([section, codes]) => codes.map((code) => [code, section])));
 
 // Code families the recovery routes match by prefix or pattern.

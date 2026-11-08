@@ -45,6 +45,9 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     }
   }
   if (review.testScope) console.warn(review.testScope.words);
+  // What the scanners recorded and the required checks' results: evidence for the reviewer [CQF:REQ-055].
+  if (review.qualityFindings?.words) console.log(`Findings: ${review.qualityFindings.words}`);
+  if (review.requiredChecks?.words) console.log(review.requiredChecks.words);
   for (const run of [...(review.stepTestRuns ?? []), ...(review.reusedTestRuns ?? [])]) console.log(`Test run ${run.words}.`);
   for (const entry of review.flakyTestRuns ?? []) console.warn(`Flaky: ${entry.words}. It refuses nothing.`);
   for (const entry of review.reusedTestEvidence ?? []) {

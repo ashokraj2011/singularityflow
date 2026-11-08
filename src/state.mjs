@@ -222,7 +222,8 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
-  evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, normalizeExternalCommand, withCommandLiteralEnvironment
+  evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, findingReportFromStdout, normalizeExternalCommand,
+  withCommandLiteralEnvironment
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
@@ -4575,6 +4576,24 @@ function safeEnvironmentMetadata(value, fallbackName = null) {
 }
 
 /** The blocked check an environment-linked command records instead of running. */
+/**
+ * A lint, static-analysis or security command that reads no findings and could not run here (its
+ * program is not installed, the shell answered 127, or it was blocked: no bound environment, past its
+ * timeout) is recorded as unavailable and blocks nothing [CQF:REQ-054, decision 11]. An advisory one
+ * that ran and reported problems is `warned`: its exit cannot say whether they are on the Story's new
+ * code, so it fails nothing [decision 6]. Tests, builds and formatters keep their rule. A finding
+ * command's own run is judged by the findings loop.
+ */
+export function scannerUnavailableCheck(check, policy) {
+  if (!FINDING_COMMAND_KINDS.includes(policy.kind) || findingCommand(policy)) return check;
+  if (check.status === 'failed' && check.exitCode !== 127 && (check.requirement ?? 'required') === 'advisory') {
+    return Object.assign(check, { status: 'warned', stderr: `Advisory scanner reported problems (exit ${check.exitCode}); it reads no findings, so it warns and fails nothing. ${String(check.stderr ?? '')}`.slice(0, 2000) });
+  }
+  if (!(check.status === 'blocked' || check.infrastructureUnavailable || (check.status === 'failed' && check.exitCode === 127))) return check;
+  return Object.assign(check, { status: 'unavailable', configuredRequirement: check.requirement ?? 'required', requirement: 'advisory', scannerUnavailable: true,
+    stderr: `Not run here: ${String(check.stderr ?? '').trim() || `exit ${check.exitCode}`} A scanner that cannot run is recorded and blocks nothing.`.slice(0, 2000) });
+}
+
 function environmentBlockedCheck(policy, { environment, errorCode, reason, sourceCommit, sourceTreeSha256, startedAt }) {
   return {
     id: policy.id,
@@ -4805,7 +4824,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       sourceCommit, sourceTreeSha256, startedAt, localIntegration
     });
     if (environmentGate.block) {
-      checks.push(environmentGate.block);
+      checks.push(scannerUnavailableCheck(environmentGate.block, policy));
       continue;
     }
     // The runner boundary: values for this one process, never a durable field [RUN rule 3].
@@ -4816,12 +4835,12 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         sourceRoots: workflow?.resolution?.capability?.sourceScope?.sourceRoots ?? [], workingDirectory: policy.workingDirectory })
         .catch((error) => (String(error?.code).startsWith('ENV_FILE_') ? { refusal: error } : null));
       if (materialized?.status !== 'bound') {
-        checks.push(environmentBlockedCheck(policy, {
+        checks.push(scannerUnavailableCheck(environmentBlockedCheck(policy, {
           environment: safeEnvironmentMetadata(materialized?.environment, environmentGate.run.environmentId),
           errorCode: materialized?.refusal?.code ?? 'ENVIRONMENT_BINDING_UNAVAILABLE',
           reason: materialized?.refusal?.message ?? `Environment '${environmentGate.run.environmentId}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`,
           sourceCommit, sourceTreeSha256, startedAt
-        }));
+        }), policy));
         continue;
       }
     }
@@ -4853,12 +4872,16 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // A finding command's report is SFlow's own, under .sflow/results: an earlier run's is removed
     // first, here and in the candidate it runs on, so only this run's report is read [CQF:REQ-041].
     const findingsReport = findingCommand(policy);
+    // A report the tool prints (npm audit's) is written where it runs, then read like any other [CQF:REQ-050].
+    let printedReport = null;
     if (findingsReport) {
       for (const [base, folder] of [[root, commandRoot], ...(isolation ? [[isolation.root, executionRoot]] : [])]) {
         const report = await secureRepositoryPath(base, path.relative(base, path.resolve(folder, policy.result.path)),
           { label: `Finding report '${policy.result.path}'`, mustExist: false });
         await rm(report.absolute, { force: true });
+        printedReport = findingReportFromStdout(policy) ? report.absolute : null;
       }
+      if (printedReport) await mkdir(path.dirname(printedReport), { recursive: true });
     }
     if (policy.kind === 'test' && policy.result?.path) {
       const resultTarget = path.resolve(commandRoot, policy.result.path);
@@ -4966,13 +4989,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true,
         reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
-        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : null,
+        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : printedReport,
         redactor: materialized?.redactsAnything ? materialized.streamRedactor : null
       })
       : await runQualityCommand(policy.command, [], {
         cwd: executionRoot, env: commandEnvironment, shell: true,
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-        killTree: true
+        killTree: true, stdoutFile: printedReport
       });
     if (isolation && (policy.kind === 'test' || findingsReport)) await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
       isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
@@ -5045,7 +5068,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     if (findingsReport) Object.defineProperty(check, 'findingRoots', { value: { isolated: isolation?.root ?? null }, configurable: true });
     if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
     qualityCommandResults.set(check, result);
-    checks.push(check);
+    checks.push(scannerUnavailableCheck(check, policy));
     activeTransientRestore = null;
   }
   } catch (error) {
@@ -5061,6 +5084,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
 
 // Kept out of the long-lived VS Code bundles like the environment bindings: loaded from the CLI source when a step has a scanner.
 const findingsLoop = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'code-step.mjs')).href);
+// The same for the approval's hold on a vulnerable new package, loaded only when a gate recorded one [CQF:REQ-052].
+const dependencyHold = () => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'findings', 'dependency-hold.mjs')).href);
 
 /** Whether a step has a lint, static-analysis or security command, or reads CodeQL: only then is the findings loop loaded. */
 function findingsLoopApplies(workflow, phase) {
@@ -5874,6 +5899,7 @@ async function submitPhaseTransition(root, config, workflow, {
     errors.push(`Required quality command was unavailable: ${unacceptedUnavailable.map((check) => check.command).join(', ')}`);
   }
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
+  for (const check of validation.warned) console.warn(`Warning: advisory scanner ${check.id} reported problems; it reads no findings, so it fails nothing.`);
   if (repositoryTestsFailed) {
     console.warn(`Warning: the repository's tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. `
       + `${phase.id} goes to its reviewer, who cannot approve it and returns it to the step that repairs it.`);
@@ -6900,6 +6926,12 @@ export async function evaluateApproval(root, config, workflow, {
         approvalQualityRisk = coverage?.acceptedRisk ?? null;
       }
     }, { needs: ['source-binding', 'test-risk', 'validation'] });
+    await stage('dependency-vulnerabilities', async () => {
+      // A critical or high vulnerability in a package the Story added waits for a fix or a person's acceptance;
+      // publish and submit went ahead with it recorded [CQF:REQ-052].
+      const findings = phase.deliveryEvidence?.submittedFindings ?? phase.deliveryEvidence?.qualityFindings;
+      if (findings?.dependencies?.held?.length) (await dependencyHold()).assertDependencyVulnerabilitiesDecided(workflow, phase, { at: nowIso() });
+    });
     await stage('conformance-gaps', async () => {
       if (phase.requiredArtifact?.kind === 'conformance-report') {
         // An honest partial or missing verdict published and was submitted as written; approval needs a

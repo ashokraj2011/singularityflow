@@ -1886,7 +1886,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const requiredTestFailure = requiredTestExecutionForRefusal(error)?.failure;
   // A code step's findings loop [CQF:REQ-043]; its held outcomes are a person's, through the refusal's own routes.
   const qualityFindingsBlocked = code === 'CODE_QUALITY_FINDINGS';
-  const qualityFindingsHeld = ['CODE_QUALITY_FINDINGS_HELD', 'CODE_QUALITY_SCANNER_UNAVAILABLE'].includes(code);
+  const qualityFindingsHeld = code === 'CODE_QUALITY_FINDINGS_HELD';
   // The cause lives in an earlier phase's approved input: never "repair the current phase".
   const upstreamInputBlocked = UPSTREAM_INPUT_CODES.has(code);
   const gapSteps = code === 'CONFORMANCE_BLOCKING_VERDICTS' ? conformanceGapSteps(error) : [];

@@ -40,15 +40,17 @@ async function readRecords(folder, pattern) {
 /** What a run of `command` is keyed by besides the code: the program, its folder, its report and its environment literals. */
 export function findingCommandSha256(command) {
   return `sha256:${sha256(JSON.stringify([command.argv ?? null, command.command ?? null, command.workingDirectory ?? '.',
-    command.result?.adapter ?? null, command.result?.path ?? null, command.env ?? null]))}`;
+    command.result?.adapter ?? null, command.result?.path ?? null, command.env ?? null, ...(command.result?.from ? [command.result.from] : [])]))}`;
 }
 
 export async function recordFindingRun(root, { workId, phaseId, generation, purpose, command, candidate, identity, status,
-  reason = null, exitCode = null, findings = [], counts = null, startedAt, completedAt }) {
+  reason = null, exitCode = null, findings = [], counts = null, database = null, startedAt, completedAt }) {
   const run = { schemaVersion: 1, kind: 'finding-run', id: identifier('QR'), at: completedAt ?? new Date().toISOString(), workId, phase: phaseId,
     generation, purpose, commandId: command.id, commandSha256: findingCommandSha256(command), adapter: command.result?.adapter ?? null,
     candidate, tool: identity, status, ...(reason ? { reason: String(reason).slice(0, 500) } : {}), exitCode,
-    startedAt: startedAt ?? null, completedAt: completedAt ?? null, findings, ...(counts ? { counts } : {}) };
+    startedAt: startedAt ?? null, completedAt: completedAt ?? null, findings, ...(counts ? { counts } : {}),
+    // An audit's advisories are as of this date, which a run reused later keeps [CQF:REQ-050].
+    ...(database ? { database } : {}) };
   await writeAtomicExclusive(path.join(directory(root, workId, phaseId), `${run.id}.json`), `${JSON.stringify(run)}\n`, { mode: 0o600 });
   return run;
 }
@@ -61,10 +63,12 @@ export async function stepFindingRuns(root, workId, phaseId) {
  * The run that still stands for `command`, or `{ moved }`: the latest read of the same command on the
  * same application source and test inputs, with the same tool version and ruleset digest, from any
  * step of the Story, on a commit in this branch's history. A run that could not read its report never
- * stands; a run with no tool identity never does either.
+ * stands; a run with no tool identity, or whose ruleset is not pinned here, never does either.
  */
 export async function unchangedFindingRun(root, workflow, command, { commit, treeSha256, testInputSha256 = null, identity }) {
   if (!identity?.toolVersion || !identity.rulesetSha256) return { moved: 'its tool version could not be read here' };
+  // Rules fetched at run time may differ in every run, so no earlier run speaks for this one [CQF:REQ-051].
+  if (identity.pinned === false) return { moved: null, unpinned: true };
   const key = findingCommandSha256(command);
   let latest = null;
   for (const phaseId of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {

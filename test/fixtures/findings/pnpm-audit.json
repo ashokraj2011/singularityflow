@@ -1,0 +1,63 @@
+{
+  "actions": [],
+  "advisories": {
+    "1097678": {
+      "findings": [{ "version": "1.2.5", "paths": [".>minimist"] }],
+      "id": 1097678,
+      "created": "2022-03-18T00:01:09.000Z",
+      "updated": "2024-04-10T19:19:22.000Z",
+      "deleted": null,
+      "title": "Prototype Pollution in minimist",
+      "found_by": null,
+      "reported_by": null,
+      "module_name": "minimist",
+      "cves": ["CVE-2021-44906"],
+      "vulnerable_versions": ">=1.0.0 <1.2.6",
+      "patched_versions": ">=1.2.6",
+      "overview": "Minimist <=1.2.5 is vulnerable to Prototype Pollution via file index.js, function setKey() (lines 69-95).",
+      "recommendation": "Upgrade to version 1.2.6 or later",
+      "references": "- https://nvd.nist.gov/vuln/detail/CVE-2021-44906",
+      "access": "public",
+      "severity": "critical",
+      "cwe": ["CWE-1321"],
+      "github_advisory_id": "GHSA-xvch-5gv4-984h",
+      "metadata": null,
+      "url": "https://github.example.test/advisories/GHSA-xvch-5gv4-984h"
+    },
+    "1106913": {
+      "findings": [{ "version": "4.17.20", "paths": [".>lodash"] }],
+      "id": 1106913,
+      "title": "Command Injection in lodash",
+      "module_name": "lodash",
+      "cves": ["CVE-2021-23337"],
+      "vulnerable_versions": "<4.17.21",
+      "patched_versions": ">=4.17.21",
+      "overview": "`lodash` versions prior to 4.17.21 are vulnerable to Command Injection via the template function.",
+      "recommendation": "Upgrade to version 4.17.21 or later",
+      "severity": "high",
+      "cwe": ["CWE-77", "CWE-94"],
+      "github_advisory_id": "GHSA-35jh-r3h4-6jhm",
+      "url": "https://github.example.test/advisories/GHSA-35jh-r3h4-6jhm"
+    },
+    "1108258": {
+      "findings": [{ "version": "4.17.20", "paths": [".>lodash"] }],
+      "id": 1108258,
+      "title": "Regular Expression Denial of Service (ReDoS) in lodash",
+      "module_name": "lodash",
+      "cves": ["CVE-2020-28500"],
+      "vulnerable_versions": ">=4.0.0 <4.17.21",
+      "patched_versions": ">=4.17.21",
+      "severity": "moderate",
+      "github_advisory_id": "GHSA-29mw-wpgm-hmr9",
+      "url": "https://github.example.test/advisories/GHSA-29mw-wpgm-hmr9"
+    }
+  },
+  "muted": [],
+  "metadata": {
+    "vulnerabilities": { "info": 0, "low": 0, "moderate": 1, "high": 1, "critical": 1 },
+    "dependencies": 3,
+    "devDependencies": 0,
+    "optionalDependencies": 0,
+    "totalDependencies": 3
+  }
+}

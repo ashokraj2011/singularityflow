@@ -18,7 +18,14 @@ export const TEST_RESULT_ADAPTERS = Object.freeze([
  * `gate: { failOn: [severities] }`: the severities of a new-code finding that count against it.
  */
 export const FINDING_COMMAND_KINDS = Object.freeze(['lint', 'static-analysis', 'security']);
-export const FINDING_RESULT_ADAPTERS = Object.freeze(['eslint-json', 'sarif', 'sonarqube']);
+/**
+ * The dependency audits' readers [CQF:REQ-050]: they run only when the Story changed a manifest or
+ * lockfile, and a finding is new code when the Story added the package or changed its version.
+ */
+export const DEPENDENCY_AUDIT_ADAPTERS = Object.freeze(['npm-audit', 'pnpm-audit', 'pip-audit', 'osv-scanner', 'dependency-check']);
+export const FINDING_RESULT_ADAPTERS = Object.freeze(['eslint-json', 'sarif', 'sonarqube', ...DEPENDENCY_AUDIT_ADAPTERS]);
+// npm and pnpm write their audit only to standard output; SFlow writes it to the report path.
+const STDOUT_ONLY_ADAPTERS = new Set(['npm-audit', 'pnpm-audit']);
 export const FINDING_GATE_SEVERITIES = Object.freeze(['blocker', 'critical', 'high', 'medium', 'low', 'info']);
 // What counts when a command names no gate: the severities a person would hold a change for.
 export const DEFAULT_FINDING_GATE = Object.freeze({ failOn: Object.freeze(['blocker', 'critical', 'high']) });
@@ -199,13 +206,15 @@ export function normalizeExternalCommand(value, index = 0) {
 /**
  * A finding command's report [CQF:REQ-041]. It lives under `.sflow/results/`, SFlow's own transient
  * folder, so SFlow may clear it before each run and it is never application source; a scanner's
- * caches belong there too (ESLint `--cache-location`, `-Dsonar.working.directory`).
+ * caches belong there too (ESLint `--cache-location`, `-Dsonar.working.directory`). `from: stdout`
+ * says the tool prints its report, and SFlow writes what it printed there: npm and pnpm audit only
+ * print theirs, so stdout is their default.
  */
 function normalizeFindingResult(value, index) {
-  const allowed = new Set(['adapter', 'path']);
+  const allowed = new Set(['adapter', 'path', 'from']);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) {
-    throw new SingularityFlowError(`qualityCommands[${index}].result for adapter ${value.adapter} takes only adapter and path, not ${unknown.join(', ')}.`,
+    throw new SingularityFlowError(`qualityCommands[${index}].result for adapter ${value.adapter} takes only adapter, path and from, not ${unknown.join(', ')}.`,
       { code: 'QUALITY_COMMAND_FINDING_RESULT_INVALID' });
   }
   const resultPath = relativePath(value.path, `qualityCommands[${index}].result.path`);
@@ -213,7 +222,17 @@ function normalizeFindingResult(value, index) {
     throw new SingularityFlowError(`qualityCommands[${index}].result.path must be a file under .sflow/results/, such as .sflow/results/eslint.json.`,
       { code: 'QUALITY_COMMAND_FINDING_RESULT_INVALID' });
   }
-  return { adapter: value.adapter, path: resultPath };
+  const from = value.from ?? (STDOUT_ONLY_ADAPTERS.has(value.adapter) ? 'stdout' : 'file');
+  if (!['stdout', 'file'].includes(from) || (from === 'file' && STDOUT_ONLY_ADAPTERS.has(value.adapter)) || (from === 'stdout' && value.adapter === 'sonarqube')) {
+    throw new SingularityFlowError(`qualityCommands[${index}].result.from is stdout or file; ${value.adapter} ${STDOUT_ONLY_ADAPTERS.has(value.adapter) ? 'prints its report, so it is stdout' : value.adapter === 'sonarqube' ? 'writes report-task.txt, so it is file' : 'may be either'}.`,
+      { code: 'QUALITY_COMMAND_FINDING_RESULT_INVALID' });
+  }
+  return { adapter: value.adapter, path: resultPath, ...(from === 'stdout' ? { from } : {}) };
+}
+
+/** Whether a finding command prints its report, for SFlow to write to the report path. */
+export function findingReportFromStdout(command) {
+  return findingCommand(command) && command.result.from === 'stdout';
 }
 
 function normalizeFindingGate(value, index) {

@@ -1397,9 +1397,11 @@
               "type": "object",
               "required": ["adapter", "path"],
               "properties": {
-                "adapter": { "description": "A test report adapter, or for kind lint, static-analysis or security a finding reader (eslint-json, sarif, sonarqube) whose report path is under .sflow/results/ [CQF:REQ-041].",
-                  "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "karma-text", "dotnet-trx", "cargo-json", "sflow-test-result-v1", "mocha-json", "eslint-json", "sarif", "sonarqube"] },
+                "adapter": { "description": "A test report adapter, or for kind lint, static-analysis or security a finding reader (eslint-json, sarif, sonarqube, or a dependency audit: npm-audit, pnpm-audit, pip-audit, osv-scanner, dependency-check) whose report path is under .sflow/results/ [CQF:REQ-041, REQ-050].",
+                  "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "karma-text", "dotnet-trx", "cargo-json", "sflow-test-result-v1", "mocha-json", "eslint-json", "sarif", "sonarqube", "npm-audit", "pnpm-audit", "pip-audit", "osv-scanner", "dependency-check"] },
                 "path": { "type": "string", "minLength": 1 },
+                "from": { "description": "For a finding reader: stdout when the tool prints its report and SFlow writes it to path (the default, and the only way, for npm-audit and pnpm-audit), else file.",
+                  "enum": ["stdout", "file"] },
                 "minimumDiscovered": { "type": "integer", "minimum": 1 },
                 "minimumPassed": { "type": "integer", "minimum": 1 },
                 "sourceExtensions": { "type": "array", "uniqueItems": true,

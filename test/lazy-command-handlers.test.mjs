@@ -367,7 +367,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,560,700 (measured 9,560,664, commands/phase-lifecycle.mjs): a later step reads CodeQL's alerts too (state.mjs +359). The read stays lazy.
     // 9,560,850 (measured 9,560,832, commands/phase-lifecycle.mjs): the findings loop loads from the CLI source, out of the VS Code
     // gateway bundle, which it had grown by 28 modules (state.mjs +168).
-    assert.ok(closure.bytes <= 9_560_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,562,800 (measured 9,562,771, commands/phase-lifecycle.mjs): the dependency audits' readers and a report the tool prints
+    // (external-command-policy.mjs +1564, state.mjs +375) [CQF:REQ-050]. The readers and manifest comparison stay lazy (findings/).
+    assert.ok(closure.bytes <= 9_562_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -546,7 +548,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,165,000 (measured 4,164,950): the same external-command-policy.mjs +5270 and code-delivery-policy.mjs +1205 as start.
   // 4,165,450 (measured 4,165,420): the same person-step-catalog.mjs +454 and command-registry.mjs +16 as start.
   // 4,165,750 (measured 4,165,714): the same code-delivery-policy.mjs +294 as start.
-  assert.ok(current.bytes <= 4_165_750, `session current loads ${current.bytes} source bytes`);
+  // 4,167,300 (measured 4,167,278): the same external-command-policy.mjs +1564 as phase-lifecycle [CQF:REQ-050].
+  assert.ok(current.bytes <= 4_167_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

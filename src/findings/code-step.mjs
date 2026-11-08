@@ -23,11 +23,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { staticAnalysisMode } from '../code-delivery-policy.mjs';
-import { DEFAULT_FINDING_GATE, findingCommand, normalizeExternalCommand } from '../external-command-policy.mjs';
+import { DEFAULT_FINDING_GATE, DEPENDENCY_AUDIT_ADAPTERS, findingCommand, normalizeExternalCommand } from '../external-command-policy.mjs';
 import { coveringFindingRisk, findingRiskAuthorities, findingRiskBinding, findingRiskDecisionCommand } from '../finding-risk.mjs';
 import { head } from '../git.mjs';
 import { secureRepositoryPath, SingularityFlowError } from '../util.mjs';
 import { sourceLines, storyChangedLines } from './changed-lines.mjs';
+import { auditedManifests, markNewDependencies, storyDependencyChanges } from './dependency-changes.mjs';
 import { createFinding, findingCounts, markNewCode, sortFindings, uniqueFindings, withToolIdentity } from './model.mjs';
 import { readFindingReport } from './readers/index.mjs';
 import { repositoryPaths } from './readers/common.mjs';
@@ -41,6 +42,25 @@ const RETURNED_FINDINGS = 20;
 // What the delivery evidence keeps of a step's findings.
 const KEPT_FINDINGS = 200;
 const ENVIRONMENT_UNAVAILABLE = /^ENVIRONMENT_(?:BINDING_UNAVAILABLE|ISOLATED_RUNNER_REQUIRED)$/u;
+// An advisory database older than this informs: its findings may miss what was published since [CQF:REQ-050].
+const DATABASE_STALE_DAYS = 7;
+const DAY = 24 * 60 * 60 * 1000;
+
+const dependencyAudit = (command) => DEPENDENCY_AUDIT_ADAPTERS.includes(command?.result?.adapter);
+
+/** The lockfile an npm or pnpm audit read in the command's folder, parsed, and its repository path: npm's report omits installed versions. */
+async function auditLockfile(root, command) {
+  const working = command.workingDirectory && command.workingDirectory !== '.' ? command.workingDirectory : '.';
+  const names = command.result.adapter === 'pnpm-audit' ? ['pnpm-lock.yaml'] : ['npm-shrinkwrap.json', 'package-lock.json'];
+  for (const name of names) {
+    const relative = path.posix.normalize(path.posix.join(working, name));
+    const target = await secureRepositoryPath(root, relative, { label: `Lockfile '${relative}'`, mustExist: false }).catch(() => null);
+    if (!target?.exists) continue;
+    if (name.endsWith('.yaml')) return { file: relative, lockfile: null };
+    try { return { file: relative, lockfile: JSON.parse(await readFile(target.absolute, 'utf8')) }; } catch { return { file: relative, lockfile: null }; }
+  }
+  return { file: null, lockfile: null };
+}
 
 /** The step's finding commands that run in its loop: a SonarQube server analysis runs at submit only. */
 export function loopFindingCommands(commands) {
@@ -76,12 +96,15 @@ async function readReport(root, command, check, { identity }) {
   if (roots.isolated) bases.push({ absolute: roots.isolated, relative: '.' });
   bases.push({ absolute: path.join(root, working), relative: working });
   const lines = sourceLines(root);
+  const lock = ['npm-audit', 'pnpm-audit'].includes(command.result.adapter) ? await auditLockfile(root, command) : {};
   try {
     const report = readFindingReport(command.result.adapter, bytes, { source: command.id, paths: repositoryPaths({ bases, cwd: working }),
-      toolVersion: identity?.toolVersion ?? null, rulesetSha256: identity?.rulesetSha256 ?? null, snippetOf: lines });
+      toolVersion: identity?.toolVersion ?? null, rulesetSha256: identity?.rulesetSha256 ?? null, snippetOf: lines, ...lock });
     // A finding the reader could not hash a snippet for is hashed from the working tree's line here.
     return { status: 'read', findings: report.findings.map((finding) => withToolIdentity(finding, identity ?? {})), suppressed: report.suppressed ?? 0,
-      omitted: report.omitted ?? 0, gate: report.gate ?? null, measures: report.measures ?? null };
+      omitted: report.omitted ?? 0, gate: report.gate ?? null, measures: report.measures ?? null,
+      // A live audit's advisories are as of its run; a local database says its own date.
+      ...(report.database ? { database: { live: report.database.live === true, updatedAt: report.database.updatedAt ?? (report.database.live ? check.completedAt ?? null : null) } } : {}) };
   } catch (error) {
     return { status: 'unavailable', reason: `its report could not be read: ${String(error?.message ?? error).slice(0, 300)}` };
   }
@@ -122,12 +145,19 @@ export async function runFindingCommands(root, config, workflow, phase, commands
   const candidate = { commit, treeSha256, ...(testInputSha256 ? { testInputSha256 } : {}) };
   const results = [];
   const toRun = [];
+  // An audit reads the manifests and lockfiles: with none changed there is no new dependency to audit [CQF:REQ-050].
+  const dependencies = commands.some(dependencyAudit) ? storyDependencyChanges(root, workflow, deliveryEvidence?.changeSet) : null;
   for (const command of commands) {
+    if (dependencyAudit(command) && !auditedManifests(dependencies, command.result.adapter).length) {
+      results.push({ command, identity: null, status: 'not-needed', reason: 'this Story changed no manifest or lockfile it reads, so no dependency is new', findings: [] });
+      continue;
+    }
     const executionRoot = path.join(root, command.workingDirectory && command.workingDirectory !== '.' ? command.workingDirectory : '');
     const identity = findingToolIdentity(root, executionRoot, command);
     const standing = await unchangedFindingRun(root, workflow, command, { commit, treeSha256, testInputSha256, identity });
     if (standing.run) {
-      results.push({ command, identity, reused: standing.run, status: 'read', findings: standing.run.findings.map((entry) => createFinding(entry)) });
+      results.push({ command, identity, reused: standing.run, status: 'read', findings: standing.run.findings.map((entry) => createFinding(entry)),
+        ...(standing.run.database ? { database: standing.run.database } : {}) });
       console.warn(`Not run again: ${command.id} read this exact code with the same tool and rules (${standing.run.id}).`);
     } else {
       if (standing.moved) console.warn(`Running ${command.id} again: ${standing.moved}.`);
@@ -142,15 +172,20 @@ export async function runFindingCommands(root, config, workflow, phase, commands
     const findings = read.status === 'read' ? read.findings : [];
     const run = await recordFindingRun(root, { workId, phaseId: phase.id, generation: kernel.generation, purpose, command, candidate, identity,
       status: read.status, reason: read.reason ?? null, exitCode: check?.exitCode ?? null, findings,
-      counts: read.status === 'read' ? { suppressed: read.suppressed, omitted: read.omitted } : null,
+      counts: read.status === 'read' ? { suppressed: read.suppressed, omitted: read.omitted } : null, database: read.database ?? null,
       startedAt: check?.startedAt ?? null, completedAt: check?.completedAt ?? null });
     results.push({ command, identity, check, run, ...read, findings });
   }
   const changed = storyChangedLines(root, workflow, deliveryEvidence?.changeSet);
   const lines = sourceLines(root);
   const suppressions = addedSuppressions(changed, { lineOf: (file, line) => lines(file, line, line), lineCount: lines.count });
-  for (const result of results) result.findings = markNewCode(result.findings, changed);
-  return { results, suppressions, candidate, changedFiles: changed.size };
+  // In the commands' own order, which submission's checks keep beside the commands the validation lists.
+  results.sort((left, right) => commands.indexOf(left.command) - commands.indexOf(right.command));
+  // A dependency is new when the Story added it or changed its version; code is new on its changed lines.
+  for (const result of results) {
+    result.findings = dependencyAudit(result.command) ? markNewDependencies(result.findings, dependencies) : markNewCode(result.findings, changed);
+  }
+  return { results, suppressions, candidate, changedFiles: changed.size, ...(dependencies ? { manifests: dependencies.manifests } : {}) };
 }
 
 /** What a gate counts: new-code findings at a severity the command's gate fails on, that no person accepted. */
@@ -160,7 +195,8 @@ export function countedFindings(workflow, phase, outcome, { at = new Date().toIS
   for (const { command, findings } of outcome.results) {
     const failOn = command.gate?.failOn ?? DEFAULT_FINDING_GATE.failOn;
     for (const finding of findings) {
-      if (!finding.newCode || !failOn.includes(finding.severity)) continue;
+      // A vulnerable dependency is never repaired in the loop: it is recorded for a person (newDependencyFindings).
+      if (!finding.newCode || !failOn.includes(finding.severity) || finding.kind === 'dependency') continue;
       const decision = coveringFindingRisk(workflow, { phaseId: phase.id, finding, at });
       if (decision) accepted.push({ finding, decision: findingRiskBinding(decision) }); else counted.push(finding);
     }
@@ -170,6 +206,34 @@ export function countedFindings(workflow, phase, outcome, { at = new Date().toIS
     if (decision) accepted.push({ finding, decision: findingRiskBinding(decision) }); else counted.push(finding);
   }
   return { counted: uniqueFindings(counted), accepted };
+}
+
+/**
+ * The new-code dependency findings, apart from the loop: a vulnerable package is replaced or accepted,
+ * never patched in the code [CQF:REQ-050]. At a severity the command's gate names (critical and high
+ * by default) one is `held` until fixed or accepted by a person; below it, `warned`.
+ */
+export function newDependencyFindings(workflow, phase, outcome, { at = new Date().toISOString() } = {}) {
+  const held = [];
+  const accepted = [];
+  const warned = [];
+  for (const { command, findings } of outcome.results) {
+    const failOn = command.gate?.failOn ?? DEFAULT_FINDING_GATE.failOn;
+    for (const finding of findings) {
+      if (!finding.newCode || finding.kind !== 'dependency') continue;
+      if (!failOn.includes(finding.severity)) { warned.push(finding); continue; }
+      const decision = coveringFindingRisk(workflow, { phaseId: phase.id, finding, at });
+      if (decision) accepted.push({ finding, decision: findingRiskBinding(decision) }); else held.push(finding);
+    }
+  }
+  return { held: uniqueFindings(held), accepted, warned: uniqueFindings(warned) };
+}
+
+/** An audit's advisory database, and whether it is older than a week at `at` [CQF:REQ-050]. */
+function databaseAge(database, at) {
+  if (!database) return null;
+  const age = database.updatedAt ? Date.parse(at) - Date.parse(database.updatedAt) : null;
+  return { live: database.live === true, updatedAt: database.updatedAt ?? null, stale: age != null && age > DATABASE_STALE_DAYS * DAY };
 }
 
 /** The scanners that could not be read, and under enforce those a person has not accepted as unavailable. */
@@ -188,25 +252,49 @@ export function scannerUnavailableFinding(command) {
     snippet: `command:${command.id}`, message: `Scanner ${command.id} could not run or report here.` });
 }
 
-/** The delivery evidence's record of a gate's findings: bounded, the counted and accepted first. */
-export function findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt, outcome: decided, escalated = [] }) {
+/** The delivery evidence's record of a gate's findings: bounded, the counted, held and accepted first. */
+export function findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt, outcome: decided, escalated = [],
+  dependencies = { held: [], accepted: [], warned: [] }, at = new Date().toISOString() }) {
   const all = sortFindings(uniqueFindings([...outcome.results.flatMap((result) => result.findings), ...outcome.suppressions]));
-  const countedIds = new Set(counted.map((finding) => finding.fingerprint));
-  const kept = [...counted, ...accepted.map((entry) => entry.finding), ...all.filter((finding) => finding.newCode && !countedIds.has(finding.fingerprint))]
+  const first = [...counted, ...dependencies.held, ...accepted.map((entry) => entry.finding), ...dependencies.accepted.map((entry) => entry.finding)];
+  const firstIds = new Set(first.map((finding) => finding.fingerprint));
+  const kept = [...first, ...all.filter((finding) => finding.newCode && !firstIds.has(finding.fingerprint))]
     .filter((finding, index, list) => list.findIndex((other) => other.fingerprint === finding.fingerprint) === index).slice(0, KEPT_FINDINGS);
+  const audited = outcome.results.some((result) => dependencyAudit(result.command));
   return {
     schemaVersion: 1, mode, outcome: decided, attempt, maximumAttempts: FINDING_LOOP_ATTEMPTS,
     commands: outcome.results.map((result) => ({ id: result.command.id, kind: result.command.kind, adapter: result.command.result.adapter,
       status: result.status, ...(result.reason ? { reason: result.reason } : {}),
       ...(result.reused ? { reusedFrom: result.reused.id } : result.run ? { runId: result.run.id } : {}),
       tool: result.identity?.tool ?? null, toolVersion: result.identity?.toolVersion ?? null, rulesetSha256: result.identity?.rulesetSha256 ?? null,
+      ...(result.database ? { database: databaseAge(result.database, at) } : {}),
       counts: findingCounts(result.findings) })),
-    counts: { ...findingCounts(all), counted: counted.length, accepted: accepted.length, suppressionsAdded: outcome.suppressions.length },
+    counts: { ...findingCounts(all), counted: counted.length, accepted: accepted.length + dependencies.accepted.length, suppressionsAdded: outcome.suppressions.length,
+      ...(audited ? { dependenciesHeld: dependencies.held.length, dependenciesWarned: dependencies.warned.length } : {}) },
     counted: counted.map((finding) => finding.fingerprint),
-    accepted: accepted.map((entry) => ({ fingerprint: entry.finding.fingerprint, decision: entry.decision })),
+    accepted: [...accepted, ...dependencies.accepted].map((entry) => ({ fingerprint: entry.finding.fingerprint, decision: entry.decision })),
     escalated, unavailable: unavailable.map(({ finding, ...entry }) => entry),
+    // Vulnerable packages this Story added or upgraded [CQF:REQ-050]; the changed manifests they were compared in.
+    ...(audited ? { dependencies: { manifests: outcome.manifests ?? [], held: dependencies.held.map((finding) => finding.fingerprint),
+      warned: dependencies.warned.map((finding) => finding.fingerprint) } } : {}),
     findings: kept
   };
+}
+
+const packageWords = (list) => list.slice(0, 3).map((finding) => `${finding.package}${finding.installedVersion ? `@${finding.installedVersion}` : ''} ${finding.rule ?? ''} (${finding.severity})`
+  .replace(/\s+/gu, ' ').trim()).join('; ');
+
+/** What a gate says of the audits: vulnerable new packages, and an advisory database more than a week old. */
+function warnDependencies(phase, outcome, dependencies, { at }) {
+  for (const result of outcome.results) {
+    const database = databaseAge(result.database, at);
+    if (database?.stale) console.warn(`Warning: ${result.command.id}'s advisory database is from ${database.updatedAt.slice(0, 10)}, more than ${DATABASE_STALE_DAYS} days old, so it may miss advisories published since; it blocks nothing.`);
+  }
+  if (dependencies.held.length) {
+    console.warn(`Warning: ${dependencies.held.length} known vulnerabilit${dependencies.held.length === 1 ? 'y' : 'ies'} in packages this Story added or upgraded: ${packageWords(dependencies.held)}. `
+      + `They are recorded for ${phase.id}'s approvers.`);
+  }
+  if (dependencies.warned.length) console.warn(`Warning: lower-severity advisories in packages this Story added or upgraded: ${packageWords(dependencies.warned)}; they block nothing.`);
 }
 
 const findingWords = (list) => list.slice(0, 3).map((finding) => `${finding.tool} ${finding.rule ?? ''} at ${finding.file ?? '?'}:${finding.line ?? '?'}`.replace(/\s+/gu, ' ')).join('; ');
@@ -248,12 +336,14 @@ function heldFindingsRefusal(workflow, phase, qualityFindings, counted, { attemp
 async function decideLoop(root, workflow, phase, outcome, { mode, generation }) {
   const at = new Date().toISOString();
   const { counted, accepted } = countedFindings(workflow, phase, outcome, { at });
+  const dependencies = newDependencyFindings(workflow, phase, outcome, { at });
   const unavailable = unavailableScanners(workflow, phase, outcome, { at });
   warnUnavailable(mode, unavailable);
   const workId = workflow.workItem.id;
   const scanners = heldScannerRefusal(workflow, phase, mode, unavailable, 'publish');
   if (scanners) throw scanners;
-  if (!counted.length) return findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: 'passed' });
+  warnDependencies(phase, outcome, dependencies, { at });
+  if (!counted.length) return findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: 'passed', dependencies, at });
   const rounds = await generationFindingRounds(root, workId, phase.id, generation);
   const attempt = rounds.length + 1;
   const sightings = new Map();
@@ -266,7 +356,8 @@ async function decideLoop(root, workflow, phase, outcome, { mode, generation }) 
   const exhausted = attempt >= FINDING_LOOP_ATTEMPTS || escalated.length > 0;
   if (exhausted && mode === 'warn') {
     console.warn(`Warning: ${counted.length} finding(s) on changed lines remain after ${attempt} attempt(s): ${findingWords(counted)}. They are recorded for the step's approvers; under warn the publication goes ahead.`);
-    return findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt, outcome: 'warned', escalated: escalated.length ? escalated : counted.map((finding) => finding.fingerprint) });
+    return findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt, outcome: 'warned', escalated: escalated.length ? escalated : counted.map((finding) => finding.fingerprint),
+      dependencies, at });
   }
   const shown = counted.slice(0, RETURNED_FINDINGS).map(returned);
   const qualityFindings = { mode, attempt, maximumAttempts: FINDING_LOOP_ATTEMPTS, findings: shown, more: Math.max(0, counted.length - shown.length),
@@ -315,7 +406,8 @@ function findingCheck(result, { mode, candidate, counted, status, reason = null 
   return {
     id: command.id, command: command.command ?? command.argv.join(' '), kind: command.kind,
     // Unavailable under warn informs: the verdict never counts it as a required check missing [decision 11].
-    requirement: status === 'unavailable' && mode !== 'enforce' ? 'advisory' : command.requirement ?? 'required',
+    // An audit with no changed manifest to read was not needed, in any mode [CQF:REQ-050].
+    requirement: (status === 'unavailable' && mode !== 'enforce') || result.status === 'not-needed' ? 'advisory' : command.requirement ?? 'required',
     externalModelPolicy: command.modelPolicy, workingDirectory: command.workingDirectory ?? null,
     sourceCommit: result.reused?.candidate?.commit ?? candidate.commit, sourceTreeSha256: candidate.treeSha256,
     ...(candidate.testInputSha256 ? { testInputSha256: candidate.testInputSha256 } : {}),
@@ -364,10 +456,12 @@ export async function submitCheckFindings(root, config, workflow, phase, command
       findings: markNewCode(codeScanning.findings, changed) });
   }
   const { counted, accepted } = countedFindings(workflow, phase, outcome, { at });
+  const dependencies = newDependencyFindings(workflow, phase, outcome, { at });
   const unavailable = unavailableScanners(workflow, phase, outcome, { at });
   warnUnavailable(mode, unavailable);
   const scanners = heldScannerRefusal(workflow, phase, mode, unavailable, 'submit');
   if (scanners) throw scanners;
+  warnDependencies(phase, outcome, dependencies, { at });
   if (counted.length && mode === 'enforce') {
     throw heldFindingsRefusal(workflow, phase, { mode, findings: counted.slice(0, RETURNED_FINDINGS).map(returned),
       more: Math.max(0, counted.length - RETURNED_FINDINGS), unavailable: [], escalated: counted.map((finding) => finding.fingerprint) }, counted, { attempt: null, operation: 'submit' });
@@ -375,8 +469,9 @@ export async function submitCheckFindings(root, config, workflow, phase, command
   if (counted.length) console.warn(`Warning: ${counted.length} finding(s) on changed lines are recorded for the step's approvers: ${findingWords(counted)}.`);
   // GitHub's alerts are a read, not a command of the step: they are evidence, never a check of their own.
   const checks = outcome.results.filter((result) => !result.remote).map((result) => findingCheck(result, { mode, candidate, counted,
-    status: result.status === 'unavailable' ? 'unavailable' : 'passed', reason: result.reason ?? null }));
-  const evidence = { ...findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: counted.length ? 'warned' : 'passed' }),
+    status: ['unavailable', 'not-needed'].includes(result.status) ? 'unavailable' : 'passed',
+    reason: result.status === 'not-needed' ? `Not run: ${result.reason}.` : result.reason ?? null }));
+  const evidence = { ...findingsEvidence(mode, outcome, { counted, accepted, unavailable, attempt: null, outcome: counted.length ? 'warned' : 'passed', dependencies, at }),
     ...(server?.servers?.length ? { servers: server.servers } : {}),
     ...(codeScanning ? { codeScanning: { status: codeScanning.status, ...(codeScanning.reason ? { reason: codeScanning.reason } : {}),
       repository: codeScanning.repository ?? null, analysedCommit: codeScanning.analysedCommit ?? null, submittedCommit: codeScanning.submittedCommit ?? candidate.commit,

@@ -40,15 +40,17 @@ async function readRecords(folder, pattern) {
 /** What a run of `command` is keyed by besides the code: the program, its folder, its report and its environment literals. */
 export function findingCommandSha256(command) {
   return `sha256:${sha256(JSON.stringify([command.argv ?? null, command.command ?? null, command.workingDirectory ?? '.',
-    command.result?.adapter ?? null, command.result?.path ?? null, command.env ?? null]))}`;
+    command.result?.adapter ?? null, command.result?.path ?? null, command.env ?? null, ...(command.result?.from ? [command.result.from] : [])]))}`;
 }
 
 export async function recordFindingRun(root, { workId, phaseId, generation, purpose, command, candidate, identity, status,
-  reason = null, exitCode = null, findings = [], counts = null, startedAt, completedAt }) {
+  reason = null, exitCode = null, findings = [], counts = null, database = null, startedAt, completedAt }) {
   const run = { schemaVersion: 1, kind: 'finding-run', id: identifier('QR'), at: completedAt ?? new Date().toISOString(), workId, phase: phaseId,
     generation, purpose, commandId: command.id, commandSha256: findingCommandSha256(command), adapter: command.result?.adapter ?? null,
     candidate, tool: identity, status, ...(reason ? { reason: String(reason).slice(0, 500) } : {}), exitCode,
-    startedAt: startedAt ?? null, completedAt: completedAt ?? null, findings, ...(counts ? { counts } : {}) };
+    startedAt: startedAt ?? null, completedAt: completedAt ?? null, findings, ...(counts ? { counts } : {}),
+    // An audit's advisories are as of this date, which a run reused later keeps [CQF:REQ-050].
+    ...(database ? { database } : {}) };
   await writeAtomicExclusive(path.join(directory(root, workId, phaseId), `${run.id}.json`), `${JSON.stringify(run)}\n`, { mode: 0o600 });
   return run;
 }

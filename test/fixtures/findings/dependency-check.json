@@ -1,0 +1,40 @@
+{
+  "reportSchema": "1.1",
+  "scanInfo": {
+    "engineVersion": "10.0.4",
+    "dataSource": [
+      { "name": "NVD API Last Checked", "timestamp": "2026-10-20T08:12:40" },
+      { "name": "NVD API Last Modified", "timestamp": "2026-10-20T07:58:03Z" }
+    ]
+  },
+  "projectInfo": { "name": "payments-api", "reportDate": "2026-11-08T09:30:11.481Z", "credits": { "NVD": "This product uses the NVD API but is not endorsed or certified by the NVD." } },
+  "dependencies": [
+    {
+      "isVirtual": false,
+      "fileName": "log4j-core-2.14.1.jar",
+      "filePath": "/home/runner/.m2/repository/org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar",
+      "md5": "f3b8d5ef0f1a1b1c9e4f4bbad2f5e0f1",
+      "packages": [{ "id": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1", "confidence": "HIGH", "url": "https://ossindex.sonatype.org/component/pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1" }],
+      "vulnerabilityIds": [{ "id": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*", "confidence": "HIGHEST" }],
+      "vulnerabilities": [
+        {
+          "source": "NVD",
+          "name": "CVE-2021-44228",
+          "severity": "CRITICAL",
+          "cvssv3": { "baseScore": 10.0, "attackVector": "NETWORK", "baseSeverity": "CRITICAL" },
+          "cwes": ["CWE-502", "CWE-400", "CWE-20"],
+          "description": "Apache Log4j2 2.0-beta9 through 2.15.0 JNDI features used in configuration, log messages, and parameters do not protect against attacker controlled LDAP and other JNDI related endpoints.",
+          "notes": "",
+          "references": [{ "source": "MISC", "url": "https://logging.apache.org/log4j/2.x/security.html", "name": "https://logging.apache.org/log4j/2.x/security.html" }],
+          "vulnerableSoftware": [{ "software": { "id": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*", "vulnerabilityIdMatched": "true", "versionStartIncluding": "2.13.0", "versionEndExcluding": "2.15.0" } }]
+        }
+      ]
+    },
+    {
+      "isVirtual": false,
+      "fileName": "commons-lang3-3.12.0.jar",
+      "filePath": "/home/runner/.m2/repository/org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.jar",
+      "packages": [{ "id": "pkg:maven/org.apache.commons/commons-lang3@3.12.0", "confidence": "HIGHEST" }]
+    }
+  ]
+}

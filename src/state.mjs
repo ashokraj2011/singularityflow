@@ -222,7 +222,8 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { normalizeQualityGateMode, qualityRiskStatus } from './phase-quality-risk.mjs';
 import {
-  evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, normalizeExternalCommand, withCommandLiteralEnvironment
+  evaluateExternalCommandForModelMode, externalCommandText, FINDING_COMMAND_KINDS, findingCommand, findingReportFromStdout, normalizeExternalCommand,
+  withCommandLiteralEnvironment
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
@@ -4828,12 +4829,16 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // A finding command's report is SFlow's own, under .sflow/results: an earlier run's is removed
     // first, here and in the candidate it runs on, so only this run's report is read [CQF:REQ-041].
     const findingsReport = findingCommand(policy);
+    // A report the tool prints (npm audit's) is written where it runs, then read like any other [CQF:REQ-050].
+    let printedReport = null;
     if (findingsReport) {
       for (const [base, folder] of [[root, commandRoot], ...(isolation ? [[isolation.root, executionRoot]] : [])]) {
         const report = await secureRepositoryPath(base, path.relative(base, path.resolve(folder, policy.result.path)),
           { label: `Finding report '${policy.result.path}'`, mustExist: false });
         await rm(report.absolute, { force: true });
+        printedReport = findingReportFromStdout(policy) ? report.absolute : null;
       }
+      if (printedReport) await mkdir(path.dirname(printedReport), { recursive: true });
     }
     if (policy.kind === 'test' && policy.result?.path) {
       const resultTarget = path.resolve(commandRoot, policy.result.path);
@@ -4941,13 +4946,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true,
         reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
-        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : null,
+        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : printedReport,
         redactor: materialized?.redactsAnything ? materialized.streamRedactor : null
       })
       : await runQualityCommand(policy.command, [], {
         cwd: executionRoot, env: commandEnvironment, shell: true,
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-        killTree: true
+        killTree: true, stdoutFile: printedReport
       });
     if (isolation && (policy.kind === 'test' || findingsReport)) await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
       isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter

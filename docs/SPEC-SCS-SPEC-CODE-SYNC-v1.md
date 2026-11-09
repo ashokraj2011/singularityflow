@@ -1,6 +1,6 @@
 # Spec–code sync (SCS) — v1
 
-Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1, M2, M3 and M4 are on main (M2–M4 landed from scs-next on 2026-11-09); REQ-034 and REQ-035 are being built.
+Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1, M2, M3 and M4 are on main (M2–M4 landed from scs-next on 2026-11-09), with REQ-034 and REQ-035. Owner decisions 15 and 16 (revalidation after an amendment) are being built.
 
 The code and the approved documents must say the same thing. When they don't, a person decides each
 difference once: either the code changes to match the document, or the document changes to match the
@@ -43,6 +43,18 @@ Raised while M2 and M3 were built. The owner took every recommended answer.
     Adjudicate page is no longer the only place to change one before it is retired. *Decided: yes.*
 11. **A file the approved plan settled can be overruled on the decisions list** (`[SCS:REQ-035]`), as
     the Adjudicate page's "Overrule the plan" does today. *Decided: yes.*
+12. **Sending a changed answer or a settled file back to fix needs no reason,** as on the Adjudicate page.
+    Every other answer still states one. *Decided: no reason for rework.*
+13. **Copilot CLI `/decide` asks the offered rows only after a first choice,** "Change an answer or
+    overrule the plan", as `/adjudicate` does. *Decided: yes.*
+14. **Files the plan settled are one row each,** even when one plan entry settles several. *Decided: one per file.*
+15. **An approved amendment gives every later step that read it a revalidation row** (`[SCS:REQ-022]`
+    as written): still holds, or return. Today's reopen does not match the spec. *Decided: the spec's wording.*
+16. **"Still holds" from a step's own approvers carries its evidence across the amended wording,** for an
+    amendment that settles the current conformance report's differences: the stale-evidence and
+    intervening-commit checks accept exactly that record and the amendment's own commits, and the
+    approval says whose word carried which clause. Anything else is refused as before. *Decided: the
+    approvers' word is enough.*
 
 ## What exists today (main 48668471f)
 

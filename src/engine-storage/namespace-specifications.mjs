@@ -6,6 +6,7 @@ import {assertSpecificationIndexClauses} from '../kernel/specification-policy.mj
 import {specificationPublicationPolicy,specificationPublicationSources,SPECIFICATION_PUBLICATION_OWNERS} from '../kernel/specification-publication.mjs';
 import {extractClauses,specificationIndexRecord,derivePlannedClaimMapReplay,plannedTestSlots,plannedTestAssuranceProblem} from '../engine-compatibility/node-specification-policy.mjs';
 import {commandCovering} from '../engine-compatibility/node-source-policy.mjs';
+import {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanTestLocation} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {namespaceSpecificationManifest,namespaceSpecificationIdentity as identity} from './namespace-specification-contract.mjs';
 
@@ -31,7 +32,7 @@ function derive(publication,workflow,indices,data) {
   const index=selected.index?specificationIndexRecord({workId:publication.workId,phase:publication.phase,generation:publication.generation,source,
     clauses:extractClauses(markdown,{sourcePath:source.path,namespace:selected.policy.namespace,limits:selected.policy.limits,externalClauseIds,externalClauses:earlier})}):null;
   if(index)assertSpecificationIndexClauses(index,workflow,phase,selected.policy);
-  let planned=null,capabilities=null;
+  let planned=null,capabilities=null,repositoryPlan=null;
   if(selected.codeSteps.length) {
     const clauses=[...earlier,...(index?.clauses??[])],clauseIds=[...new Set(clauses.map(clause=>clause.id))].sort();
     const root=source.path.split('/artifacts/')[0],replay=derivePlannedClaimMapReplay(markdown,{clauseIds,clauses,policy:selected.policy,evidenceRoot:root+'/evidence'});
@@ -47,11 +48,13 @@ function derive(publication,workflow,indices,data) {
     const gaps=[...new Set([...derived.missingClauseIds,...derived.missingTestClauseIds])].sort();
     if(gaps.length&&selected.enforce)throw error('Complete the exact planned tests or reviewed non-test verification for every clause.','SPEC_PLANNED_TEST_BINDING_REQUIRED',{phase:phase.id,clauses:gaps});
     planned={...derived.claimMap,workId:publication.workId,phase:publication.phase,generation:publication.generation,source};
+    repositoryPlan=deriveRepositoryPlan(markdown,planned,{workflow});
     const contracts=new Map((planned.verificationContracts??[]).map(contract=>[contract.clauseId,contract])),pending=[],problems=[];
     for(const codeId of selected.codeSteps) {
       const commands=(workflow.phases[codeId].qualityCommands??[]).filter(command=>command.kind==='test');
       for(const slot of plannedTestSlots(planned.claims,contracts,codeId)) {
-        const command=commandCovering(commands,slot.testPath);
+        const local=repositoryPlan?repositoryPlanTestLocation(repositoryPlan,slot.testPath,{workflow}):null,
+          command=commandCovering(commands,local?.path??slot.testPath);
         if(!command){pending.push(`${slot.id}: no pinned test command of ${codeId} can run ${slot.testPath}`);continue;}
         const problem=plannedTestAssuranceProblem(slot,command);if(problem)problems.push(problem);
       }
@@ -59,7 +62,7 @@ function derive(publication,workflow,indices,data) {
     if(problems.length)throw error('The declared test runners cannot provide the required assurance.','TEST_CAPABILITY_UNSUPPORTED',{problems});
     capabilities={status:pending.length?'configuration-pending':'declared',launcherObservation:'not-observed',pending};
   }
-  return {index,planned,capabilities};
+  return {index,planned,capabilities,repositoryPlan};
 }
 
 export function createNamespaceSpecificationReader({observer,scope,workId,checks=null}) {
@@ -75,6 +78,11 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
     catch(cause){throw error('The retained '+kind+' has an unsupported or invalid record version.',
       ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
     return value;
+  }
+  async function retainedRepositoryPlan(reference,signal){
+    const value=await json(reference,signal);
+    try{return repositoryPlanValue(value);}catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
+      throw error('The retained repository plan has an invalid value contract.','ENGINE_STORAGE_CORRUPT',null,cause);}
   }
   async function prior(snapshot,phaseId,signal,specificationTraversal) {
     const ids=specificationPublicationSources(snapshot.workflow,phaseId);
@@ -102,7 +110,7 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
       'SPEC_PLANNED_CLAIM_MAP_REQUIRED');
     const definitions=specificationPublicationSources(snapshot.workflow,phaseId),ids=[...new Set([...definitions,ownerId])],
       packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),proofs=await packets.inspectApprovedMany(snapshot,ids,{signal,specificationTraversal:traversal().token});
-    const indexes=[],indices=[];let planned=null,planProof=null;
+    const indexes=[],indices=[];let planned=null,planProof=null,repositoryPlan=null;
     for(const [position,id]of ids.entries()) {
       const proof=proofs[position];
       if(!proof?.published.specifications)throw error('The planning input needs its retained specification evidence and human approval.',
@@ -115,12 +123,13 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
       if(id===ownerId) {
         if(!manifest.planned)throw error('The approved planning owner has no retained planned claims.','SPEC_PLANNED_CLAIM_MAP_REQUIRED');
         planned=await retainedValue(manifest.planned,'planned',signal);
+        if(manifest.repositoryPlan)repositoryPlan=await retainedRepositoryPlan(manifest.repositoryPlan,signal);
         planProof={phase:id,generation:proof.value.generation,publication:proof.value.publication.record,reviewPacket:proof.binding.record,
-          planned:manifest.planned,indices};
+          planned:manifest.planned,indices,...(repositoryPlan?{repositoryPlan:manifest.repositoryPlan}:{})};
       }
     }
     // Copy the completed input list: the owner can precede another definition in custom workflows.
-    return {active:{indexes},planned,proof:{...planProof,indices:[...indices]}};
+    return {active:{indexes},planned,repositoryPlan,proof:{...planProof,indices:[...indices]}};
   }
   async function verifyOne(publication,signal,specificationTraversal) {
     const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:publication.phase});
@@ -138,6 +147,8 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
       throw error('Specification evidence no longer replays against its original bytes.','ENGINE_STORAGE_CORRUPT',null,cause);}
     for(const key of ['index','planned'])if((expected[key]===null)!==(manifest[key]===null)
       ||expected[key]!==null&&!same(expected[key],await retainedValue(manifest[key],key,signal)))throw error('The retained '+key+' differs from deterministic specification replay.','ENGINE_STORAGE_CORRUPT');
+    if((expected.repositoryPlan===null)!==(!manifest.repositoryPlan)||manifest.repositoryPlan&&!same(expected.repositoryPlan,await retainedRepositoryPlan(manifest.repositoryPlan,signal)))
+      throw error('The repository plan differs from its original reviewed paths.','ENGINE_STORAGE_CORRUPT');
     if(!same(expected.capabilities,manifest.capabilities))throw error('The planned capability observation differs from the pinned commands.','ENGINE_STORAGE_CORRUPT');
     return manifest;
   }
@@ -151,7 +162,7 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
   function owners(publication) {return proof(publication)?SPECIFICATION_PUBLICATION_OWNERS:[];}
   function evidence(publication) {
     const manifest=proof(publication);
-    return manifest?[publication.specifications.record,...[manifest.index,manifest.planned].filter(Boolean),...manifest.inputs.map(item=>item.publication.record)]:[];
+    return manifest?[publication.specifications.record,...[manifest.index,manifest.planned,manifest.repositoryPlan].filter(Boolean),...manifest.inputs.map(item=>item.publication.record)]:[];
   }
   function verifyPlan(publication,plan) {
     if(!publication.specifications)return;

@@ -357,6 +357,12 @@ observation and shared path policy, not full application delivery or installed a
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
+The opt-in [reviewed repository-plan contract](ENGINE-SDK-REPOSITORY-PLANS.md) adds explicit
+repository roots and independently approved local claim projections to namespace-backed source
+binding, preparation and inspection. It keeps legacy claim records and native Git behavior
+unchanged. Application publication/execution, installed migration and final qualification remain
+open; this slice does not complete Phases 5, 7, 8 or 9.
+
 The [immutable routing-input delivery](ENGINE-SDK-NAMESPACE-ROUTING-INPUTS.md) adds versioned
 submission records for pinned own/reused decision inputs while preserving decision-free v1 bytes.
 Shared proof readers verify source packets and actual human approval thresholds. This establishes

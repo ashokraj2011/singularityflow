@@ -10,3 +10,4 @@ export {scanJavaScriptDeclarations,JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScr
 export {implementationBindingsReplay,bindingsDigest,reviewBindings,BINDING_DECISIONS,documentationLanguage,unsupportedSourceLanguage,
   publicDeclarations,changedDeclarations,POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports,resolvePolyglotLocal} from '../../../../src/engine-compatibility/node-source-analysis.mjs';
 export {carriedTagIdsReplay,storyTagLinesReplay,SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '../../../../src/engine-compatibility/node-source-policy.mjs';
+export {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanProjection,assertRepositoryPlanSources,repositoryPlanTestLocation} from '../../../../src/engine-compatibility/node-repository-plan.mjs';

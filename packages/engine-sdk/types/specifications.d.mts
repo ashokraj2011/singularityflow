@@ -201,6 +201,22 @@ export interface SpecificationClaimValues {
     options?:{readonly complete?:boolean}):boolean;
 }
 export declare function specificationClaimPolicies(paths:VerificationPathSyntax,values:SpecificationTextValues):Readonly<SpecificationClaimValues>;
+/** Logical views only. Original accepted plan/publication proof remains a namespace owner. */
+export declare const REPOSITORY_PLAN_PROFILE:'sflow-repository-plan/v1';
+export declare const REPOSITORY_PLAN_VALUES_PROFILE:'sflow-repository-plan-values/v1';
+export interface RepositoryPlanRoot {readonly repositoryId:string;readonly pathPrefix:string}
+export interface RepositoryClaimProjection {readonly id:string;readonly claims:Readonly<Record<string,PlannedSpecificationClaim>>;
+  readonly supportingFiles:readonly string[];readonly supportingFileDetails:readonly SpecificationSupportingFile[]}
+export interface RepositoryPlan {readonly schemaVersion:1;readonly format:typeof REPOSITORY_PLAN_PROFILE;
+  readonly roots:readonly RepositoryPlanRoot[];readonly repositories:readonly RepositoryClaimProjection[]}
+export interface RepositoryPlanContext {readonly definition?:Readonly<Record<string,unknown>>;readonly workflow?:Readonly<Record<string,unknown>>}
+export interface RepositoryPlanValues {readonly profile:typeof REPOSITORY_PLAN_VALUES_PROFILE;
+  deriveRepositoryPlan(markdown:string,planned:PlannedSpecificationClaimMap,context?:RepositoryPlanContext):RepositoryPlan|null;
+  repositoryPlanValue(value:unknown):RepositoryPlan;
+  repositoryPlanProjection(value:RepositoryPlan,repositoryId:string):RepositoryClaimProjection;
+  assertRepositoryPlanSources(value:RepositoryPlan|null,phaseId:string,repositories:readonly string[]):void;
+  repositoryPlanTestLocation(value:RepositoryPlan,path:string,context?:RepositoryPlanContext):{repositoryId:string;path:string}|null}
+export declare function repositoryPlanPolicies(paths:VerificationPathSyntax,roots:readonly string[]):Readonly<RepositoryPlanValues>;
 export declare const SPECIFICATION_CLAIM_MAP_SCHEMA:Readonly<{id:'specification-claim-map';currentVersion:2;minimumReadableVersion:1;
   maximumReadableVersion:2;unversionedAs:null;immutable:true;migrationPolicy:'migrate-on-read'}>;
 

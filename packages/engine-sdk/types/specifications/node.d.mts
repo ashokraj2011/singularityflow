@@ -39,3 +39,8 @@ export declare const evaluateSpecificationQuality:SpecificationAnalysisValues['e
 export declare const validateChecklistDecisions:SpecificationAnalysisValues['validateChecklistDecisions'];
 export declare const evaluateApprovalChecklist:SpecificationAnalysisValues['evaluateApprovalChecklist'];
 export declare const specificationGateValue:SpecificationAnalysisValues['specificationGateValue'];
+export declare const deriveRepositoryPlan:import('../specifications.mjs').RepositoryPlanValues['deriveRepositoryPlan'];
+export declare const repositoryPlanValue:import('../specifications.mjs').RepositoryPlanValues['repositoryPlanValue'];
+export declare const repositoryPlanProjection:import('../specifications.mjs').RepositoryPlanValues['repositoryPlanProjection'];
+export declare const assertRepositoryPlanSources:import('../specifications.mjs').RepositoryPlanValues['assertRepositoryPlanSources'];
+export declare const repositoryPlanTestLocation:import('../specifications.mjs').RepositoryPlanValues['repositoryPlanTestLocation'];

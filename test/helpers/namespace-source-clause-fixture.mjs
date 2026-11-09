@@ -10,13 +10,13 @@ import {createNodeGitSourceControlReader} from '../../src/sgos/node-git-source-c
 export const converterSource='// @clause:STORY-1:REQ-001 Converts the selected integer into hexadecimal.\n'
   +'// @clause:STORY-1:AC-001 Returns FF for the approved 255 example.\nexport const convert=value=>value.toString(16).toUpperCase();\n';
 export async function namespaceSourceClauseFixture(t,{backend='filesystem',configure=()=>{},source=converterSource,baselineSource='export const convert=value=>String(value);\n',
-  retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true}={}) {
+  retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true,plan=planText}={}) {
   const f=await namespaceSpecificationFixture(t,{backend,configure:definition=>{
     definition.definition.spec.namespace=namespace;
     definition.definition.codeDelivery={traceability:{sourceBindings:'enforce'}};configure(definition);
   }}),replace=text=>text.replaceAll('STORY-1:',namespace+':');
   await f.author('intake',replace(specificationText));await f.approve('intake');
-  await f.author('design',replace(planText));await f.approve('design');
+  await f.author('design',replace(plan));await f.approve('design');
   f.control.permissions.push('source.baseline.retain','phase.source.retain','phase.source.inspect');
   const sources=[],sourceReaders=[],roots=[],gitBindings=[],binary=lineOrigins?await pinnedLocalGit():null;
   for(let index=0;index<repositories;index++) {

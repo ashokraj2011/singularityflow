@@ -4,7 +4,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshotChanges} from '../kernel/source-changes.mjs';
 import {phaseRequiresCodeDelivery} from '../kernel/phase-policy.mjs';
-import {DELIVERY_INSPECTION_PROFILE_V3} from '../kernel/source-changes.mjs';
+import {DELIVERY_INSPECTION_PROFILE_V3,DELIVERY_INSPECTION_PROFILE_V4,PLANNED_SOURCE_CLAUSES_PROFILE_V2} from '../kernel/source-changes.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
 import {inspectSourceChanges,sourceBaselineInventory,deliveryPathCohorts,isExecutableTestSourceCandidate,uncoveredTestDeliveryPaths,testCoverageDeliveryPaths} from '../engine-compatibility/node-source-policy.mjs';
 import {namespaceScope,namespaceIdentifier} from '../sda/namespace/values.mjs';
@@ -77,6 +77,7 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
             coverage:{required:w.resolution.codeDelivery?.tests?.requireAffectedModuleCoverage!==false,affectedPaths:affected.length,uncoveredPaths:uncovered.length,changedExecutableTests:testPaths.length,pathCount:order.length,paths:rows,truncated:rows.length<order.length}});
         }
         result.clauses=clauses.preview(await clauses.inspect(captured.snapshot,f.phase,retained,original,{signal,control}),{maximumEntries:input.maximumEntries});
+        if(result.clauses.profile===PLANNED_SOURCE_CLAUSES_PROFILE_V2)result.profile=DELIVERY_INSPECTION_PROFILE_V4;
         await sources.fresh(observed,signal);for(const binding of [...Object.values(result.evidence),control?.binding])await indexFresh(binding,signal);
         for(const row of control?.plan.origins??[])for(const proof of [row.origin,row.baseline])await indexFresh(proof,signal);result.status='observed';
       }

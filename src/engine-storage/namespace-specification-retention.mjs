@@ -1,6 +1,6 @@
 /** Immutable-content writer, selected only by the explicit namespace publication host. */
 import {createHash} from 'node:crypto';
-import {canonicalJson,NAMESPACE_SPECIFICATION_SCHEMAS} from '../foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_SPECIFICATION_SCHEMAS,namespaceSpecificationWriterProfile} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationManifest,namespaceSpecificationBinding,namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
@@ -16,8 +16,9 @@ export function createNamespaceSpecificationWriter({observer,scope,workId,conten
   }
   async function retain(publication,{snapshot,head,signal}={}) {
     const {values,inputs}=await reader.derive(publication,snapshot,{signal}),index=values.index?await save(values.index,signal):null,
-      planned=values.planned?await save(values.planned,signal):null;
-    const manifest={schemaVersion:NAMESPACE_SPECIFICATION_SCHEMAS.manifest.currentVersion,format:'sflow-namespace-specification-evidence/v1',
+      planned=values.planned?await save(values.planned,signal):null,repositoryPlan=values.repositoryPlan?await save(values.repositoryPlan,signal):null,
+      profile=namespaceSpecificationWriterProfile({repositoryPlan:repositoryPlan!==null});
+    const manifest={schemaVersion:profile.version,format:profile.format,...(profile.repositoryPlan?{repositoryPlan}:{}),
       ...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},
       basis:{revision:snapshot.revision,head},index,planned,capabilities:values.capabilities,inputs};
     namespaceSpecificationManifest(manifest,{scope,workId,phaseId:publication.phase});

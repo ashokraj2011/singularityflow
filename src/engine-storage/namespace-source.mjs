@@ -14,6 +14,7 @@ import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import { lifecycleRecord } from './namespace-lifecycle-contract.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
+import {createNamespaceRepositoryPlanReader} from './namespace-repository-plan.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -24,6 +25,7 @@ export function createNamespaceSourceBindingPort({records,content,scope,workId,a
   scope=namespaceScope(scope);const binding=sourceBindingScope({projectId:scope.projectId,workId,authority},{workId});
   authority=binding.authority;
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
+  const repositoryPlans=createNamespaceRepositoryPlanReader({records,content,scope,workId,authority,observer});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
   if(!Array.isArray(sources)||sources.length>32||typeof access?.current!=='function'||typeof clock?.now!=='function') {
     throw error('Source binding needs explicit source, access and clock ports.','ENGINE_INPUT_INVALID');
@@ -80,7 +82,9 @@ export function createNamespaceSourceBindingPort({records,content,scope,workId,a
     if(repository.revision!=='sha256:'+hash(Buffer.from(canonicalJson(snapshot))))throw error('The source revision differs from its retained manifest.','ENGINE_STORAGE_CORRUPT');
   }
   async function verify(plan,signal) {
-    const {retained}=await preparedBody(plan,signal);
+    const {retained,body}=await preparedBody(plan,signal);
+    await repositoryPlans.guard({workflow:body.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion},body.workflow.currentPhase,
+      retained.repositories.map(row=>row.id),{signal});
     for(const repository of retained.repositories) {
       const source=unit(repository.id);
       if(!same(source.descriptor,repository.descriptor))throw error('The prepared source binding uses another source unit or selection.','ENGINE_SOURCE_UNIT_CHANGED',{repositoryId:repository.id});
@@ -114,6 +118,7 @@ export function createNamespaceSourceBindingPort({records,content,scope,workId,a
           if(snapshot.revision!==selection.inputs.expectedRevision)throw error('The Story changed before source binding. Review its current revision.','ENGINE_CONTEXT_CHANGED',{
             expected:selection.inputs.expectedRevision,observed:snapshot.revision});
           sourceBindingAdmission(snapshot.workflow,selection.inputs);
+          await repositoryPlans.guard(snapshot,snapshot.workflow.currentPhase,selection.inputs.repositories,{signal});
           const repositories=[];
           for(const repositoryId of selection.inputs.repositories) {
             const observed=await capture(repositoryId,signal),expected={namespace:'evidence',sha256:hash(observed.data),bytes:observed.data.byteLength};

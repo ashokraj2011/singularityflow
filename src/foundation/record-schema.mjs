@@ -259,8 +259,17 @@ export const NAMESPACE_CLARIFICATION_SCHEMAS=Object.freeze({response:frozenFamil
   manifest:frozenFamily('namespace-clarification-manifest'),index:frozenFamily('namespace-clarification-index'),
   publication:frozenFamily('namespace-clarification-publication')});
 export const NAMESPACE_SPECIFICATION_SCHEMAS=Object.freeze({
-  binding:frozenFamily('namespace-specification-evidence-binding'),manifest:frozenFamily('namespace-specification-evidence')
+  binding:frozenFamily('namespace-specification-evidence-binding'),manifest:Object.freeze({id:'namespace-specification-evidence',currentVersion:2,
+    minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
+export const REPOSITORY_PLAN_SCHEMA=/* @__PURE__ */ frozenFamily('repository-plan');
+export function namespaceSpecificationRecordProfile(input){
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_SPECIFICATION_SCHEMAS.manifest,input);
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-specification-evidence/v'+storedVersion,repositoryPlan:storedVersion===2});
+}
+export function namespaceSpecificationWriterProfile({repositoryPlan=false}={}){
+  return namespaceSpecificationRecordProfile({schemaVersion:repositoryPlan?2:1});
+}
 export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
   binding: frozenFamily('namespace-phase-submission-binding'),
   packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,

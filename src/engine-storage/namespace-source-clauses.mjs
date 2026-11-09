@@ -3,7 +3,8 @@ import {canonicalJson} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {plannedSourceClauseBindingsReplay,deliveryPathCohorts} from '../engine-compatibility/node-source-policy.mjs';
 import {scanSourceClauseTags} from '../engine-compatibility/node-source-analysis.mjs';
-import {PLANNED_SOURCE_CLAUSES_PROFILE} from '../kernel/source-changes.mjs';
+import {PLANNED_SOURCE_CLAUSES_PROFILE,PLANNED_SOURCE_CLAUSES_PROFILE_V2} from '../kernel/source-changes.mjs';
+import {repositoryPlanProjection,assertRepositoryPlanSources} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
 const maximumSourceBytes=16*1024*1024,same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -19,6 +20,7 @@ export function createNamespaceSourceClauseReader({observer,scope,workId,retenti
       result={profile:PLANNED_SOURCE_CLAUSES_PROFILE,status:'off',plan:null,retentionRecord:null,repositories:[],requiredPolicyOwners:[]};
     if(!policyEnabled(workflow,phase))return result;
     const plan=await specifications.sourcePlan(snapshot,phaseId,{signal});result.plan=plan.proof;
+    if(plan.repositoryPlan)result.profile=PLANNED_SOURCE_CLAUSES_PROFILE_V2;
     if(!found){result.status='missing-source-evidence';return result;}
     if(!retention.isAccepted(found)||!same(found.plan.basis.configuration,snapshot.configuration)||found.plan.basis.headVersion!==snapshot.revision) {
       throw new SingularityFlowError('Use the original accepted source evidence for this Story and configuration.',{code:'ENGINE_INPUT_INVALID'});
@@ -27,9 +29,10 @@ export function createNamespaceSourceClauseReader({observer,scope,workId,retenti
     if(control&&(!controlReader?.isAccepted(control)||!same(control.plan.source,found.binding)))throw new SingularityFlowError(
       'Use this draft\'s original accepted control evidence.',{code:'ENGINE_INPUT_INVALID'});
     // Legacy plans name paths within one repository. Never spread an unqualified claim across repositories.
-    if(found.plan.sources.length!==1) {
+    if(found.plan.sources.length!==1&&!plan.repositoryPlan) {
       result.status='pending-owner';result.requiredPolicyOwners=['repository-qualified-claims'];return result;
     }
+    if(plan.repositoryPlan)assertRepositoryPlanSources(plan.repositoryPlan,phaseId,found.plan.sources.map(row=>row.repository.id));
     result.status='observed';
     for(const [position,source]of found.plan.sources.entries()) {
       cancelled(signal);const {value}=await retention.verifyRepository(found,source,found.body.repositories[position].manifest,signal),
@@ -82,7 +85,7 @@ export function createNamespaceSourceClauseReader({observer,scope,workId,retenti
           cancelled(signal);const request=step.value;let reply;
           switch(request.kind) {
             case 'source-binding-records':reply=plan.active;break;
-            case 'source-binding-plan':reply=plan.planned;break;
+            case 'source-binding-plan':reply=plan.repositoryPlan?repositoryPlanProjection(plan.repositoryPlan,source.repository.id):plan.planned;break;
             case 'source-binding-path':{const member=members.get(request.path);reply={exists:Boolean(member),regular:Boolean(member),size:member?.bytes??0};break;}
             case 'source-binding-bytes':reply=await read(request.path);break;
             case 'source-binding-tags':reply=scanSourceClauseTags(request.source,{sourcePath:request.path});break;

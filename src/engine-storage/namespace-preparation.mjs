@@ -18,6 +18,7 @@ import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
+import {createNamespaceRepositoryPlanReader} from './namespace-repository-plan.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -37,6 +38,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
+  const repositoryPlans=createNamespaceRepositoryPlanReader({records,content,scope,workId,authority,observer,checks});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof modelEnabled!=='boolean'||!Array.isArray(sources)||sources.length>32) {
     throw error('Preparation needs explicit access, clock, source and model-mode ports.','ENGINE_INPUT_INVALID');
   }
@@ -144,6 +146,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   }
   async function sourceBindings(captured,signal) {
     const w=captured.snapshot.workflow,repositories=w.sourceBindings?.current?.repositories;
+    await repositoryPlans.guard(captured.snapshot,captured.phase.id,Array.isArray(repositories)?repositories.map(row=>row.id):[],{signal});
     if(!Array.isArray(repositories)||!repositories.length)throw error('Bind actual repository sources before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
     for(const repository of repositories) {
       const unit=units.get(repository.id);if(!unit)throw error('Configure the bound source unit before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
@@ -199,6 +202,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       if(found) {
         if(found.payload.baseRevision!==captured.snapshot.revision||found.payload.generation!==binding.generation)throw error('The existing private draft uses an earlier Story revision. Review it and explicitly rebind it.','ENGINE_DRAFT_BASIS_CHANGED',{
           workId,phase:binding.phase,revision:found.revision,confirm:found.body.sha256,operation:'phase.draft.rebase'});
+        await repositoryPlans.guard(captured.snapshot,captured.phase.id,found.payload.sources.map(row=>row.id),{signal});
         saved.accepted=found;saved.opened=false;await unchanged(captured,signal);return;
       }
       const value=await makePayload(captured,binding,agent,null,signal);
@@ -305,6 +309,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if(found.payload.artifact.key!==binding.artifactKey||found.payload.template.key!==templateKey
       ||!template||!same(found.payload.template.reference,template.body))throw error('The private draft differs from its pinned artifact/template contract.','ENGINE_STORAGE_CORRUPT',{
         workId,phase:phaseId});
+    await repositoryPlans.guard(captured.snapshot,phaseId,found.payload.sources.map(row=>row.id),{signal});
     const inputs=await resources(captured,approved.approval.compiled,agent,signal),issued=Object.freeze({});
     admissions.set(issued,{captured,found:fresh,agent,operation,binding,inputs,approved});return issued;
   }

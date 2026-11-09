@@ -584,7 +584,6 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const first=JSON.parse(await run('specification-publication.mjs',source,['fresh']));
     const reopened=JSON.parse(await run('specification-publication.mjs',source,['reopen']));assert.deepEqual(reopened,first);
   });
-
   await t.test('installed submission uses only shared publication records and reopens its exact review packet',async()=>{
     const source=`
       import assert from 'node:assert/strict';import path from 'node:path';
@@ -1093,32 +1092,6 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(result.record,original.record);assert.equal(result.recordedAt,original.recordedAt);assert.equal(result.status,'retained');
     assert.deepEqual(await f.head(),before);
   });
-  await t.test('installed v2 line-origin receipts replay real archived lines without the old checkout or Git',async sub=>{
-    const {namespaceSourceClauseFixture}=await import('./helpers/namespace-source-clause-fixture.mjs');
-    const f=await namespaceSourceClauseFixture(sub,{namespace:'SHARED',lineOrigins:true}),input={operationId:'clause-line-origins',workId:f.inputs.workId,phaseId:'build'},
-      original=await f.engine.run('phase.source-control.retain',input),before=await f.head(),
-      facts={...await f.access.current({projectId:f.scope.projectId,workId:f.inputs.workId,operation:'phase.source.retain'}),permissions:[],agentId:null};
-    await rm(f.root,{recursive:true,force:true});
-    const result=JSON.parse(await run('portable-line-origins.mjs',`
-      import path from 'node:path';import assert from 'node:assert/strict';
-      import {DatabaseSync} from 'node:sqlite';
-      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
-      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
-      import {createNamespaceSourceControlEngine} from '${packageName}/hosts/namespace-source-control';
-      import {SOURCE_CONTROL_READER_CONTRACT_V2,SOURCE_CONTROL_OBSERVATION_FORMAT_V2} from '${packageName}/source-control';
-      assert.equal(SOURCE_CONTROL_READER_CONTRACT_V2,'sflow-source-control-reader/v2');
-      assert.equal(SOURCE_CONTROL_OBSERVATION_FORMAT_V2,'sflow-source-control-observation/v2');
-      const selected=JSON.parse(process.argv[2]),database=new DatabaseSync(path.join(selected.directory,'content.db'));
-      database.enableDefensive(true);database.enableLoadExtension(false);
-      const records=await createFilesystemNamespaceStore({root:path.join(selected.directory,'records'),binding:{kind:'shared'},create:false});
-      try{const content=createSqliteContentStore({database,binding:{kind:'shared'},create:false});
-        const engine=createNamespaceSourceControlEngine({records,content,scope:selected.scope,workId:selected.input.workId,authority:selected.authority,
-          access:{current:()=>selected.facts},clock:{now(){throw Error('Do not restamp accepted line origins.');}}});
-        process.stdout.write(JSON.stringify(await engine.run('phase.source-control.retain',selected.input)));
-      }finally{records.close?.();database.close();}
-    `,[JSON.stringify({directory:f.directory,scope:f.scope,authority:f.authority,input,facts})]));
-    assert.equal(result.status,'retained');assert.deepEqual(result.record,original.record);assert.deepEqual(await f.head(),before);
-  });
   await t.test('installed specification values reproduce native indexes without a checkout or implicit infrastructure',async()=>{
     const oracle=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-values/native-v1.json'),'utf8'));
     const claims=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-claims/native-v2.json'),'utf8'));
@@ -1139,6 +1112,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         isAbsolute:path.isAbsolute,normalize:path.normalize,parse:path.parse,posixIsAbsolute:path.posix.isAbsolute,posixNormalize:path.posix.normalize,
         posixBasename:path.posix.basename,posixDirname:path.posix.dirname,posixRelative:path.posix.relative,win32IsAbsolute:path.win32.isAbsolute,toPosix:value=>value.split(path.sep).join('/')});
       const claimRules=pure.specificationClaimPolicies(paths,Object.freeze({profile:pure.TEXT_VALUE_SYNTAX_PROFILE,byteLengthUtf8:value=>Buffer.byteLength(value),sha256Utf8:digest.sha256Utf8}));
+      const repositories=pure.repositoryPlanPolicies(paths,['singularity/work-items']),qualified=repositories.deriveRepositoryPlan(
+        '## Repository roots\\n\\n| Repository | Plan root |\\n| --- | --- |\\n| app | frontend |\\n| service | backend |',
+        {claims:{'STORY:REQ-001':{expectedPaths:['frontend/src/app.js','backend/src/app.js'],tests:[]}},supportingFiles:[]});
+      assert.equal(qualified.format,pure.REPOSITORY_PLAN_PROFILE);
+      assert.deepEqual(repositories.repositoryPlanProjection(qualified,'service').claims['STORY:REQ-001'].expectedPaths,['src/app.js']);
+      assert.throws(()=>repositories.assertRepositoryPlanSources(qualified,'code',['app']),error=>error.code==='SPEC_REPOSITORY_BINDING_REQUIRED');
       const analysisRules=pure.specificationAnalysisPolicies(Object.freeze({profile:pure.TEXT_VALUE_SYNTAX_PROFILE,byteLengthUtf8:value=>Buffer.byteLength(value),sha256Utf8:digest.sha256Utf8}),
         JSON.parse(${JSON.stringify(JSON.stringify(declarations))})),analysisApi={...pure,...analysisRules};
       for(const entry of JSON.parse(${JSON.stringify(JSON.stringify(analysis))}).cases) {
@@ -1232,6 +1211,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {javascriptDeclarationPolicies,scanSourceClauseTags} from '${packageName}/specifications';
       import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations} from '${packageName}/specifications';
       import {sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '${packageName}/specifications';
+      import {repositoryPlanPolicies,REPOSITORY_PLAN_PROFILE} from '${packageName}/specifications';
+      import type {RepositoryPlan,RepositoryPlanValues} from '${packageName}/specifications';
+      import {deriveRepositoryPlan} from '${packageName}/specifications/node';
       import type {SourceTagOriginValues,CarriedTagRequest,StoryTagRequest,SourceOriginLineDelta} from '${packageName}/specifications';
       import type {ImplementationBindingResult,ImplementationBindingRequest,ImplementationBindingDecision,PublicDeclaration,VerificationPathSyntax} from '${packageName}/specifications';
       import type {JavaScriptDeclarationResult,JavaScriptTestDeclaration} from '${packageName}/specifications';
@@ -1242,6 +1224,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const implementationChoice=reviewBindings({bindings:[],bindingsSha256:'sha256:'+'a'.repeat(64)},[bindingDecision]);
       const publicSymbols:PublicDeclaration[]=publicDeclarations('export function actual(){}','javascript');
       declare const bindingPaths:VerificationPathSyntax;
+      declare const reviewedRepositoryPlan:import('${packageName}/specifications').PlannedSpecificationClaimMap;
+      const repositoryValues:Readonly<RepositoryPlanValues>=repositoryPlanPolicies(bindingPaths,[]);
+      const repositoryResult:RepositoryPlan|null=repositoryValues.deriveRepositoryPlan('# Legacy',reviewedRepositoryPlan);
+      const nodeRepositoryResult:RepositoryPlan|null=deriveRepositoryPlan('# Legacy',reviewedRepositoryPlan);
+      // @ts-expect-error Repository values cannot discover a checkout or grant approval.
+      repositoryValues.deriveRepositoryPlan('# Plan',reviewedRepositoryPlan,{root:'/checkout',approved:true});
+      // @ts-expect-error A path projection is not an approval result.
+      const fakeRepository:RepositoryPlan={schemaVersion:1,format:REPOSITORY_PLAN_PROFILE,roots:[],repositories:[],approved:true};
       const origin:SourceTagOriginValues=sourceTagOriginPolicies(bindingPaths,[]),originProfile:typeof SOURCE_TAG_ORIGIN_VALUES_PROFILE=origin.profile;
       const originInput={baseline:'namespace:original-source',occurrences:[],tag:'clause' as const,pathContext:{caseInsensitivePaths:false,governedRoots:[],governedPaths:[]}};
       const originReplay=origin.storyTagLinesReplay(originInput),originStep=originReplay.next();

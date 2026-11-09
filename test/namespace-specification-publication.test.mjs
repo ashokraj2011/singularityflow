@@ -5,7 +5,7 @@ import {namespaceSpecificationFixture,specificationText,planText} from './helper
 import {createNamespacePublicationReader} from '../src/engine-storage/namespace-publication-reader.mjs';
 import {createNamespaceStoryObserver} from '../src/engine-storage/namespace-story-reader.mjs';
 import {namespacePublicationValue} from '../src/engine-storage/namespace-publication-contract.mjs';
-import {namespacePublicationRecordProfile,PHASE_PUBLICATION_SCHEMAS,NAMESPACE_SPECIFICATION_SCHEMAS,canonicalJson} from '../src/foundation/record-schema.mjs';
+import {namespacePublicationRecordProfile,PHASE_PUBLICATION_SCHEMAS,NAMESPACE_SPECIFICATION_SCHEMAS,namespaceSpecificationWriterProfile,canonicalJson} from '../src/foundation/record-schema.mjs';
 import {profileForCommand,profileCeiling,profileIsExact} from '../src/verification/profiles.mjs';
 import {commandCovering} from '../src/verification/adapters.mjs';
 import {plannedClaimContractFindings} from '../src/kernel/specification-values.mjs';
@@ -49,7 +49,7 @@ for(const backend of ['filesystem','sqlite','application'])test(`${backend}: sco
   assert.equal(scope.evidence.planned,null);assert.deepEqual(scope.evidence.inputs,[]);assert.equal(scope.evidence.recordedAt,scope.publication.publishedAt);
   const approved=await f.approve('intake');assert.equal(approved.currentPhase,'design');assert.equal(approved.approval.selfApproval,false);
   await f.author('design',planText);const plan=await record(f,'design'),claims=await f.json(plan.evidence.planned);
-  assert.equal(plan.evidence.index,null);assert.equal(claims.schemaVersion,2);assert.equal(claims.workId,f.inputs.workId);assert.equal(claims.generation,1);
+  assert.equal(plan.evidence.schemaVersion,1);assert.equal(plan.evidence.index,null);assert.equal(claims.schemaVersion,2);assert.equal(claims.workId,f.inputs.workId);assert.equal(claims.generation,1);
   assert.deepEqual(Object.keys(claims.claims),['STORY-1:AC-001','STORY-1:REQ-001']);
   assert.equal(claims.recordedAt,plan.publication.publishedAt);assert.deepEqual(claims.claims['STORY-1:REQ-001'].tests,['test/converter.test.js']);
   assert.deepEqual(plan.evidence.inputs,[{phase:'intake',generation:1,publication:scope.binding}]);
@@ -62,7 +62,9 @@ for(const backend of ['filesystem','sqlite','application'])test(`${backend}: sco
 test('publication v1/v2 stay strict and the specification profile is a separately versioned contract',async t=>{
   assert.deepEqual(namespacePublicationRecordProfile({schemaVersion:1}),{version:1,format:'sflow-namespace-phase-publication/v1',profile:'sflow-primary-document-publication/v1',checks:false});
   assert.deepEqual(namespacePublicationRecordProfile({schemaVersion:2}),{version:2,format:'sflow-namespace-phase-publication/v2',profile:'sflow-primary-document-publication/v2',checks:true});
-  assert.equal(NAMESPACE_SPECIFICATION_SCHEMAS.manifest.currentVersion,1);
+  assert.equal(NAMESPACE_SPECIFICATION_SCHEMAS.manifest.currentVersion,2);
+  assert.equal(namespaceSpecificationWriterProfile().version,1);
+  assert.equal(namespaceSpecificationWriterProfile({repositoryPlan:true}).version,2);
   const f=await namespaceSpecificationFixture(t);await f.author('intake',specificationText);const {publication}=await record(f),context={projectId:f.scope.projectId,workId:f.inputs.workId,phaseId:'intake'};
   for(const version of [1,2])assert.throws(()=>namespacePublicationValue({...publication,schemaVersion:version,
     format:'sflow-namespace-phase-publication/v'+version,profile:'sflow-primary-document-publication/v'+version},context),{code:'ENGINE_STORAGE_CORRUPT'});
@@ -148,11 +150,14 @@ test('future specification bindings, manifests and derived records remain unsupp
   assert.throws(()=>namespacePublicationValue({...original.publication,specifications:{...original.publication.specifications,schemaVersion:2}},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
   const save=async value=>(await f.content.put(f.scope,'evidence',Buffer.from(canonicalJson(value)))).reference;
   const index=await f.json(original.evidence.index);
-  for(const changed of [{...original.evidence,schemaVersion:2},{...original.evidence,index:await save({...index,schemaVersion:2})}]) {
+  for(const changed of [{...original.evidence,schemaVersion:NAMESPACE_SPECIFICATION_SCHEMAS.manifest.maximumReadableVersion+1},
+    {...original.evidence,index:await save({...index,schemaVersion:2})}]) {
     const publication={...original.publication,specifications:{...original.publication.specifications,record:await save(changed)}},
       binding={...original.binding,record:await save(publication)};
     await assert.rejects(reader(f).read(binding,'intake'),{code:'ENGINE_STORAGE_UNSUPPORTED'});
   }
+  const malformed={...original.publication,specifications:{...original.publication.specifications,record:await save({...original.evidence,schemaVersion:2})}};
+  await assert.rejects(reader(f).read({...original.binding,record:await save(malformed)},'intake'),{code:'ENGINE_STORAGE_CORRUPT'});
 });
 
 test('mutating a previously checked value cannot carry its private proof into another identity',async t=>{

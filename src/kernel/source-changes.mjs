@@ -15,8 +15,10 @@ const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 const count=value=>Number.isSafeInteger(value)&&value>=0;
 export const DELIVERY_INSPECTION_PROFILE_V2='sflow-delivery-evidence-inspection/v2';
 export const DELIVERY_INSPECTION_PROFILE_V3='sflow-delivery-evidence-inspection/v3';
+export const DELIVERY_INSPECTION_PROFILE_V4='sflow-delivery-evidence-inspection/v4';
 export const SOURCE_ANALYSIS_PROFILE='sflow-retained-source-analysis/v1';
 export const PLANNED_SOURCE_CLAUSES_PROFILE='sflow-planned-source-clause-observations/v1';
+export const PLANNED_SOURCE_CLAUSES_PROFILE_V2='sflow-planned-source-clause-observations/v2';
 
 export function phaseSourceInspectionInput(input) {
   if(!plain(input)||Object.keys(input).some(key=>!['workId','phaseId','maximumEntries'].includes(key))
@@ -196,7 +198,7 @@ export function sourceBaselineRetentionResult(input,facts) {
 /** Bounded observed source/test evidence. No publication, requirement or acceptance verdict. */
 export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntries) {
   const bad=()=>fail('The delivery inspector returned another or unbounded evidence binding.','ENGINE_PORT_RESULT_INVALID');
-  const v3=facts?.profile===DELIVERY_INSPECTION_PROFILE_V3,v2=facts?.profile===DELIVERY_INSPECTION_PROFILE_V2||v3;
+  const v4=facts?.profile===DELIVERY_INSPECTION_PROFILE_V4,v3=facts?.profile===DELIVERY_INSPECTION_PROFILE_V3||v4,v2=facts?.profile===DELIVERY_INSPECTION_PROFILE_V2||v3;
   if(facts?.profile!==undefined&&!v2)fail('The delivery-inspection profile needs its matching reader.','ENGINE_STORAGE_UNSUPPORTED');
   if(!exact(facts,['workId','phase','status','revision','authorityVersion','configuration','draft','sourceBinding','evidence','repositories','tests','requiredPolicyOwners',...(v2?['profile','analysis']:[]),...(v3?['clauses']:[])])
     ||facts.workId!==workId||facts.phase!==phaseId||!['missing-draft','stale-draft','not-code-generation','observed'].includes(facts.status)
@@ -253,25 +255,25 @@ export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntr
   if(v3)validateSourceClausePreview(facts,maximumEntries,bad);
   if(v3&&facts.clauses?.requiredPolicyOwners.includes('source-tag-origin'))action('phase.source-control.retain',{workId,phaseId},['operationId'],
     ['origin-bound-source-control-reader','original-source-bytes-available']);
-  return {schemaVersion:v3?3:v2?2:1,contract:v3?DELIVERY_INSPECTION_PROFILE_V3:v2?DELIVERY_INSPECTION_PROFILE_V2:'sflow-delivery-evidence-inspection/v1',...facts,actions,
+  return {schemaVersion:v4?4:v3?3:v2?2:1,contract:v4?DELIVERY_INSPECTION_PROFILE_V4:v3?DELIVERY_INSPECTION_PROFILE_V3:v2?DELIVERY_INSPECTION_PROFILE_V2:'sflow-delivery-evidence-inspection/v1',...facts,actions,
     observationsOnly:true,publicationReadinessInspected:false,applicationAcceptanceEstablished:false};
 }
 
 /** A plan binding is an observation of approved evidence; it never grants publication or approval. */
 function validateSourceClausePreview(facts,maximumEntries,bad) {
-  const value=facts.clauses;
+  const value=facts.clauses,v2=facts.profile===DELIVERY_INSPECTION_PROFILE_V4;
   if(facts.status!=='observed'){if(value!==null)bad();return;}
   const reference=ref=>exact(ref,['namespace','sha256','bytes'])&&ref.namespace==='evidence'&&sha(ref.sha256)&&count(ref.bytes),
     owners=rows=>Array.isArray(rows)&&rows.length<=128&&new Set(rows).size===rows.length&&rows.every(id),
     qualified=clause=>typeof clause==='string'&&normalizeQualifiedClauseId(clause)===clause,
     locations=rows=>{if(!Array.isArray(rows))bad();for(const row of rows){if(!exact(row,['path','line'])||!count(row.line)||row.line<1)bad();sourceRelativePath(row.path);}};
-  if(!exact(value,['profile','status','plan','retentionRecord','repositories','requiredPolicyOwners'])||value.profile!==PLANNED_SOURCE_CLAUSES_PROFILE
+  if(!exact(value,['profile','status','plan','retentionRecord','repositories','requiredPolicyOwners'])||value.profile!==(v2?PLANNED_SOURCE_CLAUSES_PROFILE_V2:PLANNED_SOURCE_CLAUSES_PROFILE)
     ||!['off','missing-source-evidence','observed','pending-owner'].includes(value.status)||!Array.isArray(value.repositories)||value.repositories.length>32
     ||!owners(value.requiredPolicyOwners))bad();
-  if(value.status==='off'){if(value.plan!==null||value.retentionRecord!==null||value.repositories.length||value.requiredPolicyOwners.length)bad();return;}
+  if(value.status==='off'){if(v2||value.plan!==null||value.retentionRecord!==null||value.repositories.length||value.requiredPolicyOwners.length)bad();return;}
   const plan=value.plan;
-  if(!exact(plan,['phase','generation','publication','reviewPacket','planned','indices'])||!id(plan.phase)||!count(plan.generation)||plan.generation<1
-    ||!['publication','reviewPacket','planned'].every(key=>reference(plan[key]))||!Array.isArray(plan.indices)||plan.indices.length>4096)bad();
+  if(!exact(plan,['phase','generation','publication','reviewPacket','planned','indices',...(v2?['repositoryPlan']:[])])||!id(plan.phase)||!count(plan.generation)||plan.generation<1
+    ||!['publication','reviewPacket','planned',...(v2?['repositoryPlan']:[])].every(key=>reference(plan[key]))||!Array.isArray(plan.indices)||plan.indices.length>4096)bad();
   const definitions=new Set();for(const index of plan.indices){if(!exact(index,['phase','record'])||!id(index.phase)||!reference(index.record)||definitions.has(index.phase))bad();definitions.add(index.phase);}
   if(value.status==='missing-source-evidence'){if(value.retentionRecord!==null||value.repositories.length||value.requiredPolicyOwners.length||facts.evidence.changes!==null)bad();return;}
   if(!reference(value.retentionRecord)||canonicalJson(value.retentionRecord)!==canonicalJson(facts.evidence.changes?.record.content)

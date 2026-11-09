@@ -13,3 +13,4 @@ export {isQualifiedAcceptanceId,acceptanceTagsInComment,adjacentWhitespace,accep
 export {implementationBindingPolicies,sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_VALUES_PROFILE,reviewBindings,BINDING_DECISIONS,EXPLANATION_LIMITS,clauseTagExplanation} from '../../../src/kernel/code-delivery-evidence.mjs';
 export {codeDocumentationPolicies,publicDeclarations,changedDeclarations} from '../../../src/kernel/code-documentation.mjs';
 export {polyglotPathPolicies,POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports} from '../../../src/kernel/polyglot-lexical.mjs';
+export {repositoryPlanPolicies,REPOSITORY_PLAN_PROFILE,REPOSITORY_PLAN_VALUES_PROFILE} from '../../../src/kernel/repository-plan.mjs';

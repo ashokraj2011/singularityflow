@@ -1,6 +1,6 @@
 /** Versioned references to deterministic specification records, never an approval claim. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {admitRecordSchemaVersion,NAMESPACE_SPECIFICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
+import {admitRecordSchemaVersion,NAMESPACE_SPECIFICATION_SCHEMAS,namespaceSpecificationRecordProfile,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {exactObject,namespaceIdentifier,namespaceRevision} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {lifecycleHead} from './namespace-lifecycle-contract.mjs';
@@ -24,10 +24,10 @@ export function namespaceSpecificationBinding(value) {
 
 export function namespaceSpecificationManifest(value,{scope,workId,phaseId}) {
   try {
-    admitRecordSchemaVersion(NAMESPACE_SPECIFICATION_SCHEMAS.manifest,value);
+    const profile=namespaceSpecificationRecordProfile(value);
     exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','operationId','baseRevision','configuration',
-      'draft','actor','agentId','recordedAt','artifact','basis','index','planned','capabilities','inputs']);
-    if(value.format!=='sflow-namespace-specification-evidence/v1'||value.projectId!==scope.projectId||value.workId!==workId||value.phase!==phaseId
+      'draft','actor','agentId','recordedAt','artifact','basis','index','planned','capabilities','inputs',...(profile.repositoryPlan?['repositoryPlan']:[])]);
+    if(value.format!==profile.format||value.projectId!==scope.projectId||value.workId!==workId||value.phase!==phaseId
       ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another specification evidence identity.');
     for(const key of ['projectId','workId','phase','operationId'])namespaceIdentifier(value[key],key);
     exactObject(value.basis,['revision','head']);
@@ -36,6 +36,7 @@ export function namespaceSpecificationManifest(value,{scope,workId,phaseId}) {
     exactObject(value.artifact,['key','content']);evidence(value.artifact.content);
     if(value.index!==null)evidence(value.index);
     if(value.planned!==null)evidence(value.planned);
+    if(profile.repositoryPlan){evidence(value.repositoryPlan);if(value.planned===null)throw Error('Repository roots need their exact planned claims.');}
     if(!Array.isArray(value.inputs)||value.inputs.length>4096)throw Error('Invalid specification source bound.');
     const phases=new Set();
     for(const input of value.inputs) {

@@ -484,7 +484,7 @@ test('namespace specification reads cannot write evidence or discover a host and
   const reader='src/engine-storage/namespace-specifications.mjs',writer='src/engine-storage/namespace-specification-retention.mjs';
   const allowed=new Map([
     [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-values.mjs',
-      '../kernel/specification-publication.mjs','../kernel/specification-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-policy.mjs',
+      '../kernel/specification-publication.mjs','../kernel/specification-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-repository-plan.mjs',
       './namespace-submission-reader.mjs','./namespace-specification-contract.mjs'])],
     [writer,new Set(['node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs','./namespace-specification-contract.mjs'])]
   ]);
@@ -708,7 +708,7 @@ test('source binding separates source I/O, pure rules and namespace persistence'
     [sourceOwner,new Set(['node:fs','node:fs/promises','node:crypto','node:path','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs'])],
     [namespaceOwner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../foundation/source-snapshot.mjs','../kernel/source-binding.mjs','../kernel/project-enrollment.mjs','../sda/namespace/values.mjs',
-      '../sda/content/contract.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-lifecycle-reader.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-reader.mjs'])]
+      '../sda/content/contract.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-lifecycle-reader.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-reader.mjs','./namespace-repository-plan.mjs'])]
   ]);
   for(const [owner,allowed] of permitted) {
     const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
@@ -753,7 +753,7 @@ test('private preparation composes explicit storage and source ports without an 
       '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs',
       '../kernel/phase-policy.mjs','../kernel/phase-inputs.mjs','../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs',
       '../kernel/story-creation.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
-      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-phase-resources.mjs'])],
+      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-phase-resources.mjs','./namespace-repository-plan.mjs'])],
     [draft,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/contract.mjs',
       '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
       '../sda/content/contract.mjs','./namespace-draft-contract.mjs'])]
@@ -857,6 +857,8 @@ test('implementation regions and reviewer choices have pure owners while the nat
 
 test('retained source proof and shared observations cannot execute or write',async()=>{
   const allowedByFile=new Map([
+    ['src/engine-storage/namespace-repository-plan.mjs',new Set(['../foundation/failures.mjs','../kernel/phase-policy.mjs','../engine-compatibility/node-repository-plan.mjs',
+      './namespace-specifications.mjs','./namespace-publication-contract.mjs','./namespace-phase-check-reader.mjs','./namespace-specification-contract.mjs'])],
     ['src/engine-storage/namespace-source-origins.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/namespace/values.mjs',
       '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-source-analysis.mjs','./namespace-source-baseline-reader.mjs','./namespace-source-content-reader.mjs'])],
     ['src/engine-storage/namespace-source-control-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-control.mjs',
@@ -868,7 +870,7 @@ test('retained source proof and shared observations cannot execute or write',asy
       '../sda/namespace/values.mjs','./namespace-story-reader.mjs','./namespace-preparation.mjs','./namespace-source-observations.mjs',
       './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-source-analysis.mjs','./namespace-source-clauses.mjs','./namespace-source-control-reader.mjs'])],
     ['src/engine-storage/namespace-source-clauses.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs',
-      '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-source-analysis.mjs','../kernel/source-changes.mjs',
+      '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-source-analysis.mjs','../engine-compatibility/node-repository-plan.mjs','../kernel/source-changes.mjs',
       './namespace-specifications.mjs','./namespace-source-content-reader.mjs'])],
     ['src/engine-storage/namespace-source-analysis.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs',
       '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-analysis.mjs',

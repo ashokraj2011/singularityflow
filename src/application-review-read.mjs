@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile, lstat } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { trackedPathListing, untrackedFiles, gitCommonDir, gitDir, workingTreeChangedPaths } from './git.mjs';
-import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from './engine-compatibility/node-source-policy.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { workDirRelative } from './story-paths.mjs';
 import { phaseRequiresCodeDelivery, applicationReviewPhase } from './code-delivery-policy.mjs';

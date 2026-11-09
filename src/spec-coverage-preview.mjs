@@ -6,13 +6,13 @@
  * never throws: draft-check and prepublish carry its results as non-blocking advisories, and
  * approval keeps its own exact check over the submitted revision.
  */
-import { applicationPathContext, isApplicationChangeEntry, isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangeEntry, isApplicationPath } from './engine-compatibility/node-source-policy.mjs';
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles, plannedProductSourcePaths } from './specifications.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
-import { isConfigurationPath } from './configuration-paths.mjs';
+import { isConfigurationPath } from './engine-compatibility/node-source-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
 import { posix, SingularityFlowError } from './util.mjs';

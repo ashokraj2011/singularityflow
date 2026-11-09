@@ -2,7 +2,7 @@
 import path from 'node:path';
 
 import { recordSha256 } from '../records.mjs';
-import { isConfigurationPath } from '../configuration-paths.mjs';
+import { isConfigurationPath } from '../engine-compatibility/node-source-policy.mjs';
 import { validateChangeRegionManifest } from './contracts.mjs';
 
 export const CMP_EVIDENCE_PROJECTION_LIMITS = Object.freeze({

@@ -1,3 +1,5 @@
+import {pathInside,isDocumentationPath,classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
+export {classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
 import { createHash } from 'node:crypto';
 import { runBoundedTaskPool } from './quality-command-runner.mjs';
 import { readFile } from 'node:fs/promises';
@@ -28,7 +30,7 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor, prefetchExactObjectFiles } from './git.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
-import { configurationPathKind, isConfigurationPath } from './configuration-paths.mjs';
+import { configurationPathKind, isConfigurationPath } from './engine-compatibility/node-source-policy.mjs';
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { readRecord } from './schema-migrations.mjs';
 import {
@@ -389,67 +391,6 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
 // Keep source-comment preflight below the exact local-object replay reader's 16 MiB ceiling.
 // Otherwise a generation could publish successfully and only fail at submission or approval.
 const MAX_BOUND_SOURCE_BYTES = 16 * 1024 * 1024;
-
-function pathInside(candidate, root) {
-  const value = posix(candidate ?? '');
-  const prefix = posix(root ?? '').replace(/\/$/, '');
-  return Boolean(value && prefix && (value === prefix || value.startsWith(`${prefix}/`)));
-}
-
-// Documentation may accompany a code delivery, but it cannot itself satisfy the product-source
-// requirement. Keep this intentionally narrow: a Markdown file under docs/ or a nested README
-// may be executable product input in a documentation application. Only conventional top-level
-// project notes get this special classification.
-function isDocumentationPath(candidate) {
-  const relative = posix(candidate ?? '');
-  return /^(?:README|CHANGELOG|CONTRIBUTING|LICENSE|NOTICE)(?:\.(?:md|markdown|mdx|rst|adoc|txt))?$/iu.test(relative);
-}
-
-/**
- * Describe what each changed path is for without pretending path names prove who authored bytes.
- * Explicit authorship/change-origin declarations live on the generation receipt; this projection
- * only supplies deterministic repository roles and clearly labels its path-policy inference.
- */
-export function classifyDeliveryChanges(changeSet, {
-  generatedRoots = [], declaredOrigins = [], pathContext = null
-} = {}) {
-  const roots = [...new Set(generatedRoots.map(posix).filter(Boolean))];
-  const entries = (changeSet?.entries ?? [])
-    .filter((entry) => isApplicationChangeEntry(entry, pathContext)).map((entry) => {
-    const candidate = entry.newPath ?? entry.oldPath;
-    const configuredGenerated = roots.some((root) => pathInside(candidate, root));
-    const testOutput = /(?:^|\/)(?:\.sflow\/results|coverage|test-results|surefire-reports)(?:\/|$)/i.test(candidate ?? '');
-    const compilerOutput = /(?:^|\/)(?:target|build|dist|out)(?:\/(?:classes|generated|resources))?(?:\/|$)/i.test(candidate ?? '');
-    const migration = /(?:^|\/)(?:migrations?|db\/migrate)(?:\/|$)/i.test(candidate ?? '');
-    const test = isAllowedTestAutomationPath(candidate ?? '');
-    const configuration = configurationPathKind(candidate);
-    const documentation = isDocumentationPath(candidate);
-    const generated = configuredGenerated || isGeneratedOutputPath(candidate ?? '');
-    const role = configuration ? configuration : configuredGenerated ? 'generated-source'
-      : testOutput ? 'test-output'
-        : compilerOutput ? 'compiler-output'
-          : migration ? 'migration'
-            : test ? 'test-source'
-                : documentation ? 'documentation'
-                  : generated ? 'generated-output' : 'product-source';
-    const likelyOrigin = configuredGenerated ? 'code-generator'
-      : testOutput ? 'test-runner'
-        : compilerOutput ? 'compiler'
-          : migration ? 'migration-tool-or-human'
-            : 'authorship-declared';
-    return {
-      changeId: entry.changeId, status: entry.status,
-      oldPath: entry.oldPath, newPath: entry.newPath,
-      role, generated, likelyOrigin, inference: 'path-policy'
-    };
-  });
-  const counts = Object.fromEntries([...new Set(entries.map((entry) => entry.role))]
-    .sort().map((role) => [role, entries.filter((entry) => entry.role === role).length]));
-  return {
-    schemaVersion: 1, inference: 'path-policy', declaredOrigins: [...declaredOrigins],
-    generatedRoots: roots, counts, entries
-  };
-}
 
 function legacySpecificationText(text) {
   return text

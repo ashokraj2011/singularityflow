@@ -399,7 +399,7 @@ export async function observeEvidenceReuseSource(root, config, workflow, { sourc
 async function changedApplicationPaths(root, config, workflow, commit) {
   try {
     const [{ buildRepositoryChangeSet }, { applicationPathContext, isApplicationChangePath }] = await Promise.all([
-      import('./repository-change-set.mjs'), import('./application-paths.mjs')]);
+      import('./repository-change-set.mjs'), import('./engine-compatibility/node-source-policy.mjs')]);
     const context = applicationPathContext(config, workflow);
     const changeSet = await buildRepositoryChangeSet(root, { baseCommit: commit });
     const paths = [...new Set(changeSet.entries.flatMap((entry) => [entry.oldPath, entry.newPath].filter(Boolean)

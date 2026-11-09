@@ -14,7 +14,7 @@ import { applicationChangeSetProjection, applicationPathContext } from './work-i
 import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
 import { recordPlanAmendment, planAuthorities } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
 import { workDir } from './story-paths.mjs';

@@ -17,7 +17,7 @@ import { approvalRequirementsMet } from './kernel/approval-policy.mjs';
 import { planAuthorities } from './plan-amendments.mjs';
 import { countedApprovals, countedRecords, isWithdrawn } from './presence/counted.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { classifySupportingChange } from './supporting-changes.mjs';
+import { classifySupportingChange } from './engine-compatibility/node-source-policy.mjs';
 import { posix, secureRepositoryPath } from './util.mjs';
 
 // Not an agreement with the change: each of these says a person still has something to say about it.

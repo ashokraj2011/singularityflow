@@ -14,12 +14,12 @@ import {
 import { authoredArtifactText } from './publication-preflight.mjs';
 import {
   applicationPathContext, isApplicationChangePath, isApplicationPath
-} from './application-paths.mjs';
+} from './engine-compatibility/node-source-policy.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './foundation/traceability-ids.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
-import { isConfigurationPath } from './configuration-paths.mjs';
-import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
+import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
+import { isConfigurationPath } from './engine-compatibility/node-source-policy.mjs';
+import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './engine-compatibility/node-source-policy.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
 import { mergedVerificationContracts, normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
 import { nonTestVerification, parseVerificationIntent, validatePlannedVerification } from './verification/intent.mjs';

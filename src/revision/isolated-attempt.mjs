@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from '../engine-compatibility/node-source-policy.mjs';
 import { readLocalGitBlobs } from '../git-blob-batch.mjs';
 import { gitDisabledHooksPath } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';

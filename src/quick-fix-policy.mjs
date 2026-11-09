@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { head } from './git.mjs';
 import { changedRepositoryPaths } from './specifications.mjs';
-import { applicationPathContext } from './application-paths.mjs';
+import { applicationPathContext } from './engine-compatibility/node-source-policy.mjs';
 
 export const DEFAULT_QUICK_FIX_POLICY = Object.freeze({
   id: 'quick-fix-low-risk-v1',

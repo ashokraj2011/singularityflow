@@ -68,8 +68,8 @@ import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmen
 import { contextBoundaryHandoff } from './context-policy.mjs';
 import { normalizeContextPolicy } from "./kernel/configuration-policy.mjs";
 import { approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority, sameApprover } from './kernel/approval-policy.mjs';
-import { assertSourceBoundary } from './source-boundary.mjs';
-import { classifySupportingChange } from './supporting-changes.mjs';
+import { assertSourceBoundary } from './engine-compatibility/node-source-policy.mjs';
+import { classifySupportingChange } from './engine-compatibility/node-source-policy.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-transition-routes.mjs';
 

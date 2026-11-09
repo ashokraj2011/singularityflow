@@ -22,8 +22,8 @@ import { maskPolyglotNonCode } from '../polyglot-lexical.mjs';
 import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import { recordSha256 } from '../records.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
-import { isTestAutomationPath } from '../source-boundary.mjs';
-import { isConfigurationPath } from '../configuration-paths.mjs';
+import { isTestAutomationPath } from '../engine-compatibility/node-source-policy.mjs';
+import { isConfigurationPath } from '../engine-compatibility/node-source-policy.mjs';
 import { posix } from '../util.mjs';
 import {
   getCachedVerificationFact, extractModuleSpecifiers

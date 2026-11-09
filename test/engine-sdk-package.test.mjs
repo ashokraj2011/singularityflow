@@ -406,6 +406,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
       import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
       import {createNamespacePreparationEngine} from '${packageName}/hosts/namespace-preparation';
+      import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
       const fresh=process.argv[2]==='fresh',binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'portable-device'};
       const scope={projectId:'portable-config'},authority={id:'application-authority',epoch:1},workId='portable-story';
       const records=await createFilesystemNamespaceStore({root:path.resolve('configuration-records'),binding});
@@ -417,7 +418,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       try {
         const access={current:()=>({projectId:scope.projectId,principalId:'human-reviewer',actorKind:'human',
           identity:{name:'Example reviewer',email:'reviewer@example.test'},agentId:'analyst',
-          permissions:['phase.prepare','phase.draft.read','phase.draft.write','phase.draft.rebase']})};
+          permissions:['phase.prepare','phase.draft.read','phase.draft.write','phase.draft.rebase','phase.source.inspect']})};
         const clock={now(){if(!fresh)throw Error('Reopening an authored draft must not restamp its preparation or write.');return '2026-11-08T13:00:00.000Z';}};
         const engine=createNamespacePreparationEngine({records,content,localRecords,localContent,scope,workId,authority,access,clock});
         const before=await engine.run('phase.review',{phaseId:'intake'});
@@ -436,6 +437,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal((await engine.run('phase.draft.read')).manifest.artifact.content.text,'# Authored intake\\n\\nAn observable requirement.\\n');
         const after=await engine.run('phase.review',{phaseId:'intake'});
         assert.deepEqual(after,before,'private authoring cannot create a shared generation or move the canonical revision');
+        const inspected=await createNamespaceSourceInspectionEngine({records,content,localRecords,localContent,scope,workId,authority,access,clock})
+          .run('phase.source.inspect',{maximumEntries:0});
+        assert.equal(inspected.manifest.status,'not-code-generation');assert.equal(inspected.effects.committed,false);
         assert.equal(JSON.stringify(result).includes(path.resolve('private-records')),false);
         process.stdout.write(JSON.stringify(result));
       }finally{sharedDatabase.close();privateDatabase.close();}
@@ -443,6 +447,58 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const first=JSON.parse(await run('preparation.mjs',source,['fresh']));
     const replay=JSON.parse(await run('preparation.mjs',source,['replay']));
     assert.deepEqual(replay,{...first,replayed:true});
+  });
+
+  await t.test('an installed code-generation reader compares actual files and reopens from another empty-PATH process',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';import {mkdir,writeFile} from 'node:fs/promises';import {DatabaseSync} from 'node:sqlite';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
+      import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
+      import {createFilesystemSourceUnit} from '${packageName}/sources/filesystem';
+      const fresh=process.argv[2]==='fresh',scope={projectId:'inspection-project'},workId='code-story',authority={id:'inspection-authority',epoch:1};
+      const binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'inspection-device'};
+      const records=await createFilesystemNamespaceStore({root:path.resolve('inspection-records'),binding,create:fresh});
+      const localRecords=await createFilesystemNamespaceStore({root:path.resolve('inspection-local-records'),binding:privateBinding,create:fresh});
+      const database=new DatabaseSync('inspection-content.db'),privateDatabase=new DatabaseSync('inspection-local-content.db');
+      const content=createSqliteContentStore({database,binding,create:fresh}),localContent=createSqliteContentStore({database:privateDatabase,binding:privateBinding,create:fresh});
+      const clock={now(){if(!fresh)throw Error('Source inspection cannot restamp a generation.');return '2026-11-09T01:00:00.000Z';}};
+      const access={current:()=>({projectId:scope.projectId,principalId:'reader',actorKind:'human',agentId:'analyst',
+        identity:{name:'Example reviewer',email:'reviewer@example.test',login:null},
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.source.inspect']:['phase.source.inspect']})};
+      try{
+        const root=path.resolve('inspection-checkout');if(fresh){await mkdir(root);await writeFile(path.join(root,'app.js'),'export const answer = 42;');}
+        const unit=await createFilesystemSourceUnit({root,id:'application-checkout',projectId:scope.projectId,repositoryId:'app'});
+        const common={records,content,scope,workId,authority,access,clock,sources:[unit]};
+        if(fresh){
+          const engine=createNamespaceEngine({...common,working:{records:localRecords,content:localContent}});
+          await engine.run('project.enroll',{operationId:'enroll-inspection'});
+          const text=async value=>(await content.put(scope,'config',Buffer.from(value))).reference,body=await text('# Implementation summary');
+          const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',
+            phases:{delivery:{label:'Custom delivery',generation:{producer:'governed-agent',task:'code'},writeScope:'source-and-artifact',
+              artifact:{path:'artifacts/delivery/summary.md',kind:'implementation-summary'},defaultTemplate:'summary.md',approval:{authorities:['reviewers'],minimum:1,rejectTo:['delivery']}}},
+            approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'}]}},workTypes:{custom:{label:'Custom code generation',phases:['delivery'],
+              omits:['scope','plan','verify'].map(responsibility=>({responsibility,reason:'An isolated code-generation reader fixture.',authority:'reviewers'}))}}},
+            agents:[{id:'analyst',label:'Analyst',phases:['delivery'],defaultFor:['delivery'],mode:'read-write',body,skills:[],instructions:[]}],
+            skills:[],instructions:[],templates:[{path:'singularity/templates/summary.md',body}],files:[]};
+          const configuration=await text(JSON.stringify(packet));
+          await engine.run('configuration.approve',{operationId:'approve-code-config',source:configuration,expectedRevision:null,confirm:configuration.sha256,reason:'Review the custom code phase.'});
+          const storySource=(await content.put(scope,'state',Buffer.from('Observe the source change without claiming publication.'))).reference;
+          const story=await engine.run('story.create',{operationId:'create-code-story',workId,title:'Inspect a real generation',workTypeId:'custom',configurationId:'approve-code-config',source:storySource});
+          await engine.run('source.bind',{operationId:'bind-code-source',workId,expectedRevision:story.revision,repositories:['app'],reason:'Retain the real generation baseline.'});
+          await engine.run('phase.prepare',{phaseId:'delivery'});
+          await writeFile(path.join(root,'app.js'),'export const answer = 43;');await writeFile(path.join(root,'package.json'),'{}');
+        }
+        const result=await createNamespaceSourceInspectionEngine({...common,localRecords,localContent}).run('phase.source.inspect',{phaseId:'delivery'});
+        assert.equal(result.manifest.status,'inspected');assert.equal(result.manifest.totals.changes,2);
+        assert.equal(result.manifest.repositories[0].roles['build-configuration'],1);assert.equal(result.manifest.repositories[0].roles['product-source'],1);
+        assert.equal(result.manifest.publicationReadinessInspected,false);assert.equal(result.effects.committed,false);assert.equal(result.effects.testsRun,false);
+        process.stdout.write(JSON.stringify(result));
+      }finally{database.close();privateDatabase.close();}
+    `;
+    const first=JSON.parse(await run('source-inspection.mjs',source,['fresh']));
+    const reopened=JSON.parse(await run('source-inspection.mjs',source,['reopen']));assert.deepEqual(reopened,first);
   });
 
   await t.test('installed publication retains actual authored bytes and reopens its original receipt in another empty-PATH process',async()=>{
@@ -937,6 +993,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
       import type {NamespaceEngineOptions} from '${packageName}/hosts/namespace-engine';
       import {createNamespacePhaseChecksEngine} from '${packageName}/hosts/namespace-checks';
+      import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
@@ -956,6 +1013,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         command:{executable:'/explicit/node',executableSha256:'sha256:abc',arguments:['--test'],environment:{}},
         report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
       declare const phaseCheckOptions:NamespaceEngineOptions;
+      createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{phaseId:'review',maximumEntries:25});
+      // @ts-expect-error A source query cannot accept caller-supplied readiness or a replacement source path.
+      createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{ready:true,path:'/other'});
+      const inspectFactory:typeof createNamespaceSourceInspectionEngine=createNamespaceSourceInspectionEngine;
       createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review'});
       // @ts-expect-error Replacement commands do not enter the registered phase-check operation.
       createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review',argv:['node','other']});

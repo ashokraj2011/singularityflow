@@ -15,7 +15,7 @@ import path from 'node:path';
 import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
-import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from './engine-compatibility/node-source-policy.mjs';
 
 /** Dirty files excluded from this delivery must be accounted for before it is published. */
 export async function unreconciledCandidatePaths(root, config, workflow, phase, scope = undefined) {

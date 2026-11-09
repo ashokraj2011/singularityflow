@@ -12,7 +12,7 @@ import {
   persistGenerationPublicationRecord, publishedGenerationCommit
 } from './generation-publication-store.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 

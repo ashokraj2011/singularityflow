@@ -14,7 +14,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { applicationPathContext, isApplicationChangePath } from '../application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from '../engine-compatibility/node-source-policy.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { buildRepositoryChangeSet, repositoryChangeSetDigest } from '../repository-change-set.mjs';

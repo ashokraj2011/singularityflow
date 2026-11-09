@@ -11,8 +11,8 @@
  */
 import { stepResponsibilities } from './kernel/phase-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
-import { classifySupportingChange, SUPPORTING_CHANGE_CLASSES } from './supporting-changes.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { classifySupportingChange, SUPPORTING_CHANGE_CLASSES } from './engine-compatibility/node-source-policy.mjs';
+import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
 import {MAX_PLAN_AMENDMENT_CHANGES as MAX_CHANGES} from './kernel/decision-limits.mjs';

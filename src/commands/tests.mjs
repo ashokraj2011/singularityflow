@@ -632,7 +632,7 @@ async function nodeStory(root, options) {
     fail(`Node ${major} is not installed here, so nothing ran. Installed: ${(await installedNodeVersions(process.env).catch(() => [])).join(', ') || 'none found'}.`, 'TESTS_NODE_NOT_INSTALLED');
   }
   const [state, { localTestRunKernel: kernel }, { materializeCandidate }, { applicationPathContext, isApplicationChangePath }, { changedFiles, head, untrackedFiles }, { parseTestResult }] = await Promise.all([
-    import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../candidate-isolation.mjs'), import('../application-paths.mjs'), import('../git.mjs'), import('../code-delivery-tests.mjs')]);
+    import('../local-test-runs.mjs'), import('../state-stores.mjs'), import('../candidate-isolation.mjs'), import('../engine-compatibility/node-source-policy.mjs'), import('../git.mjs'), import('../code-delivery-tests.mjs')]);
   const context = await storyContext(root, options);
   const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, { phaseId: optionString(options, 'phase', null) });
   const scope = { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id };

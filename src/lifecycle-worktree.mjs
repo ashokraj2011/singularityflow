@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
-import { applicationPathContext, isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { applicationPathContext, isTestRunnerOutputPath, isTransientTestResultPath } from './engine-compatibility/node-source-policy.mjs';
 import { worktreeStatusDetail } from './git.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { SingularityFlowError } from './util.mjs';

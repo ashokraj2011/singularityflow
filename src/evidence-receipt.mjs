@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
 } from './specifications.mjs';
-import { applicationPathContext } from './application-paths.mjs';
+import { applicationPathContext } from './engine-compatibility/node-source-policy.mjs';
 import { storyRepositoryBases, storyRepositoryBaseText } from './capability-branches.mjs';
 import { qualityValidationVerdict } from './kernel/phase-checks.mjs';
 import { countedApprovals } from './presence/counted.mjs';

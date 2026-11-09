@@ -2369,7 +2369,7 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     configurationAncestrySha256: testCommandAmendmentDigest(decision.configurationAncestry),
     ...(decision.revalidation ? { revalidation: decision.revalidation } : {}) };
   if (testCommandAmendmentDigest(plan) !== review.record.planSha256) fail('Test-command review does not bind the exact published compare-and-swap parent.', 'WFA_AMENDMENT_INVALID');
-  const { applicationPathContext, isApplicationChangeEntry } = await import('./application-paths.mjs');
+  const { applicationPathContext, isApplicationChangeEntry } = await import('./engine-compatibility/node-source-policy.mjs');
   const { buildRepositoryTreeChangeSet } = await import('./repository-change-set.mjs');
   const changes = buildRepositoryTreeChangeSet(root, { baseTree: sourceHead, targetTree: acceptanceCommit,
     env: { ...withoutGitProcessOverrides(), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' } });
@@ -2465,7 +2465,7 @@ async function validateAcceptedApproverRefreshEvidence(root, config, workId, {
   const [email, login] = String(decision.actor).includes('@') ? [decision.actor, null] : [null, decision.actor];
   const match = matchApprovalAuthority(workflow.resolution.approvalAuthorities, { authorities: groups }, { email, login });
   if (!match.authorized || match.authorityGroup !== decision.authorityGroup) fail('Approver refresh was not recorded by a member of a refreshed group.', 'WFA_AMENDMENT_INVALID');
-  const { applicationPathContext, isApplicationChangeEntry } = await import('./application-paths.mjs');
+  const { applicationPathContext, isApplicationChangeEntry } = await import('./engine-compatibility/node-source-policy.mjs');
   const { buildRepositoryTreeChangeSet } = await import('./repository-change-set.mjs');
   const changes = buildRepositoryTreeChangeSet(root, { baseTree: `${acceptanceCommit}^1`, targetTree: acceptanceCommit,
     env: { ...withoutGitProcessOverrides(), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' } });

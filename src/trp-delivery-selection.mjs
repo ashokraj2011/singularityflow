@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { applicationPathContext, isApplicationChangeEntry } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangeEntry } from './engine-compatibility/node-source-policy.mjs';
 import { isExecutableTestSourcePath, normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { planTestSelection } from './test-selection-policy.mjs';

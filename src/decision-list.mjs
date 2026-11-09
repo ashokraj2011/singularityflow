@@ -23,8 +23,8 @@ import {parseDecisionAnswers,decisionRecordPlan as buildDecisionRecordPlan} from
 export {parseDecisionAnswers};
 export {planBatches} from './kernel/decision-plan.mjs';
 export {runDecisionPlan} from './engine-sdk/decision-execution.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
-import { classifySupportingChange } from './supporting-changes.mjs';
+import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
+import { classifySupportingChange } from './engine-compatibility/node-source-policy.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './kernel/approval-policy.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';

@@ -13,7 +13,7 @@
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { applicationPathContext, isApplicationChangePath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from './engine-compatibility/node-source-policy.mjs';
 import { outsideEveryCandidate } from './candidate-scope.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { addCandidateWorktree, changedFiles, removeCandidateWorktree, untrackedFiles } from './git.mjs';

@@ -15,12 +15,12 @@ import {
 import {
   applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath
-} from './application-paths.mjs';
+} from './engine-compatibility/node-source-policy.mjs';
 
 export {
   applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath
-} from './application-paths.mjs';
+} from './engine-compatibility/node-source-policy.mjs';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);

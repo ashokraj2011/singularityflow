@@ -45,7 +45,7 @@ import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
 import { storyMergedBaseChanges, verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
-import { applicationPathContext } from './application-paths.mjs';
+import { applicationPathContext } from './engine-compatibility/node-source-policy.mjs';
 import { classifyStoryGateFailures, pendingOpenStory } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';

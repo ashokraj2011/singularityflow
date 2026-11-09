@@ -19,7 +19,7 @@ import { readTrpCaseInventory, matchTrpReports, snapshotTrpDeclaredRuntime, trpC
   trpExecutionEnvironment, trpNativeReportCapture, verifyTrpCaseInventorySources } from './test-recovery-adapters.mjs';
 import { assertTestReportTargetEmpty, parseTestResult } from './code-delivery-tests.mjs';
 import { withCommandLiteralEnvironment } from './external-command-policy.mjs';
-import { applicationPathContext } from './application-paths.mjs';
+import { applicationPathContext } from './engine-compatibility/node-source-policy.mjs';
 import { gateTestEnvironmentModule, testRuntimeEnvironment, nodeTestReporterEnvironment } from './test-runtime.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;

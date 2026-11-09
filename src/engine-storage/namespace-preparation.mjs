@@ -52,7 +52,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     ...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,localRecords[name].bind(localRecords)]))});
   const privateContent=Object.freeze({descriptor:structuredClone(localContent.descriptor),
     ...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,localContent[name].bind(localContent)]))});
-  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap();
+  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap();
   const store=phaseId=>createNamespaceDraftStore({records:privateRecords,content:privateContent,scope,workId,phaseId});
   const selected=context=>{const value=contexts.get(context);if(!value)throw error('Use the issued preparation context.','ENGINE_INPUT_INVALID');return value;};
   async function authorize(operation,signal,expected=null) {
@@ -390,7 +390,33 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       workId,phase:a.captured.phase.id});
     await resources(a.captured,a.approved.approval.compiled,a.agent,signal);
   }
-  return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,revalidateDraft});
+  // Read admission deliberately does not claim the author role or grant a generation mutation.
+  // An independent reader may inspect sources without becoming the phase's configured author.
+  async function captureSourceDraft(phaseId,{signal}={}) {
+    const identity=await authorize('phase.source.inspect',signal),captured=await canonical(phaseId,signal);
+    const found=await inspectPrivate(captured,signal),token=Object.freeze({});
+    sourceReads.set(token,{identity,captured,found});return token;
+  }
+  function sourceDraftRead(token) {
+    const selected=sourceReads.get(token);if(!selected)throw error('Use the issued read-only source draft capture.','ENGINE_INPUT_INVALID');
+    return selected;
+  }
+  function sourceDraftFacts(token) {
+    const {captured,found}=sourceDraftRead(token);
+    return structuredClone({workId,phase:captured.phase.id,revision:captured.snapshot.revision,authorityVersion:captured.basis.authorityVersion,
+      configuration:captured.snapshot.configuration,workflow:captured.snapshot.workflow,
+      draft:found?{revision:found.revision,bodySha256:found.body.sha256,payload:found.payload}:null});
+  }
+  async function revalidateSourceDraft(token,{signal}={}) {
+    const {identity,captured,found}=sourceDraftRead(token);
+    await authorize('phase.source.inspect',signal,identity);await unchanged(captured,signal);
+    const fresh=await inspectPrivate(captured,signal);
+    if((found===null)!==(fresh===null)||found!==null&&(fresh.revision!==found.revision||!same(fresh.body,found.body))) {
+      throw error('The private source draft changed during its read-only inspection.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
+    }
+  }
+  return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,revalidateDraft,
+    captureSourceDraft,sourceDraftFacts,revalidateSourceDraft});
 }
 
 export function createNamespacePreparationEngine(options) {

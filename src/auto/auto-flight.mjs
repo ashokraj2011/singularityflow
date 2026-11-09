@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { adhocStatus } from '../adhoc/session.mjs';
-import { applicationPathContext } from '../application-paths.mjs';
+import { applicationPathContext } from '../engine-compatibility/node-source-policy.mjs';
 import { startChangeFlightPlan } from '../change-flight-plan.mjs';
 import { loadDefinition } from '../config.mjs';
 import { gitCommonDir, head } from '../git.mjs';

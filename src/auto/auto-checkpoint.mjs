@@ -2,7 +2,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { applicationPathContext } from '../application-paths.mjs';
+import { applicationPathContext } from '../engine-compatibility/node-source-policy.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { activatePhaseAgent } from '../commands/kernel.mjs';
 import { branch, gitCommonDir, head, validBranch } from '../git.mjs';

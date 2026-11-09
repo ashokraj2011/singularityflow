@@ -18,7 +18,7 @@ import { secureRepositoryPath, snapshot } from '../util.mjs';
 import { evaluateVisualCoverage } from '../visual-coverage.mjs';
 import { reconcileWorkInterval } from '../work-intervals.mjs';
 import { workDir } from '../story-paths.mjs';
-import { applicationPathContext } from '../application-paths.mjs';
+import { applicationPathContext } from '../engine-compatibility/node-source-policy.mjs';
 
 const row = (id, state, source, evidence, slots = {}, action = null) => ({
   id, code: `readiness.${id}`, state, source, evidence, slots, action

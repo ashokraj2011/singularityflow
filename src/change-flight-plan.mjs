@@ -14,7 +14,7 @@ import { astQuery } from './ast-intelligence.mjs';
 import { loadDefinition } from './config.mjs';
 import { contextPacketTelemetryForWork } from './context-packet-telemetry.mjs';
 import { gitCommonDir, validBranch } from './git.mjs';
-import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from './engine-compatibility/node-source-policy.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import {
   configurationReadAuthority, configurationReadRoot, isConfigurationReadPath

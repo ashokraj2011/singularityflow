@@ -20,7 +20,7 @@ import { authoredArtifactFingerprint, inspectPhaseAuthoredReviewContent } from '
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { applicationChangeSetProjection, applicationPathContext, verifyWorkIntervalBaseline } from './work-intervals.mjs';
 import { publishedGenerationCommit, verifyOpenGenerationIntent } from './generation-boundary.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
 import { effectivePhasePublicationProducer } from './kernel/phase-policy.mjs';
 import { phasePublicationCommandForProducer } from './phase-publication-guidance.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';

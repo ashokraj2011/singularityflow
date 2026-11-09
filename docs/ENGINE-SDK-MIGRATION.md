@@ -67,6 +67,17 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [portable generation source inspection](ENGINE-SDK-SOURCE-INSPECTION.md) is the current
+application-delivery prerequisite. It extracts native path rules and reads actual source changes
+through the registry, without changing installed Git authority or claiming publication readiness.
+Full application delivery and the remaining Phase 5, 7, 8 and 9 gates remain open.
+
+That source-inspection slice passed 435 affected Mac regression tests, 66 architecture checks
+and 25 installed-package checks, all without failures, cancellations or skips. Source validation
+passed 3,908 checks across 191 skills; typechecking, the unchanged 2,011-site ownership audit
+and all 13 unchanged bundle budgets passed. The SDK retains 53 operations. This qualifies source
+observation and shared path policy, not full application delivery or installed authority cutover.
+
 | Phase | Delivery and gate | Current status |
 |---|---|---|
 | 0 | Baseline the first extraction and identify existing ownership and compatibility contracts | First component baseline captured; the operation inventory grows with each later slice |

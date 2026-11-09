@@ -17,7 +17,8 @@ import { constants as fsConstants, readdirSync } from 'node:fs';
 import { appendFile, lstat, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export const AGENT_OUTPUT_FOLDER = '.sflow/out';
+import {AGENT_OUTPUT_FOLDER,AGENT_OUTPUT_EXCLUDE,isAgentOutputPath} from './foundation/agent-output-paths.mjs';
+export {AGENT_OUTPUT_FOLDER,AGENT_OUTPUT_EXCLUDE,isAgentOutputPath} from './foundation/agent-output-paths.mjs';
 
 // What an agent's file tool shows in one read. Copilot 1.0.95 (2026-10-22) cut a ranged read at about
 // 20,000 characters; Copilot 1.0.100 in VS Code (2026-10-27) cut every ranged read after 8,193 to 9,233
@@ -41,14 +42,9 @@ export function lineRanges(text, chunkBytes = READ_CHUNK_BYTES) {
   if (lines.length) ranges.push([start, lines.length]);
   return ranges;
 }
-export const AGENT_OUTPUT_EXCLUDE = `/${AGENT_OUTPUT_FOLDER}/`;
 const EXCLUDE_COMMENT = '# Singularity Flow: agent results (.sflow/out), machine-local, never commit them';
 
 /** Whether a repository-relative path, in Git's `/` spelling, is the output folder or inside it. */
-export function isAgentOutputPath(relative) {
-  const value = String(relative ?? '');
-  return value === AGENT_OUTPUT_FOLDER || value.startsWith(`${AGENT_OUTPUT_FOLDER}/`);
-}
 
 /**
  * Whether an ignored entry Git lists in the checkout at `root` is the output folder: the folder or

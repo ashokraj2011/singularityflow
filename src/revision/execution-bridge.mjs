@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from '../engine-compatibility/node-source-policy.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { isPortableRepositoryPathComponent } from '../foundation/portable-paths.mjs';

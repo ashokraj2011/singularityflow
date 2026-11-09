@@ -19,7 +19,7 @@ import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep } from './person-step-catalog.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
-import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { isTestRunnerOutputPath, isTransientTestResultPath } from './engine-compatibility/node-source-policy.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 

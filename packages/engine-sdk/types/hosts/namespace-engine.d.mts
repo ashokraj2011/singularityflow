@@ -5,7 +5,7 @@ import type {SourceUnit} from '../source.mjs';
 import type {NamespaceStoryAccessFacts} from './namespace-story.mjs';
 import type {NamespaceChecksBindings} from './namespace-checks.mjs';
 export type NamespaceAccessOperation='project.enroll'|'configuration.approve'|'story.create'|'source.bind'|
-  'phase.prepare'|'phase.draft.read'|'phase.draft.write'|'phase.draft.rebase'|'phase.publish'|'phase.submit'|'phase.approve'|'decision.choose'|'phase.checks.run';
+  'phase.prepare'|'phase.draft.read'|'phase.draft.write'|'phase.draft.rebase'|'phase.publish'|'phase.submit'|'phase.approve'|'decision.choose'|'phase.checks.run'|'phase.source.inspect';
 export interface NamespaceEngineAccess {
   current(request:{readonly projectId:string;readonly workId?:string;readonly operation:NamespaceAccessOperation;readonly signal?:AbortSignal|null}):
     (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>;

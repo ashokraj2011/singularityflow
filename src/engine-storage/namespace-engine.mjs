@@ -16,6 +16,7 @@ import {createNamespaceSubmissionPorts} from './namespace-submission.mjs';
 import {createNamespaceApprovalPorts} from './namespace-approval.mjs';
 import {createNamespaceRoutingChoicePorts} from './namespace-routing-choice.mjs';
 import {createNamespacePhaseChecksPort} from './namespace-phase-checks.mjs';
+import {createNamespaceSourceInspectionPort} from './namespace-source-inspection.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -53,6 +54,7 @@ export function createNamespaceEngine(options={}) {
     ...(authority.epoch===1?createNamespaceProjectPorts(common):{}),
     ...createNamespaceConfigurationPorts(common),...createNamespaceStoryPorts(common),
     sourceBinding:createNamespaceSourceBindingPort(common),...(runtime?.ports??{}),
+    phaseSourceInspection:createNamespaceSourceInspectionPort(common,runtime),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};

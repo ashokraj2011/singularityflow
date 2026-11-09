@@ -6,7 +6,7 @@ import { open } from 'node:fs/promises';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { EXPLANATION_LIMITS } from './implementation-bindings.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import { isConfigurationPath } from './configuration-paths.mjs';
+import { isConfigurationPath } from './engine-compatibility/node-source-policy.mjs';
 
 const MAX_PATHS = 256;
 const MAX_BYTES = 2 * 1024 * 1024;

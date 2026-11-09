@@ -1,6 +1,6 @@
 /** Exact application-byte projection for a selected REV Candidate at Story publication. */
 import { head } from '../git.mjs';
-import { applicationPathContext, isApplicationPath } from '../application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from '../engine-compatibility/node-source-policy.mjs';
 import { recordSha256 } from '../records.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import {

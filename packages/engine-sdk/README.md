@@ -109,6 +109,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   execution for at-most-once attempts and takeover. It does not accept phase evidence or approvals.
 - `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
   canonical lifecycle reads, original receipts and first source observations across takeover.
+- `hosts/namespace-source-inspection`: compare a private code generation's accepted baseline with
+  fresh source snapshots through `phase.source.inspect`. All selected repositories are checked
+  before truncating the preview. Configuration, protected paths and test-only boundaries retain
+  their shared classification rules. The query saves no data and establishes no test, publication
+  or approval readiness; the main namespace Engine exposes the same registered operation.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
   drafts using separately device-bound local ports, without changing canonical phase state.
 - `hosts/namespace-publication`: publish primary authored documents using the conditional namespace

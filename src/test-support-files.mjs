@@ -8,7 +8,7 @@
  */
 import path from 'node:path';
 
-import { configurationPathKind } from './configuration-paths.mjs';
+import { configurationPathKind } from './engine-compatibility/node-source-policy.mjs';
 import { isRunnerConfigurationName } from './test-runners.mjs';
 import { posix } from './util.mjs';
 

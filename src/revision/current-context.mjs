@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { applicationPathContext, isApplicationChangePath } from '../application-paths.mjs';
+import { applicationPathContext, isApplicationChangePath } from '../engine-compatibility/node-source-policy.mjs';
 import { loadDefinition } from '../config.mjs';
 import { configurationAssetPaths, readConfigurationSource } from '../configuration-branch.mjs';
 import { gitCommonDir, repoRoot } from '../git.mjs';

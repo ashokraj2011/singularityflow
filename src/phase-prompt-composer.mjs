@@ -16,7 +16,7 @@ import {
 import {
   loadDefinition, normalizeGenerationPolicy, renderArtifactTemplate, WORKFLOW_PATH
 } from './config.mjs';
-import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from './engine-compatibility/node-source-policy.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { userDefinedAgentName } from './user-defined-agent-identity.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';

@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson } from './foundation/record-schema.mjs';
-import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from './engine-compatibility/node-source-policy.mjs';
 import { exactFileAtObject, exactFirstParentFileChanges, head, identity } from './git.mjs';
 import { requireApprovalAuthority } from './kernel/approval-policy.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';

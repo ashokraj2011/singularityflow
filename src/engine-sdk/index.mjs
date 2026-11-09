@@ -28,6 +28,7 @@ import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../ke
 import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
+import {phaseSourceInspectionInput,phaseSourceInspectionManifest} from '../kernel/source-changes.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -169,6 +170,9 @@ const definitions = [
   {id:'phase.draft.read',version:1,effect:'read',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','maximumBytes']),port:'phaseDraftRead',
     stages:Object.freeze(['load','read']),validate:'draftReadInput',execute:'readPhaseDraft'},
+  {id:'phase.source.inspect',version:1,effect:'read',humanDecision:false,authority:'phase.source.inspect',
+    inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseSourceInspection',
+    stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
   {id:'phase.draft.write',version:1,effect:'local-draft',humanDecision:false,authority:'phase.draft.write',
     inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),
     requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),port:'phaseDraftWrite',
@@ -190,6 +194,18 @@ function configurationApprovalInput(value) { return projectConfigurationInput(da
 function draftReadInput(value){return phaseDraftReadInput(data(value));}
 function draftMutationInput(value,operation){return phaseDraftMutationInput(data(value),operation);}
 function phaseChecksInput(value){return checkedPhaseChecksInput(data(value));}
+function sourceInspectionInput(value){return phaseSourceInspectionInput(data(value));}
+async function inspectPhaseSources(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||typeof context.phase!=='string'
+    ||input.workId!==undefined&&input.workId!==context.subject.id||input.phaseId!==undefined&&input.phaseId!==context.phase) {
+    throw new SingularityFlowError('The source inspector returned another Story or phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }
+  const facts=data(await port.inspect(context,input,{signal}));notCancelled(signal);
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.source.inspect',subject:context.subject,phase:context.phase,
+    manifest:phaseSourceInspectionManifest(context.subject.id,context.phase,facts,input.maximumEntries),
+    effects:{committed:false,pushed:false,localDraftSaved:false,sourceFilesChanged:false,testsRun:false,approvalRecorded:false}});
+}
 async function runPhaseChecks(port,input,signal) {
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   let accepted=await port.retained(context,input,{signal});notCancelled(signal);
@@ -1465,7 +1481,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
-    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,
+    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

@@ -468,6 +468,22 @@ test('PCR REQ-015, REQ-016: the PowerShell launcher agrees', {
   });
 });
 
+test('PCR REQ-003: a value one of the repository\'s declared environment files holds counts as a secret, and is never kept', async (t) => {
+  const repo = await clone(t);
+  // Made up for this test, random enough to be a secret.
+  const value = `Zq8vK2${'mN7xR4tW1p'}`;
+  await writeFile(path.join(repo.root, 'singularity/environments.yml'), 'schemaVersion: 1\nenvironments:\n  dev:\n    requires:\n'
+    + '      - { name: DB_PASSWORD, kind: secret }\n    localFiles: [.env]\n');
+  await writeFile(path.join(repo.root, '.env'), `# local only\nDEBUG=true\nDB_PASSWORD="${value}"\nAPI_URL=\${API_BASE}\n`);
+  const answer = await repo.prompt('person', `connect with ${value} and check the pool`);
+  assert.equal(answer.decision, 'block');
+  assert.match(answer.reason, /looks like a value from an environment file/u);
+  assert.ok(!answer.reason.includes(value));
+  const [logged] = await readPromptLog(path.join(repo.root, '.git'));
+  assert.equal(logged.text, 'connect with [REDACTED] and check the pool');
+  assert.deepEqual(await repo.prompt('person', 'set DEBUG to true while we look'), {}, 'a plain word the file holds is no secret');
+});
+
 test('PCR REQ-003: a subagent\'s task keeps the person\'s copy and its secret; a skill turn is judged by what was typed after it', async (t) => {
   const repo = await clone(t);
   await repo.prompt('person', `use ${TOKEN}`);

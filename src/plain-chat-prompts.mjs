@@ -36,13 +36,15 @@ export function sessionKey(payload) {
 }
 
 /**
- * What looks like a secret in a prompt, by its kind ("GitHub token", "private key"), or null: the commit gate's
- * secret rules, and the diagnostic redactor's token shapes. Never its value. A prose word after "Bearer" is no
- * token, so that shape is left to the redaction alone.
+ * What looks like a secret in a prompt, by its kind ("GitHub token", "private key"), or null: a value one of the
+ * repository's declared environment files holds (`values`), the commit gate's secret rules, and the diagnostic
+ * redactor's token shapes. Never its value. A prose word after "Bearer" is no token, so that shape is left to the
+ * redaction alone.
  */
-export async function promptSecret(prompt) {
+export async function promptSecret(prompt, { values = [] } = {}) {
   const text = String(prompt ?? '').slice(0, 256 * 1024);
   if (!text.trim()) return null;
+  if (values.some((value) => text.includes(value))) return 'value from an environment file';
   const [{ SECRET_RULES, scanText }, { DIAGNOSTIC_SECRET_VALUES }] = await Promise.all([import('./secrets.mjs'), import('./git-remote-diagnostics.mjs')]);
   const rules = new Set(SECRET_RULES.map((rule) => rule.id));
   const found = scanText(text, { path: '<prompt>' }).find((finding) => rules.has(finding.rule) && !finding.waived);

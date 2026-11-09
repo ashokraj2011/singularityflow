@@ -13,9 +13,9 @@
  * check lets the call through [PCR:REQ-017]. People decide: nothing here answers, approves or runs a skill for anyone.
  */
 import { randomUUID } from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { repositoryOf, usesSflow } from './copilot-environment-files-guard.mjs';
+import { environmentFileProtection, repositoryOf, usesSflow } from './copilot-environment-files-guard.mjs';
 import { notePromptLog, promptSecret, readSessionCopy, sessionKey, writeSessionCopy } from './plain-chat-prompts.mjs';
 
 // capabilities.mjs PLAIN_CHAT_EDITS_DEFAULT (decision 8), here so a guard that reads no map loads no capability code.
@@ -89,6 +89,42 @@ export async function checkoutStory(repository) {
   return null;
 }
 
+const ENVIRONMENT_FILE_BYTES = 64 * 1024;
+// A setting's value as an environment file writes it: `KEY=value`, `export KEY="value"`, `key: value`.
+const SETTING = /^\s*(?:export\s+)?[A-Za-z_][\w.-]*\s*[=:]\s*(.*?)\s*$/u;
+
+/**
+ * The values the repository's declared environment files hold that are long and random enough to be secrets
+ * [PCR:REQ-003]: the files this machine registered and the declaration's plain localFiles paths, read here only
+ * to be compared with a prompt. None is ever written, printed or kept.
+ */
+async function environmentFileValues(repository) {
+  const protection = await environmentFileProtection(repository.root).catch(() => null);
+  if (!protection) return [];
+  const files = new Set(Object.values(protection.environmentFiles ?? {}).flat().filter((file) => typeof file === 'string'));
+  for (const policy of protection.policies ?? []) {
+    for (const environment of Object.values(policy?.environments ?? {})) {
+      for (const file of environment?.localFiles ?? []) if (typeof file === 'string' && !/[*?[{]/u.test(file)) files.add(file);
+    }
+  }
+  const { entropy } = await import('./secrets.mjs');
+  const values = new Set();
+  for (const file of [...files].slice(0, 32)) {
+    let text;
+    try {
+      const absolute = path.resolve(repository.root, file);
+      if (!statSync(absolute).isFile() || statSync(absolute).size > ENVIRONMENT_FILE_BYTES) continue;
+      text = readFileSync(absolute, 'utf8');
+    } catch { continue; }
+    for (const line of text.split(/\r?\n/u)) {
+      if (/^\s*[#;]/u.test(line)) continue;
+      const value = line.match(SETTING)?.[1]?.replace(/^(['"])(.*)\1$/u, '$2');
+      if (value && value.length >= 8 && !/\s/u.test(value) && !/^\$\{?[A-Z_]/u.test(value) && entropy(value) >= 3) values.add(value);
+    }
+  }
+  return [...values];
+}
+
 /** What a skill turn keeps of its prompt: the skill and the words typed after it, never its expanded text. */
 async function promptWords(prompt, skill) {
   const { redactedWords, typedArguments } = await import('./asked-for.mjs');
@@ -116,8 +152,10 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
   const repository = sflowRepositoryAt(typeof payload.cwd === 'string' ? payload.cwd : process.cwd());
   if (!repository) return null;
   // A skill's turn is judged by what the person typed after it, never by the skill text a host expanded.
-  const secret = await promptSecret(skill ? typedArguments(payload.prompt) ?? '' : payload.prompt);
-  const words = await promptWords(payload.prompt, skill);
+  const values = await environmentFileValues(repository);
+  const secret = await promptSecret(skill ? typedArguments(payload.prompt) ?? '' : payload.prompt, { values });
+  // An environment file's value is taken out before the words are redacted and cut, so no part of it is kept.
+  const words = await promptWords(values.reduce((text, value) => text.split(value).join('[REDACTED]'), payload.prompt), skill);
   const story = await checkoutStory(repository).catch(() => null);
   const turnId = randomUUID();
   const at = new Date(now).toISOString();

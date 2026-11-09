@@ -53,9 +53,10 @@ export function sourceReviewAuthorConflict(workflow, phase) {
     && phase.generatedAgent === workflow.resolution.sourceReview.reviewerAgent);
 }
 
+// An amendment that reset no step asks for none: its revalidation rows are each step's answer [SCS:REQ-022].
 export function pendingIntentAmendmentAcknowledgement(workflow) {
   return [...(workflow?.intentAmendments ?? [])].reverse()
-    .find((entry) => entry.status === 'approved' && !entry.acknowledgedAt) ?? null;
+    .find((entry) => entry.status === 'approved' && entry.acknowledgementRequired !== false && !entry.acknowledgedAt) ?? null;
 }
 
 export function assertIntentAmendmentAcknowledged(workflow) {

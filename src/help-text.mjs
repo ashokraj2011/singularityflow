@@ -947,7 +947,7 @@ Usage:
   singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD] [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID] [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID [--work-id WORK-ID] [--json]
-  singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID|AMD-ID --outcome unchanged|return --reason TEXT [--work-id WORK-ID] [--json]
   singularity-flow departure record --kind path|supporting|plan-row|test|wording|clause|finding --reason TEXT [--path FILE]... [--clause CLAUSE]... [--row-op OP] [--target STEP --file DRAFT] [--finding ID]... [--supersedes DEP-ID] [--work-id WORK-ID] [--json]
   singularity-flow departure account --instruction N (--clauses ID,... | --departure DEP-ID) [--work-id WORK-ID] [--json]
   singularity-flow departure list [--phase PHASE] [--open] [--work-id WORK-ID] [--json]

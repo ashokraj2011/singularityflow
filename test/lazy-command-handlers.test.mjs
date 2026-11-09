@@ -435,7 +435,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // a finding on no file keeps its reader's verdict (findings/model.mjs markNewCode) [CQF:REQ-048].
     // 9,609,500 (measured 9,609,463, commands/phase-lifecycle.mjs): spec–code sync M1, M2 and M4 with the SonarQube fix above, each one's growth above,
     // and main's corrected comment on the unstated-difference check (conformance-readiness.mjs +33).
-    assert.ok(closure.bytes <= 9_609_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,616,300 (measured 9,616,278, commands/phase-lifecycle.mjs): an amendment from "Update the spec" lists revalidation rows instead of
+    // reopening (state.mjs +4544 with its approval's records, forward-amendments.mjs +625, source-review-policy.mjs +153, upstream-routes.mjs
+    // +124, person-step-catalog.mjs +34) and scope staleness takes the carriers it is given (scope/revisions.mjs +1335) [SCS:REQ-022]. Which
+    // "still holds" carries evidence stays lazy (scope/carried-evidence.mjs); no new eager file.
+    assert.ok(closure.bytes <= 9_616_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -640,7 +644,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,178,900 (measured 4,178,856): the pinned spec.conformanceDifferences in specifications.mjs [SCS:REQ-010].
   // 4,178,350 (measured 4,178,314): the same command-registry.mjs +155 as root dispatch, for `departure account` [SCS:REQ-042].
   // 4,179,050 (measured 4,179,011): spec–code sync M1 and M4 together, each one's growth above.
-  assert.ok(current.bytes <= 4_179_050, `session current loads ${current.bytes} source bytes`);
+  // 4,179,200 (measured 4,179,198): an amendment that reset nothing asks for no acknowledgement (source-review-policy.mjs +153), and
+  // the revalidation's list option (person-step-catalog.mjs +34) [SCS:REQ-022].
+  assert.ok(current.bytes <= 4_179_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

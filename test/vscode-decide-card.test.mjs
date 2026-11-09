@@ -253,3 +253,11 @@ test('drafted, the row\'s own step opens the engine\'s draft, and the card asks 
   assert.match(source, /'decide\.draft': async \(message\) => \{\n\s+const file = optionOf\(message\)\?\.action\?\.file;/u, 'only the file the list names opens');
   assert.match(source, /if \(outcome\.drafted\?\.length\) \{[\s\S]*await reread\(\);[\s\S]*const file = draftFileOf\(packet\);[\s\S]*return render\(null, /u, 'the page stays, re-read, and opens the draft');
 });
+
+test('evidence carried by a step\'s "still holds" is never silent on the card: which clause, which amendment, whose word [SCS:REQ-022]', () => {
+  const html = evidenceHtml(packet({ approvalEvidence: { phase: 'conformance', phaseLabel: 'Code checking', words: 'Evidence beside these decisions.', carried: { words: 'Counted on a person\'s word, not a new run: tests and reviews that predate the amended wording, kept because the step\'s own approvers said it still holds.',
+    entries: [{ amendment: 'AMD-001', phase: 'implementation', generation: 1, clauses: ['PAY-1:AC-001'], by: 'Code Approver', authorityGroup: 'engineering-reviewers',
+      words: "PAY-1:AC-001: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (engineering-reviewers), said it still holds." }] } } }));
+  assert.match(html, /<section class="dc-ev dc-ev-warn"><h3>Carried by &quot;still holds&quot;<\/h3><p class="muted">Counted on a person&#39;s word, not a new run/u);
+  assert.match(html, /<li>PAY-1:AC-001: Code&#39;s evidence predates AMD-001&#39;s wording; Code Approver, for the Code approvers \(engineering-reviewers\), said it still holds\.<\/li>/u);
+});

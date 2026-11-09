@@ -8,6 +8,7 @@
  *   hold            each vulnerable new package that holds the approval, who may accept it and the command they run
  *   requiredChecks  each GitHub required check's result on the submitted commit
  *   askedFor        what the person typed after /sf-code or /sf-phase, quoted, and how each is accounted for [SCS:REQ-043]
+ *   carried         evidence that predates an amendment's wording and counts because a step's approvers said it still holds [SCS:REQ-022]
  *
  * `decisions --json` carries it as `approvalEvidence`, so the VS Code card and the Copilot CLI table show the
  * same facts from one read. Evidence only: it records nothing, refuses nothing and stays outside the list's
@@ -20,6 +21,7 @@ import { typedFocusOff } from './asked-for.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { coveringFindingRisk, SECURITY_REVIEWERS } from './finding-risk.mjs';
 import { heldVulnerabilities } from './findings/dependency-hold.mjs';
+import { carriedEvidence } from './scope/carried-evidence.mjs';
 import { changedLineCoverageReview } from './verification/changed-line-coverage.mjs';
 import { criterionProof } from './verification/criterion-proof.mjs';
 
@@ -157,6 +159,14 @@ function askedForOf(workflow, phase) {
     ...(entries.length > shown.length ? { more: entries.length - shown.length } : {}) };
 }
 
+/** Evidence an intent amendment's revision would have made stale, carried by a step's approvers' "still holds"; never silent. */
+function carriedOf(workflow) {
+  const entries = carriedEvidence(workflow);
+  if (!entries.length) return null;
+  return { words: 'Counted on a person\'s word, not a new run: tests and reviews that predate the amended wording, kept because the step\'s own approvers said it still holds.',
+    entries: entries.slice(0, SHOWN), ...(entries.length > SHOWN ? { more: entries.length - SHOWN } : {}) };
+}
+
 /**
  * The evidence beside the decisions of `phaseId`, or null when the step has none of it. `actor` and
  * `authorities` say whether the person looking may accept a held package, as the list says of its rows.
@@ -171,7 +181,8 @@ export async function approvalEvidence(root, config, workflow, phaseId, { actor 
     findings: await part(() => findingsOf(workflow, phase, at)),
     hold: await part(() => holdOf(workflow, phase, at, { authorities: authorities ?? workflow.resolution?.approvalAuthorities ?? config?.approvalAuthorities, actor })),
     requiredChecks: await part(() => requiredChecksOf(root, config, workflow, phase)),
-    askedFor: await part(() => askedForOf(workflow, phase))
+    askedFor: await part(() => askedForOf(workflow, phase)),
+    carried: await part(() => carriedOf(workflow))
   };
   const present = Object.entries(parts).filter(([, value]) => value);
   if (!present.length) return null;

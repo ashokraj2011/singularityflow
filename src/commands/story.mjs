@@ -2467,11 +2467,19 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     console.log(`Approved ${proposalId}; specification generation ${result.transition.proposal.application.toSpecificationGeneration} is active.`);
     const application = result.transition.proposal.application;
     if (application.scopeRevision) {
-      console.log(`Scope revision ${application.scopeRevision.revision} changed ${application.staleClauses.length} clause(s) (${application.staleClauses.join(', ') || 'none'}): evidence of them produced before this revision is stale. ${application.standingClauses.length} clause(s) are unaffected.`);
+      console.log(`Scope revision ${application.scopeRevision.revision} changed ${application.staleClauses.length} clause(s) (${application.staleClauses.join(', ') || 'none'}): evidence of them produced before this revision is stale${
+        application.revalidate?.length ? ' until its step\'s approvers say it still holds' : ''}. ${application.standingClauses.length} clause(s) are unaffected.`);
     }
-    console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
+    if (!application.revalidate?.length) console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
     if (application.retainedPhases?.length) {
       console.log(`Kept the approval of ${application.retainedPhases.join(', ')} (rule E8): the amendment changed none of the clauses ${application.retainedPhases.length === 1 ? 'its' : 'their'} artifacts cite, and nothing else ${application.retainedPhases.length === 1 ? 'it' : 'they'} decided over had changed.`);
+    }
+    // It updated the spec to the code [SCS:REQ-022]: nothing was reset, so there is nothing to acknowledge.
+    // Each step's own approvers answer its row instead: still holds, or return.
+    if (application.revalidate?.length) {
+      console.log(`Nothing was reset. Each of ${application.revalidate.map((entry) => entry.phase).join(', ')} has a row on the decisions list: its own approvers say it still holds, or return the Story to it.`);
+      printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'Answer each step\'s row', skill: '/sf-decide' });
+      return;
     }
     printCommandRoutes(
       `singularity-flow story intent-amendment acknowledge ${proposalId}`,

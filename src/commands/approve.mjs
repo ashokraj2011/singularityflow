@@ -132,6 +132,10 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
   console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})${presenceLabel(presenceModule, workflow, item)}`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
+  // Evidence counted on a person's word across an amendment's wording, named before the approver confirms [SCS:REQ-022].
+  if ((workflow.amendmentRevalidations ?? []).length) {
+    for (const entry of (await import('../scope/carried-evidence.mjs')).carriedEvidence(workflow)) console.log(`Carried by "still holds": ${entry.words}`);
+  }
   if (presence?.bypass) console.log(`SF Guard: recorded unsigned, labelled "bypass: per-person exception ${presence.bypass.id}".`);
   else if (presence) console.log(`SF Guard: this approval takes your presence signature (${presence.keyId}). Your card shows next, then one Touch ID prompt.`);
   }

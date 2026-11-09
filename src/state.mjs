@@ -123,6 +123,7 @@ import {
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps, decidesConformanceDifferences } from './conformance-verdicts.mjs';
+import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
@@ -6374,7 +6375,8 @@ function assertRecordedHistory(root, workflow, recorded, { branch = workflow.wor
  * whether an unrelated commit was inserted *before* that point. Permit prior partial approvals,
  * verified test-risk reviews, recorded decisions (REVIEW_EFFECTS), the proposal and rejection of
  * a rejected intent amendment (`rejectedIntentAmendments` in approval-check.mjs; approval records
- * them), an undecided proposal (`pendingIntentAmendmentProposals`; approval waits for its
+ * them), the proposal and approval of an amendment this step's approvers confirmed still holds
+ * (`confirmedIntentAmendments`), an undecided proposal (`pendingIntentAmendmentProposals`; approval waits for its
  * decision), an acknowledgement, and the exact Auto human-boundary checkpoint for this submitted
  * phase. Auto records that checkpoint immediately after submission so a human can resume the
  * flight after approval; it is observational evidence, not a new generation. Approval refuses on
@@ -6471,9 +6473,13 @@ export async function reviewHistoryCommits(root, config, workflow, phase, submit
   const acknowledgements = amendments && unallowed().length
     ? await amendments.intentAmendmentAcknowledgements(root, config, workflow, unallowed()) : [];
   for (const { acknowledgementCommit } of acknowledgements) allowedReviewCommits.add(acknowledgementCommit);
+  // An amendment that updated the spec to this report's code, once its approvers confirmed the report [SCS:REQ-022].
+  const confirmedAmendments = amendments && unallowed().length
+    ? await amendments.confirmedIntentAmendments(root, config, workflow, phase, unallowed()) : [];
+  for (const { commit } of confirmedAmendments) allowedReviewCommits.add(commit);
   return {
     interveningCommits, priorApprovalCommits, allowedReviewCommits: [...allowedReviewCommits], blocking: unallowed(),
-    rejectedIntentAmendments: rejectedAmendments, pendingIntentAmendmentProposals: pendingProposals
+    rejectedIntentAmendments: rejectedAmendments, pendingIntentAmendmentProposals: pendingProposals, confirmedIntentAmendments: confirmedAmendments
   };
 }
 
@@ -7107,6 +7113,8 @@ export async function evaluateApproval(root, config, workflow, {
       const bindingReview = reviewBindings(submittedBindings, bindingDecisions);
       // What this approval decides over, so rework can retain it when none of it changes [E2G-021, D16].
       const upstream = await phaseUpstream(root, config, workflow, phase).catch(() => null);
+      const carriedApprovalEvidence = (workflow.amendmentRevalidations ?? []).length
+        ? (await import('./scope/carried-evidence.mjs')).carriedEvidence(workflow) : [];
       decision = {
         decision: 'approved',
         phase: phase.id,
@@ -7130,6 +7138,10 @@ export async function evaluateApproval(root, config, workflow, {
         evidenceCommit: submittedReview.evidenceCommit,
         // Rejected amendments decided while the step waited: their commits changed nothing it reviewed.
         ...(rejectedAmendments.length ? { rejectedIntentAmendments: structuredClone(rejectedAmendments) } : {}),
+        // Evidence this approval counts on a step's approvers' "still holds" across an amendment's wording [SCS:REQ-022].
+        ...(carriedApprovalEvidence.length ? { carriedEvidence: carriedApprovalEvidence } : {}),
+        // That amendment's proposal and approval came after the submission; this step's approvers confirmed it still holds.
+        ...(reviewHistory?.confirmedIntentAmendments?.length ? { confirmedIntentAmendments: structuredClone(reviewHistory.confirmedIntentAmendments) } : {}),
         artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
         architectureIntent: structuredClone(architectureIntentBinding),
         architectureDecision: structuredClone(submittedArchitectureDecision),
@@ -8471,9 +8483,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
   }
 
+  // Updating the spec to what the code already does [SCS:REQ-022] resets nothing: each step that read the
+  // scope is revalidated instead, read before anything below changes the Story.
+  const settles = await differenceAmendmentReport(root, config, workflow, proposal);
   // Rule E8: the approved steps after the scope step whose approvals this amendment cannot touch,
   // checked against everything they decided over before anything below changes it.
-  const retentionCandidates = await amendmentRetentionCandidates(root, config, workflow, specification,
+  const retentionCandidates = settles ? new Set() : await amendmentRetentionCandidates(root, config, workflow, specification,
     { addsClauses: (proposal.diff?.added ?? []).length > 0 });
   const { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship } = amendmentCandidate;
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
@@ -8657,6 +8672,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const affectedPhases = [];
   const preservedEvidence = [];
   const retainedPhases = [];
+  const revalidate = [];
+  const currentIndex = workflow.phaseOrder.indexOf(workflow.currentPhase);
   let retaining = true;
   let firstReset = null;
   for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
@@ -8672,16 +8689,28 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
           affected = clauseReferences(text).some((clauseId) => cited.has(clauseId));
         }
       }
-      artifact.intentAmendment = {
-        id: proposal.id,
-        state: affected ? 'affected-revalidation-required' : 'preserved-unaffected',
-        fromSpecificationGeneration: priorGeneration,
-        toSpecificationGeneration: specification.generation
-      };
+      // A step the rows revalidate keeps its records exactly as reviewed: its row is what says it still holds.
+      if (!settles) {
+        artifact.intentAmendment = {
+          id: proposal.id,
+          state: affected ? 'affected-revalidation-required' : 'preserved-unaffected',
+          fromSpecificationGeneration: priorGeneration,
+          toSpecificationGeneration: specification.generation
+        };
+      }
       if (affected) directlyAffected = true;
       else preservedEvidence.push(artifact.path);
     }
     if (directlyAffected) affectedPhases.push(phase.id);
+    if (settles) {
+      // Each approved step up to the report's that read the scope, and the report's own step, keeps its approval
+      // until its approvers say it still holds or return the Story to it; a step not run yet reads the new scope.
+      if (index <= currentIndex && (phase.id === settles.phase || (phase.status === 'approved'
+          && resolvedPhaseInputs(workflow, phase).some((input) => inputProducerId(input) === specification.id)))) {
+        revalidate.push({ phase: phase.id, generation: Number(phase.generation) });
+      }
+      continue;
+    }
     // Rule E8: an approved step the amendment cites nothing of keeps its approval, as long as every
     // step before it did too; the first one that does not runs again, and so does all after it.
     if (retaining && !directlyAffected && retentionCandidates.has(phase.id)) {
@@ -8721,9 +8750,11 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
     await updateArtifactMetadata(root, config, workflow, phase);
   }
-  workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];
-  workflow.status = 'in_progress';
-  if (firstReset != null) delete workflow.completion;
+  if (!settles) {
+    workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];
+    workflow.status = 'in_progress';
+    if (firstReset != null) delete workflow.completion;
+  }
 
   proposal.status = 'approved';
   proposal.decidedAt = at;
@@ -8737,7 +8768,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     affectedPhases,
     retainedPhases,
     preservedEvidence: [...new Set(preservedEvidence)].sort(),
-    acknowledgementRequired: true
+    // Nothing was reset, so there is no resubmission to acknowledge: each revalidation row is the person's answer.
+    acknowledgementRequired: !settles,
+    ...(settles ? { settles, revalidate } : {})
   };
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
@@ -8746,9 +8779,11 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     staleClauses: proposal.application.staleClauses,
     standingClauses,
     preservedEvidence: proposal.application.preservedEvidence,
-    acknowledgementRequired: true,
+    acknowledgementRequired: !settles,
     acknowledgedAt: null,
-    revalidatedPhases: []
+    revalidatedPhases: [],
+    // The rows pendingAmendmentRevalidations lists, read against the scope step (forward-amendments.mjs).
+    ...(settles ? { producer: specification.id, revalidate } : {})
   });
   workflow.history.push({
     at, actor: key, agent, event: 'intent_amendment_approved', phase: specification.id,
@@ -8756,6 +8791,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       + `${scopeRevision ? ` and scope revision ${scopeRevision.revision}` : ''}; `
       + `${staleClauses.size} clause(s) stale, ${standingClauses.length} standing; `
       + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
+      + `${settles ? `; it updates the spec to the code ${settles.phase} reported, so ${revalidate.map((entry) => entry.phase).join(', ')} revalidate instead of running again` : ''}`
   });
   await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
   return {
@@ -8766,8 +8802,29 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     reached: true,
     applied: true,
     affectedPhases,
-    preservedEvidence: proposal.application.preservedEvidence
+    preservedEvidence: proposal.application.preservedEvidence,
+    revalidate
   };
+}
+
+/**
+ * Whether an intent amendment only updates the spec to what a submitted conformance report found the code
+ * doing [SCS:REQ-022], and which report: on a Story that decides differences, every clause it changes is
+ * a deviated or unplanned row of the report of the current step, a conformance step waiting for its
+ * approval (where "Update the spec" is chosen). Such an amendment asks for no behaviour the code lacks, so
+ * the steps that read the scope are revalidated, still holding or returned, instead of reset. Any other
+ * amendment changes what the code must do and reopens them, as before. Null when it is not one.
+ */
+export async function differenceAmendmentReport(root, config, workflow, proposal) {
+  const current = workflow.phases?.[workflow.currentPhase];
+  const changed = [...new Set((proposal.diff?.changed ?? []).map((id) => String(id).toUpperCase()))];
+  if (!decidesConformanceDifferences(workflow) || !changed.length || !isConformancePhase(current)
+      || current.status !== 'awaiting_approval' || !current.requiredArtifact?.path) return null;
+  const report = await readFile(path.join(workDir(root, config, workflow.workItem.id), current.requiredArtifact.path), 'utf8').catch(() => null);
+  if (report === null) return null;
+  const differences = new Set(conformanceVerdictGaps(report, { workflow, phaseId: current.id })
+    .filter((gap) => DIFFERENCE_VERDICTS.includes(gap.verdict)).map((gap) => String(gap.clauseId).toUpperCase()));
+  return changed.every((id) => differences.has(id)) ? { phase: current.id, clauses: changed.sort() } : null;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -78,6 +78,11 @@ export interface ApprovalReviewRequest {
   witnessMappings?: WitnessMappingReview[];
   evidenceConsistency?: EvidenceConsistencyPresentation | null;
   /**
+   * Evidence this approval counts on a step's approvers' "still holds" across an amendment's wording
+   * (`decisions --json` approvalEvidence.carried) [SCS:REQ-022]: the engine's words, shown before the person approves.
+   */
+  carried?: { words: string; entries: Array<{ words: string }> } | null;
+  /**
    * Decisions the engine would refuse this approval for (`decisions --json`), read beside the review
    * bundle. Presentation only: the approval gate checks again.
    */
@@ -446,6 +451,10 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     <p class="muted">Approval is refused until each one is decided. They are listed in one place, in plain words with their choices.</p>
     <button type="button" data-decide>Decide what blocks this step</button>
   </section>` : '';
+  // Never silent: what counts on a person's word instead of a run.
+  const carried = request.carried?.entries?.length ? `<section class="approval-carried" aria-label="Evidence carried by still holds">
+    <h2>Carried by "still holds"</h2><p class="muted">${escape(request.carried.words)}</p>
+    <ul>${request.carried.entries.map((entry) => `<li>${escape(entry.words)}</li>`).join('')}</ul></section>` : '';
   const tests = request.testRun ? `<section class="approval-tests" aria-label="Test results">
     <h2>Test results</h2><p>${escape(request.testRun.totals)}${request.testRun.label ? ` · ${escape(request.testRun.label)}` : ''}</p>
     <button type="button" class="secondary" data-test-summary>Open test summary</button>
@@ -457,7 +466,7 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalHoldsHtml(approvalHolds(request.approvalCheck), { except: ['STORY_REVIEW_INTERVENING_COMMIT'] })}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${carried}${tests}${sfGuardReviewHtml(request.sfGuard)}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${decideHere}${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>

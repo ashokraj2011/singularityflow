@@ -265,7 +265,8 @@ const sameId = (left, right) => String(left ?? '').toUpperCase() === String(righ
  */
 function differenceSettlement(workflow, gap, named, owner) {
   const done = (fields) => Object.freeze({ ...gap, status: 'decided', expiresAt: null, choices: Object.freeze([]), ...fields });
-  const intent = (workflow?.intentAmendments ?? []).findLast((entry) => entry?.status === 'approved'
+  // Every step it reopened has revalidated (`revalidated`), and it is still the approved amendment.
+  const intent = (workflow?.intentAmendments ?? []).findLast((entry) => ['approved', 'revalidated'].includes(entry?.status)
     && (entry.changedClauses ?? []).some((id) => sameId(id, gap.clauseId)));
   if (intent) return done({ owner, issue: intent.id, outcome: 'amended' });
   const workId = workflow?.workItem?.id ?? '<WORK-ID>';

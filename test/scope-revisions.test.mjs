@@ -3,7 +3,9 @@ import test from 'node:test';
 
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
+import { riskEligibility } from '../src/evidence/risk-decisions.mjs';
 import { matrixMarkdown } from '../src/evidence/matrix.mjs';
+import { carriedEvidence } from '../src/scope/carried-evidence.mjs';
 import { acceptedClauses, recordScopeRevision, removedClauseIds, scopeStaleness, staleClausesOf } from '../src/scope/revisions.mjs';
 import { clauseReferences } from '../src/specifications.mjs';
 
@@ -72,8 +74,8 @@ const delivery = (generation) => ({
 const BEFORE = { req: hash('a'), ac1: hash('b'), ac2: hash('c') };
 
 /** A Story whose intake was approved, built on, and then revised: `revised` names the new bodies. */
-function revisedStory(revised, { implementationGeneration = 1 } = {}) {
-  const workflow = story();
+function revisedStory(revised, { implementationGeneration = 1, extra = {} } = {}) {
+  const workflow = { ...story(), ...extra };
   recordScopeRevision(workflow, { clauses: acceptedClauses([index(1, BEFORE)]), origin: { kind: 'approval', phase: 'intake', generation: 1 }, at: '2026-10-03T00:00:00.000Z' });
   workflow.phases.intake.generation = 2;
   const after = { ...BEFORE, ...revised };
@@ -149,4 +151,52 @@ test('the matrix shows only the changed clause stale, and every other clause kee
 test('clause references are exact IDs, never substrings', () => {
   assert.deepEqual(clauseReferences('Covers W-1:AC-001, not XW-1:AC-002 or W-1:AC-0010; see `W-1:REQ-001`.'), ['W-1:AC-001', 'W-1:REQ-001', 'XW-1:AC-002']);
   assert.ok(!clauseReferences('XW-1:AC-002').includes('W-1:AC-002'));
+});
+
+// An intent amendment that updated the spec to the code lists the steps that read the scope; "still holds" from a
+// step's own approvers carries that step's evidence across the amendment's revision [SCS:REQ-022, owner decision 12].
+const listedAmendment = (extra = {}) => ({ id: 'AMD-001', status: 'approved', producer: 'intake', changedClauses: [AC2], staleClauses: [AC2],
+  revalidate: [{ phase: 'implementation', generation: 1 }], ...extra });
+const stillHolds = (extra = {}) => ({ amendment: 'AMD-001', phase: 'implementation', generation: 1, outcome: 'unchanged', reason: 'The code already returns it.',
+  binding: { producer: 'intake', producerGeneration: 2, producerSha256: hash('9'), inputRecordSha256: hash('8') },
+  actor: { name: 'Code Approver' }, authorityGroup: 'reviewers', at: '2026-10-03T02:00:00Z', ...extra });
+
+test('a step\'s approvers\' "still holds" carries its evidence across the amendment\'s revision, labelled, and nothing else does', () => {
+  const carried = revisedStory({ ac2: hash('d') }, { extra: { intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHolds()] } });
+  const row = carried.rows.find((entry) => entry.id === AC2);
+  assert.ok(row.obligations.every((entry) => entry.facets.freshness === 'current'), 'nothing is stale');
+  assert.deepEqual(row.obligations.filter((entry) => entry.carriedBy).map((entry) => [entry.responsibility, entry.carriedBy[0].amendment, entry.carriedBy[0].revision]),
+    [['implement', 'AMD-001', 2], ['verify', 'AMD-001', 2], ['review', 'AMD-001', 2]]);
+  const label = row.findings.find((entry) => entry.code === 'EVIDENCE_CARRIED_BY_REVALIDATION');
+  assert.equal(label.blocking, false);
+  assert.equal(label.message, `${AC2}: its implement, verify, review evidence predates AMD-001's wording; Code Approver, for the implementation approvers (reviewers), said it still holds.`);
+  assert.equal(row.findings.some((entry) => entry.code === 'EVIDENCE_STALE_AFTER_SCOPE_REVISION'), false);
+  assert.notEqual(carried.decision.gate, 'block');
+
+  // Without that exact record it is stale, as before.
+  const stale = (extra) => revisedStory({ ac2: hash('d') }, { extra }).rows.find((entry) => entry.id === AC2)
+    .findings.some((entry) => entry.code === 'EVIDENCE_STALE_AFTER_SCOPE_REVISION');
+  assert.ok(stale({ intentAmendments: [listedAmendment()] }), 'no answer');
+  assert.ok(stale({ intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHolds({ outcome: 'return' })] }), 'a return');
+  assert.ok(stale({ intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHolds({ authorityGroup: 'someone-else' })] }), 'not one of the step\'s approval groups');
+  assert.ok(stale({ intentAmendments: [listedAmendment({ id: 'AMD-002' })], amendmentRevalidations: [stillHolds({ amendment: 'AMD-002' })] }), 'another amendment than the revision\'s');
+  assert.ok(stale({ intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHolds({ binding: { producer: 'intake', producerGeneration: 3 } })] }),
+    'another scope generation than the revision made');
+  assert.ok(stale({ intentAmendments: [listedAmendment({ revalidate: [{ phase: 'implementation', generation: 2 }] })],
+    amendmentRevalidations: [stillHolds({ generation: 2 })] }), 'the step at another generation than the one revalidated');
+  assert.ok(stale({ intentAmendments: [listedAmendment({ revalidate: undefined, producer: undefined })], amendmentRevalidations: [stillHolds()] }),
+    'an amendment that reopened its steps carries nothing');
+  // A dated risk never covers stale evidence: it cannot be accepted on a stale obligation, rows or not.
+  const unanswered = revisedStory({ ac2: hash('d') }, { extra: { intentAmendments: [listedAmendment()] } }).rows.find((entry) => entry.id === AC2);
+  const staleImplement = unanswered.obligations.find((entry) => entry.responsibility === 'implement');
+  assert.deepEqual(riskEligibility(staleImplement), { eligible: false, reason: 'stale', message: 'its evidence is stale; run its step again' });
+});
+
+test('carried evidence is worded once for the card, the Copilot CLI table, the terminal approval and the stored approval', () => {
+  const workflow = { ...story(), intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHolds()] };
+  workflow.phases.implementation.label = 'Code';
+  assert.deepEqual(carriedEvidence(workflow).map((entry) => [entry.amendment, entry.phase, entry.clauses, entry.by, entry.words]), [['AMD-001', 'implementation', [AC2], 'Code Approver',
+    `${AC2}: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (reviewers), said it still holds.`]]);
+  workflow.phases.implementation.generation = 2;
+  assert.deepEqual(carriedEvidence(workflow), [], 'a step that ran again carries nothing');
 });

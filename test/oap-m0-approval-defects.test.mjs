@@ -326,3 +326,12 @@ test('D7: VS Code shows what an approval did and the next step, instead of disca
   assert.match(actions, /approvalOutcome\(result\.output\)/u, 'the approval surface reads the CLI\'s own result');
   assert.match(actions, /output\.appendLine\(result\.output\)/u, 'the full result stays in the output channel');
 });
+
+test('the approval page names evidence carried by a step\'s "still holds" before the person approves [SCS:REQ-022]', async () => {
+  const page = await approvalPage();
+  const words = "DIFF-1:AC-001: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (engineering-reviewers), said it still holds.";
+  const html = page.approvalReviewBody(request({ carried: { words: 'Counted on a person\'s word, not a new run.', entries: [{ words }] } }));
+  assert.match(html, /<section class="approval-carried" aria-label="Evidence carried by still holds">\s*<h2>Carried by "still holds"<\/h2>/u);
+  assert.ok(html.includes(webview.escape(words)));
+  assert.doesNotMatch(page.approvalReviewBody(request()), /approval-carried/u, 'nothing carried, nothing shown');
+});

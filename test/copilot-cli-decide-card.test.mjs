@@ -359,3 +359,12 @@ test('Update the spec on the forms writes a draft: the confirmation and the resu
   assert.equal(result.status, 'drafted');
   assert.match(result.message, new RegExp(`^No decision was recorded\\. Drafted at ${where.replace(/[./]/gu, '\\$&')}\\. Write the wording, then propose it\\.`, 'u'));
 });
+
+test('the Copilot CLI table names evidence carried by a step\'s "still holds", as the card does [SCS:REQ-022]', async () => {
+  const { evidenceLines } = await import('../plugin/extensions/decisions/card.mjs');
+  const lines = evidenceLines(packet({ approvalEvidence: { phase: 'conformance', phaseLabel: 'Code checking', words: 'Evidence beside these decisions.', carried: { words: 'Counted on a person\'s word, not a new run: tests and reviews that predate the amended wording, kept because the step\'s own approvers said it still holds.',
+    entries: [{ amendment: 'AMD-001', phase: 'implementation', generation: 1, clauses: ['PAY-1:AC-001'], by: 'Code Approver', authorityGroup: 'engineering-reviewers',
+      words: "PAY-1:AC-001: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (engineering-reviewers), said it still holds." }] } } }));
+  assert.ok(lines.includes('- **Carried by "still holds".** Counted on a person\'s word, not a new run: tests and reviews that predate the amended wording, kept because the step\'s own approvers said it still holds.'));
+  assert.ok(lines.includes("  - PAY-1:AC-001: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (engineering-reviewers), said it still holds."));
+});

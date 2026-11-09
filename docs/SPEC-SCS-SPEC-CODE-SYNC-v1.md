@@ -43,6 +43,14 @@ Raised while M2 and M3 were built. The owner took every recommended answer.
     Adjudicate page is no longer the only place to change one before it is retired. *Decided: yes.*
 11. **A file the approved plan settled can be overruled on the decisions list** (`[SCS:REQ-035]`), as
     the Adjudicate page's "Overrule the plan" does today. *Decided: yes.*
+12. **An amendment from "Update the spec" is revalidated, not rerun** (`[SCS:REQ-022]`). Two existing guards
+    refused this: evidence that predates the amended wording (`EVIDENCE_STALE_AFTER_SCOPE_REVISION`) and the
+    amendment's commits after the report's submission (`STORY_REVIEW_INTERVENING_COMMIT`). *Decided: the
+    approvers' word is enough, narrowly and visibly.* Only an amendment whose changed clauses are all
+    deviated or unplanned rows of the waiting report qualifies. A step's evidence counts across that one
+    revision only on its own approvers' "still holds" for that amendment, at that generation. The report's
+    approver confirming it admits exactly that amendment's propose and approve commits. Every place the
+    approval evidence is read, and the stored approval, names what was carried and on whose word.
 
 ## What exists today (main 48668471f)
 
@@ -143,6 +151,13 @@ The list never writes over a draft someone changed.
     for a new one.
 - `[SCS:REQ-023]` The difference is decided once the amendment is approved. Until then it holds
   approval and names who clears it.
+
+Built 2026-11-09 for `[SCS:REQ-022]` (owner decision 12). Approving a qualifying amendment resets nothing and
+asks for no acknowledgement. Each approved step that read the scope, and the waiting report, gets a revalidation
+row (the forward-amendment revalidation records), answered on the card, the Copilot CLI forms or the terminal
+table by that step's approvers. "Still holds" binds the step's input record to the amended scope generation and
+carries its evidence across the revision; "return" is the ordinary return (the report's own is a return for a new
+report). Any other intent amendment reopens the later steps, as before.
 
 ## M3 One decisions list `[SCS:REQ-030]`
 

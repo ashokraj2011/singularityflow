@@ -23,6 +23,7 @@ import { plannedBasePathProblems } from '../src/plan-base-paths.mjs';
 import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
 import { separatePlanGaps } from '../src/state.mjs';
 import { approvalStaffingWarnings } from '../src/approval-staffing.mjs';
+import { riskDecisionTransitions } from '../src/story-test-risk.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
 import { recordScopeDecision } from '../src/scope/decisions.mjs';
@@ -307,4 +308,18 @@ test('[PHR:REQ-002] finding 16: Story start names each gated step only its autho
   const empty = { ...workflow, phaseOrder: ['release'], resolution: { approvalAuthorities: { release: group() } } };
   const [unstaffed] = approvalStaffingWarnings(empty, author);
   assert.match(unstaffed.message, /Nobody but this Story's author can approve release, and the author is in none of its approval groups \(release\)/u);
+});
+
+test('[PHR:REQ-002] finding 17: a supplemental document\'s risk accepted at its step\'s approval also covers the later steps that read it, in the same decision', () => {
+  const workflow = (pinned, inputs = ['design']) => ({ workItem: { id: 'DOC-1' }, phaseOrder: ['design', 'build', 'release'],
+    resolution: { ...(pinned ? PINNED : {}), phases: [{ id: 'design' }, { id: 'build', inputs }, { id: 'release' }] },
+    phases: { design: { id: 'design' }, build: { id: 'build' }, release: { id: 'release' } } });
+  // At the document's own approval the reviewers decide its later reads too: never a later step held for it.
+  assert.deepEqual(riskDecisionTransitions(workflow(true), 'design', 'approve', { document: true }), ['approve', 'downstream']);
+  // Only for a document, only at approval, and only where a later step reads the step.
+  assert.deepEqual(riskDecisionTransitions(workflow(true), 'design', 'submit', { document: true }), ['submit']);
+  assert.deepEqual(riskDecisionTransitions(workflow(true), 'design', 'approve'), ['approve']);
+  assert.deepEqual(riskDecisionTransitions(workflow(true, []), 'design', 'approve', { document: true }), ['approve']);
+  // A Story started before the check keeps one transition per decision.
+  assert.deepEqual(riskDecisionTransitions(workflow(false), 'design', 'approve', { document: true }), ['approve']);
 });

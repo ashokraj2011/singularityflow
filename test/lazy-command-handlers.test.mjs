@@ -502,7 +502,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the amendment, its approval and an unchanged revalidation, the code step names the plan's corrections, and a row of a
     // removed clause is removed in place (state.mjs +4539, plan-row-corrections.mjs +1050, specifications.mjs +389,
     // phase-resolution.mjs +35, person-step-catalog.mjs +14); the gaps stay lazy (plan-clause-gaps.mjs) [PHR:REQ-002]. No new eager file.
-    assert.ok(closure.bytes <= 9_663_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,664,350 (measured 9,664,301, commands/phase-lifecycle.mjs): a supplemental document's risk accepted at its step's
+    // approval also covers the later steps that read it, in the same decision, and a later step's refusal names the step
+    // that owns the document (story-test-risk.mjs +1248; the refusal stays lazy, trp-document-runtime.mjs) [PHR:REQ-002]. No new eager file.
+    assert.ok(closure.bytes <= 9_664_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

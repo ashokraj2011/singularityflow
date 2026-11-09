@@ -218,6 +218,8 @@ export async function assertStoryDocumentRiskGates(root, config, workflow, phase
     if (context.evaluation.gateDecision === 'block') throw new SingularityFlowError(
       `Supplemental document '${contract.path}' needs repair or an exact reviewed ${operation} exception.`,
       { code: 'TRP_DOCUMENT_GATE_BLOCKED', details: { workId: workflow.workItem.id, phase: phase.id,
+        // A later step that reads it meets the document of the step that owns it; that step's risk reviewers decide [PHR:REQ-003].
+        ...(operation === 'downstream' ? { ownerPhase: phase.id, upstreamPhase: phase.id } : {}),
         obligationId: contract.id, evaluation: context.evaluation, preserved: ['application code', 'required artifacts', 'approvals'],
         command: `singularity-flow story test-policy risks --work-id ${workflow.workItem.id} --phase ${phase.id} --obligation ${contract.id} --operation ${operation} --json` } });
     contexts.push(context);

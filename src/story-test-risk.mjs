@@ -10,6 +10,7 @@ import { loadTrpDeliveryAgreement } from './trp-delivery-selection.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { documentObligationsForPhase } from './trp-document-policy.mjs';
+import { ownerStepChecks } from './phase-roles.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -73,7 +74,21 @@ function reviewIdentity(root, authority, record = null) {
   return principal;
 }
 
-function decisionTerms(context, options) {
+/**
+ * The transitions one risk decision covers: the one it is asked for, and, for a supplemental document
+ * accepted at its own step's approval, the later steps that read that step too. They met the same
+ * document as a `downstream` refusal only its risk reviewers could clear [PHR:REQ-002, finding 17], so
+ * the reviewers see and decide both in this one decision. A Story pinned before keeps one transition.
+ */
+export function riskDecisionTransitions(workflow, phaseId, operation, { document = false } = {}) {
+  if (!document || operation !== 'approve' || !ownerStepChecks(workflow)) return [operation];
+  const order = workflow?.phaseOrder ?? [];
+  const reads = order.slice(order.indexOf(phaseId) + 1).some((id) => (workflow.resolution?.phases?.find((item) => item.id === id)?.inputs
+    ?? workflow.phases?.[id]?.inputs ?? []).some((item) => (typeof item === 'string' ? item : item?.phaseId ?? item?.phase) === phaseId));
+  return reads ? ['approve', 'downstream'] : [operation];
+}
+
+function decisionTerms(context, options, { transitions = null } = {}) {
   const issue = context.evaluation.issues.find((entry) => entry.id === options.issueId);
   const observation = context.observations.find((entry) => entry.recordSha256 === issue?.observationRef);
   const knownBaseline = issue?.category === 'known-test-failure' ? context.baselines.find(entry =>
@@ -97,7 +112,7 @@ function decisionTerms(context, options) {
     policyAuthoritySha256: context.policy.authoritySha256, issueId: issue?.id ?? null,
     category: issue?.category ?? null, severity: issue?.severity ?? null,
     anchorObservationDigest: knownBaseline?.recordSha256 ?? observation?.recordSha256 ?? null, obligationId: issue?.obligationId ?? null,
-    transitions: [options.operation ?? 'publish'], reason: (options.reason ?? '').trim(), expiresAt,
+    transitions: transitions ?? [options.operation ?? 'publish'], reason: (options.reason ?? '').trim(), expiresAt,
     followUpOwner: (options.followUpOwner ?? '').trim(), remediationRef: (options.remediationRef ?? '').trim(),
     applicability: observation ? { carryForward: Boolean(knownBaseline), phaseIds: [context.subject.phaseId],
       dependencies: knownBaseline?.dependencies.some(entry => entry.id === 'baseline-compatibility')
@@ -133,7 +148,8 @@ async function resolveRiskPlan(root, config, workflow, options) {
   const context = await loader(root, config, workflow, {
     phaseId: options.phaseId, repositoryId: options.repositoryId, obligationId,
     operation: options.operation ?? 'publish' });
-  const { terms, issue, observation, blockers } = decisionTerms(context, options);
+  const { terms, issue, observation, blockers } = decisionTerms(context, options, { transitions: riskDecisionTransitions(workflow,
+    context.subject.phaseId, options.operation ?? 'publish', { document: context.adapter === 'document' }) });
   const planDigest = trpDigest({ kind: 'story-test-risk-plan', action: 'accept', ...terms });
   const agreementAuthority = context.verifyAuthority?.(context.agreement, { policy: context.policy, capability: 'trp-agreement' });
   if (!agreementAuthority || agreementAuthority.revokedAt) blockers.push('Authorize the current immutable agreement in a direct terminal before accepting a risk.');

@@ -7,6 +7,8 @@ repository, read a file, launch Git, load a session, invoke a model, publish or 
 
 This removes the validation rules from the native receipt reader. It does not yet implement
 namespace-backed application publication or finish migration Phases 5, 7, 8 or 9.
+The [candidate preflight owner](ENGINE-SDK-CODE-PREFLIGHT.md) now shares the preceding generation
+and fulfillment rules; its remaining native analysis/coverage dependencies are explicit.
 
 ## Rule ownership
 

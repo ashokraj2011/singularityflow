@@ -1,3 +1,5 @@
+import {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
+export {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
 import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './kernel/specification-policy.mjs';
 export { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole, SPECIFICATION_DEFINITION_KINDS } from './kernel/specification-policy.mjs';
 import { DEFAULT_SPECIFICATION_LIMITS as DEFAULT_LIMITS, normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
@@ -466,7 +468,8 @@ function parseBacktickedPathCell(cell, label) {
  */
 export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration', 'evidence']);
 /** Fulfillment types that change product source, so the delivery carries the clause in that source. */
-export const SOURCE_CHANGING_FULFILLMENT = Object.freeze(['new', 'modified']);
+import {SOURCE_CHANGING_FULFILLMENT,recordOrder,sortedUnique,mergePlannedClaimRecords} from './kernel/specification-policy.mjs';
+export {SOURCE_CHANGING_FULFILLMENT,mergePlannedClaimRecords} from './kernel/specification-policy.mjs';
 
 /**
  * Exact implementation obligations. Older approved plans sometimes repeated an exact test
@@ -474,15 +477,9 @@ export const SOURCE_CHANGING_FULFILLMENT = Object.freeze(['new', 'modified']);
  * still owed as a test, never as product source. Do not rewrite the hash-bound approved map, infer
  * a test-only fulfillment, or excuse an absent product/configuration path or test result.
  */
-export function plannedImplementationPaths(claim = {}) {
-  const tests = new Set(claim.tests ?? []);
-  return (claim.expectedPaths ?? []).filter(candidate =>
-    !(tests.has(candidate) && isTestAutomationPath(candidate)));
-}
+
 /** Configuration keeps its exact obligation, but never becomes product-code tag duty. */
-export function plannedProductSourcePaths(claim = {}) {
-  return plannedImplementationPaths(claim).filter(candidate => !isConfigurationPath(candidate));
-}
+
 const PLANNED_OPTIONAL_COLUMNS = Object.freeze(['fulfillment', 'steps', 'observable result']);
 const PLANNED_STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const MAX_OBSERVABLE_RESULT = 500;
@@ -1279,17 +1276,9 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
   return record;
 }
 
-function recordOrder(left, right) {
-  const generation = Number(left?.generation ?? -1) - Number(right?.generation ?? -1);
-  if (generation) return generation;
-  const timestamp = String(left?.completedAt ?? left?.recordedAt ?? '').localeCompare(String(right?.completedAt ?? right?.recordedAt ?? ''));
-  if (timestamp) return timestamp;
-  return String(left?.phase ?? '').localeCompare(String(right?.phase ?? ''));
-}
 
-function sortedUnique(values) {
-  return [...new Set(values.filter((value) => value != null).map(String))].sort();
-}
+
+
 
 /** Merge planned evidence cumulatively across multiple code intervals. */
 /**
@@ -1297,51 +1286,9 @@ function sortedUnique(values) {
  * class, so a plan written before the classes existed, or a hand-written map, cannot exempt
  * application source, tests or migrations from requirement accounting.
  */
-export function plannedSupportingFiles(maps = []) {
-  return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []))
-    .filter((candidate) => !classifySupportingChange(candidate).refused);
-}
 
-export function mergePlannedClaimRecords(maps = []) {
-  const grouped = new Map();
-  for (const map of [...maps].sort(recordOrder)) {
-    for (const [id, claim] of Object.entries(map?.claims ?? {})) {
-      const current = grouped.get(id) ?? {
-        expectedPaths: [], tests: [], dispositions: [], reasons: [], criteria: [], deviation: null, fulfillment: null, steps: [], observableResult: null, obligations: []
-      };
-      current.obligations.push({ ...claim, owner: map.phase ?? null });
-      if (claim.fulfillment) current.fulfillment = claim.fulfillment;
-      current.steps.push(...(claim.steps ?? []));
-      if (claim.observableResult) current.observableResult = claim.observableResult;
-      current.expectedPaths.push(...(claim.expectedPaths ?? []));
-      current.tests.push(...(claim.tests ?? []));
-      current.dispositions.push(claim.testDisposition ?? 'unspecified');
-      if (claim.verificationCriterion) current.criteria.push(claim.verificationCriterion);
-      if (claim.testReason) current.reasons.push(claim.testReason);
-      if (claim.deviation != null) current.deviation = claim.deviation;
-      grouped.set(id, current);
-    }
-  }
-  return Object.fromEntries([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, value]) => {
-    const tests = sortedUnique(value.tests);
-    const allNotApplicable = value.dispositions.length > 0
-      && value.dispositions.every((entry) => entry === 'not-applicable');
-    const allNonTest = value.dispositions.length > 0
-      && value.dispositions.every((entry) => entry === 'non-test') && new Set(value.criteria).size === 1;
-    return [id, {
-      expectedPaths: sortedUnique(value.expectedPaths),
-      tests,
-      testDisposition: tests.length ? 'applicable' : allNotApplicable ? 'not-applicable' : allNonTest ? 'non-test' : 'unspecified',
-      testReason: tests.length || !allNotApplicable ? null : value.reasons.at(-1) ?? null,
-      ...(!tests.length && allNonTest ? { verificationCriterion: value.criteria[0] } : {}),
-      deviation: value.deviation,
-      ...(value.fulfillment && new Set(value.obligations.map((claim) => claim.fulfillment ?? null)).size === 1 ? { fulfillment: value.fulfillment } : {}),
-      ...(value.obligations.length > 1 ? { obligations: value.obligations } : {}),
-      ...(value.steps.length ? { steps: sortedUnique(value.steps) } : {}),
-      ...(value.observableResult ? { observableResult: value.observableResult } : {})
-    }];
-  }));
-}
+
+
 
 /** A code step can use only its bound plan owner's fulfillment, never another step's plan. */
 export function plannedClaimsForObservedPhase(workflow, phaseId, planned = []) {

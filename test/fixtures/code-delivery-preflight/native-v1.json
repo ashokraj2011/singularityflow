@@ -1,0 +1,2223 @@
+{
+  "baseline": "c1fe0a6db",
+  "functionSha256": "e2e28cdcbf06a48cc917dd4564ee7f4c1f029998a826fe9d586a7f18414fccdc",
+  "cases": [
+    {
+      "id": "ready",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "custom-phase",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "explicit-non-code",
+      "outcome": {
+        "value": null
+      }
+    },
+    {
+      "id": "invalid-write-scope",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase 'implementation' is a code-generation phase but its write scope does not permit source changes.",
+          "code": "CODE_DELIVERY_SCOPE_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "unplanned-mode",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "off",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "no-changes",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- no application source or test paths changed during the work interval\n- no product source path changed; a summary, configuration or test-only edit is not an implementation\n- no acceptance test is available for the implementation\n- planned product source does not contain required clause comments: @clause:PREFLIGHT:REQ-001 in src/app.js\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "explanationsMissing": [],
+            "problems": [
+              "no application source or test paths changed during the work interval",
+              "no product source path changed; a summary, configuration or test-only edit is not an implementation",
+              "no acceptance test is available for the implementation",
+              "planned product source does not contain required clause comments: @clause:PREFLIGHT:REQ-001 in src/app.js"
+            ],
+            "findings": [
+              {
+                "id": "FND-3d7da20ee9859861efb6c339",
+                "code": "code.delivery.generation-unchanged",
+                "path": null,
+                "value": null
+              },
+              {
+                "id": "FND-f65e233d5657b4b90ed55e9e",
+                "code": "code.delivery.product-source-missing",
+                "path": null,
+                "value": null
+              },
+              {
+                "id": "FND-ba0f5b9a253784c3b7cac8e1",
+                "code": "code.delivery.acceptance-test-missing",
+                "path": null,
+                "value": null
+              },
+              {
+                "id": "FND-adf25ff6df644052e4695644",
+                "code": "code.delivery.source-clause-tag-missing",
+                "path": null,
+                "value": [
+                  "PREFLIGHT:REQ-001"
+                ]
+              }
+            ],
+            "candidateSha256": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "findingIds": [
+              "FND-3d7da20ee9859861efb6c339",
+              "FND-f65e233d5657b4b90ed55e9e",
+              "FND-ba0f5b9a253784c3b7cac8e1",
+              "FND-adf25ff6df644052e4695644"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 4,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [],
+              "testPaths": [],
+              "actions": [
+                {
+                  "kind": "source-tag",
+                  "clauseId": "PREFLIGHT:REQ-001",
+                  "approved": true,
+                  "expectedPaths": [
+                    "src/app.js"
+                  ],
+                  "regions": []
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "test-only",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- no product source path changed; a summary, configuration or test-only edit is not an implementation\n- planned product source does not contain required clause comments: @clause:PREFLIGHT:REQ-001 in src/app.js\nThis is implementation's first generation, so a test-only change implements nothing: deliver the approved behavior in its planned product source, with each clause comment in that change, and publish again. Only a later generation that a reviewer returned asking for tests carries earlier source unchanged. If a clause truly needs only tests, the plan that owes source for it is what is wrong: raise it against planning, whose approvers correct the row's Fulfillment (test-only, or existing where the behavior already lives). \n- Copilot: /sf-decide\n- Shell: singularity-flow upstream-issue raise --work-id PREFLIGHT --phase planning --about <CLAUSE-ID> --problem \"<TEXT>\"\n- VS Code (model-free): not available for this action",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "explanationsMissing": [],
+            "deliveryRoute": {
+              "kind": "first-generation",
+              "command": null,
+              "skill": null,
+              "guidance": "This is implementation's first generation, so a test-only change implements nothing: deliver the approved behavior in its planned product source, with each clause comment in that change, and publish again. Only a later generation that a reviewer returned asking for tests carries earlier source unchanged. If a clause truly needs only tests, the plan that owes source for it is what is wrong: raise it against planning, whose approvers correct the row's Fulfillment (test-only, or existing where the behavior already lives). \n- Copilot: /sf-decide\n- Shell: singularity-flow upstream-issue raise --work-id PREFLIGHT --phase planning --about <CLAUSE-ID> --problem \"<TEXT>\"\n- VS Code (model-free): not available for this action"
+            },
+            "problems": [
+              "no product source path changed; a summary, configuration or test-only edit is not an implementation",
+              "planned product source does not contain required clause comments: @clause:PREFLIGHT:REQ-001 in src/app.js"
+            ],
+            "findings": [
+              {
+                "id": "FND-f65e233d5657b4b90ed55e9e",
+                "code": "code.delivery.product-source-missing",
+                "path": null,
+                "value": null
+              },
+              {
+                "id": "FND-adf25ff6df644052e4695644",
+                "code": "code.delivery.source-clause-tag-missing",
+                "path": null,
+                "value": [
+                  "PREFLIGHT:REQ-001"
+                ]
+              }
+            ],
+            "candidateSha256": "sha256:8beb1eb5826557dc6abb2f9edf94a29d417ee2caeab110eeeb16170ba3769abb",
+            "findingIds": [
+              "FND-f65e233d5657b4b90ed55e9e",
+              "FND-adf25ff6df644052e4695644"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 2,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": [
+                {
+                  "kind": "source-tag",
+                  "clauseId": "PREFLIGHT:REQ-001",
+                  "approved": true,
+                  "expectedPaths": [
+                    "src/app.js"
+                  ],
+                  "regions": []
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "source-only",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- no acceptance test is available for the implementation\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "problems": [
+              "no acceptance test is available for the implementation"
+            ],
+            "findings": [
+              {
+                "id": "FND-ba0f5b9a253784c3b7cac8e1",
+                "code": "code.delivery.acceptance-test-missing",
+                "path": null,
+                "value": null
+              }
+            ],
+            "candidateSha256": "sha256:151a6ac5269315c05b44335e8518f4e1f59642a5e80ec4ac92e4759e447f45be",
+            "findingIds": [
+              "FND-ba0f5b9a253784c3b7cac8e1"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [
+                "src/app.js"
+              ],
+              "testPaths": [],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "no-source-tag",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- PREFLIGHT:REQ-001 needs an explanation of how the change meets it, after its @clause tag (10 to 300 characters)\n- planned product source does not contain required clause comments: @clause:PREFLIGHT:REQ-001 in src/app.js\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "explanationsMissing": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "path": null,
+                "line": null
+              }
+            ],
+            "problems": [
+              "PREFLIGHT:REQ-001 needs an explanation of how the change meets it, after its @clause tag (10 to 300 characters)",
+              "planned product source does not contain required clause comments: @clause:PREFLIGHT:REQ-001 in src/app.js"
+            ],
+            "findings": [
+              {
+                "id": "FND-d8a11c58709d1a92aa1aadc4",
+                "code": "code.delivery.clause-explanation-missing",
+                "path": null,
+                "value": "PREFLIGHT:REQ-001"
+              },
+              {
+                "id": "FND-adf25ff6df644052e4695644",
+                "code": "code.delivery.source-clause-tag-missing",
+                "path": null,
+                "value": [
+                  "PREFLIGHT:REQ-001"
+                ]
+              }
+            ],
+            "candidateSha256": "sha256:0ab0e0a21fc424d2b6785e5b6e2c17d06c4b2d1ce2a66d922b5d1056008eae12",
+            "findingIds": [
+              "FND-d8a11c58709d1a92aa1aadc4",
+              "FND-adf25ff6df644052e4695644"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 2,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [
+                "src/app.js"
+              ],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": [
+                {
+                  "kind": "source-tag",
+                  "clauseId": "PREFLIGHT:REQ-001",
+                  "approved": true,
+                  "expectedPaths": [
+                    "src/app.js"
+                  ],
+                  "regions": [
+                    {
+                      "path": "src/app.js",
+                      "change": "modified",
+                      "hunks": [
+                        {
+                          "beforeStart": 1,
+                          "beforeLines": 1,
+                          "afterStart": 1,
+                          "afterLines": 1
+                        }
+                      ],
+                      "symbols": [
+                        {
+                          "name": "convert",
+                          "kind": "function",
+                          "line": 1
+                        }
+                      ],
+                      "symbolAssurance": "heuristic"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "short-explanation",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- PREFLIGHT:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "path": "src/app.js",
+                "line": 1
+              }
+            ],
+            "problems": [
+              "PREFLIGHT:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)"
+            ],
+            "findings": [
+              {
+                "id": "FND-0d4d6a48c8f3f58f1c866507",
+                "code": "code.delivery.clause-explanation-missing",
+                "path": "src/app.js",
+                "value": "PREFLIGHT:REQ-001"
+              }
+            ],
+            "candidateSha256": "sha256:9e12c58dacb55eed8e2df122103795df258696ab3b412f08a010bf7d0ff6acc4",
+            "findingIds": [
+              "FND-0d4d6a48c8f3f58f1c866507"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [
+                "src/app.js"
+              ],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": [
+                {
+                  "kind": "clause-explanation",
+                  "clauseId": "PREFLIGHT:REQ-001",
+                  "approved": true,
+                  "expectedPaths": [
+                    "src/app.js"
+                  ],
+                  "line": 1,
+                  "regions": [
+                    {
+                      "path": "src/app.js",
+                      "change": "modified",
+                      "hunks": [
+                        {
+                          "beforeStart": 1,
+                          "beforeLines": 1,
+                          "afterStart": 1,
+                          "afterLines": 2
+                        }
+                      ],
+                      "symbols": [
+                        {
+                          "name": "convert",
+                          "kind": "function",
+                          "line": 2
+                        }
+                      ],
+                      "symbolAssurance": "heuristic"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "wrong-source-tag",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Product source names clauses that this Story has not approved: PREFLIGHT:REQ-999 at src/app.js:1. Correct the tag or revise the specification before publishing.",
+          "code": "EVIDENCE_CLAUSE_UNAPPROVED",
+          "details": {
+            "findings": [
+              {
+                "code": "EVIDENCE_CLAUSE_UNAPPROVED",
+                "clauseId": "PREFLIGHT:REQ-999",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "message": "@clause:PREFLIGHT:REQ-999 at src/app.js:1 names a clause this Story has not approved."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "unknown-criterion",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- tests name criteria the active specification does not hold: @ac:PREFLIGHT:AC-999 at test/app.test.js:1\nCorrect each @ac tag to a criterion the specification holds, or remove it; a criterion it lacks needs a revised specification first. Then publish again.",
+          "code": "EVIDENCE_CRITERION_UNKNOWN",
+          "details": {
+            "phase": "implementation",
+            "findings": [
+              {
+                "code": "EVIDENCE_CRITERION_UNKNOWN",
+                "clauseId": "PREFLIGHT:AC-999",
+                "path": "test/app.test.js",
+                "line": 1,
+                "message": "@ac:PREFLIGHT:AC-999 at test/app.test.js:1 names a criterion the active specification does not hold."
+              }
+            ],
+            "paths": [
+              "test/app.test.js"
+            ],
+            "recoveryCommands": [
+              "singularity-flow phase prepublish implementation --json"
+            ],
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "findingIds": [
+              "FND-f49bc3d8992e6911f77ea7c3"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [
+                "src/app.js"
+              ],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "unsupported-test-folder",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "checks/conversion.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "checks/conversion.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "checks/conversion.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "checks/conversion.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "supporting-test",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [
+            "test/fixture.json"
+          ],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "unreconciled-file",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "These changed files would be excluded from implementation: src/unplanned.js. Account for Story edits under an approved clause with a narrow plan amendment, or preserve unrelated edits through recovery's confirmed private-copy route. Resolve them here before publication; do not reset Planning or commit them manually.",
+          "code": "GENERATION_EXCLUDED_CHANGES_UNRESOLVED",
+          "details": {
+            "workId": "PREFLIGHT",
+            "phase": "implementation",
+            "paths": [
+              "src/unplanned.js"
+            ],
+            "excludedChanges": [
+              "src/unplanned.js"
+            ],
+            "priorApprovalsPreserved": true,
+            "repairScope": "current-phase",
+            "accountingCommand": "singularity-flow decision plan PREFLIGHT --add-location '<CLAUSE>=src/unplanned.js' --reason <why>",
+            "recoveryCommand": "singularity-flow recover PREFLIGHT --phase implementation --json"
+          }
+        }
+      }
+    },
+    {
+      "id": "excluded-file",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [
+            "src/unplanned.js"
+          ],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "test-automation-boundary",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation may change test automation only; product-source endpoints are outside its boundary: src/app.js, src/app.js",
+          "code": "CHANGE_SET_POLICY_VIOLATION",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "protected-source",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "symlink",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Source or test delivery cannot use symbolic links: test/link.test.js",
+          "code": "SYMLINK_DELIVERY_FORBIDDEN",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "strict-coverage",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "expectedPaths": [
+                  "src/app.js"
+                ]
+              }
+            ],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "sourcePath": "src/app.js",
+                "line": 1,
+                "tag": "clause"
+              }
+            ],
+            "missing": []
+          },
+          "implementationBindings": {
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "explanation": {
+                  "text": "returns the approved conversion result",
+                  "path": "src/app.js",
+                  "line": 1
+                },
+                "regions": [
+                  {
+                    "path": "src/app.js",
+                    "change": "modified",
+                    "hunks": [
+                      {
+                        "beforeStart": 1,
+                        "beforeLines": 1,
+                        "afterStart": 1,
+                        "afterLines": 2
+                      }
+                    ],
+                    "symbols": [
+                      {
+                        "name": "convert",
+                        "kind": "function",
+                        "line": 2
+                      }
+                    ],
+                    "symbolAssurance": "heuristic"
+                  }
+                ]
+              }
+            ],
+            "bindingsSha256": "sha256:527017dcabfe7213fa1eebf3cf61f33546eb5f4ad506868803877898211f4bb1"
+          },
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "ignore-disputes",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- no acceptance test is available for the implementation\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "problems": [
+              "no acceptance test is available for the implementation"
+            ],
+            "findings": [
+              {
+                "id": "FND-ba0f5b9a253784c3b7cac8e1",
+                "code": "code.delivery.acceptance-test-missing",
+                "path": null,
+                "value": null
+              }
+            ],
+            "candidateSha256": "sha256:151a6ac5269315c05b44335e8518f4e1f59642a5e80ec4ac92e4759e447f45be",
+            "findingIds": [
+              "FND-ba0f5b9a253784c3b7cac8e1"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "4f1850c3099898cf171df05b05b440b8ba9a4e970f43f3f58d3271f145423f50"
+              },
+              "sourcePaths": [
+                "src/app.js"
+              ],
+              "testPaths": [],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fulfillment-existing-false",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [
+            {
+              "clauseId": "PREFLIGHT:REQ-001",
+              "fulfillment": "existing",
+              "paths": [
+                {
+                  "path": "src/app.js",
+                  "state": "present",
+                  "sha256": "9052a315d025ff161ffe62075ca8fcc91d7e5e89f1a9c09a46176165069ecbad"
+                }
+              ]
+            }
+          ],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-existing-true",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [
+            {
+              "clauseId": "PREFLIGHT:REQ-001",
+              "fulfillment": "existing",
+              "paths": [
+                {
+                  "path": "src/app.js",
+                  "state": "present",
+                  "sha256": "828d7c3a3501e6030b83422edf7f5974b54733188f2a4130cf4792f5afb314ee"
+                }
+              ]
+            }
+          ],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-removed-false",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- PREFLIGHT:REQ-001 removes src/app.js, but it still exists\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "problems": [
+              "PREFLIGHT:REQ-001 removes src/app.js, but it still exists"
+            ],
+            "findings": [
+              {
+                "id": "FND-57731dd22d2dcca296f3dbab",
+                "code": "code.delivery.removed-path-present",
+                "path": "src/app.js",
+                "value": "PREFLIGHT:REQ-001"
+              }
+            ],
+            "candidateSha256": "sha256:8beb1eb5826557dc6abb2f9edf94a29d417ee2caeab110eeeb16170ba3769abb",
+            "findingIds": [
+              "FND-57731dd22d2dcca296f3dbab"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "f8ff24abe345dad61882721aa2ad2e1c13ea0661f6736c4ce96d6557975b60a2"
+              },
+              "sourcePaths": [],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fulfillment-removed-true",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "src/app.js"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [
+            "src/app.js"
+          ],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [
+            {
+              "clauseId": "PREFLIGHT:REQ-001",
+              "fulfillment": "removed",
+              "paths": [
+                {
+                  "path": "src/app.js",
+                  "state": "absent"
+                }
+              ]
+            }
+          ],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-document-false",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- PREFLIGHT:REQ-001 is a document change, but docs/usage.md did not change\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "problems": [
+              "PREFLIGHT:REQ-001 is a document change, but docs/usage.md did not change"
+            ],
+            "findings": [
+              {
+                "id": "FND-85bd9be967e3eafe620d2e69",
+                "code": "code.delivery.document-path-unchanged",
+                "path": "docs/usage.md",
+                "value": "PREFLIGHT:REQ-001"
+              }
+            ],
+            "candidateSha256": "sha256:8beb1eb5826557dc6abb2f9edf94a29d417ee2caeab110eeeb16170ba3769abb",
+            "findingIds": [
+              "FND-85bd9be967e3eafe620d2e69"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "7b6c21274107ec09eecd45d03448426928270e4384e6c2288a0665e408dd90b1"
+              },
+              "sourcePaths": [],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fulfillment-document-true",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [
+            "docs/usage.md"
+          ],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [
+            {
+              "clauseId": "PREFLIGHT:REQ-001",
+              "fulfillment": "document",
+              "paths": [
+                {
+                  "path": "docs/usage.md",
+                  "state": "changed"
+                }
+              ]
+            }
+          ],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-configuration-false",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- PREFLIGHT:REQ-001 is a configuration change, but config/app.json did not change\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "problems": [
+              "PREFLIGHT:REQ-001 is a configuration change, but config/app.json did not change"
+            ],
+            "findings": [
+              {
+                "id": "FND-7924c5b0c7205fa351e6a214",
+                "code": "code.delivery.configuration-path-unchanged",
+                "path": "config/app.json",
+                "value": "PREFLIGHT:REQ-001"
+              }
+            ],
+            "candidateSha256": "sha256:8beb1eb5826557dc6abb2f9edf94a29d417ee2caeab110eeeb16170ba3769abb",
+            "findingIds": [
+              "FND-7924c5b0c7205fa351e6a214"
+            ],
+            "retainedEvidenceMissing": [],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "c930bd734ac994251839eb8c45c2e52fa68a64c26d1dc61e89c863917426cc81"
+              },
+              "sourcePaths": [],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fulfillment-configuration-true",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [],
+          "configurationPaths": [
+            "config/app.json"
+          ],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [
+            {
+              "clauseId": "PREFLIGHT:REQ-001",
+              "fulfillment": "configuration",
+              "paths": [
+                {
+                  "path": "config/app.json",
+                  "state": "changed"
+                }
+              ]
+            }
+          ],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-evidence-false",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase implementation has no publishable code delivery:\n- PREFLIGHT:REQ-001 requires evidence, but singularity/work-items/PREFLIGHT/evidence/visual.txt does not exist\nImplement the approved behavior, add acceptance-mapped tests, and publish again.",
+          "code": "CODE_DELIVERY_EVIDENCE_REQUIRED",
+          "details": {
+            "sourceBindingsMissing": [],
+            "explanationsMissing": [],
+            "problems": [
+              "PREFLIGHT:REQ-001 requires evidence, but singularity/work-items/PREFLIGHT/evidence/visual.txt does not exist"
+            ],
+            "findings": [
+              {
+                "id": "FND-2fbee52e2c24801e389ae7bf",
+                "code": "code.delivery.evidence-path-missing",
+                "path": "singularity/work-items/PREFLIGHT/evidence/visual.txt",
+                "value": "PREFLIGHT:REQ-001"
+              }
+            ],
+            "candidateSha256": "sha256:8beb1eb5826557dc6abb2f9edf94a29d417ee2caeab110eeeb16170ba3769abb",
+            "findingIds": [
+              "FND-2fbee52e2c24801e389ae7bf"
+            ],
+            "retainedEvidenceMissing": [
+              {
+                "clauseId": "PREFLIGHT:REQ-001",
+                "path": "singularity/work-items/PREFLIGHT/evidence/visual.txt"
+              }
+            ],
+            "problemCount": 1,
+            "traceabilityRepair": {
+              "plan": {
+                "path": "singularity/work-items/PREFLIGHT/context/claims/planning-gen1-planned.json",
+                "generation": 1,
+                "sha256": "efae61bd0ac9d32f9701b084075a2238c27160de0e13493671c2de5519721b97"
+              },
+              "sourcePaths": [],
+              "testPaths": [
+                "test/app.test.js"
+              ],
+              "actions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fulfillment-evidence-true",
+      "outcome": {
+        "value": {
+          "requirement": "source-and-tests",
+          "sourcePaths": [],
+          "configurationPaths": [],
+          "deletedSourcePaths": [],
+          "testPaths": [
+            "test/app.test.js"
+          ],
+          "supportingTestPaths": [],
+          "excludedChanges": [],
+          "fulfillment": [
+            {
+              "clauseId": "PREFLIGHT:REQ-001",
+              "fulfillment": "evidence",
+              "paths": [
+                {
+                  "path": "singularity/work-items/PREFLIGHT/evidence/visual.txt",
+                  "state": "present",
+                  "sha256": "828d7c3a3501e6030b83422edf7f5974b54733188f2a4130cf4792f5afb314ee"
+                }
+              ]
+            }
+          ],
+          "sourceBindings": {
+            "mode": "enforce",
+            "required": [],
+            "bindings": [],
+            "missing": []
+          },
+          "implementationBindings": null,
+          "acceptanceCriteria": {
+            "required": [],
+            "tagged": [
+              "PREFLIGHT:AC-001"
+            ],
+            "missing": [],
+            "ambiguous": [],
+            "inferred": [],
+            "bindings": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "bindingAssurance": "namespace-qualified"
+              }
+            ],
+            "witnesses": [
+              {
+                "clauseId": "PREFLIGHT:AC-001",
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "identity": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "supportSha256": null,
+                "line": null,
+                "parameters": null,
+                "skipped": false,
+                "exact": false,
+                "gaps": [
+                  "ADAPTER_COUNTS_ONLY"
+                ]
+              }
+            ],
+            "unattachedTags": [],
+            "profiles": [
+              {
+                "testSource": "test/app.test.js",
+                "profile": "module-counts-v1",
+                "commandId": null,
+                "resultAdapter": null,
+                "ceiling": "module-observed"
+              }
+            ]
+          },
+          "documentationCorrection": null,
+          "intentRevalidation": null,
+          "testingRepair": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-test-only-false",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "PREFLIGHT:REQ-001 is test-only: list its planned tests and no expected product paths.",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "fulfillment-test-only-true",
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "PREFLIGHT:REQ-001 is test-only: list its planned tests and no expected product paths.",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "details": null
+        }
+      }
+    }
+  ]
+}

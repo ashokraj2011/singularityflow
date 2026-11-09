@@ -1,3 +1,5 @@
+import {codeCandidateScopeRequired} from './kernel/phase-policy.mjs';
+import {codeDeliveryCandidateScope,plannedCodeStepPaths} from './engine-compatibility/node-source-policy.mjs';
 /**
  * What a code step's candidate may contain [E2G-027, decision D9].
  *
@@ -10,11 +12,8 @@
  * execute requires isolation. File extensions do not prove irrelevance: text may be a test fixture
  * or executable MDX/doctest input. Null when the Story plans no claims, so every change is the candidate.
  */
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import path from 'node:path';
-import { isAllowedTestAutomationPath } from './code-delivery-tests.mjs';
-import { accountedAmendmentPaths } from './plan-amendments.mjs';
-import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
+import { loadActiveSpecRecords } from './specifications.mjs';
 import { applicationPathContext, isApplicationChangePath } from './engine-compatibility/node-source-policy.mjs';
 
 /** Dirty files excluded from this delivery must be accounted for before it is published. */
@@ -30,35 +29,17 @@ export async function unreconciledCandidatePaths(root, config, workflow, phase, 
     .map(item => item.path))].sort();
 }
 
-export async function codeCandidateScope(itemDirectory, workflow, phase) {
-  if (!phaseRequiresCodeDelivery(phase) || workflow?.resolution?.plannedClaims?.mode !== 'required') return null;
-  const records = await loadActiveSpecRecords(itemDirectory, workflow);
-  const planned = mergePlannedClaimRecords(records.planned ?? []);
-  const allowed = new Set();
-  for (const claim of Object.values(planned)) {
-    if ((claim.steps ?? []).length && !claim.steps.includes(phase.id)) continue;
-    for (const candidate of [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]) allowed.add(candidate);
-  }
-  for (const candidate of plannedSupportingFiles(records.planned ?? [])) allowed.add(candidate);
-  for (const candidate of accountedAmendmentPaths(records.planned ?? [])) allowed.add(candidate);
-  return Object.freeze({
-    allows: (candidate) => allowed.has(candidate) || isAllowedTestAutomationPath(candidate),
-    /** Whether an excluded file could change what the tests execute in the worktree. */
-    unsafe: () => true
-  });
+export async function codeCandidateScope(itemDirectory,workflow,phase) {
+  if(!codeCandidateScopeRequired(workflow,phase))return null;
+  const records=await loadActiveSpecRecords(itemDirectory,workflow);
+  return codeDeliveryCandidateScope(records.planned??[],workflow,phase);
 }
 
 /** The paths the plan names for a code step: expected source paths and planned tests, before any change. */
-export async function plannedStepPaths(itemDirectory, workflow, phase) {
-  const sourcePaths = new Set(); const testPaths = new Set();
-  if (!phaseRequiresCodeDelivery(phase) || workflow?.resolution?.plannedClaims?.mode !== 'required') return { sourcePaths: [], testPaths: [] };
-  const records = await loadActiveSpecRecords(itemDirectory, workflow);
-  for (const claim of Object.values(mergePlannedClaimRecords(records.planned ?? []))) {
-    if ((claim.steps ?? []).length && !claim.steps.includes(phase.id)) continue;
-    for (const candidate of claim.expectedPaths ?? []) sourcePaths.add(candidate);
-    for (const candidate of claim.tests ?? []) testPaths.add(candidate);
-  }
-  return { sourcePaths: [...sourcePaths].sort(), testPaths: [...testPaths].sort() };
+export async function plannedStepPaths(itemDirectory,workflow,phase) {
+  if(!codeCandidateScopeRequired(workflow,phase))return {sourcePaths:[],testPaths:[]};
+  const records=await loadActiveSpecRecords(itemDirectory,workflow);
+  return plannedCodeStepPaths(records.planned??[],workflow,phase);
 }
 
 /**

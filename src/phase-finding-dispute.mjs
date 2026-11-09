@@ -24,10 +24,8 @@ const fail = (message, code = 'PHASE_FINDING_DISPUTE_INVALID', details = undefin
 };
 
 /** The exact application endpoints of an open code candidate, as the gate observed them. */
-export function codeDeliveryCandidateSha256(applicationEntries) {
-  return digest(applicationEntries.map(({ status, oldPath, newPath, oldMode, newMode, oldObject, newContent }) =>
-    ({ status, oldPath, newPath, oldMode, newMode, oldObject, newContent })));
-}
+export {codeDeliveryCandidateSha256} from './engine-compatibility/node-source-policy.mjs';
+import {codeDeliveryCandidateSha256} from './engine-compatibility/node-source-policy.mjs';
 
 export function findingDisputeBinding(workflow, phase, candidateSha256) {
   return { workId: workflow.workItem.id, phaseId: phase.id, generation: Number(phase.generationIntent?.generation),

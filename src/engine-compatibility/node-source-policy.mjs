@@ -82,3 +82,14 @@ export const codeDeliveryEvidencePath=/* @__PURE__ */ (()=>deliveryEvidenceBindi
 export const implementationBindingsDigest=/* @__PURE__ */ (()=>deliveryEvidenceBinding.bindingsDigest)();
 export const cornerCaseMatrixDigest=/* @__PURE__ */ (()=>deliveryEvidenceBinding.cornerCaseMatrixDigest)();
 export const prepareCodeDeliveryReportReader=/* @__PURE__ */ (()=>deliveryEvidenceBinding.prepareTestReportReader)();
+
+export const codeDeliveryPreflightReplay=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryPreflightReplay)();
+export const plannedImplementationPaths=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedImplementationPaths)();
+export const plannedProductSourcePaths=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedProductSourcePaths)();
+export const changesProductSource=/* @__PURE__ */ (()=>deliveryEvidenceBinding.changesProductSource)();
+export const plannedSupportingFiles=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedSupportingFiles)();
+export const codeDeliveryCandidateScope=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryCandidateScope)();
+export const plannedCodeStepPaths=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedCodeStepPaths)();
+export const canonicalFinding=/* @__PURE__ */ (()=>deliveryEvidenceBinding.canonicalFinding)();
+export const canonicalFindingId=/* @__PURE__ */ (()=>deliveryEvidenceBinding.canonicalFindingId)();
+export const codeDeliveryCandidateSha256=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryCandidateSha256)();

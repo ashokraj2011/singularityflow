@@ -1,6 +1,7 @@
 /** Pure phase interpretation, generation and publication policy. No storage, execution or host dependencies. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { phasePublicationBindingValue } from '../foundation/record-schema.mjs';
+import {normalizeSourceBoundary} from './configuration-declarations.mjs';
 import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
@@ -1039,4 +1040,109 @@ export function workflowStartIssues(resolved) {
   if(topology.length)return topology;
   if(resolved?.plannedClaims?.mode==='migration-required')return [{code:'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',severity:'error',message:'The selected workflow has no current planned-claim contract.'}];
   return (resolved?.obligationGraph?.findings??[]).filter(entry=>entry.severity==='error');
+}
+
+export function pinnedTestEvidenceSource(workflow, phase) {
+  return workflow.resolution?.phases?.find((entry) => entry.id === phase?.id)?.testEvidenceFrom ?? null;
+}
+
+/** The Code step whose tests a review relies on: its pinned source, else the closest approved one. */
+export function reviewCodeSource(workflow, phase) {
+  if (!phase || phaseRequiresCodeDelivery(phase)) return null;
+  const pinned = pinnedTestEvidenceSource(workflow, phase);
+  if (pinned) return workflow.phases?.[pinned] ?? null;
+  const order = workflow.phaseOrder ?? [];
+  return order.slice(0, Math.max(0, order.indexOf(phase.id))).reverse().map((id) => workflow.phases?.[id])
+    .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate)) ?? null;
+}
+
+/** A review whose own approval policy may send its source or test edits back to this Code step. */
+export function reviewMayReturnToCode(review, code) {
+  return Boolean(review && code) && !phaseRequiresCodeDelivery(review) && phaseRequiresCodeDelivery(code)
+    && (review.approvalPolicy?.rejectTo ?? []).includes(code.id);
+}
+
+/**
+ * The approved Code step an in-progress review may hand its source or test edits back to through
+ * the guarded `reject <review> --to <code> --repair` route, or null when no such return exists.
+ */
+export function reviewRepairTarget(workflow, phase) {
+  const code = reviewCodeSource(workflow, phase);
+  return code?.status === 'approved' && workflow.status !== 'closed'
+    && workflow.currentPhase === phase.id && phase.status === 'in_progress'
+    && reviewMayReturnToCode(phase, code) ? code : null;
+}
+
+/**
+ * The open change request a person's rejection or reopen recorded when it returned this already
+ * published code step for rework, from the step itself or a later one, or null. It must be the
+ * newest open return into this step, its decision must still stand, and its reset must be the one
+ * that reopened this exact generation, so an older or unrelated request never qualifies.
+ */
+export function reworkReturnRequest(workflow, phase) {
+  const generation = Number(phase?.generation ?? 0);
+  const evidence = phase?.deliveryEvidence;
+  if (!(generation > 0) || !phase.generationCommit || evidence?.status !== 'ready' || !evidence.receiptSha256) return null;
+  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) =>
+    candidate.status === 'open' && candidate.targetPhase === phase.id);
+  const source = workflow.phases?.[request?.sourcePhase];
+  const order = workflow.phaseOrder ?? [];
+  // A decision's loop has no person's return to cite, and a confirmed repair keeps its own binding.
+  if (!request || request.decision || request.testingRepair || !source || !order.includes(source.id)
+      || order.indexOf(source.id) < order.indexOf(phase.id)) return null;
+  const decided = (source.approvals ?? []).some((decision) => ['rejected', 'reopened'].includes(decision.decision)
+    && !decision.invalidatedAt && decision.target === phase.id && decision.changeRequestId === request.id);
+  const reset = phase.reworkRevalidation;
+  return decided && Number(reset?.generation) === generation && reset.invalidatedAt === request.requestedAt
+    ? request : null;
+}
+
+/**
+ * The return to a step before this one that reset this published code step: an upstream issue's
+ * return, or a rejection sent further back. What it corrects (the plan, the scope) may need no code
+ * change, yet the next generation was refused as unchanged, so the Story could go on only with a
+ * fake edit (2026-10-28). That generation carries the previous one's exact source and tests and runs
+ * them again, as an intent revalidation does; whatever the corrected plan still owes is judged as for
+ * any generation. Only the reset that reopened this exact generation qualifies.
+ */
+export function earlierReturnRequest(workflow, phase) {
+  const generation = Number(phase?.generation ?? 0);
+  const evidence = phase?.deliveryEvidence;
+  const reset = phase?.reworkRevalidation;
+  if (!(generation > 0) || !phase.generationCommit || evidence?.status !== 'ready' || !evidence.receiptSha256
+      || Number(reset?.generation) !== generation) return null;
+  const order = workflow.phaseOrder ?? [];
+  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) => candidate.requestedAt === reset.invalidatedAt) ?? null;
+  if (!request || request.decision || request.testingRepair || order.indexOf(request.targetPhase) < 0
+      || order.indexOf(request.targetPhase) >= order.indexOf(phase.id)) return null;
+  return request;
+}
+
+/**
+ * The source boundary a review may repair inside its own generations. Only a review that writes
+ * source, confines itself to an explicit boundary and produces its own test evidence qualifies.
+ * One that consumes another step's tests (testEvidenceFrom) or may write anywhere still needs a
+ * Code generation to retest every source or test change.
+ */
+export function reviewOwnRepairBoundary(workflow, phase) {
+  if (!phase || phaseRequiresCodeDelivery(phase)
+      || (phase.writeScope ?? 'artifact-only') !== 'source-and-artifact'
+      || pinnedTestEvidenceSource(workflow, phase)) return null;
+  const boundary = normalizeSourceBoundary(phase.sourceBoundary, phase.id);
+  return boundary === 'unrestricted' ? null : boundary;
+}
+
+/** Presentation-free recovery offer for a refused unchanged/test-only generation. */
+export function codeDeliveryRepairRoute(workflow,phase,{unchanged,testOnly}) {
+  const generation=Number(phase.generation??0);
+  const request=[...(workflow.changeRequests??[])].reverse().find(candidate=>candidate.status==='open'&&candidate.targetPhase===phase.id)??null;
+  if(unchanged&&generation>0&&request?.forwardCheckpoint&&!request.decision&&!request.testingRepair)
+    return {kind:'withdraw-return',generation,changeRequestId:request.id,sourcePhase:request.sourcePhase};
+  if(!testOnly)return null;
+  if(generation===0)return {kind:'first-generation',owner:workflow.resolution?.plannedClaims?.owners?.[phase.id]??'<EARLIER>'};
+  return {kind:'return-required',generation,changeRequestId:request?.id??null,
+    reason:!request?'no-return':request.decision?'decision-loop':'not-reopened',decisionId:request?.decision?.id??null};
+}
+export function codeCandidateScopeRequired(workflow,phase) {
+  return phaseRequiresCodeDelivery(phase)&&workflow?.resolution?.plannedClaims?.mode==='required';
 }

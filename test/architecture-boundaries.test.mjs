@@ -364,6 +364,26 @@ test('code-delivery replay rules stay in the kernel and the native verifier only
   assert.doesNotMatch(kernel,/import\s*\(/u);
 });
 
+test('code preflight uses shared policy and refusal formatting cannot authorize a delivery',async()=>{
+  const native=await readFile(path.join(packageRoot,'src/delivery-evidence.mjs'),'utf8'),ast=ts.createSourceFile('preflight',native,ts.ScriptTarget.Latest,true);
+  const select=name=>ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name)?.body.getText(ast);
+  const preflight=select('evaluateCodeDeliveryPreflight');assert.ok(preflight);
+  assert.equal((preflight.match(/codeDeliveryPreflightReplay\(/gu)??[]).length,1);
+  for(const decision of ['changesProductSource','evaluateStoryProtectedPaths','evaluateSourceBoundary','codeDeliveryCandidateSha256','canonicalFinding'])assert.equal(preflight.includes(decision+'('),false,decision);
+  const formatter=select('formatCodeDeliveryPreflightRefusal');assert.ok(formatter);
+  assert.doesNotMatch(formatter,/\b(?:readFile|run|secureRepositoryPath|loadActiveSpecRecords|evaluateCodeDeliveryPreflight)\s*\(/u);
+  const kernelText=await readFile(path.join(packageRoot,'src/kernel/code-delivery-evidence.mjs'),'utf8');
+  assert.doesNotMatch(kernelText,/singularity-flow\s+(?:recover|decision|phase|story|upstream-issue)\b/u);
+  const kernel=ts.createSourceFile('rules',kernelText,ts.ScriptTarget.Latest,true);let refusals=0;
+  const visit=node=>{
+    if(ts.isCallExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text==='request'&&node.arguments[0]?.text==='format-preflight-refusal'){
+      assert.equal(ts.isYieldExpression(node.parent),true);
+      assert.equal(ts.isParenthesizedExpression(node.parent.parent),true);
+      assert.equal(ts.isThrowStatement(node.parent.parent.parent),true);refusals++;
+    }ts.forEachChild(node,visit);
+  };visit(kernel);assert.equal(refusals,4);
+});
+
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',

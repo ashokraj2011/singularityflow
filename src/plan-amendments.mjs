@@ -139,7 +139,4 @@ export function planAmendmentRecord(workflow) {
 }
 
 /** Every path an amendment accounted for, across the planned records given. */
-export function accountedAmendmentPaths(planned = []) {
-  return [...new Set(planned.filter((record) => record?.amendment)
-    .flatMap((record) => Object.values(record.accountedPaths ?? {}).flat()))].sort();
-}
+export {accountedAmendmentPaths} from './kernel/specification-policy.mjs';

@@ -1,5 +1,4 @@
-import {codeDeliveryReceiptReplay,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
-import {deliveryPathCohorts} from './engine-compatibility/node-source-policy.mjs';
+import {codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
 import {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 export {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 import {pathInside,isDocumentationPath,classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
@@ -16,10 +15,15 @@ import { renderPlatformCommand } from './safe-command-guidance.mjs';
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
 import { phaseRequiresCodeDelivery, storyTestScope } from './code-delivery-policy.mjs';
-import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
+import {pinnedTestEvidenceSource, reviewCodeSource, reviewMayReturnToCode, reviewRepairTarget, reviewOwnRepairBoundary,codeDeliveryRepairRoute} from './kernel/phase-policy.mjs';
+export {reviewCodeSource,reviewMayReturnToCode,reviewRepairTarget,reviewOwnRepairBoundary} from './kernel/phase-policy.mjs';
+import {specificationCriteria, namespaceOf, storyOwnsTag, tagKey,unknownCriterionTags} from './kernel/specification-policy.mjs';
+export {specificationCriteria,unknownCriterionTags} from './kernel/specification-policy.mjs';
+import {unchangedClauseTagsNote,otherStoryTagsNote} from './kernel/code-delivery-evidence.mjs';
+export {unchangedClauseTagsNote,otherStoryTagsNote} from './kernel/code-delivery-evidence.mjs';
 import {
   configuredTestModuleOverrides, isAllowedTestAutomationPath, isExecutableTestSourcePath,
-  isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, prepareTestReportReader, readDurableTestObservation, replayTestReports,
+  persistedOccurrences, prepareTestReportReader, readDurableTestObservation, replayTestReports,
   resolveAffectedModule
 } from './code-delivery-tests.mjs';
 import {
@@ -29,15 +33,13 @@ import {
   autoCandidateResourceDigest, validateAutoCandidateBinding,
   validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
-import { evaluateStoryProtectedPaths } from './engine-compatibility/node-source-policy.mjs';
 import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor, prefetchExactObjectFiles } from './git.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
-import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
 import { configurationPathKind, isConfigurationPath } from './engine-compatibility/node-source-policy.mjs';
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { readRecord } from './schema-migrations.mjs';
 import {
-  SOURCE_CHANGING_FULFILLMENT, loadActiveSpecRecords, mergePlannedClaimRecords, predecessorSpecClauses,
+  loadActiveSpecRecords, mergePlannedClaimRecords, predecessorSpecClauses,
   readBoundSpecificationClaimMap, plannedProductSourcePaths
 } from './specifications.mjs';
 import {
@@ -61,82 +63,6 @@ import {
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
 
-function pinnedTestEvidenceSource(workflow, phase) {
-  return workflow.resolution?.phases?.find((entry) => entry.id === phase?.id)?.testEvidenceFrom ?? null;
-}
-
-/** The Code step whose tests a review relies on: its pinned source, else the closest approved one. */
-export function reviewCodeSource(workflow, phase) {
-  if (!phase || phaseRequiresCodeDelivery(phase)) return null;
-  const pinned = pinnedTestEvidenceSource(workflow, phase);
-  if (pinned) return workflow.phases?.[pinned] ?? null;
-  const order = workflow.phaseOrder ?? [];
-  return order.slice(0, Math.max(0, order.indexOf(phase.id))).reverse().map((id) => workflow.phases?.[id])
-    .find((candidate) => candidate?.status === 'approved' && phaseRequiresCodeDelivery(candidate)) ?? null;
-}
-
-/** A review whose own approval policy may send its source or test edits back to this Code step. */
-export function reviewMayReturnToCode(review, code) {
-  return Boolean(review && code) && !phaseRequiresCodeDelivery(review) && phaseRequiresCodeDelivery(code)
-    && (review.approvalPolicy?.rejectTo ?? []).includes(code.id);
-}
-
-/**
- * The approved Code step an in-progress review may hand its source or test edits back to through
- * the guarded `reject <review> --to <code> --repair` route, or null when no such return exists.
- */
-export function reviewRepairTarget(workflow, phase) {
-  const code = reviewCodeSource(workflow, phase);
-  return code?.status === 'approved' && workflow.status !== 'closed'
-    && workflow.currentPhase === phase.id && phase.status === 'in_progress'
-    && reviewMayReturnToCode(phase, code) ? code : null;
-}
-
-/**
- * The open change request a person's rejection or reopen recorded when it returned this already
- * published code step for rework, from the step itself or a later one, or null. It must be the
- * newest open return into this step, its decision must still stand, and its reset must be the one
- * that reopened this exact generation, so an older or unrelated request never qualifies.
- */
-function reworkReturnRequest(workflow, phase) {
-  const generation = Number(phase?.generation ?? 0);
-  const evidence = phase?.deliveryEvidence;
-  if (!(generation > 0) || !phase.generationCommit || evidence?.status !== 'ready' || !evidence.receiptSha256) return null;
-  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) =>
-    candidate.status === 'open' && candidate.targetPhase === phase.id);
-  const source = workflow.phases?.[request?.sourcePhase];
-  const order = workflow.phaseOrder ?? [];
-  // A decision's loop has no person's return to cite, and a confirmed repair keeps its own binding.
-  if (!request || request.decision || request.testingRepair || !source || !order.includes(source.id)
-      || order.indexOf(source.id) < order.indexOf(phase.id)) return null;
-  const decided = (source.approvals ?? []).some((decision) => ['rejected', 'reopened'].includes(decision.decision)
-    && !decision.invalidatedAt && decision.target === phase.id && decision.changeRequestId === request.id);
-  const reset = phase.reworkRevalidation;
-  return decided && Number(reset?.generation) === generation && reset.invalidatedAt === request.requestedAt
-    ? request : null;
-}
-
-/**
- * The return to a step before this one that reset this published code step: an upstream issue's
- * return, or a rejection sent further back. What it corrects (the plan, the scope) may need no code
- * change, yet the next generation was refused as unchanged, so the Story could go on only with a
- * fake edit (2026-10-28). That generation carries the previous one's exact source and tests and runs
- * them again, as an intent revalidation does; whatever the corrected plan still owes is judged as for
- * any generation. Only the reset that reopened this exact generation qualifies.
- */
-function earlierReturnRequest(workflow, phase) {
-  const generation = Number(phase?.generation ?? 0);
-  const evidence = phase?.deliveryEvidence;
-  const reset = phase?.reworkRevalidation;
-  if (!(generation > 0) || !phase.generationCommit || evidence?.status !== 'ready' || !evidence.receiptSha256
-      || Number(reset?.generation) !== generation) return null;
-  const order = workflow.phaseOrder ?? [];
-  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) => candidate.requestedAt === reset.invalidatedAt) ?? null;
-  if (!request || request.decision || request.testingRepair || order.indexOf(request.targetPhase) < 0
-      || order.indexOf(request.targetPhase) >= order.indexOf(phase.id)) return null;
-  return request;
-}
-
 /**
  * The route a refused test-only or unchanged code generation takes, or null. A first generation
  * must implement; a later one carries its previous generation's unchanged source only when a
@@ -145,12 +71,13 @@ function earlierReturnRequest(workflow, phase) {
  */
 function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
   const workId = workflow.workItem.id;
-  const generation = Number(phase.generation ?? 0);
-  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) =>
-    candidate.status === 'open' && candidate.targetPhase === phase.id) ?? null;
+  const route=codeDeliveryRepairRoute(workflow,phase,{unchanged,testOnly});
+  if(!route)return null;
+  const generation=route.generation;
+  const request=route.changeRequestId?{id:route.changeRequestId,sourcePhase:route.sourcePhase}:null;
   // Withdrawal fits a return made over clean work. A confirmed repair's checkpoint holds the
   // review's own edits, which withdrawing would bring back; left unchanged, it publishes instead.
-  if (unchanged && generation > 0 && request?.forwardCheckpoint && !request.decision && !request.testingRepair) {
+  if (route.kind === 'withdraw-return') {
     const command = `singularity-flow story rework roll-forward --work-id ${workId} --change-request ${request.id} --json`;
     return Object.freeze({
       kind: 'withdraw-return', changeRequestId: request.id, command, skill: '/sf-reject',
@@ -159,9 +86,8 @@ function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
         + `Review its preview, then use the --confirm form it prints.\n${formatCommandRouteLines({ command, copilotCommand: '/sf-reject' }).join('\n')}`
     });
   }
-  if (!testOnly) return null;
-  if (generation === 0) {
-    const owner = workflow.resolution?.plannedClaims?.owners?.[phase.id] ?? '<EARLIER>';
+  if (route.kind === 'first-generation') {
+    const owner = route.owner;
     return Object.freeze({
       kind: 'first-generation', command: null, skill: null,
       guidance: `This is ${phase.id}'s first generation, so a test-only change implements nothing: deliver the approved behavior in its planned product source, with each clause comment in that change, and publish again. `
@@ -170,28 +96,14 @@ function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
         + `\n${formatCommandRouteLines({ copilotCommand: '/sf-decide', command: `singularity-flow upstream-issue raise --work-id ${workId} --phase ${owner} --about <CLAUSE-ID> --problem "<TEXT>"` }).join('\n')}`
     });
   }
-  const why = !request ? `no return into ${phase.id} is open`
-    : request.decision ? `${request.id} is decision '${request.decision.id}' going round again, not a person's return`
+  const why = route.reason === 'no-return' ? `no return into ${phase.id} is open`
+    : route.reason === 'decision-loop' ? `${request.id} is decision '${route.decisionId}' going round again, not a person's return`
       : `${request.id} did not reopen generation ${generation}`;
   return Object.freeze({
     kind: 'return-required', changeRequestId: request?.id ?? null, command: null, skill: null,
     guidance: `A test-only change carries generation ${generation}'s unchanged source only in a generation that a reviewer's rejection (reject <step> --to ${phase.id}) or a confirmed review repair returned to ${phase.id}; ${why}. `
       + 'Change the planned product source the correction needs, with its clause comments, and publish again.'
   });
-}
-
-/**
- * The source boundary a review may repair inside its own generations. Only a review that writes
- * source, confines itself to an explicit boundary and produces its own test evidence qualifies.
- * One that consumes another step's tests (testEvidenceFrom) or may write anywhere still needs a
- * Code generation to retest every source or test change.
- */
-export function reviewOwnRepairBoundary(workflow, phase) {
-  if (!phase || phaseRequiresCodeDelivery(phase)
-      || (phase.writeScope ?? 'artifact-only') !== 'source-and-artifact'
-      || pinnedTestEvidenceSource(workflow, phase)) return null;
-  const boundary = normalizeSourceBoundary(phase.sourceBoundary, phase.id);
-  return boundary === 'unrestricted' ? null : boundary;
 }
 
 function currentSubmission(workflow, phase) {
@@ -455,59 +367,6 @@ export async function taggedAcceptanceIds(root, testPaths) {
   };
 }
 
-/** taggedAcceptanceIds' result without the tag lines in `excluded`, which bind nothing here. */
-function withoutTags(tags, excluded) {
-  const drop = new Set(excluded);
-  const locations = tags.locations.filter((location) => !drop.has(location));
-  const bindings = new Map(locations.map((location) => [JSON.stringify([location.clauseId, location.testSource]),
-    { clauseId: location.clauseId, testSource: location.testSource, bindingAssurance: 'namespace-qualified' }]));
-  return {
-    ...tags, ids: [...new Set(locations.map((location) => location.clauseId))].sort(), locations,
-    bindings: [...bindings.values()].sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
-  };
-}
-
-/**
- * The criteria a test tag can name [E2G-015]: the clauses of the Story's active specification
- * indexes, the same set submission binds each witness to (story-lineage witnessReviewSnapshot).
- * `namespaces` are the Story's own: its Work ID, the configured specification namespace and every
- * namespace its specification uses. Every one but the Work ID is in `sharedNamespaces`: a configured
- * namespace is the same for every Story of its work type, and two specifications may choose the
- * same one, so a file can already carry another Story's tag there. Null for a Story without a
- * specification index: one created before indexes existed, one whose specification mode is off,
- * or a route that omits scope.
- */
-export function specificationCriteria(records, workflow, config = {}) {
-  if (!(records?.indexes ?? []).length) return null;
-  const clauses = records.indexes.flatMap((index) => index.clauses ?? []);
-  const story = String(workflow?.workItem?.id ?? '').toUpperCase();
-  const namespaces = new Set([story, (workflow?.resolution?.spec ?? config.spec)?.namespace,
-    ...clauses.map((clause) => namespaceOf(clause?.id))]
-    .filter(Boolean).map((value) => String(value).toUpperCase()));
-  return {
-    held: new Set(clauses.filter((clause) => clause?.bodySha256).map((clause) => String(clause.id).toUpperCase())),
-    namespaces,
-    sharedNamespaces: new Set([...namespaces].filter((namespace) => namespace !== story))
-  };
-}
-
-/** The namespace of a qualified clause or criterion ID: everything before its colon. */
-function namespaceOf(clauseId) {
-  return String(clauseId ?? '').split(':')[0];
-}
-
-/**
- * Whether a tag naming something the specification lacks is the Story's to correct [E2G-011,
- * E2G-015]: in its Work ID wherever it sits, in a namespace other Stories share only where the
- * generation added it, and in any other namespace never. `carried` returns the IDs the generation's
- * files already named at its baseline (carriedTags); it is asked only about a shared namespace.
- */
-function storyOwnsTag(criteria, clauseId, carried) {
-  const namespace = namespaceOf(clauseId);
-  if (!criteria?.namespaces.has(namespace)) return false;
-  return !criteria.sharedNamespaces.has(namespace) || !carried().has(clauseId);
-}
-
 /**
  * The tags of one kind (`clause` or `ac`) that the generation's files already carried at its
  * baseline [E2G-011, E2G-015]: every tag in a file it left unchanged, and every tag in the baseline
@@ -603,62 +462,6 @@ async function storyAddedTagLines(root, workflow, occurrences, kind, reads) {
   }
   return new Set(occurrences.filter((tag) => (net.get(added.get(tag.path)?.get(tag.line)) ?? 0) > 0)
     .map((tag) => tagKey(tag.path, tag.line)));
-}
-
-function tagKey(relative, line) {
-  return JSON.stringify([relative, line]);
-}
-
-/**
- * Test tags naming a criterion the specification does not hold, each with the file and line to
- * correct [E2G-015]. Submission refuses such a tag once it sits on an exactly identified test
- * (WEL_WITNESS_MAPPING_STALE), so publication refuses it first, in any namespace, and in a Story
- * without a specification index too: that Story holds no criterion for a test to witness. With an
- * index, a tag in the Story's Work ID is refused wherever it sits, so a mistyped criterion cannot
- * hide in a module whose runner only counts tests; in a namespace other Stories share, so is one
- * the generation adds. Another Story's tag that sits on no exact test binds nothing here and stays,
- * as do a legacy Story's tags its runner only counts. `carried` returns the criteria the tagged
- * files already named at the generation's baseline (carriedTags), given every tag read now; it is
- * asked only about a shared namespace, and by default nothing is carried. `owed` are the criteria
- * the step must tag; without an index they come from its earlier artifacts' text (acceptanceIds),
- * and their message says that removing the tag cannot help.
- */
-export function unknownCriterionTags(criteria, {
-  locations = [], witnesses = [], unattachedTags = [], owed = [], carried = () => new Set()
-} = {}) {
-  const key = (testSource, clauseId) => JSON.stringify([testSource, String(clauseId ?? '').toUpperCase()]);
-  // Exactly the witnesses submission reviews: an identified test with no gaps.
-  const exact = new Set(witnesses.filter((witness) => witness.identity && !(witness.gaps ?? []).length)
-    .map((witness) => key(witness.testSource, witness.clauseId)));
-  const tagged = new Set(locations.map((location) => key(location.testSource, location.clauseId)));
-  const occurrences = [
-    ...locations,
-    ...unattachedTags.flatMap((tag) => (tag.clauseIds ?? []).map((clauseId) => ({ clauseId, testSource: tag.testSource, line: tag.line }))),
-    // A tag only the module's adapter reads still becomes a witness; name its test's line.
-    ...witnesses.filter((witness) => !tagged.has(key(witness.testSource, witness.clauseId)))
-      .map((witness) => ({ clauseId: witness.clauseId, testSource: witness.testSource, line: witness.line }))
-  ];
-  let carriedIds = null;
-  const carriedNow = () => (carriedIds ??= carried(occurrences.map((occurrence) => ({
-    clauseId: String(occurrence.clauseId ?? '').toUpperCase(), path: occurrence.testSource
-  }))));
-  const findings = new Map();
-  for (const { clauseId: rawClauseId, testSource, line } of occurrences) {
-    const clauseId = String(rawClauseId ?? '').toUpperCase();
-    if (!clauseId || criteria?.held.has(clauseId)) continue;
-    if (!exact.has(key(testSource, clauseId)) && !storyOwnsTag(criteria, clauseId, carriedNow)) continue;
-    const where = `${testSource}${line ? `:${line}` : ''}`;
-    findings.set(JSON.stringify([testSource, line ?? null, clauseId]), {
-      code: 'EVIDENCE_CRITERION_UNKNOWN', clauseId, path: testSource, line: line ?? null,
-      message: criteria
-        ? `@ac:${clauseId} at ${where} names a criterion the active specification does not hold.`
-        : owed.includes(clauseId)
-          ? `@ac:${clauseId} at ${where} names a criterion this step owes, but this Story has no specification index, so submission cannot review the test that witnesses it.`
-          : `@ac:${clauseId} at ${where} names a criterion, but this Story has no specification index, so no test can witness one.`
-    });
-  }
-  return [...findings.values()].sort((left, right) => left.path.localeCompare(right.path)
-    || (left.line ?? 0) - (right.line ?? 0) || left.clauseId.localeCompare(right.clauseId));
 }
 
 function witnessIdentity(declaration) {
@@ -770,12 +573,6 @@ function allocatedTo(claim, phaseId) {
   return !(claim?.steps ?? []).length || claim.steps.includes(phaseId);
 }
 
-/** Whether delivering a planned obligation changes the product source that carries its clause. */
-function changesProductSource(claim) {
-  return (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment))
-    && plannedProductSourcePaths(claim).length > 0;
-}
-
 /**
  * The planned obligations this code step delivers, read from its planning owner's reviewed plan
  * [E2G-009, E2G-010], or null when the Story plans no claims, so the original rules apply.
@@ -808,47 +605,6 @@ export async function plannedEvidencePaths(root, config, workflow, phase) {
     .flatMap((entry) => entry.expectedPaths ?? [])
     .map((candidate) => path.posix.normalize(String(candidate)))
     .filter((candidate) => candidate.startsWith(prefix) && !candidate.split('/').includes('..')))].sort();
-}
-
-/**
- * Judge each allocated obligation that is not delivered by new or modified product source by its
- * own fulfillment [E2G-010]: behaviour that already exists must still be at its paths, removed
- * behaviour must be gone, and a document or configuration change must change exactly its paths.
- */
-async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths) {
-  const changed = new Set([...changedPaths, ...deletedPaths]);
-  const entries = [];
-  const problems = [];
-  // Each sentence's identity, in the same order [SDA-AC-022]: the obligation and its exact path.
-  const problemFindings = [];
-  const problem = (code, clauseId, candidate, sentence) => {
-    problems.push(sentence);
-    problemFindings.push({ code, path: candidate, value: clauseId });
-  };
-  for (const obligation of obligations ?? []) {
-    if (!['existing', 'removed', 'document', 'configuration', 'evidence'].includes(obligation.fulfillment)) continue;
-    const paths = [];
-    for (const candidate of obligation.expectedPaths) {
-      const secured = await secureRepositoryPath(root, candidate, { label: `Planned ${obligation.fulfillment} path` });
-      const present = Boolean(secured.exists && secured.entry?.isFile());
-      if (obligation.fulfillment === 'evidence' && present && secured.entry.size > 16 * 1024 * 1024) {
-        throw new SingularityFlowError(`Retained evidence ${candidate} exceeds 16 MiB.`, { code: 'CODE_DELIVERY_EVIDENCE_TOO_LARGE' });
-      }
-      if (['existing', 'evidence'].includes(obligation.fulfillment)) {
-        paths.push({ path: candidate, state: present ? 'present' : 'missing',
-          sha256: present ? createHash('sha256').update(await readFile(secured.absolute)).digest('hex') : null });
-        if (!present) problem(`code.delivery.${obligation.fulfillment}-path-missing`, obligation.clauseId, candidate, `${obligation.clauseId} requires ${obligation.fulfillment}, but ${candidate} does not exist`);
-      } else if (obligation.fulfillment === 'removed') {
-        paths.push({ path: candidate, state: present ? 'present' : 'absent' });
-        if (present) problem('code.delivery.removed-path-present', obligation.clauseId, candidate, `${obligation.clauseId} removes ${candidate}, but it still exists`);
-      } else {
-        paths.push({ path: candidate, state: changed.has(candidate) ? 'changed' : 'unchanged' });
-        if (!changed.has(candidate)) problem(`code.delivery.${obligation.fulfillment}-path-unchanged`, obligation.clauseId, candidate, `${obligation.clauseId} is a ${obligation.fulfillment} change, but ${candidate} did not change`);
-      }
-    }
-    entries.push({ clauseId: obligation.clauseId, fulfillment: obligation.fulfillment, paths });
-  }
-  return { obligations: entries, problems, problemFindings };
 }
 
 export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
@@ -984,21 +740,6 @@ async function unchangedClauseTags(root, { clauseId, expectedPaths }, delivered)
   return found;
 }
 
-/** Where a missing clause's tag already is, in a planned file this generation does not change. */
-export function unchangedClauseTagsNote(tags = []) {
-  if (!tags.length) return '';
-  const where = tags.map((tag) => `${tag.path}:${tag.line}`).join(', ');
-  return ` (the tag at ${where} is in a file this generation neither changes nor carries, so it binds nothing here: a clause comment counts in planned source the generation changes, or in the previous generation's unchanged source when a reviewer's return asked only for tests)`;
-}
-
-/** Why a tag the Story did not add binds nothing here, said after the tag a step still owes. */
-export function otherStoryTagsNote(tags = [], noun = 'clause') {
-  if (!tags.length) return '';
-  const where = tags.map((tag) => `${tag.path}:${tag.line}`).join(', ');
-  return tags.length === 1 ? ` (the tag at ${where} is from before this Story, so it names an earlier Story's ${noun})`
-    : ` (the tags at ${where} are from before this Story, so they name an earlier Story's ${noun})`;
-}
-
 async function pathEvidence(root, paths, { changeSet = null } = {}) {
   const records = [];
   for (const relative of paths) {
@@ -1128,478 +869,174 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
   }
 }
 
+function formatCodeDeliveryPreflightRefusal(request, workflow, phase) {
+    switch (request.reason) {
+        case 'protected': {
+            const { protectedPaths } = request;
+            return new SingularityFlowError(`Generation cannot modify protected process paths: ${protectedPaths.join(', ')}`, {
+                code: 'CHANGE_SET_POLICY_VIOLATION',
+                details: {
+                    violationKind: 'protected-process-path',
+                    workId: workflow.workItem.id,
+                    phase: phase.id,
+                    paths: protectedPaths,
+                    diagnosticAction: {
+                        command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`
+                    },
+                    remediation: {
+                        action: 'restore-protected-paths-to-generation-baseline',
+                        configurationRoute: 'approved-configuration-authority-outside-story'
+                    }
+                }
+            });
+        }
+        case 'unsafe': {
+            const { unsafeExclusions } = request;
+            return new SingularityFlowError(`Phase ${phase.id} has changed files another step's plan names, and tests would run with them while this generation left them out: ${unsafeExclusions.join(', ')}. `
+                + 'Publish them with the step that owns them, account for them here with singularity-flow decision plan, or move them out of the worktree, then publish again.', {
+                code: 'GENERATION_EXCLUSIONS_UNSAFE',
+                details: {
+                    phase: phase.id, paths: unsafeExclusions,
+                    recoveryCommands: unsafeExclusions.slice(0, 3).map((candidate) => `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
+                }
+            });
+        }
+        case 'unreconciled': {
+            const { unresolved } = request;
+            return new SingularityFlowError(`These changed files would be excluded from ${phase.id}: ${unresolved.join(', ')}. Account for Story edits under an approved clause with a narrow plan amendment, or preserve unrelated edits through recovery's confirmed private-copy route. Resolve them here before publication; do not reset Planning or commit them manually.`, {
+                code: 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED', details: {
+                    workId: workflow.workItem.id, phase: phase.id, paths: unresolved, excludedChanges: unresolved,
+                    priorApprovalsPreserved: true, repairScope: 'current-phase',
+                    accountingCommand: `singularity-flow decision plan ${workflow.workItem.id} --add-location ${renderPlatformCommand([`<CLAUSE>=${unresolved[0]}`], 'darwin')} --reason <why>`,
+                    recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`
+                }
+            });
+        }
+        case 'evidence': {
+            const { errors, unknownCriteria, criteria, requiredAcIds, unchangedGeneration, testOnlyChange, implementationMissing, sourceBindings, bound, cornerCaseGate, findings, candidateSha256, fulfillment, sourcePaths, testPaths, missingAcIds, obligations, witnessDiscovery } = request;
+            const unknown = unknownCriteria.length > 0;
+            // Without an index, a criterion the step owes is named only by an earlier artifact's text, so no
+            // tag edit can make its exactly read test reviewable.
+            const owedUnknown = [...new Set(unknownCriteria.map((finding) => finding.clauseId))].filter((id) => requiredAcIds.includes(id));
+            const correction = criteria
+                ? `Correct each @ac tag to a criterion the specification holds${requiredAcIds.length ? ` (this step owes ${requiredAcIds.join(', ')})` : ''}, or remove it; a criterion it lacks needs a revised specification first.`
+                : owedUnknown.length
+                    ? `${unknownCriteria.some((finding) => !owedUnknown.includes(finding.clauseId)) ? 'Remove each @ac tag the step does not owe. ' : ''}`
+                        + `A criterion the step owes but no specification index defines (${owedUnknown.join(', ')}) cannot be witnessed by an exactly read test; the Story needs an indexed specification first (singularity-flow explain governance-rebuild).`
+                    : 'Remove each @ac tag: this Story defines no criteria for a test to witness.';
+            const deliveryRoute = unknown ? null : testOnlyDeliveryRoute(workflow, phase, {
+                unchanged: unchangedGeneration, testOnly: testOnlyChange && implementationMissing
+            });
+            return new SingularityFlowError(`Phase ${phase.id} has no publishable code delivery:\n- ${errors.join('\n- ')}\n`
+                + (deliveryRoute ? deliveryRoute.guidance
+                    : !unknown ? 'Implement the approved behavior, add acceptance-mapped tests, and publish again.'
+                        : `${correction}${errors.length > 1 ? ' Resolve the other findings too, then publish again.' : ' Then publish again.'}`), {
+                code: unknown ? 'EVIDENCE_CRITERION_UNKNOWN' : 'CODE_DELIVERY_EVIDENCE_REQUIRED',
+                details: {
+                    ...(unknown ? {
+                        phase: phase.id, findings: unknownCriteria, paths: [...new Set(unknownCriteria.map((finding) => finding.path))],
+                        recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
+                    } : {}),
+                    sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+                    // The route a refused test-only or unchanged generation takes, never a fake source edit.
+                    ...(deliveryRoute ? { deliveryRoute } : {}),
+                    ...(deliveryRoute?.command ? { nextAction: { command: deliveryRoute.command, skill: deliveryRoute.skill,
+                            label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } } : {}),
+                    ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,
+                        cornerCaseHarness: cornerCaseGate.harness } : {}),
+                    // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding),
+                    // and each problem's canonical identity in the same order; an unknown criterion keeps its
+                    // own findings, so only its IDs are added.
+                    ...(!unknown ? { problems: [...errors], findings, candidateSha256 } : {}),
+                    findingIds: findings.map((finding) => finding.id),
+                    // Each planned evidence file this step owes but has not produced, so recovery can name
+                    // the file and its route instead of a prose-only shortfall.
+                    retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')
+                        .flatMap((entry) => entry.paths.filter((item) => item.state === 'missing')
+                        .map((item) => ({ clauseId: entry.clauseId, path: item.path }))),
+                    problemCount: errors.length,
+                    // Read-only repair input, derived from the verified planning pointer and candidate.
+                    // Do not select a test/function by guessing from a file name or invent its meaning.
+                    traceabilityRepair: {
+                        plan: workflow.phases?.[workflow.resolution?.plannedClaims?.owners?.[phase.id]]?.claimMaps?.planned ?? null,
+                        sourcePaths, testPaths,
+                        actions: [
+                            ...sourceBindings.missing.map((missing) => ({
+                                kind: 'source-tag', clauseId: missing.clauseId, approved: true,
+                                expectedPaths: missing.expectedPaths,
+                                regions: bound?.bindings.find((binding) => binding.clauseId === missing.clauseId)?.regions ?? []
+                            })),
+                            ...(bound?.explanationsMissing ?? []).filter((missing) => missing.path).map((missing) => ({
+                                kind: 'clause-explanation', clauseId: missing.clauseId, approved: true,
+                                expectedPaths: [missing.path], line: missing.line,
+                                regions: bound?.bindings.find((binding) => binding.clauseId === missing.clauseId)?.regions ?? []
+                            })),
+                            ...missingAcIds.map((clauseId) => ({
+                                kind: 'acceptance-tag', clauseId, approved: Boolean(criteria?.held.has(clauseId)),
+                                expectedPaths: obligations?.find((obligation) => obligation.clauseId === clauseId)?.tests ?? []
+                            })),
+                            ...witnessDiscovery.unattachedTags.flatMap((tag) => tag.clauseIds
+                                .filter((clauseId) => requiredAcIds.includes(clauseId)).map((clauseId) => ({
+                                kind: 'acceptance-attachment', clauseId, approved: Boolean(criteria?.held.has(clauseId)),
+                                expectedPaths: obligations?.find((obligation) => obligation.clauseId === clauseId)?.tests
+                                    .filter((candidate) => candidate === tag.testSource) ?? [],
+                                line: tag.line
+                            })))
+                        ]
+                    }
+                }
+            });
+        }
+        default: throw new SingularityFlowError('Unknown code-delivery refusal context.', { code: 'ENGINE_PORT_REQUEST_INVALID' });
+    }
+}
+
 /** Refuse a code phase before generation state or telemetry is mutated. */
 export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false } = {}) {
-  if (!phaseRequiresCodeDelivery(phase)) return null;
-  excludeAlwaysLocalNames(root);
-  if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
-    throw new SingularityFlowError(
-      `Phase '${phase.id}' is a code-generation phase but its write scope does not permit source changes.`,
-      { code: 'CODE_DELIVERY_SCOPE_INVALID' }
-    );
-  }
-
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
-  await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
-  const baselineCommit = phase.generationIntent?.baseline?.commit
-    ?? workflow.workIntervals.current.sourceBaseCommit;
-  const changeSet = await buildRepositoryChangeSet(root, {
-    baseCommit: baselineCommit,
-    subject: {
-      workId: workflow.workItem.id, phase: phase.id, generation: nextPhaseGeneration(phase),
-      generationIntentId: phase.generationIntent?.id ?? null
+  const plan=codeDeliveryPreflightReplay(config,workflow,phase,{strictCoverage,ignoreDisputes,requireReconciled});
+  const workingPaths=new Map(),itemDirectory=()=>path.join(root,config.workItemRoot??'singularity/work-items',workflow.workItem.id);
+  const read=async request=>{
+    switch(request.kind){
+      case 'prepare-local-exclusions':return excludeAlwaysLocalNames(root);
+      case 'verify-work-interval':return verifyWorkIntervalBaseline(root,config,workflow,{phaseId:phase.id,itemDirectory:itemDirectory()});
+      case 'working-change-set':{const {kind,...input}=request;return buildRepositoryChangeSet(root,input);}
+      case 'merged-base-paths':return storyMergedBaseChanges(root,config,workflow,request.paths);
+      case 'candidate-scope':return codeCandidateScope(itemDirectory(),workflow,phase);
+      case 'outside-candidates':return outsideEveryCandidate(itemDirectory(),workflow);
+      case 'unreconciled-candidates':return unreconciledCandidatePaths(root,config,workflow,phase,request.scope);
+      case 'documentation-baseline':return assertPublishedDocumentationBaseline(root,config,workflow,phase,request.priorGenerationCommit);
+      case 'executable-test-path':return isExecutableTestSourcePath(root,request.candidate,{sourceExtensions:request.sourceExtensions});
+      case 'reusable-paths':return validatedReusablePaths(root,request.candidates,request.priorEvidence,request.options);
+      case 'reviewed-baseline-tests':return (await import('./test-recovery-admission.mjs')).qualifiedTrpBaselineTestPaths(root,config,workflow,phase);
+      case 'allocated-obligations':return allocatedPlanObligations(root,config,workflow,phase);
+      case 'working-path-facts':{
+        const secured=await secureRepositoryPath(root,request.candidate,{label:request.label});workingPaths.set(request.candidate,secured);
+        return {exists:secured.exists,regular:secured.entry?.isFile()??false,bytes:secured.entry?.size??0};
+      }
+      case 'working-path-bytes':return readFile(workingPaths.get(request.candidate).absolute);
+      case 'required-acceptance':return acceptanceIds(root,config,workflow,phase);
+      case 'specification-records':return loadActiveSpecRecords(itemDirectory(),workflow);
+      case 'acceptance-tags':return taggedAcceptanceIds(root,request.testPaths);
+      case 'story-added-acceptance-tags':return storyAddedTagLines(root,workflow,request.locations.map(location=>({path:location.testSource,line:location.line})),'ac',candidate=>isApplicationPath(candidate,request.pathContext)&&isAllowedTestAutomationPath(candidate));
+      case 'acceptance-witnesses':{const {kind,...input}=request;return discoverAcceptanceWitnesses(root,phase,input);}
+      case 'carried-criterion-tags':return carriedTags(root,request.changeSet,request.occurrences,'ac',isAllowedTestAutomationPath);
+      case 'source-clause-bindings':return plannedSourceClauseBindings(root,config,workflow,phase,request.sourcePaths,{deletedSourcePaths:request.deletedSourcePaths,changeSet:request.changeSet});
+      case 'implementation-bindings':return implementationBindings(root,{changeSet:request.changeSet,required:request.required,tags:request.tags});
+      case 'corner-case-analysis':{const {kind,...input}=request;return (await import(CORNER_CASE_MODULE)).evaluateDeliveryCornerCaseGate(root,input);}
+      case 'compact-corner-cases':return (await import(CORNER_CASE_MODULE)).compactCornerCaseMatrix(request.matrix);
+      case 'accepted-dispute':return (await import('./phase-finding-dispute.mjs')).codeDeliveryDisputeStatus(root,config,workflow,phase,{problems:request.problems,findings:request.findings,candidateSha256:request.candidateSha256});
+      case 'format-preflight-refusal':return formatCodeDeliveryPreflightRefusal(request,workflow,phase);
+      case 'path-evidence':return pathEvidence(root,request.paths,{changeSet:request.changeSet});
+      case 'candidate-coverage':{
+        const preview=await import('./spec-coverage-preview.mjs');
+        return (request.strictCoverage?preview.assertStrictCandidateSpecificationCoverage:preview.assertCandidateSpecificationCoverage)(root,config,workflow,phase,request.delivery);
+      }
+      default:throw new SingularityFlowError('Unknown code-delivery preflight request.',{code:'ENGINE_PORT_REQUEST_INVALID'});
     }
-  });
-  const guards = [...new Set([
-    ...(config.governance?.protectedPaths ?? []),
-    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
-  ])];
-  const protectedResult = evaluateStoryProtectedPaths(changeSet, guards, workflow);
-  // A protected file main changed reaches this branch when main is merged in. It is main's own
-  // reviewed change, not this generation's, and restoring it would undo main (2026-10-28). The
-  // Story still runs on its pinned configuration.
-  const fromBase = protectedResult.valid ? null : storyMergedBaseChanges(root, config, workflow,
-    protectedResult.violations.map((entry) => entry.path));
-  if (fromBase) protectedResult.violations = protectedResult.violations.filter((entry) => !fromBase.paths.includes(entry.path));
-  if (protectedResult.violations.length) {
-    const protectedPaths = [...new Set(protectedResult.violations.map((entry) => entry.path))];
-    throw new SingularityFlowError(
-      `Generation cannot modify protected process paths: ${protectedPaths.join(', ')}`,
-      {
-        code: 'CHANGE_SET_POLICY_VIOLATION',
-        details: {
-          violationKind: 'protected-process-path',
-          workId: workflow.workItem.id,
-          phase: phase.id,
-          paths: protectedPaths,
-          diagnosticAction: {
-            command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`
-          },
-          remediation: {
-            action: 'restore-protected-paths-to-generation-baseline',
-            configurationRoute: 'approved-configuration-authority-outside-story'
-          }
-        }
-      }
-    );
-  }
-  const pathContext = applicationPathContext(config, workflow);
-  const allApplicationEntries = changeSet.entries
-    .filter((entry) => isApplicationChangeEntry(entry, pathContext));
-  // The candidate is what the plan names for this step [E2G-027, D9]. A file no step's plan names
-  // stays in the worktree and the tests run without it on a materialized candidate; prose is simply
-  // left out. A file another step's plan names belongs to that step's generation, and the tests here
-  // would run with it while this generation left it out, so it is refused.
-  const scope = await codeCandidateScope(itemDirectory, workflow, phase);
-  const entryPaths = (entry) => [entry.oldPath, entry.newPath].filter(Boolean);
-  const excludedChanges = scope ? [...new Set(allApplicationEntries.flatMap(entryPaths))].filter((candidate) => !scope.allows(candidate)).sort() : [];
-  const outside = scope ? await outsideEveryCandidate(itemDirectory, workflow) : null;
-  const unsafeExclusions = excludedChanges.filter((candidate) => scope.unsafe(candidate) && !outside?.(candidate));
-  if (unsafeExclusions.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} has changed files another step's plan names, and tests would run with them while this generation left them out: ${unsafeExclusions.join(', ')}. `
-      + 'Publish them with the step that owns them, account for them here with singularity-flow decision plan, or move them out of the worktree, then publish again.',
-      {
-        code: 'GENERATION_EXCLUSIONS_UNSAFE',
-        details: {
-          phase: phase.id, paths: unsafeExclusions,
-          recoveryCommands: unsafeExclusions.slice(0, 3).map((candidate) =>
-            `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
-        }
-      }
-    );
-  }
-  const unresolved = requireReconciled ? await unreconciledCandidatePaths(root, config, workflow, phase, scope) : [];
-  if (unresolved.length) throw new SingularityFlowError(
-    `These changed files would be excluded from ${phase.id}: ${unresolved.join(', ')}. Account for Story edits under an approved clause with a narrow plan amendment, or preserve unrelated edits through recovery's confirmed private-copy route. Resolve them here before publication; do not reset Planning or commit them manually.`, {
-      code: 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED', details: {
-        workId: workflow.workItem.id, phase: phase.id, paths: unresolved, excludedChanges: unresolved,
-        priorApprovalsPreserved: true, repairScope: 'current-phase',
-        accountingCommand: `singularity-flow decision plan ${workflow.workItem.id} --add-location ${renderPlatformCommand([`<CLAUSE>=${unresolved[0]}`], 'darwin')} --reason <why>`,
-        recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`
-      }
-    });
-  const applicationEntries = scope
-    ? allApplicationEntries.filter((entry) => entryPaths(entry).every((candidate) => scope.allows(candidate)))
-    : allApplicationEntries;
-  const applicationChangeSet = { ...changeSet, entries: applicationEntries };
-  const boundaryResult = evaluateSourceBoundary(applicationChangeSet, phase.sourceBoundary, {
-    phaseId: phase.id, allowedPath: isAllowedTestAutomationPath
-  });
-  if (!boundaryResult.valid) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} may change test automation only; product-source endpoints are outside its boundary: ${boundaryResult.violations.map((entry) => entry.path).join(', ')}`,
-      { code: 'CHANGE_SET_POLICY_VIOLATION' }
-    );
-  }
-  const {changedPaths,changedTestCandidates,deletedPaths,deletedSourcePaths,configurationPaths,changedSourcePaths}=deliveryPathCohorts(applicationEntries);
-  const changedEndpointPaths = new Set(applicationEntries.flatMap((entry) =>
-    [entry.oldPath, entry.newPath].filter(Boolean)));
-  const priorGenerationCommit = phase.generationIntent?.baseline?.previousGenerationCommit ?? null;
-  const documentationOnlyCorrection = Number(phase.generation ?? 0) > 0
-    && priorGenerationCommit === baselineCommit
-    && applicationEntries.length > 0
-    && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
-      .filter(Boolean).every(isDocumentationPath));
-  if (documentationOnlyCorrection) {
-    assertPublishedDocumentationBaseline(root, config, workflow, phase, priorGenerationCommit);
-  }
-  const sourceExtensions = [...new Set((phase.qualityCommands ?? []).flatMap((command, index) => {
-    try { return normalizeExternalCommand(command, index).result?.sourceExtensions ?? []; }
-    catch { return []; }
-  }))];
-  const changedTestPaths = [];
-  const supportingTestPaths = [];
-  for (const candidate of changedTestCandidates) {
-    if (await isExecutableTestSourcePath(root, candidate, { sourceExtensions })) changedTestPaths.push(candidate);
-    else if (isSupportingTestResourcePath(candidate)) supportingTestPaths.push(candidate);
-  }
-  const symlinks = applicationEntries.filter((entry) => entry.newContent?.kind === 'symlink');
-  if (symlinks.length && (workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject') === 'reject') {
-    throw new SingularityFlowError(
-      `Source or test delivery cannot use symbolic links: ${symlinks.map((entry) => entry.newPath).join(', ')}`,
-      { code: 'SYMLINK_DELIVERY_FORBIDDEN' }
-    );
-  }
-  const intentRevalidation = Boolean(
-    phase.intentAmendmentRevalidation?.id && !phase.intentAmendmentRevalidation?.revalidatedAt
-  );
-  // A correction generation may exercise acceptance tests delivered by its previous generation
-  // without changing their source merely to satisfy the gate. Reuse only the exact governed test
-  // paths from the prior receipt. First generations normally introduce/change their
-  // tests; the independently authenticated TRP baseline route below is explicit.
-  const reusableTestCandidates = Number(phase.generation ?? 0) > 0
-    ? (phase.deliveryEvidence?.testPaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
-    : [];
-  const reusableTestPaths = await validatedReusablePaths(
-    root, reusableTestCandidates, phase.deliveryEvidence?.paths, { role: 'test', sourceExtensions }
-  );
-  // A reviewed pre-feature baseline may supply already-existing test source to the
-  // first generation. This only plans the cohort: current execution, exact risk
-  // matching, acceptance tags and ordinary source safety remain mandatory below.
-  const { qualifiedTrpBaselineTestPaths } = await import('./test-recovery-admission.mjs');
-  const baselineTestPaths = await qualifiedTrpBaselineTestPaths(root, config, workflow, phase);
-  // Behaviour that already exists is verified by the tests the plan names for it, unchanged
-  // [E2G-010]; they run and are checked like any delivered test.
-  const obligations = await allocatedPlanObligations(root, config, workflow, phase);
-  const existingTestPaths = [];
-  for (const candidate of new Set((obligations ?? []).filter((obligation) => obligation.fulfillment === 'existing')
-    .flatMap((obligation) => obligation.tests ?? []))) {
-    if (changedEndpointPaths.has(candidate) || !isAllowedTestAutomationPath(candidate)) continue;
-    const secured = await secureRepositoryPath(root, candidate, { label: 'Planned existing test' });
-    if (secured.exists && secured.entry?.isFile() && await isExecutableTestSourcePath(root, candidate, { sourceExtensions })) {
-      existingTestPaths.push(candidate);
-    }
-  }
-  const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths])].sort();
-  // A reviewer-returned Testing defect can change only executable tests or their supporting
-  // resources. Do not require a fake product-source edit in the new Code generation: reuse the
-  // exact prior approved source bytes, but only when the latest open change request was created
-  // by the guarded Testing repair route and still binds this Code generation and its old receipt.
-  const repairRequest = [...(workflow.changeRequests ?? [])].reverse().find((request) =>
-    request.status === 'open' && request.targetPhase === phase.id && request.testingRepair
-      && reviewMayReturnToCode(workflow.phases?.[request.sourcePhase], phase));
-  const repair = repairRequest?.testingRepair;
-  const repairDecision = (workflow.phases?.[repairRequest?.sourcePhase]?.approvals ?? []).find((decision) =>
-    decision.decision === 'rejected' && !decision.invalidatedAt
-      && decision.target === phase.id && decision.changeRequestId === repairRequest?.id);
-  const testOnlyChange = applicationEntries.length > 0
-    && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
-      .filter(Boolean).every(isAllowedTestAutomationPath));
-  const repairBound = Boolean(repair)
-    && Boolean(repairDecision)
-    && Number(phase.generation ?? 0) > 0
-    && Number(repair.codeGeneration) === Number(phase.generation)
-    && repair.codeGenerationCommit === phase.generationCommit
-    && String(repair.codeReceiptSha256).replace(/^sha256:/u, '')
-      === String(phase.deliveryEvidence?.receiptSha256 ?? '').replace(/^sha256:/u, '')
-    && /^sha256:[a-f0-9]{64}$/u.test(repair.confirmation ?? '')
-    && /^sha256:[a-f0-9]{64}$/u.test(repair.changeSetDigest ?? '')
-    && Array.isArray(repair.changedPaths) && repair.changedPaths.length > 0;
-  // A confirmed repair whose returned edits were all undone leaves the approved generation exactly
-  // as it was: nothing further to change. It carries that generation's source and tests unchanged,
-  // runs them again and is reviewed again, as an intent revalidation that changes nothing is.
-  const withdrawnRepair = repairBound && !applicationEntries.length;
-  const confirmedRepair = repairBound && !changedSourcePaths.length && (testOnlyChange || withdrawnRepair);
-  // A reviewer who returned a submitted generation asking only for tests made the same request
-  // after submission: its rejection (or reopen) reset exactly this published generation, so the
-  // generation is judged as the same test repair. The implementation it carries is the previous
-  // generation's exact source bytes, never a claim of new work; a first generation has none.
-  const returnRequest = !confirmedRepair && reworkReturnRequest(workflow, phase);
-  const reworkRepair = !confirmedRepair && !changedSourcePaths.length && testOnlyChange && Boolean(returnRequest);
-  const testOnlyRepair = confirmedRepair || reworkRepair;
-  const earlierReturn = !intentRevalidation && !testOnlyRepair && !applicationEntries.length ? earlierReturnRequest(workflow, phase) : null;
-  const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection || earlierReturn
-    ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) =>
-      !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate))
-    : [];
-  const reusableSourcePaths = await validatedReusablePaths(
-    root, reusableSourceCandidates, phase.deliveryEvidence?.paths, { role: 'source' }
-  );
-  const sourcePaths = [...new Set([...changedSourcePaths, ...reusableSourcePaths])].sort();
-  const errors = [];
-  // Each sentence is presentation; its identity {code, path, value} (never a line or wording) names
-  // the finding a dispute or an escalation matches [SDA-AC-022]. Kept in the same order as errors.
-  const identities = [];
-  const report = (problem, identity) => { errors.push(problem); identities.push(identity); };
-  const reportAll = (problems, findings) => problems.forEach((problem, index) => report(problem, findings[index]));
-  // What this step owes comes from its allocated obligations [E2G-010]: existing behaviour changes
-  // nothing, and test-only, document, configuration and removal work need no new product source.
-  const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedPaths);
-  const changeRequired = !obligations || obligations.some((obligation) => !['existing', 'evidence'].includes(obligation.fulfillment));
-  const sourceRequired = !obligations || obligations.some(changesProductSource);
-
-  const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && !earlierReturn && changeRequired;
-  if (unchangedGeneration) {
-    report('no application source or test paths changed during the work interval', { code: 'code.delivery.generation-unchanged' });
-  }
-  const implementationMissing = phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired;
-  if (implementationMissing) {
-    report('no product source path changed; a summary, configuration or test-only edit is not an implementation',
-      { code: 'code.delivery.product-source-missing' });
-  }
-  reportAll(fulfillment.problems, fulfillment.problemFindings);
-  const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
-  // A test is owed only where the plan plans one. Rows the plan reviewed as needing none (a document,
-  // configuration, removal or screenshot row whose tests are not applicable, or one proven by
-  // inspection) had only a dated dispute past this, and none at all without approvers (2026-10-28).
-  const testsOwed = !obligations || requiredAcIds.length > 0 || obligations.some((obligation) =>
-    (obligation.tests ?? []).length > 0 || !['not-applicable', 'non-test'].includes(obligation.testDisposition ?? 'unspecified'));
-  if (!testPaths.length && testsOwed) {
-    // A file named as a test outside every recognised test folder is counted as product source; say
-    // so, or the author keeps re-tagging a test the gate never reads.
-    const uncounted = changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate) && isTestSourceName(candidate));
-    report(uncounted.length
-      ? `no acceptance test is available for the implementation: ${uncounted.slice(0, 5).join(', ')}${uncounted.length > 5 ? ` and ${uncounted.length - 5} more` : ''} ${uncounted.length === 1 ? 'is' : 'are'} named as tests but not in a recognised test folder (test, tests, spec, __tests__, e2e, src/<name>Test, <Target>Tests, <Project>.Tests), so ${uncounted.length === 1 ? 'it counts' : 'they count'} as product source`
-      : 'no acceptance test is available for the implementation', { code: 'code.delivery.acceptance-test-missing' });
-  }
-
-  const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);
-  const scanned = await taggedAcceptanceIds(root, testPaths);
-  // In a namespace other Stories share, a test tag names this Story's criterion only where this Story
-  // added it: an earlier Story's tag with the same ID neither satisfies nor witnesses it [E2G-015].
-  const shared = scanned.locations.filter((location) => criteria?.held.has(location.clauseId)
-    && criteria.sharedNamespaces.has(namespaceOf(location.clauseId)));
-  const own = shared.length ? await storyAddedTagLines(root, workflow, shared.map((location) => ({
-    path: location.testSource, line: location.line
-  })), 'ac', (candidate) => isApplicationPath(candidate, pathContext) && isAllowedTestAutomationPath(candidate)) : null;
-  const othersTags = own ? shared.filter((location) => !own.has(tagKey(location.testSource, location.line))) : [];
-  const tags = othersTags.length ? withoutTags(scanned, othersTags) : scanned;
-  const taggedAcIds = tags.ids;
-  const missingAcIds = requiredAcIds.filter((id) => !taggedAcIds.includes(id));
-  if (missingAcIds.length) {
-    report(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}${otherStoryTagsNote(othersTags
-      .filter((location) => location.clauseId === id).map((location) => ({ path: location.testSource, line: location.line })), 'criterion')}`).join(', ')}`,
-    { code: 'code.delivery.acceptance-tag-missing', value: missingAcIds });
-  }
-  // A test carries the nearest tag with its ID at or above its line.
-  const othersTag = ({ testSource, clauseId, line }) => line != null && othersTags.some((location) =>
-    location.testSource === testSource && location.clauseId === clauseId && location.line === Math.max(0, ...scanned.locations
-      .filter((candidate) => candidate.testSource === testSource && candidate.clauseId === clauseId && candidate.line <= line)
-      .map((candidate) => candidate.line)));
-  const witnessDiscovery = await discoverAcceptanceWitnesses(root, phase, {
-    testPaths, sourcePaths, requiredAcIds: requiredAcIds.filter((id) => taggedAcIds.includes(id)), bindings: tags.bindings,
-    othersTag, executionMode: storyTestScope(workflow)
-  });
-  reportAll(witnessDiscovery.errors, witnessDiscovery.errorFindings);
-  // A tag naming a criterion the specification does not hold is refused while this generation is
-  // still editable, not at submission once it has been spent [E2G-015].
-  const unknownCriteria = unknownCriterionTags(criteria, {
-    locations: tags.locations, witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
-    owed: requiredAcIds,
-    carried: (occurrences) => carriedTags(root, applicationChangeSet, occurrences, 'ac', isAllowedTestAutomationPath)
-  });
-  if (unknownCriteria.length) {
-    const named = unknownCriteria.map((finding) => `@ac:${finding.clauseId} at ${finding.path}${finding.line ? `:${finding.line}` : ''}`).join('; ');
-    errors.unshift(criteria ? `tests name criteria the active specification does not hold: ${named}`
-      : `tests name criteria, but this Story has no specification index, so no test can witness one: ${named}`);
-    identities.unshift({ code: 'code.delivery.criterion-tag-unknown', value: unknownCriteria.map((finding) => finding.clauseId) });
-  }
-  const sourceBindings = await plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
-    deletedSourcePaths, changeSet: applicationChangeSet
-  });
-  // Each obligation delivered in source is bound to its changed hunks and its explanation [E2G-011].
-  const bound = sourceBindings.mode === 'enforce' && sourceBindings.required.length
-    ? await implementationBindings(root, { changeSet, required: sourceBindings.required, tags: sourceBindings.bindings })
-    : null;
-  if (bound) reportAll(bound.problems, bound.problemFindings);
-  const absentTags = sourceBindings.missing.filter((missing) => !missing.unchangedTags?.length);
-  if (absentTags.length) {
-    report(`planned product source does not contain required clause comments: ${absentTags
-      .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`,
-    { code: 'code.delivery.source-clause-tag-missing', value: absentTags.map((missing) => missing.clauseId) });
-  }
-  // The file holds the tag, but this generation does not deliver that file: say so, and what counts.
-  const undeliveredTags = sourceBindings.missing.filter((missing) => missing.unchangedTags?.length);
-  if (undeliveredTags.length) {
-    report(`required clause comments are only in planned source this generation does not deliver: ${undeliveredTags
-      .map(({ clauseId, unchangedTags }) => `@clause:${clauseId} at ${unchangedTags.map((tag) => `${tag.path}:${tag.line}`).join(', ')}`).join('; ')}`
-      + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return asked only for tests',
-    { code: 'code.delivery.source-clause-tag-undelivered', value: undeliveredTags.map((missing) => missing.clauseId) });
-  }
-  const enforceCornerCases = workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
-    || config.governance?.requireCornerCaseCoverage === true;
-  const enforceAssertionAdequacy = enforceCornerCases
-    || workflow.resolution?.codeDelivery?.assertionAdequacy === 'enforce'
-    || config.governance?.requireAssertionAdequacy === true;
-  let cornerCaseGate = null;
-  if (enforceCornerCases || enforceAssertionAdequacy) {
-    const { evaluateDeliveryCornerCaseGate, compactCornerCaseMatrix } = await import(CORNER_CASE_MODULE);
-    cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
-      changeSet, sourcePaths, testPaths, enforceCornerCases, enforceAssertionAdequacy
-    });
-    reportAll(cornerCaseGate.problems, cornerCaseGate.problemFindings);
-    cornerCaseGate.compactMatrix = compactCornerCaseMatrix(cornerCaseGate.matrix);
-  }
-  // The step's approvers may accept these exact problems for this exact candidate as a disputed
-  // finding [recoverable-findings M2]; anything else, or any change, still refuses.
-  const candidateSha256 = errors.length ? (await import('./phase-finding-dispute.mjs')).codeDeliveryCandidateSha256(applicationEntries) : null;
-  // Loaded only on a refusal, like the dispute module, so no passing gate pays for it.
-  const { canonicalFinding } = errors.length ? await import('./finding-identity.mjs') : {};
-  const findings = errors.length ? identities.map((identity) => canonicalFinding(identity)) : [];
-  const acceptedDispute = errors.length && !unknownCriteria.length && !ignoreDisputes
-    ? (await (await import('./phase-finding-dispute.mjs')).codeDeliveryDisputeStatus(root, config, workflow, phase,
-      { problems: errors, findings, candidateSha256 })).active : null;
-  if (errors.length && !acceptedDispute) {
-    const unknown = unknownCriteria.length > 0;
-    // Without an index, a criterion the step owes is named only by an earlier artifact's text, so no
-    // tag edit can make its exactly read test reviewable.
-    const owedUnknown = [...new Set(unknownCriteria.map((finding) => finding.clauseId))].filter((id) => requiredAcIds.includes(id));
-    const correction = criteria
-      ? `Correct each @ac tag to a criterion the specification holds${requiredAcIds.length ? ` (this step owes ${requiredAcIds.join(', ')})` : ''}, or remove it; a criterion it lacks needs a revised specification first.`
-      : owedUnknown.length
-        ? `${unknownCriteria.some((finding) => !owedUnknown.includes(finding.clauseId)) ? 'Remove each @ac tag the step does not owe. ' : ''}`
-          + `A criterion the step owes but no specification index defines (${owedUnknown.join(', ')}) cannot be witnessed by an exactly read test; the Story needs an indexed specification first (singularity-flow explain governance-rebuild).`
-        : 'Remove each @ac tag: this Story defines no criteria for a test to witness.';
-    const deliveryRoute = unknown ? null : testOnlyDeliveryRoute(workflow, phase, {
-      unchanged: unchangedGeneration, testOnly: testOnlyChange && implementationMissing
-    });
-    throw new SingularityFlowError(
-      `Phase ${phase.id} has no publishable code delivery:\n- ${errors.join('\n- ')}\n`
-      + (deliveryRoute ? deliveryRoute.guidance
-        : !unknown ? 'Implement the approved behavior, add acceptance-mapped tests, and publish again.'
-        : `${correction}${errors.length > 1 ? ' Resolve the other findings too, then publish again.' : ' Then publish again.'}`),
-      {
-        code: unknown ? 'EVIDENCE_CRITERION_UNKNOWN' : 'CODE_DELIVERY_EVIDENCE_REQUIRED',
-        details: {
-          ...(unknown ? {
-            phase: phase.id, findings: unknownCriteria, paths: [...new Set(unknownCriteria.map((finding) => finding.path))],
-            recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
-          } : {}),
-          sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
-          // The route a refused test-only or unchanged generation takes, never a fake source edit.
-          ...(deliveryRoute ? { deliveryRoute } : {}),
-          ...(deliveryRoute?.command ? { nextAction: { command: deliveryRoute.command, skill: deliveryRoute.skill,
-            label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } } : {}),
-          ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,
-            cornerCaseHarness: cornerCaseGate.harness } : {}),
-          // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding),
-          // and each problem's canonical identity in the same order; an unknown criterion keeps its
-          // own findings, so only its IDs are added.
-          ...(!unknown ? { problems: [...errors], findings, candidateSha256 } : {}),
-          findingIds: findings.map((finding) => finding.id),
-          // Each planned evidence file this step owes but has not produced, so recovery can name
-          // the file and its route instead of a prose-only shortfall.
-          retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')
-            .flatMap((entry) => entry.paths.filter((item) => item.state === 'missing')
-              .map((item) => ({ clauseId: entry.clauseId, path: item.path }))),
-          problemCount: errors.length,
-          // Read-only repair input, derived from the verified planning pointer and candidate.
-          // Do not select a test/function by guessing from a file name or invent its meaning.
-          traceabilityRepair: {
-            plan: workflow.phases?.[workflow.resolution?.plannedClaims?.owners?.[phase.id]]?.claimMaps?.planned ?? null,
-            sourcePaths, testPaths,
-            actions: [
-              ...sourceBindings.missing.map((missing) => ({
-                kind: 'source-tag', clauseId: missing.clauseId, approved: true,
-                expectedPaths: missing.expectedPaths,
-                regions: bound?.bindings.find((binding) => binding.clauseId === missing.clauseId)?.regions ?? []
-              })),
-              ...(bound?.explanationsMissing ?? []).filter((missing) => missing.path).map((missing) => ({
-                kind: 'clause-explanation', clauseId: missing.clauseId, approved: true,
-                expectedPaths: [missing.path], line: missing.line,
-                regions: bound?.bindings.find((binding) => binding.clauseId === missing.clauseId)?.regions ?? []
-              })),
-              ...missingAcIds.map((clauseId) => ({
-                kind: 'acceptance-tag', clauseId, approved: Boolean(criteria?.held.has(clauseId)),
-                expectedPaths: obligations?.find((obligation) => obligation.clauseId === clauseId)?.tests ?? []
-              })),
-              ...witnessDiscovery.unattachedTags.flatMap((tag) => tag.clauseIds
-                .filter((clauseId) => requiredAcIds.includes(clauseId)).map((clauseId) => ({
-                  kind: 'acceptance-attachment', clauseId, approved: Boolean(criteria?.held.has(clauseId)),
-                  expectedPaths: obligations?.find((obligation) => obligation.clauseId === clauseId)?.tests
-                    .filter((candidate) => candidate === tag.testSource) ?? [],
-                  line: tag.line
-                })))
-            ]
-          }
-        }
-      }
-    );
-  }
-
-  const delivery = {
-    requirement: 'source-and-tests',
-    baselineCommit,
-    generationIntentId: phase.generationIntent?.id ?? null,
-    changeSet,
-    changeClassification: classifyDeliveryChanges(changeSet, {
-      generatedRoots: workflow.resolution?.ast?.generatedRoots ?? config.ast?.generatedRoots ?? [],
-      pathContext
-    }),
-    paths: await pathEvidence(root, [...new Set([
-      ...changedPaths, ...deletedPaths, ...reusableSourcePaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths
-    ])].sort(), { changeSet }),
-    sourcePaths,
-    configurationPaths,
-    deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
-    testPaths,
-    supportingTestPaths,
-    documentationCorrection: documentationOnlyCorrection ? {
-      priorGeneration: Number(phase.generation),
-      priorGenerationCommit,
-      changedPaths: [...new Set(applicationEntries.flatMap((entry) =>
-        [entry.oldPath, entry.newPath].filter(Boolean)))].sort(),
-      reusedSourcePaths: reusableSourcePaths,
-      reusedTestPaths: reusableTestPaths
-    } : null,
-    intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
-    ...(earlierReturn ? { earlierReturn: { changeRequestId: earlierReturn.id, targetPhase: earlierReturn.targetPhase, priorGeneration: Number(phase.generation) } } : {}),
-    testingRepair: confirmedRepair ? {
-      changeRequestId: repairRequest.id,
-      priorGeneration: repair.codeGeneration,
-      priorReceiptSha256: repair.codeReceiptSha256,
-      reusedSourcePaths: reusableSourcePaths
-    } : reworkRepair ? {
-      changeRequestId: returnRequest.id,
-      priorGeneration: Number(phase.generation),
-      priorReceiptSha256: phase.deliveryEvidence.receiptSha256,
-      reusedSourcePaths: reusableSourcePaths
-    } : null,
-    acceptanceCriteria: {
-      required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
-      inferred: tags.inferred, bindings: tags.bindings,
-      witnesses: witnessDiscovery.witnesses, unattachedTags: witnessDiscovery.unattachedTags,
-      profiles: witnessDiscovery.profiles
-    },
-    sourceBindings,
-    excludedChanges,
-    fulfillment: fulfillment.obligations,
-    implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null,
-    ...(cornerCaseGate?.matrix ? { cornerCaseMatrix: cornerCaseGate.compactMatrix } : {})
   };
-  // Shown to whoever reads the result; not serialized into the delivery receipt, whose record
-  // family is versioned separately. The dispute itself is the retained, reviewed record.
-  if (acceptedDispute) Object.defineProperty(delivery, 'acceptedDispute', { value: acceptedDispute });
-  // The preview loads bound Story records; defer that dependency until the kernel is initialized.
-  const { assertCandidateSpecificationCoverage, assertStrictCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');
-  try { await (strictCoverage ? assertStrictCandidateSpecificationCoverage : assertCandidateSpecificationCoverage)(root, config, workflow, phase, delivery); }
-  catch (error) {
-    // Internal candidate bytes are used to bind risk, not serialized into CLI errors or reports.
-    if (error.code === 'SPEC_COVERAGE_INCOMPLETE') Object.defineProperty(error, 'qualityRiskCandidate', { value: delivery });
-    throw error;
-  }
-  return delivery;
+  let step=plan.next();
+  while(!step.done){let facts;try{facts=await read(step.value);}catch(error){step=plan.throw(error);continue;}step=plan.next(facts);}
+  return step.value;
 }
 
 function commandText(command) {

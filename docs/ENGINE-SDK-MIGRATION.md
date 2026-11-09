@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared application-code preflight](ENGINE-SDK-CODE-PREFLIGHT.md) moves candidate and fulfillment
+coordination, scope/claim interpretation and stable finding identity into kernel owners. Native
+adapters retain actual source/plan reads and required analysis/coverage/exception owners; command
+rendering stays outside the kernel. A pre-extraction native oracle protects delivery bindings and
+recovery details. Namespace application publication, the remaining compatibility owners and
+migration Phases 5, 7, 8 and 9 remain open.
+
+Mac qualification passed all 401 affected regression, journey, architecture and installed-package
+cases, including 13 opt-in Story journey cases, with no failures, cancellations or skips. Source
+validation passed 3,948 checks across 191 skills. VS Code typechecking, the unchanged 2,011-site
+Git audit and all 13 unchanged bundle budgets passed; the gateway has 851 modules under the
+existing 852-module limit. The SDK retains 57 operations across 184 owned modules. Complete
+namespace application publication and migration of installed authority remain required.
+
 The [shared code-delivery replay](ENGINE-SDK-CODE-DELIVERY-REPLAY.md) extracts the complete native v2
 receipt verifier into kernel rules over explicit evidence requests. The native host retains exact
 committed-file and raw-report reads, parsing and the required Auto/TRP/pin/risk compatibility owners.

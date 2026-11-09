@@ -67,6 +67,18 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [original-source archive](ENGINE-SDK-SOURCE-BASELINE.md) retains actual baseline application
+bytes through a registered operation while preserving local attachment boundaries and existing
+record formats. Baseline and changed-source operations share chunk copying and reconstruction.
+Full application policy/publication integration and the Phase 5, 7, 8 and 9 gates remain open.
+
+This baseline slice passed 99 affected Mac regression cases, 67 architecture checks and 25
+installed offline SDK-package checks, with no failures, cancellations or skips. Source validation
+passed 3,924 checks across 191 skills; typechecking, the unchanged 2,011-site Git ownership audit
+and all 13 unchanged bundle budgets passed. The optional SDK exposes 55 operations across 170
+owned modules. The source archive's qualification and integration limits are recorded with its
+owner; this does not claim full application execution or installed authority migration.
+
 The [changed-source retention owner](ENGINE-SDK-SOURCE-RETENTION.md) connects actual bounded file
 reads, chunked SDA content and conditional evidence acceptance through the registry. Its proof
 reader reconstructs the retained current file bytes without the old checkout. Baseline content,

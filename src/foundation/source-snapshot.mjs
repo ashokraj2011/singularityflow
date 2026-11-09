@@ -7,6 +7,7 @@ export const SOURCE_SNAPSHOT_FORMAT='sflow-source-snapshot/v1';
 // A separate optional capability. Existing source units and snapshots keep their v1 shape.
 export const SOURCE_CONTENT_READER_CONTRACT='sflow-source-content-reader/v1';
 export const SOURCE_CONTENT_MAXIMUM_CHUNK_BYTES=8_388_608;
+export const SOURCE_CONTENT_MAXIMUM_CHUNKS=131_072;
 export const SOURCE_LIMITS=Object.freeze({maximumFiles:50_000,maximumVisitedEntries:100_000,maximumFileBytes:536_870_912,
   maximumTotalBytes:2_147_483_648,maximumManifestBytes:16_777_216,maximumDurationMs:300_000});
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value)

@@ -28,6 +28,7 @@
     "./hosts/namespace-checks": { "types": "./dist/hosts/namespace-checks.d.mts", "import": "./dist/hosts/namespace-checks.mjs" },
     "./hosts/namespace-source-inspection": { "types": "./dist/hosts/namespace-source-inspection.d.mts", "import": "./dist/hosts/namespace-source-inspection.mjs" },
     "./hosts/namespace-source-retention": { "types": "./dist/hosts/namespace-source-retention.d.mts", "import": "./dist/hosts/namespace-source-retention.mjs" },
+    "./hosts/namespace-source-baseline": { "types": "./dist/hosts/namespace-source-baseline.d.mts", "import": "./dist/hosts/namespace-source-baseline.mjs" },
     "./hosts/namespace-project": { "types": "./dist/hosts/namespace-project.d.mts", "import": "./dist/hosts/namespace-project.mjs" },
     "./hosts/namespace-configuration": { "types": "./dist/hosts/namespace-configuration.d.mts", "import": "./dist/hosts/namespace-configuration.mjs" },
     "./hosts/namespace-story": { "types": "./dist/hosts/namespace-story.d.mts", "import": "./dist/hosts/namespace-story.mjs" },

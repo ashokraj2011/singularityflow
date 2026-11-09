@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
+import {storedSourceBinding} from '../kernel/source-binding.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -33,18 +34,24 @@ export function createNamespaceSourceObservations({observer,sources=[],scope}={}
     if(repository.revision!=='sha256:'+hash(canonicalJson(value)))throw error('The retained source baseline has another digest.','ENGINE_STORAGE_CORRUPT',{repositoryId:repository.id});
     return value;
   }
+  async function binding(operationId,signal) {
+    const proof=await observer.accepted(operationId,{signal});
+    if(proof.plan.operation!=='source.bind')throw error('The selected source has no accepted source-binding operation.','ENGINE_STORAGE_CORRUPT',{operationId});
+    const workflow=proof.state.workflow,selected=storedSourceBinding(workflow.sourceBindings?.current,operationId);
+    return {proof,workflow,selected};
+  }
   async function generation(workflow,payload,signal) {
     const selected=workflow.sourceBindings?.current,repositories=selected?.repositories;
     if(!payload.generationIntent||!payload.sources.length||!Array.isArray(repositories)||!repositories.length||!same(payload.sources,repositories)) {
       throw error('The private generation has no matching accepted source selection.','ENGINE_STORAGE_CORRUPT');
     }
-    const proof=await observer.accepted(selected.operationId,{signal});
-    if(!same(proof.state.workflow.sourceBindings?.current,selected))throw error('The source selection differs from its accepted lifecycle binding.','ENGINE_STORAGE_CORRUPT');
+    const {selected:accepted}=await binding(selected.operationId,signal);
+    if(!same(accepted,selected))throw error('The source selection differs from its accepted lifecycle binding.','ENGINE_STORAGE_CORRUPT');
     return {selected,repositories};
   }
   async function fresh(observed,signal) {
     for(const {repository,current}of observed){const final=await capture(repository,signal);
       if(final.revision!==current.revision)throw error('Source bytes changed during inspection; the draft is preserved.','ENGINE_SOURCE_CHANGED',{repositoryId:repository.id});}
   }
-  return Object.freeze({capture,baseline,generation,fresh});
+  return Object.freeze({capture,baseline,binding,generation,fresh});
 }

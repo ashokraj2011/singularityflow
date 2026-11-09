@@ -1,5 +1,6 @@
 /** Conditional evidence acceptance, distinct from canonical lifecycle publication. No I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
+import {SOURCE_CONTENT_MAXIMUM_CHUNKS} from '../foundation/source-snapshot.mjs';
 import {NAMESPACE_SOURCE_RETENTION_SCHEMAS,admitRecordSchemaVersion,textDigestCapability} from '../foundation/record-schema.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceIdentityJson,namespaceRevision,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
@@ -9,7 +10,7 @@ import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-codec.mjs';
 import {LIFECYCLE_AUTHORITY_KEY} from './namespace-lifecycle-contract.mjs';
 export const NAMESPACE_SOURCE_RETENTION_PROFILE='sflow-namespace-source-retention/v1';
-export const SOURCE_RETENTION_MAXIMUM_CHUNKS=131_072;
+export const SOURCE_RETENTION_MAXIMUM_CHUNKS=SOURCE_CONTENT_MAXIMUM_CHUNKS;
 const error=(message,code='ENGINE_STORAGE_CORRUPT',cause=undefined)=>new SingularityFlowError(message,{code,cause});
 const formats=Object.freeze(Object.fromEntries(Object.keys(NAMESPACE_SOURCE_RETENTION_SCHEMAS).map(kind=>[kind,'sflow-namespace-source-retention-'+kind+'/v1'])));
 const fields=Object.freeze({

@@ -15,6 +15,8 @@ import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
+import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
+import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
 import {createNamespaceSourceRetentionCodec,sourceRetentionValue,sourceRetentionRecord,sourceRetentionBinding,
   NAMESPACE_SOURCE_RETENTION_PROFILE,SOURCE_RETENTION_MAXIMUM_CHUNKS} from './namespace-source-retention-contract.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -24,6 +26,7 @@ export const emptySourceRetentionTotals=()=>({added:0,modified:0,removed:0,files
 export function createNamespaceSourceRetentionReader({records,content,scope,workId,authority,observer:givenObserver}={}) {
   scope=namespaceScope(scope);const observer=givenObserver??createNamespaceStoryObserver({records,content,scope,workId,authority});
   const limits=namespaceLimits(records.descriptor.limits);
+  const observations=createNamespaceSourceObservations({observer,scope});
   const codec=createNamespaceSourceRetentionCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
   const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS}),inspect=records.inspectOperation.bind(records);
   async function json(reference,kind,signal) {
@@ -78,8 +81,8 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
     exactObject(plan.sourceBinding,['operationId']);const selected=workflow.sourceBindings?.current;
     if(!selected||selected.operationId!==plan.sourceBinding.operationId||plan.sources.length!==selected.repositories.length
       ||!same(generation.sources,selected.repositories))throw error('The retained generation changed its selected repositories.');
-    const sourceProof=await observer.accepted(selected.operationId,{signal});
-    if(!same(sourceProof.state.workflow.sourceBindings?.current,selected))throw error('The source selection has no matching accepted receipt.');
+    const {selected:acceptedSelection}=await observations.binding(selected.operationId,signal);
+    if(!same(acceptedSelection,selected))throw error('The source selection has no matching accepted receipt.');
     for(const [index,source]of plan.sources.entries()){
       exactObject(source,['repository','observed','reader']);exactObject(source.observed,['revision','content']);
       if(!same(source.repository,selected.repositories[index])||contentReference(source.observed.content).namespace!=='runtime'
@@ -114,15 +117,9 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
       totals[entry.status==='A'?'added':entry.status==='D'?'removed':'modified']++;
       if(entry.after===null){if(chunks.length)throw error('A deleted source cannot retain current bytes.');continue;}
       if(entry.after.bytes>0&&source.reader===null)throw error('Retained bytes need their actual content-reader binding.');
-      totals.files++;const digest=createHash('sha256');let bytes=0;
-      for(const chunk of chunks){
-        const ref=contentReference(chunk),maximum=Math.min(source.reader?.maximumChunkBytes??1,1_048_576);
-        if(ref.namespace!=='evidence'||ref.bytes<1||ref.bytes>maximum||bytes+ref.bytes>entry.after.bytes)throw error('A retained chunk exceeds its exact file range.');
-        digest.update(await observer.bytes(ref,ref.bytes,signal));bytes+=ref.bytes;totals.chunks++;
-        if(totals.chunks>SOURCE_RETENTION_MAXIMUM_CHUNKS)throw error('The repository chunk set exceeds its bounded profile.');
-      }
-      if(bytes!==entry.after.bytes||digest.digest('hex')!==entry.after.sha256)throw error('Retained source chunks do not reconstruct the observed file.');
-      totals.bytes+=bytes;
+      totals.files++;const verified=await verifySourceFileChunks(entry.after,chunks,{maximumChunkBytes:source.reader?.maximumChunkBytes,read:observer.bytes,signal});
+      totals.chunks+=verified.chunks;totals.bytes+=verified.bytes;
+      if(totals.chunks>SOURCE_RETENTION_MAXIMUM_CHUNKS)throw error('The repository chunk set exceeds its bounded profile.');
     }
     return {value,totals};
   }

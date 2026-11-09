@@ -538,3 +538,19 @@ export function sourceChangeInspectionPolicies(port, roots) {
   }
   return Object.freeze({inspectSourceChanges});
 }
+
+/** Baselines describe existing application files, without treating them as phase edits. */
+export function sourceBaselineInventoryPolicies(port,roots) {
+  const {applicationPathContext,isApplicationChangeEntry}=applicationPathPolicies(roots);
+  const {classifyDeliveryChanges}=deliveryClassificationPolicies(port,roots);
+  function sourceBaselineInventory(snapshot,{definition,workflow}) {
+    const context=applicationPathContext(definition,workflow.resolution);
+    const changes={entries:snapshot.entries.map((entry,index)=>({changeId:'baseline-'+index,status:'A',oldPath:null,newPath:entry.path}))};
+    changes.entries=changes.entries.filter(entry=>isApplicationChangeEntry(entry,context));
+    const roles=new Map(classifyDeliveryChanges(changes,{pathContext:context}).entries.map(entry=>[entry.newPath,entry.role]));
+    const counts={},entries=snapshot.entries.filter(entry=>roles.has(entry.path)).map(entry=>{
+      const role=roles.get(entry.path);counts[role]=(counts[role]??0)+1;return {...entry,role};});
+    return {selection:'baseline-application-paths/v1',roles:counts,entries};
+  }
+  return Object.freeze({sourceBaselineInventory});
+}

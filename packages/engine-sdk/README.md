@@ -1,5 +1,10 @@
 # SFlow Engine SDK (preview)
 
+Original application files can be archived with `source.baseline.retain`, through the single
+namespace Engine or `hosts/namespace-source-baseline`. It retains real selected bytes without
+advancing lifecycle state; see the repository's `docs/ENGINE-SDK-SOURCE-BASELINE.md` for proof,
+local-attachment boundaries and the remaining application-publication integration.
+
 Embed the versioned engine in a Node host such as a build runner or application. This package is
 an ESM workspace preview. It has no installation hooks, global Node replacement, CLI discovery,
 provider invocation or runtime npm dependencies. It is not published to a registry by this build.

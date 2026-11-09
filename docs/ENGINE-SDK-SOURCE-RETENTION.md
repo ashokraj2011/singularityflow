@@ -70,8 +70,10 @@ The scope is explicitly `changed-application-paths`. Unchanged files and histori
 deleted/modified files are not archived by this operation. The result therefore reports
 `baselineContentsRetained: false` and `publicationReadinessInspected: false`. A full repository
 restore and independent review of removed bytes need retained baseline content or a qualified
-historical source provider. That baseline owner, remaining code/claim/constitution/artifact-set
-policies, full application Story execution, migration/cutover and final distribution/performance
+historical source provider. The separate [original-source archive](ENGINE-SDK-SOURCE-BASELINE.md)
+now retains the selected baseline bytes. Binding both receipts to complete code delivery,
+remaining code/claim/constitution/artifact-set policies, full application Story execution,
+migration/cutover and final distribution/performance
 qualification remain required. Phases 5, 7, 8 and 9 are not complete.
 
 The optional SDK exposes both the single namespace Engine and a dedicated

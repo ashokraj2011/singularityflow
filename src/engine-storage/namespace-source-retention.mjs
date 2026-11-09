@@ -3,16 +3,15 @@ import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
-import {validateSourceContentReader,sourceContentReadResult} from '../foundation/source-snapshot.mjs';
 import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
 import {phaseRequiresCodeDelivery} from '../kernel/phase-policy.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
-import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
+import {createNamespaceSourceContent} from './namespace-source-content.mjs';
 import {createNamespaceSourceRetentionReader,emptySourceRetentionTotals} from './namespace-source-retention-reader.mjs';
-import {sourceRetentionRecord,NAMESPACE_SOURCE_RETENTION_PROFILE,SOURCE_RETENTION_MAXIMUM_CHUNKS} from './namespace-source-retention-contract.mjs';
+import {sourceRetentionRecord,NAMESPACE_SOURCE_RETENTION_PROFILE} from './namespace-source-retention-contract.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_INPUT_INVALID',details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -21,22 +20,15 @@ function cancelled(signal){if(signal?.aborted)throw error('Source retention was 
 export function createNamespaceSourceRetentionPort(options={},runtime=null) {
   const {records,content,access,clock}=options,scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID');
   const reader=createNamespaceSourceRetentionReader({...options,scope,workId}),{observer,codec}=reader;
-  const observations=createNamespaceSourceObservations({observer,sources:options.sources,scope}),readers=new Map(),readerIds=new Set();
-  if(typeof access?.current!=='function'||typeof clock?.now!=='function'||!Array.isArray(options.sourceReaders??[])||(options.sourceReaders??[]).length>32) {
+  const observations=createNamespaceSourceObservations({observer,sources:options.sources,scope});
+  if(typeof access?.current!=='function'||typeof clock?.now!=='function') {
     throw error('Retaining source needs explicit access, clock and bounded content-reader bindings.');
   }
-  for(const port of options.sourceReaders??[]){const descriptor=validateSourceContentReader(port),id=descriptor.source.repositoryId;
-    if(descriptor.source.projectId!==scope.projectId||readers.has(id)||readerIds.has(descriptor.id))throw error('Content readers must be distinct and project bound.');
-    readers.set(id,{descriptor,read:port.read.bind(port)});readerIds.add(descriptor.id);}
-  const put=content.put.bind(content),maximumContentBytes=content.descriptor.maximumBytes,transact=records.transact.bind(records),current=access.current.bind(access),now=clock.now.bind(clock);
+  const files=createNamespaceSourceContent({...options,scope,observer}),{readers,shared}=files;
+  const transact=records.transact.bind(records),current=access.current.bind(access),now=clock.now.bind(clock);
   const contexts=new WeakMap(),prepared=new WeakMap(),collected=new WeakMap();
   const selected=context=>{const found=contexts.get(context);if(!found)throw error('Use the issued source-retention context.');return found;};
   const parameters=input=>hash(canonicalJson({input,binding:codec.binding}));
-  async function shared(data,namespace,signal) {
-    cancelled(signal);const expected={namespace,sha256:hash(data),bytes:data.byteLength},saved=await put(scope,namespace,data,{signal});
-    if(!same(contentReference(saved?.reference),expected)||typeof saved.reused!=='boolean')throw error('The content store acknowledged other source bytes.','ENGINE_PORT_RESULT_INVALID');
-    await observer.bytes(expected,expected.bytes,signal);return expected;
-  }
   function checked(plan,s) {
     if(plan&&(plan.parametersSha256!==s.parameters||!same(plan.input,s.input)))throw error('This operation ID belongs to another source-retention request.','ENGINE_OPERATION_ID_REUSED');return plan;
   }
@@ -54,9 +46,7 @@ export function createNamespaceSourceRetentionPort(options={},runtime=null) {
     return found;
   }
   function boundReader(source) {
-    if(source.reader===null)return null;const bound=readers.get(source.repository.id);
-    if(!bound||!same(bound.descriptor,source.reader))throw error('Bind the prepared source content reader before resuming retention.','ENGINE_SOURCE_CONTENT_READER_UNAVAILABLE',{
-      repositoryId:source.repository.id,readerId:source.reader.id,operation:'phase.source.retain'});return bound;
+    return files.bound(source.repository,source.reader,{operation:'phase.source.retain'});
   }
   return {
     async load(input,{signal}={}) {
@@ -112,16 +102,10 @@ export function createNamespaceSourceRetentionPort(options={},runtime=null) {
     },
     async collect(context,token,{signal}={}) {
       if(prepared.get(token)!==context)throw error('Use the issued source-retention preparation.');const s=selected(context),repositories=[],totals=emptySourceRetentionTotals();
-      for(const source of s.plan.sources){cancelled(signal);const projection=await reader.projected(s.prepared,source,signal),entries=[];let chunkCount=0;
+      for(const source of s.plan.sources){cancelled(signal);const projection=await reader.projected(s.prepared,source,signal),entries=[],budget={chunks:0};
         for(const entry of projection.entries){const chunks=[];
-          if(entry.after!==null){const digest=createHash('sha256');let offset=0;totals.files++;const bound=boundReader(source);
-            while(offset<entry.after.bytes){cancelled(signal);if(++chunkCount>SOURCE_RETENTION_MAXIMUM_CHUNKS)throw error('The repository exceeds its bounded source chunk set.','ENGINE_STORAGE_LIMIT');
-              const request={entry:{path:entry.newPath,...entry.after},offset,maximumBytes:Math.min(bound.descriptor.maximumChunkBytes,maximumContentBytes,1_048_576,entry.after.bytes-offset)};
-              const result=sourceContentReadResult(await bound.read(request,{signal}),request,bound.descriptor),data=Buffer.from(result.data);
-              digest.update(data);chunks.push(await shared(data,'evidence',signal));offset+=data.byteLength;totals.chunks++;
-            }
-            if(digest.digest('hex')!==entry.after.sha256)throw error('Read bytes do not match the selected source snapshot; the draft is preserved.','ENGINE_SOURCE_CHANGED',{
-              repositoryId:source.repository.id,path:entry.newPath,stage:'retain-bytes'});totals.bytes+=offset;
+          if(entry.after!==null){totals.files++;const retained=await files.retain({path:entry.newPath,...entry.after},boundReader(source),{signal,budget,repositoryId:source.repository.id});
+            chunks.push(...retained.chunks);totals.chunks+=chunks.length;totals.bytes+=retained.bytes;
           }
           entries.push({...entry,chunks});totals[entry.status==='A'?'added':entry.status==='D'?'removed':'modified']++;
         }

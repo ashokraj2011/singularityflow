@@ -199,6 +199,14 @@ export const NAMESPACE_SOURCE_RETENTION_SCHEMAS = /* @__PURE__ */ Object.freeze(
   index: /* @__PURE__ */ frozenFamily('namespace-source-retention-index'),
   binding: /* @__PURE__ */ frozenFamily('namespace-source-retention-binding')
 });
+export const NAMESPACE_SOURCE_BASELINE_SCHEMAS = /* @__PURE__ */ Object.freeze({
+  plan: /* @__PURE__ */ frozenFamily('namespace-source-baseline-plan'),
+  intent: /* @__PURE__ */ frozenFamily('namespace-source-baseline-intent'),
+  result: /* @__PURE__ */ frozenFamily('namespace-source-baseline-result'),
+  repository: /* @__PURE__ */ frozenFamily('namespace-source-baseline-repository'),
+  manifest: /* @__PURE__ */ frozenFamily('namespace-source-baseline-manifest'),
+  index: /* @__PURE__ */ frozenFamily('namespace-source-baseline-index')
+});
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
   manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,

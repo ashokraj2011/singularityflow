@@ -29,6 +29,7 @@ import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kern
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
 import {phaseSourceInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult} from '../kernel/source-changes.mjs';
+import {sourceBaselineRetentionInput,sourceBaselineRetentionResult} from '../kernel/source-changes.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -176,6 +177,9 @@ const definitions = [
   {id:'phase.source.retain',version:1,effect:'source-retention',humanDecision:false,authority:'phase.source.retain',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceRetention',
     stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
+  {id:'source.baseline.retain',version:1,effect:'source-retention',humanDecision:false,authority:'source.baseline.retain',
+    inputFields:Object.freeze(['operationId','workId','sourceBindingId']),requiredFields:Object.freeze(['operationId','workId','sourceBindingId']),port:'sourceBaselineRetention',
+    stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'baselineRetentionInput',execute:'retainPhaseSources'},
   {id:'phase.draft.write',version:1,effect:'local-draft',humanDecision:false,authority:'phase.draft.write',
     inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),
     requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),port:'phaseDraftWrite',
@@ -199,13 +203,15 @@ function draftMutationInput(value,operation){return phaseDraftMutationInput(data
 function phaseChecksInput(value){return checkedPhaseChecksInput(data(value));}
 function sourceInspectionInput(value){return phaseSourceInspectionInput(data(value));}
 function sourceRetentionInput(value){return phaseSourceRetentionInput(data(value));}
-async function retainPhaseSources(port,input,signal) {
+function baselineRetentionInput(value){return sourceBaselineRetentionInput(data(value));}
+async function retainPhaseSources(port,input,signal,operation) {
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   let accepted=await port.retained(context,input,{signal});notCancelled(signal);
   if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);
     const collected=await port.collect(context,prepared,{signal});notCancelled(signal);accepted=await port.commit(context,collected,{signal});}
-  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.source.retain',
-    ...phaseSourceRetentionResult(input,data(await port.finish(context,accepted,{signal:null})))});
+  const result=operation.id==='source.baseline.retain'?sourceBaselineRetentionResult:phaseSourceRetentionResult;
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
+    ...result(input,data(await port.finish(context,accepted,{signal:null})))});
 }
 async function inspectPhaseSources(port,input,signal) {
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
@@ -1493,7 +1499,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
-    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,sourceRetentionInput,retainPhaseSources,
+    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

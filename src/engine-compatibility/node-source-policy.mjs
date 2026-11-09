@@ -1,7 +1,7 @@
 /** Native syntax and packaged-root binding for shared source policies. No source/Git/file access. */
 import {NODE_CONFIGURATION_PATH_SYNTAX} from './node-configuration-path.mjs';
 import {GOVERNED_ROOTS} from '../governed-roots.mjs';
-import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies} from '../kernel/source-path-policies.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies} from '../kernel/source-path-policies.mjs';
 export {SOURCE_BOUNDARIES,normalizeSourceBoundary} from '../kernel/configuration-declarations.mjs';
 
 const configurationFilePoliciesBinding=/* @__PURE__ */ configurationFilePolicies(NODE_CONFIGURATION_PATH_SYNTAX);
@@ -36,3 +36,5 @@ export const isDocumentationPath=/* @__PURE__ */ (()=>deliveryClassificationPoli
 export const classifyDeliveryChanges=/* @__PURE__ */ (()=>deliveryClassificationPoliciesBinding.classifyDeliveryChanges)();
 const sourceChangeInspectionPoliciesBinding=/* @__PURE__ */ sourceChangeInspectionPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS);
 export const inspectSourceChanges=/* @__PURE__ */ (()=>sourceChangeInspectionPoliciesBinding.inspectSourceChanges)();
+const sourceBaselineInventoryBinding=/* @__PURE__ */ sourceBaselineInventoryPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS);
+export const sourceBaselineInventory=/* @__PURE__ */ (()=>sourceBaselineInventoryBinding.sourceBaselineInventory)();

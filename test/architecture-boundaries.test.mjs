@@ -115,7 +115,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/engine-storage/namespace-source-retention.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-source-retention-contract.mjs',
+  const namespaceAdapters = new Set(['src/engine-storage/namespace-source-baseline.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-source-baseline-contract.mjs',
+    'src/engine-storage/namespace-source-retention.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-source-retention-contract.mjs',
     'src/engine-storage/namespace-source-inspection.mjs','src/engine-storage/namespace-phase-check-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-contract.mjs',
     'src/sgos/node-check-execution-unit.mjs','src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
@@ -520,7 +521,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
   }
   const rule='src/kernel/story-policy.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[rule],allowed:[rule,...await sourceFiles('src/foundation')]});
   assert.deepEqual(pure.problems,[]);
-  const owners=new Set([reader,'src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs',
+  const owners=new Set([reader,'src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs',
     'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-source-inspection.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-reader.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
@@ -622,11 +623,16 @@ test('source inspection has no filesystem, process, lifecycle writer or draft-wr
 
 test('retained source proof and shared observations cannot execute or write',async()=>{
   const allowedByFile=new Map([
-    ['src/engine-storage/namespace-source-observations.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs'])],
+    ['src/engine-storage/namespace-source-observations.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs','../kernel/source-binding.mjs'])],
     ['src/engine-storage/namespace-source-retention-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
       '../records.mjs','../kernel/source-changes.mjs','../kernel/phase-policy.mjs','../kernel/phase-admission.mjs','../kernel/story-creation.mjs','../kernel/project-enrollment.mjs',
       '../engine-compatibility/node-source-policy.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
-      './namespace-story-reader.mjs','./namespace-lifecycle-codec.mjs','./namespace-source-retention-contract.mjs'])]
+      './namespace-story-reader.mjs','./namespace-lifecycle-codec.mjs','./namespace-source-retention-contract.mjs','./namespace-source-content-reader.mjs','./namespace-source-observations.mjs'])],
+    ['src/engine-storage/namespace-source-content-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../sda/content/contract.mjs'])],
+    ['src/engine-storage/namespace-source-baseline-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
+      '../records.mjs','../engine-compatibility/node-source-policy.mjs','../kernel/source-binding.mjs','../kernel/source-changes.mjs','../kernel/story-creation.mjs','../kernel/project-enrollment.mjs',
+      '../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-codec.mjs',
+      './namespace-source-observations.mjs','./namespace-source-content-reader.mjs','./namespace-source-baseline-contract.mjs'])]
   ]);
   for(const [file,allowed]of allowedByFile){
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
@@ -641,6 +647,10 @@ test('retained source proof and shared observations cannot execute or write',asy
   const graph=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-lifecycle-codec.mjs',
     'src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(graph.problems,[]);
+  const baseline='src/engine-storage/namespace-source-baseline-contract.mjs';
+  const baselineGraph=await inspectPureModuleGraph({root:packageRoot,entries:[baseline],allowed:[baseline,'src/engine-storage/namespace-lifecycle-codec.mjs',
+    'src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(baselineGraph.problems,[]);
 });
 
 test('namespace publication composes verified private drafts and the conditional writer through explicit ports only',async()=>{
@@ -790,7 +800,7 @@ test('the opt-in headless composition captures capabilities and constructs exact
   const allowed=new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs',
     '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-reader.mjs',
     './namespace-project.mjs','./namespace-configuration.mjs','./namespace-story.mjs','./namespace-source.mjs',
-    './namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-routing-choice.mjs','./namespace-phase-checks.mjs','./namespace-source-inspection.mjs','./namespace-source-retention.mjs']);
+    './namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-routing-choice.mjs','./namespace-phase-checks.mjs','./namespace-source-inspection.mjs','./namespace-source-retention.mjs','./namespace-source-baseline.mjs']);
   const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
   let engines=0;
   const visit=node=>{

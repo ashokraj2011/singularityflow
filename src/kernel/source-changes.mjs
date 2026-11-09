@@ -1,6 +1,9 @@
 /** Portable source-snapshot comparison and read-operation contracts. No repository or file access. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
+import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,sourceRelativePath} from '../foundation/source-snapshot.mjs';
+import {phaseAccessIdentity} from './phase-preparation.mjs';
+import {projectEnrollmentTimestamp} from './project-enrollment.mjs';
 
 const fail=(message,code='ENGINE_INPUT_INVALID')=>{throw new SingularityFlowError(message,{code});};
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value);
@@ -133,4 +136,33 @@ export function phaseSourceInspectionManifest(workId,phaseId,facts,maximumEntrie
   return {schemaVersion:1,contract:'sflow-phase-source-inspection/v1',...facts,
     inference:'snapshot-and-path-policy',sourceContentsRetained:false,publicationReadinessInspected:false,
     finalBindingChecked:true,testsRun:false,approvalRecorded:false,humanReviewRecorded:false};
+}
+
+/** Existing source baseline retention and authenticated evidence-only access. */
+export function sourceBaselineRetentionInput(input) {
+  if(!exact(input,['operationId','workId','sourceBindingId'])||Object.values(input).some(v=>!id(v)))fail('Baseline retention needs an exact operation, Story and accepted source-binding ID.');
+  return {...input};
+}
+export function sourceBaselineRetentionAccess(facts,projectId,{expected=null,authorize=true}={}) {
+  const {actor}=phaseAccessIdentity(facts,projectId);
+  if(authorize&&!facts.permissions.includes('source.baseline.retain'))fail('The current principal cannot archive this source baseline.','ENGINE_AUTHORITY_REQUIRED');
+  if(expected!==null&&canonicalJson(actor)!==canonicalJson(expected))fail('Resume baseline retention under its original authenticated person.','ENGINE_ACTOR_CHANGED');
+  return actor;
+}
+export function sourceBaselineRetentionResult(input,facts) {
+  const bad=()=>fail('The baseline owner returned another or incomplete archive binding.','ENGINE_PORT_RESULT_INVALID');
+  if(!exact(facts,['workId','operationId','sourceBindingId','record','recordedAt','principalId','replayed','repositories','totals'])
+    ||facts.workId!==input.workId||facts.operationId!==input.operationId||facts.sourceBindingId!==input.sourceBindingId
+    ||typeof facts.replayed!=='boolean'||!revision(facts.principalId)||!exact(facts.record,['key','version','content'])
+    ||!/^source-baseline\/results\/[a-f0-9]{64}$/u.test(facts.record.key??'')||!revision(facts.record.version)
+    ||!exact(facts.record.content,['namespace','sha256','bytes'])||facts.record.content.namespace!=='evidence'||!sha(facts.record.content.sha256)||!count(facts.record.content.bytes)
+    ||!exact(facts.totals,['files','bytes','chunks'])||Object.values(facts.totals).some(value=>!count(value))
+    ||!Array.isArray(facts.repositories)||facts.repositories.length<1||facts.repositories.length>32)bad();
+  projectEnrollmentTimestamp(facts.recordedAt);const seen=new Set();
+  for(const repository of facts.repositories){if(!exact(repository,['id','manifest'])||!id(repository.id)||seen.has(repository.id)
+    ||!exact(repository.manifest,['namespace','sha256','bytes'])||repository.manifest.namespace!=='evidence'||!sha(repository.manifest.sha256)||!count(repository.manifest.bytes))bad();seen.add(repository.id);}
+  return {status:facts.replayed?'retained':'recorded',subject:{kind:'story',id:input.workId},...facts,
+    scope:'baseline-application-paths',baselineContentsRetained:true,publicationReadinessInspected:false,
+    effects:{committed:!facts.replayed,pushed:false,evidenceRecorded:!facts.replayed,sourceFilesChanged:false,canonicalStateChanged:false,
+      phasePublished:false,testsRun:false,approvalRecorded:false,storyAdvanced:false}};
 }

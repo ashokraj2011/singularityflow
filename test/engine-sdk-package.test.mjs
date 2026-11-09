@@ -457,6 +457,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
       import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
       import {createNamespaceSourceRetentionEngine} from '${packageName}/hosts/namespace-source-retention';
+      import {createNamespaceSourceBaselineEngine} from '${packageName}/hosts/namespace-source-baseline';
       import {createFilesystemSourceUnit,createFilesystemSourceContentReader} from '${packageName}/sources/filesystem';
       const fresh=process.argv[2]==='fresh',scope={projectId:'inspection-project'},workId='code-story',authority={id:'inspection-authority',epoch:1};
       const binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'inspection-device'};
@@ -467,7 +468,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const clock={now(){if(!fresh)throw Error('Source inspection cannot restamp a generation.');return '2026-11-09T01:00:00.000Z';}};
       const access={current:()=>({projectId:scope.projectId,principalId:'reader',actorKind:'human',agentId:'analyst',
         identity:{name:'Example reviewer',email:'reviewer@example.test',login:null},
-        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.source.inspect','phase.source.retain']:['phase.source.inspect']})};
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','source.baseline.retain','phase.prepare','phase.source.inspect','phase.source.retain']:['phase.source.inspect']})};
       try{
         const root=path.resolve('inspection-checkout');if(fresh){await mkdir(root);await writeFile(path.join(root,'app.js'),'export const answer = 42;');}
         const unit=await createFilesystemSourceUnit({root,id:'application-checkout',projectId:scope.projectId,repositoryId:'app'});
@@ -488,6 +489,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           const storySource=(await content.put(scope,'state',Buffer.from('Observe the source change without claiming publication.'))).reference;
           const story=await engine.run('story.create',{operationId:'create-code-story',workId,title:'Inspect a real generation',workTypeId:'custom',configurationId:'approve-code-config',source:storySource});
           await engine.run('source.bind',{operationId:'bind-code-source',workId,expectedRevision:story.revision,repositories:['app'],reason:'Retain the real generation baseline.'});
+          const sourceReader=await createFilesystemSourceContentReader({root,id:'installed-baseline-reader',source:unit.descriptor,maximumChunkBytes:4});
+          const baseline=await createNamespaceSourceBaselineEngine({...common,sourceReaders:[sourceReader]}).run('source.baseline.retain',{
+            operationId:'retain-baseline-bytes',workId,sourceBindingId:'bind-code-source'});
+          assert.equal(baseline.totals.files,1);assert.equal(baseline.baselineContentsRetained,true);
+          await writeFile('retained-baseline-record.json',JSON.stringify(baseline.record));
           await engine.run('phase.prepare',{phaseId:'delivery'});
           await writeFile(path.join(root,'app.js'),'export const answer = 43;');await writeFile(path.join(root,'package.json'),'{}');
         }
@@ -497,6 +503,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(result.manifest.publicationReadinessInspected,false);assert.equal(result.effects.committed,false);assert.equal(result.effects.testsRun,false);
         const sourceReaders=fresh?[await createFilesystemSourceContentReader({root,id:'installed-source-reader',source:unit.descriptor,maximumChunkBytes:4})]:[];
         if(!fresh)await rm(root,{recursive:true});
+        const baseline=await createNamespaceSourceBaselineEngine({...common,sources:[],sourceReaders:[]}).run('source.baseline.retain',{
+          operationId:'retain-baseline-bytes',workId,sourceBindingId:'bind-code-source'});
+        assert.deepEqual(baseline.record,JSON.parse(await readFile('retained-baseline-record.json','utf8')));assert.equal(baseline.replayed,true);
         const retained=await createNamespaceSourceRetentionEngine({...common,sources:fresh?[unit]:[],sourceReaders,
           localRecords:fresh?localRecords:undefined,localContent:fresh?localContent:undefined})
           .run('phase.source.retain',{operationId:'retain-delivery-bytes',workId,phaseId:'delivery'});
@@ -1005,6 +1014,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
       import {createNamespaceSourceRetentionEngine} from '${packageName}/hosts/namespace-source-retention';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
+      import {createNamespaceSourceBaselineEngine} from '${packageName}/hosts/namespace-source-baseline';
       import type { SourceUnit } from '${packageName}/source';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
       import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
@@ -1026,6 +1036,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{phaseId:'review',maximumEntries:25});
       createNamespaceEngine(phaseCheckOptions).run('phase.source.retain',{operationId:'retain-code',workId:'example',phaseId:'review'});
       const retentionFactory:typeof createNamespaceSourceRetentionEngine=createNamespaceSourceRetentionEngine;
+      const baselineFactory:typeof createNamespaceSourceBaselineEngine=createNamespaceSourceBaselineEngine;
+      createNamespaceEngine(phaseCheckOptions).run('source.baseline.retain',{operationId:'archive-source',workId:'example',sourceBindingId:'selected-source'});
+      // @ts-expect-error Baseline selection must name an accepted source-binding operation.
+      createNamespaceEngine(phaseCheckOptions).run('source.baseline.retain',{operationId:'archive-source',workId:'example',sourceBindingId:null});
       // @ts-expect-error Retention selection comes from the actual generation, never caller-supplied file paths.
       createNamespaceEngine(phaseCheckOptions).run('phase.source.retain',{operationId:'retain-code',workId:'example',phaseId:'review',paths:['private.txt']});
       // @ts-expect-error A source query cannot accept caller-supplied readiness or a replacement source path.

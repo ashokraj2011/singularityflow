@@ -34,6 +34,7 @@ import { exists, posix, secureRepositoryPath, snapshot, SingularityFlowError } f
 import { phaseFindingCode, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
+import { upstreamChangeRoutes } from './upstream-routes.mjs';
 
 function findingKey(finding) {
   // Distinct underlying failures share a surface code (code.delivery.incomplete); keep each one.
@@ -161,8 +162,15 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
     planningContract = { clauseIds, evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` };
     if (!clauseIds.length && plannedPolicy?.mode === 'required') {
+      // The clauses are the defining step's output, as at plan publication (noSpecificationClausesError):
+      // this step routes it there and is never told to write them itself [PHR:REQ-001, finding 9].
+      const owner = (plannedPolicy.clausePhases ?? []).at(-1) ?? null;
       add('specification.clause-source-required', 'planning-table',
-        `No authoritative specification clauses exist before the code phase owned by '${phase.id}'. Add stable fully qualified anchors before planning tests.`);
+        `No authoritative specification clauses exist before the code phase owned by '${phase.id}'. ${owner && owner !== phase.id
+          ? `They are '${owner}''s to add: stable fully qualified anchors, before planning tests; ${phase.id} keeps its draft meanwhile.`
+          : 'Add stable fully qualified anchors before planning tests.'}`,
+        { details: { clausePhases: plannedPolicy.clausePhases ?? [], ownerPhase: owner ?? phase.id,
+          ...(owner && owner !== phase.id ? { upstreamPhase: owner, recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${owner}` } : {}) } });
     } else if (clauseIds.length) {
       let plannedSource = null;
       try {
@@ -250,7 +258,13 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
     detail: 'Get a reviewed answer for each unresolved marker, record it as a clarification, then update the specification and recheck.'
   });
-  if (blockers.some((blocker) => blocker.category !== 'clarification')) actions.push(repair);
+  // What an earlier step owns goes to that step's correction, never to this draft [PHR:REQ-003].
+  const upstream = (blocker) => blocker.details?.upstreamPhase && blocker.details.upstreamPhase !== phase.id;
+  for (const owner of new Set(blockers.filter(upstream).map((blocker) => blocker.details.upstreamPhase))) {
+    const legal = upstreamChangeRoutes(workflow, owner, { currentPhaseId: phase.id }).routes[0];
+    if (legal) actions.push({ command: legal.command, skill: legal.skill, detail: `${legal.label} ${phase.id} cannot correct ${owner}'s output in its own draft.` });
+  }
+  if (blockers.some((blocker) => blocker.category !== 'clarification' && !upstream(blocker))) actions.push(repair);
   return { blockers, actions, evidenceRepair, planningContract };
 }
 

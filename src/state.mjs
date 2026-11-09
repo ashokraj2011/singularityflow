@@ -1534,6 +1534,8 @@ function noSpecificationClausesError(workflow, phaseId) {
       details: {
         phase: phaseId,
         clausePhases,
+        // The clauses are the defining step's output; a later step routes the gap there [PHR:REQ-001].
+        ...(clausePhases.length ? { ownerPhase: target, upstreamPhase: target } : {}),
         recoveryCommand,
         gate: implementationEntryRefusal(workflow, phaseId, {
           code: 'SPECIFICATION_CLAUSE_SOURCE_REQUIRED', message, checkpoint: target, recoveryCommand, missing: [['scope', 'story']]

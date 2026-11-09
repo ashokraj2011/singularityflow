@@ -88,7 +88,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   // The affected input's owner is not the phase executing this repair. Preservation, input
   // restoration and continuation stay on the active consumer, even for older pinned Stories.
   const activePhase = workflow.phases?.[workflow.currentPhase];
-  const affectedPhase = workflow.phases?.[finding.phaseId ?? finding.phase]
+  // A finding that names the earlier step owning its cause (details.upstreamPhase) is that step's
+  // to correct, as its input is [PHR:REQ-001, REQ-003].
+  const named = finding.details?.upstreamPhase;
+  const upstreamPhase = named && named !== phase.id && named !== activePhase?.id ? workflow.phases?.[named] ?? null : null;
+  const affectedPhase = workflow.phases?.[finding.phaseId ?? finding.phase] ?? upstreamPhase
     ?? (activePhase?.id !== phase.id && phase.status === 'approved' ? phase : null);
   if (activeRepairPhase(workflow, activePhase)) phase = activePhase;
   const workId = workflow.workItem.id;

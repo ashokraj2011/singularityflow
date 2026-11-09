@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { approvalHold } from '../src/approval-check.mjs';
+import { findingOwnedByPhase, phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
+import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 
@@ -66,4 +68,32 @@ test('[PHR:REQ-003] the repository\'s own tests failing at verification approval
   // Without the owner, an approval refusal keeps the plan it always had.
   const own = refusalRemediationPlan(refusal('PHASE_VALIDATION_FAILED'), ['approve', 'verification', '--work-id', 'W-1']);
   assert.equal(own.steps[0].id, 'inspect-current-phase');
+});
+
+/** The specification is approved and planning is being written. */
+function planningStory() {
+  const step = (id, status) => ({ id, label: id, status, generation: 1, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1, rejectTo: [id] } });
+  return { workItem: { id: 'W-2' }, status: 'in_progress', currentPhase: 'planning', phaseOrder: ['specification', 'planning', 'code'],
+    phases: { specification: step('specification', 'approved'), planning: step('planning', 'in_progress'), code: { ...step('code', 'not_started'), generation: 0 } },
+    resolution: { plannedClaims: { mode: 'required', clausePhases: ['specification'] } } };
+}
+
+test('[PHR:REQ-001] no clauses before planning is the specification\'s to fix: planning routes it there and keeps its draft', () => {
+  const workflow = planningStory();
+  const planning = workflow.phases.planning;
+  const finding = { code: 'specification.clause-source-required', category: 'planning-table', path: 'plan.md',
+    message: 'No authoritative specification clauses exist.', details: { clausePhases: ['specification'], ownerPhase: 'specification', upstreamPhase: 'specification' } };
+  assert.equal(findingOwnedByPhase(workflow, planning, finding), false, 'never the planner\'s same-turn repair');
+  const resolution = phaseResolutionChoices(workflow, planning, finding);
+  assert.equal(resolution.affectedPhase, 'specification');
+  assert.equal(resolution.policy.repairableByProducer, false);
+  assert.equal(resolution.choices[0].kind, 'upstream-owner');
+  assert.equal(resolution.choices[0].owner, 'specification-approval-authority');
+  assert.match(resolution.choices[0].command, /^singularity-flow upstream-issue raise --work-id W-2 --phase specification /u);
+  // The planner's own row errors stay the planner's.
+  const own = { code: 'specification.planned-test-missing', category: 'planning-table', path: 'plan.md', message: 'Clause W-2:REQ-001 has no planned test.',
+    details: { clauseId: 'W-2:REQ-001', ownerPhase: 'planning', repairScope: 'current-draft' } };
+  assert.equal(findingOwnedByPhase(workflow, planning, own), true);
+  assert.equal(phaseFindingPolicy(own).repairableByProducer, true);
+  assert.notEqual(phaseResolutionChoices(workflow, planning, own).choices[0].kind, 'upstream-owner');
 });

@@ -4,8 +4,8 @@ import {
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 import { PROFILE_PERSONAS } from './profile-personas.ts';
-import { TEST_RESULT_ADAPTERS } from '../../../../src/external-command-policy.mjs';
-import type { TestScopeSetting, TestSetupView } from './test-setup-model.ts';
+import { TEST_COMMAND_LEVELS, TEST_RESULT_ADAPTERS } from '../../../../src/external-command-policy.mjs';
+import { REPOSITORY_TEST_TARGET, type TestScopeSetting, type TestSetupView } from './test-setup-model.ts';
 
 // A command's `env` is literal and never secret-like (external-command-policy.mjs): shown, and kept on save.
 function envText(env: unknown): string {
@@ -23,6 +23,17 @@ function writtenCommand(entry: Record<string, any>, index: number): string {
   return `<div class="summary-card"><code>${escape(JSON.stringify(entry.command.argv))}</code><span>Written in ${escape(where)} · Module: ${escape(entry.command.workingDirectory)} · ${escape(entry.command.result?.adapter)}</span>${env ? `<span>${escape(env)}</span>` : ''}${notes}<button type="button" class="secondary" data-test-suggestion="written-${index}" data-command="${escape(JSON.stringify(entry.command))}">Add written command to draft</button></div>`;
 }
 
+// A setup's literal variables, one NAME=VALUE a line: a base URL the same for everyone, for example.
+function envLines(env: unknown): string {
+  return env && typeof env === 'object' ? Object.entries(env).map(([name, value]) => `${name}=${value}`).join('\n') : '';
+}
+
+// Where a Playwright suite reads its target from, so the person sets it per setup [RTC:REQ-011].
+function targetHint(command: Record<string, any>): string {
+  const names = Array.isArray(command.targetVariables) ? command.targetVariables : [];
+  return names.length ? `Its config reads ${names.join(', ')}. Set it below for a URL that is the same for everyone, or name an environment for one that differs per machine or holds a credential.` : '';
+}
+
 function commandRow(command: Record<string, any> = {}): string {
   return `<div class="subsection" data-test-command data-original="${escape(JSON.stringify(command))}">
     <div class="form-grid">
@@ -33,7 +44,10 @@ function commandRow(command: Record<string, any> = {}): string {
       <label class="field"><span>Report path (relative to module directory)</span><input data-test-report value="${escape(command.result?.path ?? '')}" required></label>
       <label class="field"><span>Affected directories (comma separated)</span><input data-test-roots value="${escape((command.affectedRoots ?? []).join(', '))}" required></label>
       <label class="field"><span>Timeout (milliseconds)</span><input data-test-timeout type="number" min="1000" max="7200000" value="${escape(command.timeoutMs ?? 120000)}" required></label>
-    </div><p class="muted" data-test-env${envText(command.env) ? '' : ' hidden'}>${escape(envText(command.env))}</p>
+      <label class="field"><span>Level</span><select data-test-level><option value="">None (other)</option>${TEST_COMMAND_LEVELS.filter((level) => level !== 'other').map((level) => `<option value="${level}"${command.level === level ? ' selected' : ''}>${level}</option>`).join('')}</select><small>A step can run only some levels, for example unit in Code and e2e in Verify.</small></label>
+      <label class="field"><span>Environment (optional)</span><input data-test-environment value="${escape(command.environment ?? '')}" placeholder="relay"><small>For a URL that differs per machine or holds a credential: declared in singularity/environments.yml and bound on each machine.</small></label>
+      <label class="field span-2"><span>Variables (optional, one NAME=VALUE a line)</span><textarea data-test-env rows="2" placeholder="PLAYWRIGHT_BASE_URL=http://localhost:3000">${escape(envLines(command.env))}</textarea><small data-test-target-hint${targetHint(command) ? '' : ' hidden'}>${escape(targetHint(command))}</small><small>Never a password or token: a URL with one is refused; use an environment instead.</small></label>
+    </div>
     <button type="button" class="secondary" data-test-remove>Remove command</button>
   </div>`;
 }
@@ -50,8 +64,17 @@ function testScopeForm(setting: TestScopeSetting | null | undefined): string {
     <p><button type="submit">Save test scope</button></p></form>`;
 }
 
+// One suggestion: tick several and add them at once, or add one.
+function suggestionCard(command: Record<string, any>, index: number): string {
+  const hint = targetHint(command);
+  return `<div class="summary-card"><label class="check"><input type="checkbox" data-test-tick="${index}" data-command="${escape(JSON.stringify(command))}">Use</label><code>${escape(JSON.stringify(command.argv))}</code><span>Module: ${escape(command.workingDirectory)} · ${escape((command.result as Record<string, unknown>)?.adapter)}${command.level ? ` · ${escape(command.level)}` : ''}</span>${hint ? `<small>${escape(hint)}</small>` : ''}<button type="button" class="secondary" data-test-suggestion="${index}" data-command="${escape(JSON.stringify(command))}">Add suggestion to draft</button></div>`;
+}
+
 export function testSetupHtml(view: TestSetupView): string {
-  const selected = view.targets.find(target => target.id === view.selected);
+  // The repository is the default: its tests run in every step that runs tests [RTC:REQ-005].
+  const selected = view.targets.find(target => target.id === (view.selected || REPOSITORY_TEST_TARGET));
+  const repository = view.targets.find(target => target.id === REPOSITORY_TEST_TARGET);
+  const steps = view.targets.filter(target => target.id !== REPOSITORY_TEST_TARGET);
   return `<section class="plain"><h2>${icon('phase')}Test setup</h2>
     <p>Configure test methods for this repository. Inspection reads only selected module manifests; it does not clone, install dependencies, run tests, or claim a passing baseline.</p>
     <p class="notice warning">Existing Stories retain their pinned configuration. After merging a runner change, use <code>/sf-test-setup</code> or <code>/sf-recover</code> to review adoption for the current code phase. Saving here does not change any Story.</p>
@@ -60,17 +83,19 @@ export function testSetupHtml(view: TestSetupView): string {
     <p><button type="button" class="secondary" data-test-inspect>Read repository &amp; suggest</button><button type="button" class="secondary" data-action="test-setup-copilot">Ask Copilot for suggestions</button></p>
     <div id="test-inspection-results" aria-live="polite">${view.inspection ? `<p>Inspected <code>${escape(view.inspection.repositoryPath)}</code>. Baseline: unverified; no tests ran.</p>
       ${view.inspection.diagnostics.map(entry => `<p class="notice warning">${escape(entry.path)}: ${escape(entry.message)}</p>`).join('')}
-      ${view.inspection.suggestions.map((command, index) => `<div class="summary-card"><code>${escape(JSON.stringify(command.argv))}</code><span>Module: ${escape(command.workingDirectory)} · ${escape((command.result as Record<string, unknown>)?.adapter)}</span><button type="button" class="secondary" data-test-suggestion="${index}" data-command="${escape(JSON.stringify(command))}">Add suggestion to draft</button></div>`).join('')}
+      ${view.inspection.suggestions.map((command, index) => suggestionCard(command, index)).join('')}
+      ${view.inspection.suggestions.length > 1 ? '<p><button type="button" class="secondary" data-test-add-ticked>Add ticked to draft</button></p>' : ''}
       ${(view.inspection.instructionCandidates ?? []).map(writtenCommand).join('')}` : ''}</div>
-    <label class="field"><span>Workflow / phase</span><select data-test-target><option value="">Choose workflow and phase</option>${view.targets.map(target => `<option value="${escape(target.id)}"${target.id === selected?.id ? ' selected' : ''}>${escape(target.label)}</option>`).join('')}</select><small>Choose one workflow to avoid changing other workflows; Shared workflows changes the shared phase default.</small></label>
+    <label class="field"><span>Where these tests apply</span><select data-test-target>${repository ? `<option value="${REPOSITORY_TEST_TARGET}"${selected?.id === REPOSITORY_TEST_TARGET ? ' selected' : ''}>${escape(repository.label)}</option>` : ''}<optgroup label="Only this step">${steps.map(target => `<option value="${escape(target.id)}"${target.id === selected?.id ? ' selected' : ''}>${escape(target.label)}</option>`).join('')}</optgroup></select><small>The repository's tests run in every step that runs tests, in every workflow; a step can run only some levels or IDs (Workflow Studio). Only this step saves an override that replaces them for that step; Shared workflows changes the shared step.</small></label>
     ${selected ? `<form id="test-setup-form" data-target="${escape(selected.id)}">
       ${selected.legacyCommands.length ? '<p class="notice warning">Legacy string quality commands are preserved. Review them in Workflow Studio if replacing one with a structured test command.</p>' : ''}
       <div id="test-command-rows">${selected.commands.map(commandRow).join('')}</div>
       <template id="test-command-template">${commandRow()}</template>
       <p><button type="button" class="secondary" data-test-add>Add test command</button></p>
       <p class="muted">The command must produce the selected report and execute real tests. Required commands remain required; intake separately selects changed-and-affected or all-configured execution and how to handle observed existing failures.</p>
-      <button type="submit">Review &amp; save test configuration</button>
-    </form>` : `<p>${view.targets.length ? 'Select the exact workflow and phase before adding commands.' : 'No configured phases. Create a workflow before saving test commands.'}</p>`}
+      <button type="submit">Save for review</button><button type="submit" data-test-activate="true" title="Saves the change as a proposal and activates it at once, the same activation as Workflow Studio → Changes → Review and activate">Save and activate</button>
+      <p class="muted">Save and activate is the same activation as Workflow Studio → Changes → Review and activate, for the proposal it just made. Where the server protects sflow/config, it is merged through the repository's review instead, and the proposal waits under Changes.</p>
+    </form>` : `<p>${view.targets.length ? 'Choose where these tests apply before adding commands.' : 'No configured phases. Create a workflow before saving test commands.'}</p>`}
   </section>`;
 }
 
@@ -89,13 +114,29 @@ export const TEST_SETUP_SCRIPT = `
     }
     for (const [index, command] of inspection.suggestions.entries()) {
       const card = document.createElement('div'); card.className = 'summary-card';
+      const tick = document.createElement('input'); tick.type = 'checkbox'; tick.dataset.testTick = String(index); tick.dataset.command = JSON.stringify(command);
+      const use = document.createElement('label'); use.className = 'check'; use.append(tick, 'Use'); card.append(use);
       const text = document.createElement('code'); text.textContent = JSON.stringify(command.argv); card.append(text);
-      const detail = document.createElement('span'); detail.textContent = 'Module: ' + command.workingDirectory + ' · ' + command.result.adapter; card.append(detail);
+      const detail = document.createElement('span'); detail.textContent = 'Module: ' + command.workingDirectory + ' · ' + command.result.adapter + (command.level ? ' · ' + command.level : ''); card.append(detail);
+      const hint = testTargetHint(command);
+      if (hint) { const small = document.createElement('small'); small.textContent = hint; card.append(small); }
       const add = document.createElement('button'); add.type = 'button'; add.className = 'secondary'; add.dataset.testSuggestion = String(index); add.dataset.command = JSON.stringify(command); add.textContent = 'Add suggestion to draft'; card.append(add);
       results.append(card);
     }
+    if (inspection.suggestions.length > 1) {
+      const line = document.createElement('p');
+      const ticked = document.createElement('button'); ticked.type = 'button'; ticked.className = 'secondary'; ticked.dataset.testAddTicked = 'true'; ticked.textContent = 'Add ticked to draft';
+      line.append(ticked); results.append(line);
+    }
     for (const [index, entry] of (inspection.instructionCandidates ?? []).entries()) results.append(writtenCommand(entry, index));
   });
+  function testTargetHint(command) {
+    const names = Array.isArray(command.targetVariables) ? command.targetVariables : [];
+    return names.length ? 'Its config reads ' + names.join(', ') + '. Set it below for a URL that is the same for everyone, or name an environment for one that differs per machine or holds a credential.' : '';
+  }
+  function testEnvLines(env) {
+    return env && typeof env === 'object' ? Object.entries(env).map(([name, value]) => name + '=' + value).join('\\n') : '';
+  }
   function testEnvText(env) {
     const entries = env && typeof env === 'object' ? Object.entries(env) : [];
     return entries.length ? 'Sets ' + entries.map(([name, value]) => name + '=' + value).join(', ') + '. Saving keeps these.' : '';
@@ -133,39 +174,80 @@ export const TEST_SETUP_SCRIPT = `
     if (remove) { remove.closest('[data-test-command]').remove(); markDirty(); }
     const suggestion = event.target.closest('[data-test-suggestion]');
     if (event.target.closest('[data-test-add]') || suggestion) {
-      const template = document.getElementById('test-command-template');
-      if (!testRows || !template) return;
-      const row = template.content.firstElementChild.cloneNode(true);
-      if (suggestion) {
-        const command = JSON.parse(suggestion.dataset.command); row.dataset.original = JSON.stringify(command);
-        row.querySelector('[data-test-id]').value = command.id;
-        row.querySelector('[data-test-cwd]').value = command.workingDirectory;
-        row.querySelector('[data-test-argv]').value = JSON.stringify(command.argv);
-        row.querySelector('[data-test-adapter]').value = command.result.adapter;
-        row.querySelector('[data-test-report]').value = command.result.path;
-        row.querySelector('[data-test-roots]').value = command.affectedRoots.join(', ');
-        row.querySelector('[data-test-timeout]').value = command.timeoutMs ?? 120000;
-        const env = row.querySelector('[data-test-env]');
-        if (env) { env.textContent = testEnvText(command.env); env.hidden = !env.textContent; }
+      const row = testRow(suggestion ? JSON.parse(suggestion.dataset.command) : null);
+      if (row) addTestRow(row);
+    }
+    // Several suggestions ticked go into the draft together, each its own command.
+    if (event.target.closest('[data-test-add-ticked]')) {
+      for (const tick of Array.from(document.querySelectorAll('[data-test-tick]')).filter((box) => box.checked)) {
+        const row = testRow(JSON.parse(tick.dataset.command));
+        if (row) { addTestRow(row); tick.checked = false; }
       }
-      testRows.append(row); markDirty();
     }
   });
-  function submitTestSetup(form) {
+  // A command with an ID the draft already has replaces that row, as saving replaces it by ID.
+  function addTestRow(row) {
+    const id = row.querySelector('[data-test-id]')?.value;
+    const same = id ? Array.from(testRows.querySelectorAll('[data-test-command]')).find((other) => other !== row && other.querySelector('[data-test-id]')?.value === id) : null;
+    if (same?.replaceWith) same.replaceWith(row); else testRows.append(row);
+    markDirty();
+  }
+  function testRow(command) {
+    const template = document.getElementById('test-command-template');
+    if (!testRows || !template) return null;
+    const row = template.content.firstElementChild.cloneNode(true);
+    if (!command) return row;
+    row.dataset.original = JSON.stringify(command);
+    row.querySelector('[data-test-id]').value = command.id;
+    row.querySelector('[data-test-cwd]').value = command.workingDirectory;
+    row.querySelector('[data-test-argv]').value = JSON.stringify(command.argv);
+    row.querySelector('[data-test-adapter]').value = command.result.adapter;
+    row.querySelector('[data-test-report]').value = command.result.path;
+    row.querySelector('[data-test-roots]').value = command.affectedRoots.join(', ');
+    row.querySelector('[data-test-timeout]').value = command.timeoutMs ?? 120000;
+    const level = row.querySelector('[data-test-level]'); if (level) level.value = command.level ?? '';
+    const environment = row.querySelector('[data-test-environment]'); if (environment) environment.value = command.environment ?? '';
+    const env = row.querySelector('[data-test-env]'); if (env) env.value = testEnvLines(command.env);
+    const hint = row.querySelector('[data-test-target-hint]');
+    if (hint) { hint.textContent = testTargetHint(command); hint.hidden = !hint.textContent; }
+    return row;
+  }
+  // What a row's optional fields say, laid over what it started from; an empty field drops the key.
+  function testOptional(row, prior) {
+    const level = row.querySelector('[data-test-level]');
+    const environment = row.querySelector('[data-test-environment]');
+    const env = row.querySelector('[data-test-env]');
+    const out = {};
+    if (level) { if (level.value) out.level = level.value; } else if (prior.level) out.level = prior.level;
+    if (environment) { if (environment.value.trim()) out.environment = environment.value.trim(); } else if (prior.environment) out.environment = prior.environment;
+    if (env && typeof env.value === 'string') {
+      const pairs = env.value.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+        const at = line.indexOf('=');
+        if (at < 1) throw new Error('Each variable is NAME=VALUE on its own line: ' + line);
+        return [line.slice(0, at).trim(), line.slice(at + 1).trim()];
+      });
+      if (pairs.length) out.env = Object.fromEntries(pairs);
+    } else if (prior.env) out.env = prior.env;
+    return out;
+  }
+  function submitTestSetup(form, activate) {
     try {
       const commands = Array.from(testRows.querySelectorAll('[data-test-command]')).map(row => {
         const prior = JSON.parse(row.dataset.original);
-        delete prior.command;
-        return { ...prior, id: row.querySelector('[data-test-id]').value.trim(), kind: 'test', modelPolicy: 'never',
+        // What the inspection read to name a target is shown, never written.
+        delete prior.command; delete prior.targetVariables;
+        const optional = testOptional(row, prior);
+        delete prior.level; delete prior.environment; delete prior.env;
+        return { ...prior, ...optional, id: row.querySelector('[data-test-id]').value.trim(), kind: 'test', modelPolicy: 'never',
           argv: JSON.parse(row.querySelector('[data-test-argv]').value), workingDirectory: row.querySelector('[data-test-cwd]').value.trim(),
           affectedRoots: csv(row.querySelector('[data-test-roots]').value), timeoutMs: Number(row.querySelector('[data-test-timeout]').value),
           result: { ...prior.result, adapter: row.querySelector('[data-test-adapter]').value, path: row.querySelector('[data-test-report]').value.trim(), minimumDiscovered: prior.result?.minimumDiscovered ?? 1 } };
       });
-      vscode.postMessage({ type: 'save-test-setup', target: form.dataset.target, commands });
+      vscode.postMessage({ type: 'save-test-setup', target: form.dataset.target, commands, ...(activate ? { activate: true } : {}) });
     } catch (error) {
       savingForm = false;
-      form.querySelector('button[type="submit"]').disabled = false;
-      showRuntime('Arguments must be a valid JSON array: ' + error.message, false);
+      form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = false; });
+      showRuntime(/NAME=VALUE/.test(error.message) ? error.message : 'Arguments must be a valid JSON array: ' + error.message, false);
     }
   }
 `;
@@ -509,7 +591,7 @@ export function configurationCenterHtml(
   const content = `${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}<button class="secondary" data-help-topic="configuration">Explain this error</button></div>` : ''}${candidateNotice}
       ${tab === 'overview' ? overview(view) : tab === 'git-policy' ? commitPolicy(view) : tab === 'tests' ? testSetupHtml(testSetup) : tab === 'auto' ? autoMode(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
   const guardedContent = pendingProposal
-    ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(pendingProposal.branch)}</code> and are not approved yet. Merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
+    ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(pendingProposal.branch)}</code> and are not approved yet. Activate it in Workflow Studio → Changes → Review and activate, or merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
     : content;
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
@@ -543,12 +625,13 @@ export const CONFIGURATION_CENTER_SCRIPT = `
       document.querySelectorAll('form button[type="submit"]').forEach((button) => { button.disabled = false; });
       showRuntime((event.data.errors || []).join(' '), event.data.conflict === true);
     }
+    if (event.data?.type === 'configuration-runtime-notice') showRuntime(String(event.data.text || ''), false);
     if (event.data?.type === 'configuration-save-busy') showRuntime('A configuration save is already being validated. Wait for that result before retrying.', false);
     if (event.data?.type === 'configuration-proposal-pending') {
       savingForm = false;
       dirty = false;
       document.querySelectorAll('form input, form select, form textarea, form button').forEach((control) => { control.disabled = true; });
-      showRuntime('Configuration proposal ' + event.data.branch + ' is pending review into ' + event.data.baseBranch + '. The submitted values are shown read-only; merge or discard the proposal before editing again.', false);
+      showRuntime('Configuration proposal ' + event.data.branch + ' is pending review into ' + event.data.baseBranch + '. Activate it in Workflow Studio → Changes → Review and activate. The submitted values are shown read-only; activate, merge or discard the proposal before editing again.', false);
       const resume = document.getElementById('configuration-runtime-resume-approved');
       if (resume) resume.hidden = false;
     }
@@ -573,7 +656,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     savingForm = true;
     form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = true; });
     const data = new FormData(form);
-    if (form.id === 'test-setup-form') return submitTestSetup(form);
+    if (form.id === 'test-setup-form') return submitTestSetup(form, event.submitter?.dataset?.testActivate === 'true');
     if (form.id === 'test-scope-form') vscode.postMessage({ type: 'save-test-scope', enabled: data.get('enabled') === 'on' });
     if (form.id === 'profile-form') vscode.postMessage({ type: 'save-profile', name: data.get('name'), role: data.get('role') });
     if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), allowSelfApproval: data.get('allowSelfApproval') === 'on', autoEnrollNewIdentities: data.get('autoEnrollNewIdentities') === 'on' });

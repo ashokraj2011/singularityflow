@@ -168,7 +168,7 @@ skills:
   sflow-call: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
   sflow-call-add: { class: mutation, executionBoundary: repository }
   sflow-ready: { class: interactive, executionBoundary: repository, maximumTokenOverride: 860, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. Its `--repair` step names who makes the reviewed setup edits and commit: no turn before a Story edits files or runs Git, so the skill no longer tells Copilot to do what its turn refuses (2026-10-23)." }
-  sflow-test-setup: { class: interactive, executionBoundary: repository, completeOutput: true, maximumTokenOverride: 815, exception: "Since 2026-10-29 its inspection and proposal reads carry --for-agent, so a refused command's field and route arrive in act, and the test-policy apply is the person's own terminal step: three short clauses, no exit." }
+  sflow-test-setup: { class: interactive, executionBoundary: repository, completeOutput: true, maximumTokenOverride: 850, exception: "Since 2026-10-29 its inspection and proposal reads carry --for-agent, so a refused command's field and route arrive in act, and the test-policy apply is the person's own terminal step: three short clauses, no exit. Since 2026-11-09 test commands are the repository's, several with levels and targets, and the person activates a saved one where the result says [RTC:REQ-010]: no exit." }
   sflow-finalize: { class: mutation }
   sflow-fix: { class: interactive }
   sflow-gate: { class: mutation }

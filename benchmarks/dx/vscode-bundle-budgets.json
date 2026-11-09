@@ -11,7 +11,7 @@
     "performance-runtime.cjs": { "maximumBytes": 180000, "maximumModules": 12 },
     "performance-view-runtime.cjs": { "maximumBytes": 150000, "maximumModules": 12 },
     "runtime-prewarm.cjs": { "maximumBytes": 110000, "maximumModules": 24 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 3520150, "maximumModules": 315 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 3534900, "maximumModules": 315 },
     "support-runtime.cjs": { "maximumBytes": 455000, "maximumModules": 111 },
     "workflow-markup-runtime.cjs": { "maximumBytes": 140000, "maximumModules": 12 },
     "workflow-intent-runtime.cjs": { "maximumBytes": 35000, "maximumModules": 4 },

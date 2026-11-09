@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "31b9ee3249f10ea214e67e93707f1efc8caea873",
+  "sourceCommit": "deaacd3e61d108efa170df324b60678ef791cda3",
   "topicCount": 92,
-  "contentSha256": "0215b82cef3c980e3ea90485d1ce57e7ca2b05974ca8147783a116ff30213dcd",
+  "contentSha256": "3ecf471c189e267ec683b97f63fc41da36d8a684f4c7cbfcb1bb4fb2f28ed7d2",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 19,
-      "sha256": "d4f5ca470341060fb27b0be21c9b45738577cbb8c12955cff928b4be4d901a4d",
+      "version": 20,
+      "sha256": "cb2fcd72074e4cc9b4e30bf16411db0e7ec4539bed708748d6e36ebdef03e021",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -656,8 +656,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 42,
-      "sha256": "374e9e806a00f0e787311eebee61a15edf7423a69830335c4b3023892d6deb71",
+      "version": 43,
+      "sha256": "3ea010a681d6c57559504b46c299eebdd9086da4f4d85d51a710016da6d93bd8",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

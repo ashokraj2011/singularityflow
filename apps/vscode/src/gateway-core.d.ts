@@ -364,6 +364,7 @@ declare module '*/approved-configuration-reader.mjs' {
 
 declare module '*/external-command-policy.mjs' {
   export const TEST_RESULT_ADAPTERS: readonly string[];
+  export const TEST_COMMAND_LEVELS: readonly string[];
   export function normalizeExternalCommand(value: unknown, index?: number): { id: string; [key: string]: unknown };
 }
 

@@ -376,6 +376,8 @@ export interface StudioProposalSummary {
   proposalCreatedAt: string | null;
   proposalId: string | null;
   workflows: Array<{ id: string; governs: string | null; change: string; label: string | null; phases?: string[] }>;
+  /** A change to the repository's own test commands, which belong to no workflow [RTC:REQ-007]. */
+  repositoryTests?: { change: string; added: string[]; changed: string[]; removed: string[] };
   files: number; invalidFiles: string[]; failure: string | null;
 }
 
@@ -398,8 +400,11 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
         ...(phases.length ? { phases } : {})
       };
     });
+    const tests = entry.repositoryTests && typeof entry.repositoryTests === 'object' ? entry.repositoryTests as Record<string, unknown> : null;
+    const ids = (value: unknown): string[] => (Array.isArray(value) ? value : []).filter((id): id is string => typeof id === 'string').slice(0, 50).map((id) => id.slice(0, 120));
     return [{
       branch, proposalCommit, valid: entry.valid === true, merged: entry.merged === true, workflows,
+      ...(tests ? { repositoryTests: { change: text(tests.change, 20) ?? 'modified', added: ids(tests.added), changed: ids(tests.changed), removed: ids(tests.removed) } } : {}),
       proposalId: typeof entry.proposalId === 'string' && /^cfp-[a-f0-9]{64}$/.test(entry.proposalId) ? entry.proposalId : null,
       proposalCreatedAt: typeof entry.proposalCreatedAt === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(entry.proposalCreatedAt)
         && Number.isFinite(Date.parse(entry.proposalCreatedAt)) ? entry.proposalCreatedAt : null,
@@ -978,6 +983,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); }, proposalEntityCard: function () { return proposalEntityCard.apply(null, arguments); },
+    proposalCard: function () { return proposalCard.apply(null, arguments); }, stepTestsWords: function () { return stepTestsWords.apply(null, arguments); },
+    repositoryTestsCard: function () { return repositoryTestsCard(); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
@@ -1008,7 +1015,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     keepSetForm: function () { return keepSetForm.apply(null, arguments); },
     chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
     // Proposals waiting for review, workflow bundles, governed files.
-    requestProposals: function () { return requestProposals.apply(null, arguments); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
+    requestProposals: function () { return requestProposals.apply(null, arguments); }, changesCount: function () { return changesCount(); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
     uploadView: function () { return uploadView.apply(null, arguments); },
     importWorkflows: function () { return importWorkflows.apply(null, arguments); }, openFile: function () { return openFile.apply(null, arguments); },
     // Epic workflows.
@@ -1490,10 +1497,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }, { class: 'secondary', 'data-key': 'back-link' })));
   }
 
-  function renderNav(root) {
+  /**
+   * What the Changes item counts: unpublished edits, saved drafts, proposals waiting and uploads. No
+   * number (null) until the proposals were checked: a count without them read 0 while one waited (RTC:REQ-008).
+   */
+  function changesCount() {
+    if (!proposalsChecked()) return null;
     var waitingProposals = (proposalsState().list || []).filter(function (proposal) { return !proposal.merged; }).length;
-    var waitingUploads = (proposalsState().uploads || []).length;
-    var pending = changesNow().length + savedDrafts().length + waitingProposals + waitingUploads;
+    return changesNow().length + savedDrafts().length + waitingProposals + (proposalsState().uploads || []).length;
+  }
+
+  function renderNav(root) {
+    var pending = changesCount();
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
     // A target some step sends to, whose secret this machine does not have: its deliveries would wait.
     var secretsHere = integrationsState().secrets;
@@ -1527,7 +1542,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
       item('integrations', 'Integrations', 'plug', missingSecrets || targetIds().length || null, missingSecrets > 0),
-      item('changes', 'Changes', 'list', pending, pending > 0),
+      item('changes', 'Changes', 'list', pending, pending !== null && pending > 0),
       compact ? null : el('p', { class: 'note', text: 'Running Stories keep the workflow they started with. What you publish applies to new Stories after review.' })));
   }
 
@@ -1711,6 +1726,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       userWorkflows.appendChild(card);
       search.add(card, [upload.branch, view.status, view.reason], [upload.branch], userWorkflows);
     });
+    var testsCard = repositoryTestsCard();
+    if (testsCard) main.appendChild(testsCard);
     renderEpicList(main, search);
     search.finish();
   }
@@ -3531,9 +3548,53 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var step = find(own) || workflows.map(find).find(Boolean);
     if (!step) return null;
     var named = (step.qualityCommands || []).map(function (entry) { return typeof entry === 'string' ? entry : entry.command || (entry.argv || []).join(' '); });
-    if (step.output === 'code') named.push('the tests of the code it changes');
-    if (step.runsRepositoryTests) named.push("the repository's tests");
+    var from = step.testsFrom && step.testsFrom.source === 'repository' ? stepTestsWords(step) : null;
+    if (from) named.push(from);
+    else if (step.output === 'code') named.push('the tests of the code it changes');
+    else if (step.runsRepositoryTests) named.push("the repository's tests");
     return named;
+  }
+  /** The published step, as the model has it for this workflow. */
+  function publishedStep(workflowId, phaseId) {
+    var workflows = (state.model && state.model.workflows) || [];
+    var own = workflows.find(function (entry) { return entry.id === workflowId; });
+    return ((own && own.steps) || []).find(function (entry) { return entry.id === phaseId; }) || null;
+  }
+  /**
+   * Which tests a step runs (RTC:REQ-009): this step's own, all the repository's, the levels or IDs it
+   * names, or, with no repository tests, the ones SFlow finds from the build files.
+   */
+  function stepTestsWords(step) {
+    var from = step && step.testsFrom;
+    if (!from) return null;
+    if (from.source === 'step') return "this step's own: " + from.ids.join(', ');
+    if (from.source === 'inferred') return step.output === 'code' ? 'the tests of the code it changes, found from the build files' : "the repository's tests, found from the build files";
+    var all = ((state.model && state.model.tests) || []).length;
+    var named = [].concat(from.levels ? ['levels ' + from.levels.join(', ')] : [], from.ids ? ['IDs ' + from.ids.join(', ')] : []);
+    return named.length ? "the repository's tests at " + named.join(' or ') + ': ' + from.runs.join(', ')
+      : 'all ' + all + " of the repository's tests: " + from.runs.join(', ');
+  }
+  /** A step's line saying which tests it runs, with where they are changed. */
+  function stepTestsSection(workflowId, phaseId) {
+    var words = stepTestsWords(publishedStep(workflowId, phaseId));
+    if (!words) return null;
+    return section('step-tests', 'Tests', [
+      el('p', { text: words, 'data-key': 'step-tests' }),
+      el('span', { class: 'hint', text: "The repository's tests are set in Configuration Center → Tests or with /sf-test-setup; a step chooses levels or IDs with testLevels or testIds in workflow.yml." })
+    ], null, words.split(':')[0]);
+  }
+  /** The repository's own test commands, with their level and folders (RTC:REQ-009). */
+  function repositoryTestsCard() {
+    var tests = (state.model && state.model.tests) || [];
+    if (!tests.length) return null;
+    return el('section', { class: 'studio-card', 'aria-label': 'Repository tests' },
+      el('h2', { text: 'Repository tests' }),
+      el('p', { class: 'muted', text: 'Every step that runs tests runs these, in every workflow, unless it has its own or names the levels or IDs it runs.' }),
+      el('ul', null, tests.map(function (test) {
+        return el('li', { 'data-key': 'repository-test-' + test.id }, el('strong', { text: test.id }),
+          el('span', { class: 'muted', text: ' · ' + test.level + ' · ' + (test.affectedRoots.length ? test.affectedRoots.join(', ') : test.workingDirectory)
+            + (test.environment ? ' · environment ' + test.environment : '') + (test.env && test.env.length ? ' · sets ' + test.env.join(', ') : '') }));
+      })));
   }
   /** A seeded step, read-only: what it produces, who drafts it, what it reads, who signs it off, what follows, its World Model and skills. */
   function renderReadOnlyStep(workflowId, phaseId) {
@@ -3604,6 +3665,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         button('Use a copy in this workflow', function () { copyStepForWorkflow(workflowId, phaseId); }, { class: 'secondary', style: 'margin-top:6px' })) : null
     ], null, look.label));
     aside.appendChild(aboutSection(workflowId, phaseId, phase, false));
+    var testsSection = stepTestsSection(workflowId, phaseId);
+    if (testsSection) aside.appendChild(testsSection);
 
     aside.appendChild(section('agent', 'Drafting agent', [
       el('div', { class: 'agent-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: agent ? initials(agent.label) : '?' }),
@@ -5854,6 +5917,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // diff; activating merges it into the approved configuration after the person confirms.
 
   function proposalsState() { return state.proposals || (state.proposals = { list: null, error: null, loading: false, local: false, uploads: [] }); }
+  /** Whether the list of waiting proposals is known: answered without an error, or kept in the working tree. */
+  function proposalsChecked() { var view = proposalsState(); return view.local || (view.list !== null && !view.error); }
   function requestProposals() {
     var view = proposalsState();
     if (view.loading) return;
@@ -5887,8 +5952,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       return { current: tie ? group.proposals : group.proposals.slice(0, 1), earlier: tie ? [] : group.proposals.slice(1) };
     });
   }
+  /** The repository's own test commands a proposal changes: they belong to no workflow (RTC:REQ-007). */
+  function repositoryTestsWords(change) {
+    var parts = [['adds', change.added], ['changes', change.changed], ['removes', change.removed]]
+      .filter(function (part) { return part[1] && part[1].length; }).map(function (part) { return part[0] + ' ' + part[1].join(', '); });
+    return 'Repository tests (' + change.change + (parts.length ? ': ' + parts.join('; ') : '') + ')';
+  }
   function proposalCard(proposal, earlier) {
-    var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; });
+    var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; })
+      .concat(proposal.repositoryTests ? [repositoryTestsWords(proposal.repositoryTests)] : []);
     return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + proposal.branch },
       el('div', { class: 'studio-row spread' },
         el('div', null, el('code', { text: proposal.branch }), el('span', { class: 'muted', text: '  ' + proposal.proposalCommit.slice(0, 12) })),
@@ -5902,7 +5974,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function proposalEntityCard(group) {
     var revisions = group.current.concat(group.earlier);
     var first = revisions[0];
-    var name = first.workflows.map(function (workflow) { return workflow.label || workflow.id; }).join(', ') || 'Configuration proposal';
+    var name = first.workflows.map(function (workflow) { return workflow.label || workflow.id; })
+      .concat(first.repositoryTests ? ['Repository tests'] : []).join(', ') || 'Configuration proposal';
     var chosenMap = proposalsState().chosen || (proposalsState().chosen = {});
     var defaultBranch = group.current.length === 1 && first.valid ? first.branch : '';
     var saved = Object.prototype.hasOwnProperty.call(chosenMap, first.proposalId) ? chosenMap[first.proposalId] : defaultBranch;
@@ -6843,6 +6916,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (message.type === 'studio.model') {
       var keep = state.draft && state.model && changeSetFrom(state.model, state.draft).changes.length && !message.reset;
       state.model = message.model; state.error = null;
+      // The host checks the proposals right after every model it sends (WorkflowStudioPanel.load and
+      // reviewProposal), in the background: one check when Studio opens, not a second from Changes.
+      proposalsState().loading = true;
       if (!keep) { state.draft = initialDraft(message.model); state.configurationChanged = null; }
       if (state.workflow && !state.draft.workflows[state.workflow]) state.workflow = null;
       // Whether this machine has the secrets the targets name decides the Integrations badge.
@@ -6958,6 +7034,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
       else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
+      // A load that failed after its model never reaches its proposals check; Changes may ask again.
+      if (state.proposals && state.proposals.list === null) state.proposals.loading = false;
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {
       state.busy = null; render();

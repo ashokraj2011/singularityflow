@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import YAML from 'yaml';
-import { testScopeFromYaml, testSetupTargets, testSetupTargetsFromYaml, updateTestScopeYaml, updateTestSetupYaml } from '../apps/vscode/src/views/test-setup-model.ts';
+import { REPOSITORY_TEST_TARGET, testScopeFromYaml, testSetupTargets, testSetupTargetsFromYaml, updateTestScopeYaml, updateTestSetupYaml } from '../apps/vscode/src/views/test-setup-model.ts';
 import { testSetupHtml } from '../apps/vscode/src/views/test-setup-page.ts';
 import { CONFIGURATION_TABS } from '../apps/vscode/src/views/configuration-center-model.ts';
 import { CONFIGURATION_CENTER_SCRIPT } from '../apps/vscode/src/views/configuration-center-page.ts';
@@ -30,7 +30,7 @@ test('workflow-scoped edits preserve non-test commands, phase policy and other w
 });
 
 test('shared edits affect only the selected phase test inventory', () => {
-  const id = testSetupTargets(definition).find(target => target.workType === null).id;
+  const id = testSetupTargets(definition).find(target => target.workType === null && target.phaseId).id;
   const result = YAML.parse(updateTestSetupYaml(YAML.stringify(definition), id, [command]));
   assert.deepEqual(result, definition);
 });
@@ -52,12 +52,14 @@ test('malformed, stale, escaping and duplicated command drafts are refused', () 
   assert.throws(() => updateTestSetupYaml(text, '["missing","implementation"]', [command]));
 });
 
-test('test setup renders explicit selection, unverified suggestions and an active-Story handoff', () => {
+test('test setup renders the repository by default, unverified suggestions and an active-Story handoff', () => {
   const view = { targets: testSetupTargets(definition), selected: null, inspection: null };
   const initial = testSetupHtml(view);
-  assert.match(initial, /Choose workflow and phase/);
-  assert.doesNotMatch(initial, /id="test-setup-form"/);
-  const html = testSetupHtml({ ...view, selected: view.targets[0].id,
+  // The repository is the default; a step is the other choice [RTC:REQ-005].
+  assert.match(initial, /Where these tests apply<\/span><select data-test-target><option value="repository" selected>The repository: every step that runs tests, in every workflow<\/option><optgroup label="Only this step">/);
+  assert.match(initial, /<form id="test-setup-form" data-target="repository">/);
+  assert.match(initial, /<button type="submit">Save for review<\/button><button type="submit" data-test-activate="true"[^>]*>Save and activate<\/button>/);
+  const html = testSetupHtml({ ...view, selected: view.targets[1].id,
     inspection: { repositoryPath: '/approved/repository', sourceRoots: ['.'], suggestions: [command], diagnostics: [], testsExecuted: false, baseline: 'not-observed' } });
   assert.match(html, /Add suggestion to draft/);
   assert.match(html, /Baseline: unverified; no tests ran/);
@@ -81,14 +83,14 @@ test('capability menu and command palette reach the governed test editor and rep
 });
 
 function scriptHarness(argv = '["node","--test"]', { formId = 'test-setup-form', formValues = {} } = {}) {
-  const handlers = { document: {}, window: {} }; const messages = [];
+  const handlers = { document: {}, window: {} }; const messages = []; const harness = {};
   const fields = Object.fromEntries(Object.entries({ id: 'unit', cwd: '.', argv, adapter: 'node-tap',
     report: '.sflow/results/unit.tap', roots: '.', timeout: '120000' }).map(([key, value]) => [`[data-test-${key}]`, { value }]));
   const row = { dataset: { original: JSON.stringify(command) }, querySelector: selector => fields[selector] };
   const added = [];
   const rows = { querySelectorAll: () => [row, ...added], append: child => added.push(child) };
   const template = { content: { firstElementChild: { cloneNode: () => {
-    const own = Object.fromEntries(['id', 'cwd', 'argv', 'adapter', 'report', 'roots', 'timeout'].map(key => [`[data-test-${key}]`, { value: '' }]));
+    const own = Object.fromEntries(['id', 'cwd', 'argv', 'adapter', 'report', 'roots', 'timeout', 'level', 'environment'].map(key => [`[data-test-${key}]`, { value: '' }]));
     own['[data-test-env]'] = { textContent: '', hidden: true };
     return { dataset: { original: '{}' }, querySelector: selector => own[selector] };
   } } } };
@@ -106,14 +108,15 @@ function scriptHarness(argv = '["node","--test"]', { formId = 'test-setup-form',
     document: {
       getElementById: id => elements[id] ?? null,
       querySelector: selector => selector === '[data-test-inspect]' ? inspect : null,
-      querySelectorAll: () => [],
+      querySelectorAll: selector => (selector === '[data-test-tick]' ? harness.ticks ?? [] : []),
       createElement: () => ({ children: [], dataset: {}, append(...children) { this.children.push(...children); } }),
       addEventListener: (type, callback) => on('document', type, callback)
     }, FormData: class { get(name) { return formValues[name] ?? null; } }
   });
   const emit = (surface, type, event) => handlers[surface][type]?.forEach(callback => callback(event));
-  return { messages, fields, row, added, submit, inspect, results, runtimeText, emit,
-    submitForm: () => emit('document', 'submit', { target: form, preventDefault() {} }) };
+  Object.assign(harness, { messages, fields, row, added, submit, inspect, results, runtimeText, emit,
+    submitForm: (extra = {}) => emit('document', 'submit', { target: form, preventDefault() {}, ...extra }) });
+  return harness;
 }
 
 test('the webview sends one save and allows correction after invalid arguments or a refused save', () => {
@@ -159,21 +162,21 @@ const candidates = [
 test('a command\'s env is shown on its row and kept when the page saves it', () => {
   const withEnv = { ...command, env: { FEATURE_FLAG: 'on' } };
   const targets = testSetupTargets({ ...definition, phases: { implementation: { ...definition.phases.implementation, qualityCommands: [withEnv] } } });
-  const html = testSetupHtml({ targets, selected: targets[0].id, inspection: null });
-  assert.match(html, /data-test-env>Sets FEATURE_FLAG=on\. Saving keeps these\.</);
-  assert.match(testSetupHtml({ targets: testSetupTargets(definition), selected: testSetupTargets(definition)[0].id, inspection: null }), /data-test-env hidden>/);
+  const shared = (list) => list.find((target) => target.phaseId === 'implementation' && target.workType === null).id;
+  const html = testSetupHtml({ targets, selected: shared(targets), inspection: null });
+  assert.match(html, /<textarea data-test-env rows="2" [^>]*>FEATURE_FLAG=on<\/textarea>/);
   const harness = scriptHarness('["node","--test","edited.test.mjs"]');
   harness.row.dataset.original = JSON.stringify(withEnv);
   harness.submitForm();
   const [saved] = harness.messages.find(message => message.type === 'save-test-setup').commands;
   assert.deepEqual(saved.env, { FEATURE_FLAG: 'on' });
   assert.deepEqual(saved.argv, ['node', '--test', 'edited.test.mjs']);
-  const yaml = updateTestSetupYaml(YAML.stringify(definition), testSetupTargets(definition)[0].id, [saved]);
+  const yaml = updateTestSetupYaml(YAML.stringify(definition), shared(testSetupTargets(definition)), [saved]);
   assert.deepEqual(YAML.parse(yaml).phases.implementation.qualityCommands.at(-1).env, { FEATURE_FLAG: 'on' });
 });
 
 test('commands the team wrote down are offered with their file, line and env, and one SFlow cannot complete says why', () => {
-  const view = { targets: testSetupTargets(definition), selected: testSetupTargets(definition)[0].id,
+  const view = { targets: testSetupTargets(definition), selected: testSetupTargets(definition)[1].id,
     inspection: { repositoryPath: '/approved/repository', sourceRoots: ['.'], suggestions: [command], instructionCandidates: candidates,
       diagnostics: [], testsExecuted: false, baseline: 'not-observed' } };
   const html = testSetupHtml(view);
@@ -196,8 +199,7 @@ test('commands the team wrote down are offered with their file, line and env, an
 
   harness.emit('document', 'click', { target: { closest: selector => selector === '[data-test-suggestion]' ? button : null } });
   const [row] = harness.added;
-  assert.equal(row.querySelector('[data-test-env]').textContent, 'Sets BASE_URL=http://localhost:3000, CI=1. Saving keeps these.');
-  assert.equal(row.querySelector('[data-test-env]').hidden, false);
+  assert.equal(row.querySelector('[data-test-env]').value, 'BASE_URL=http://localhost:3000\nCI=1', 'its variables are shown, one a line, to change per setup');
   harness.submitForm();
   const commands = harness.messages.find(message => message.type === 'save-test-setup').commands;
   assert.deepEqual(commands.map(entry => entry.env), [undefined, written.env]);
@@ -256,4 +258,66 @@ test('a Configuration Center save changes only the lines of the setting it edits
   assert.equal(YAML.parse(updateApprovalSecurityProfileYaml(template, 'regulated')).approvalSecurity.profile, 'regulated');
   const model = await readFile(new URL('../apps/vscode/src/views/configuration-center-model.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(model, /return String\(parsed\)/u, 'every Center writer goes through the preserving render');
+});
+
+// The repository's own tests [RTC:REQ-005, RTC:REQ-006, RTC:REQ-011]: chosen by default, several ticked at
+// once, each with its level and target, and saved for review or saved and activated.
+const unitTest = { ...command, id: 'shop-unit', level: 'unit' };
+const e2eLocal = { ...command, id: 'e2e-local', level: 'e2e', argv: ['npx', 'playwright', 'test'], env: { PLAYWRIGHT_BASE_URL: 'http://localhost:3000' },
+  result: { adapter: 'playwright-json', path: '.sflow/results/e2e-local.json' } };
+
+test('the repository target writes tests: only, and an entry saved unchanged keeps its comment', () => {
+  const text = `${YAML.stringify(definition)}tests:\n  # Read from AGENTS.md:3 by capability test-setup.\n  - ${YAML.stringify(unitTest).trim().replaceAll('\n', '\n    ')}\n`;
+  const [repository] = testSetupTargets(YAML.parse(text));
+  assert.deepEqual([repository.id, repository.phaseId, repository.commands.map((entry) => entry.id)], [REPOSITORY_TEST_TARGET, null, ['shop-unit']]);
+  const relay = { ...e2eLocal, id: 'e2e-relay', environment: 'relay', env: undefined };
+  delete relay.env;
+  const saved = updateTestSetupYaml(text, REPOSITORY_TEST_TARGET, [unitTest, e2eLocal, relay]);
+  const parsed = YAML.parse(saved);
+  assert.deepEqual(parsed.tests.map((entry) => [entry.id, entry.level, entry.environment ?? null]), [['shop-unit', 'unit', null], ['e2e-local', 'e2e', null], ['e2e-relay', 'e2e', 'relay']]);
+  assert.deepEqual(parsed.phases, definition.phases, 'no step changed');
+  assert.deepEqual(parsed.workTypes, definition.workTypes);
+  assert.match(saved, /# Read from AGENTS\.md:3 by capability test-setup\.\n {2}- id: shop-unit/u, 'the unchanged entry keeps where it was read from');
+  assert.throws(() => updateTestSetupYaml(text, REPOSITORY_TEST_TARGET, [{ ...unitTest, level: 'smoke' }]), /level must be/u);
+  assert.throws(() => updateTestSetupYaml(text, REPOSITORY_TEST_TARGET, [{ ...e2eLocal, env: { PLAYWRIGHT_BASE_URL: 'https://user:pw@relay.example.test' } }]),
+    /holds a credential[\s\S]*environments\.yml/u);
+});
+
+test('suggestions are ticked several at once, each row sets its level and target, and Save and activate says so', () => {
+  const inspection = { repositoryPath: '/approved/repository', sourceRoots: ['.'], diagnostics: [], testsExecuted: false, baseline: 'not-observed',
+    suggestions: [unitTest, { ...e2eLocal, env: undefined, targetVariables: ['PLAYWRIGHT_BASE_URL'] }] };
+  const html = testSetupHtml({ targets: testSetupTargets(definition), selected: null, inspection });
+  assert.equal((html.match(/data-test-tick="\d"/g) ?? []).length, 2);
+  assert.match(html, /data-test-add-ticked>Add ticked to draft/);
+  assert.match(html, /Its config reads PLAYWRIGHT_BASE_URL\. Set it below/);
+  assert.match(html, /<select data-test-level><option value="">None \(other\)<\/option><option value="unit">unit/);
+  assert.match(html, /data-test-environment value=""/);
+
+  const harness = scriptHarness();
+  harness.emit('window', 'message', { data: { type: 'test-setup-inspected', inspection } });
+  const ticks = harness.results.children.slice(1, 3).map((card) => card.children[0].children[0]);
+  ticks.forEach((tick) => { tick.checked = true; });
+  const ticked = harness.results.children[3].children[0];
+  assert.equal(ticked.dataset.testAddTicked, 'true');
+  // The page's own query finds the ticked boxes; the harness's document lists them.
+  harness.ticks = ticks;
+  harness.emit('document', 'click', { target: { closest: (selector) => (selector === '[data-test-add-ticked]' ? ticked : null) } });
+  assert.equal(harness.added.length, 2, 'both ticked suggestions are added');
+  assert.deepEqual(ticks.map((tick) => tick.checked), [false, false]);
+  harness.added[1].querySelector('[data-test-env]').value = 'PLAYWRIGHT_BASE_URL=http://localhost:3000';
+  harness.added[0].querySelector('[data-test-level]').value = 'unit';
+  harness.submitForm({ submitter: { dataset: { testActivate: 'true' } } });
+  const message = harness.messages.find((entry) => entry.type === 'save-test-setup');
+  assert.equal(message.activate, true, 'Save and activate asks the host to activate the proposal it makes');
+  assert.deepEqual(message.commands.slice(1).map((entry) => [entry.id, entry.level ?? null, entry.env ?? null, Object.hasOwn(entry, 'targetVariables')]),
+    [['shop-unit', 'unit', null, false], ['e2e-local', 'e2e', { PLAYWRIGHT_BASE_URL: 'http://localhost:3000' }, false]]);
+});
+
+test('Save and activate runs the author-confirmed activation for the proposal it made, and a protected sflow/config names the merge', async () => {
+  const center = await readFile(new URL('../apps/vscode/src/views/configuration-center.ts', import.meta.url), 'utf8');
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(center, /this\.save\(snapshot\.definitionPath \?\? 'singularity\/workflow\.yml', content, text, \{ activate: message\.activate === true \}\)/u);
+  assert.match(extension, /if \(message\.activate && disposition\.kind === 'proposal'\) \{\s*const activation = await activateWorkflowProposalNow\(disposition\.branch\);/u,
+    'the same activation as Build with Copilot\'s Finish, for the exact proposal just made');
+  assert.match(extension, /It waits under Workflow Studio → Changes for someone who may approve configuration\./u);
 });

@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 19
+version: 20
 commands:
   - configuration
   - workflow
@@ -49,12 +49,31 @@ finishes pending reference sync; it never blindly repeats a push. See
 
 ### Test setup
 
+Test commands are the repository's, not a workflow step's. They sit in one `tests:` list at the top
+of `singularity/workflow.yml`, as many as the repository needs: one per module, runner or level
+(`level`: `unit`, `component`, `integration`, `e2e` or `other`). Every step that runs tests (a code
+step, or `repositoryTests: run`) uses them, in every workflow; which of them run for a change is decided
+from each command's affected directories, as before. A step only says whether it runs tests, and may
+run fewer: `testLevels: [unit]` or `testIds: [e2e-local]` on the step or in its workflow's override
+(with both, a command runs when its level or its ID is listed). A step's own test commands replace the
+repository's for that step only. A Story keeps the commands it started with; once newer ones are
+activated, a person who approves its step may adopt them (`story test-policy amend`).
+
+One suite run against different targets is several setups with their own IDs, for example `e2e-local`
+with `env: { PLAYWRIGHT_BASE_URL: http://localhost:3000 }` and `e2e-relay` with `environment: relay`.
+A literal `env` value is the same for everyone and never holds a credential: a URL with a user name or
+password, or a secret-looking query parameter, is refused. A URL that differs per machine or carries a
+credential is declared in `singularity/environments.yml` and bound on each machine.
+
 Open **Capabilities → Test setup**, **Configuration Center → Test setup**, or the command palette's
-**Singularity Flow: Capability Test Setup**. Inspect exact module directories, then explicitly choose
-the workflow and phase. Review inferred commands before adding them to the draft, or enter an exact
-argv array, module directory, result adapter/report path, affected directories and timeout.
-Saving uses the ordinary reviewed `sflow/config` proposal; non-test commands and other workflows
-are preserved. Shared-phase edits affect every workflow that inherits that phase.
+**Singularity Flow: Capability Test Setup**. Inspect exact module directories; the tests apply to **the
+repository** unless you choose **Only this step**. Tick the suggestions to use and add them together, or
+enter an exact argv array, module directory, result adapter/report path, affected directories, timeout,
+level, variables and environment. A command with an ID the list already holds replaces it. **Save for
+review** makes the ordinary reviewed `sflow/config` proposal; **Save and activate** also activates it at
+once, the same activation as Workflow Studio → Changes → Review and activate. Where the server protects
+`sflow/config`, it says that a merge through the repository's review is needed and names the branch.
+Workflow Studio lists the repository's tests and shows which of them each step runs.
 
 Copilot `/sf-test-setup` reads bounded repository manifests and reporter configuration, explains
 the evidence behind its suggestions, and asks before configuration changes or test execution.
@@ -138,15 +157,27 @@ fields a person supplies. A configured `cargo-json` command reads libtest's JSON
 `cargo test -- -Z unstable-options --format json` (nightly, or `RUSTC_BOOTSTRAP=1`) or
 `cargo nextest run --message-format libtest-json`.
 
-To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
-test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in
-full (`--id`, `--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`,
-`--report`, `--env NAME=VALUE` for each variable, and `--ecosystem <LANGUAGE>` to keep it to one language). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
-`--confirm <digest>` command proposes exactly that change through the same reviewed save as the
-Test setup page. A command with the same ID is replaced; every other check is kept. Run from a
-Story's checkout, it also names the Story's adoption once the proposal is activated. For a command one
-Story needs before that, a step approver accepts a Story-only command (`decision test-command`, see
-test-recovery).
+To save chosen commands from Copilot or a terminal, preview them with `singularity-flow capability
+test-setup` and `--use <SUGGESTION-ID>` (repeat it for several), or one command in full (`--id`,
+`--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`, `--report`, `--level`,
+`--env NAME=VALUE` for each variable, `--environment <ID>`, and `--ecosystem <LANGUAGE>` to keep it to
+one language). Without `--step` they go into `tests:`; `--step <STEP> [--workflow <WORKFLOW>]` saves for
+that step only. A suggestion keeps the level SFlow found, and a Playwright suggestion names the variable
+its config reads its base URL or endpoint from. The preview shows the `singularity/workflow.yml` diff and
+changes nothing; its printed `--confirm <digest>` command proposes exactly that change through the same
+reviewed save as the Test setup page. A command with the same ID is replaced, and the preview says so;
+every other entry is kept. The result names the activation line for the person who chose the commands
+and the VS Code place; an agent never activates. Run from a Story's checkout, it also names the Story's
+adoption once the proposal is activated. For a command one Story needs before that, a step approver
+accepts a Story-only command (`decision test-command`, see test-recovery).
+
+`workflow proposal <BRANCH>` shows a waiting proposal and, while it is valid and not merged, the exact
+`workflow activate <BRANCH> --confirm <COMMIT> --acknowledge-unprotected` line and Workflow Studio →
+Changes → Review and activate. `--acknowledge-unprotected` accepts that SFlow updates `sflow/config`
+itself; where the server protects that branch the update is refused, nothing changes, and the proposal is
+merged through the repository's review. A proposal that changes only `tests:` reads as **Repository
+tests**, in the terminal and in Workflow Studio → Changes, whose count shows no number until it has
+checked the proposals.
 
 Existing Stories retain their configuration pin. An approved command-only revision can be reviewed
 for adoption in the **current code phase** through `singularity-flow story test-policy amend <WORK-ID>

@@ -1,7 +1,7 @@
 /**
  * What a test command really runs [TCE:REQ-011]: one reading, shared by the command's pin
  * (src/test-command-pins.mjs) and the Node reporter that observes its run
- * (src/verification/node-test-observation.mjs).
+ * (src/test-runtime.mjs).
  *
  * The pin read only the working directory's package.json script and the configuration files beside
  * it, and the reporter only the outer script's text. So a script edit in the workspace `npm -w a test`

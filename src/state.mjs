@@ -31,12 +31,11 @@ import { reservePreparedDocumentSuccessor } from './prepared-document-successor.
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { gateTestEnvironmentModule, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, testRuntimeEnvironment, testRuntimeIdentity, nodeTestReporterEnvironment } from './test-runtime.mjs';
 import { normalizeTestRuntime } from "./kernel/configuration-policy.mjs";
 import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoice } from './intake-baseline.mjs';
 import os from 'node:os';
 import path from 'node:path';
-import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
 import { pathToFileURL } from 'node:url';
 import { SingularityFlowError, ensureSecureRepositoryDirectory, exists, gitReadOutput, nowIso, posix, readJson, repoRelative, run, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText } from './util.mjs';

@@ -20,8 +20,7 @@ import { readTrpCaseInventory, matchTrpReports, snapshotTrpDeclaredRuntime, trpC
 import { assertTestReportTargetEmpty, parseTestResult } from './code-delivery-tests.mjs';
 import { withCommandLiteralEnvironment } from './external-command-policy.mjs';
 import { applicationPathContext } from './application-paths.mjs';
-import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
-import { gateTestEnvironmentModule, testRuntimeEnvironment } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, testRuntimeEnvironment, nodeTestReporterEnvironment } from './test-runtime.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const unsupported = (message, details = {}) => new SingularityFlowError(message, { code: 'TRP_RISK_ADAPTER_UNAVAILABLE', details });

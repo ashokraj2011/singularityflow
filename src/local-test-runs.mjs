@@ -17,11 +17,10 @@ import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { localTestRunKernel as kernel, sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { workDirRelative } from './story-paths.mjs';
-import { gateTestEnvironmentModule, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
+import { gateTestEnvironmentModule, testRuntimeEnvironment, testRuntimeIdentity, nodeTestReporterEnvironment } from './test-runtime.mjs';
 import { normalizeTestRuntime } from "./kernel/configuration-policy.mjs";
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { recordRunsBeforeRefusal, recordTestAttempt } from './verification/attempts.mjs';
-import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
 
 /**

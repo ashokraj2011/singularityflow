@@ -49,7 +49,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'execution/storage', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries, 'src/sgos/operational-contract.mjs'] });
   assert.deepEqual(report.problems, []);
@@ -145,6 +145,27 @@ test('durable execution decorates explicit operational ports without selecting n
     if(ts.isStringLiteral(node))assert.equal(['state','config','evidence','local'].includes(node.text),false,'The decorator writes operational history only.');
     ts.forEachChild(node,visit);
   };visit(ast);
+});
+
+test('test report parsing has pure rules and a narrow native byte binding, with native environment setup in its existing host',async()=>{
+  const codec=await readFile(path.join(packageRoot,'src/kernel/test-report-codec.mjs'),'utf8');
+  assert.doesNotMatch(codec,/process\.|loadDefinition|readFile|\bspawn\b|import\s*\(/u);
+  const pure=ts.createSourceFile('test-report-codec.mjs',codec,ts.ScriptTarget.Latest,true);
+  for(const statement of pure.statements)if(ts.isImportDeclaration(statement))assert.equal(statement.moduleSpecifier.text,'../foundation/failures.mjs');
+  const binding=ts.createSourceFile('test-report-reader.mjs',await readFile(path.join(packageRoot,'src/verification/test-report-reader.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  for(const statement of binding.statements)if(ts.isImportDeclaration(statement))assert.ok(['node:crypto','../kernel/test-report-codec.mjs'].includes(statement.moduleSpecifier.text));
+  const legacy=await readFile(path.join(packageRoot,'src/code-delivery-tests.mjs'),'utf8');
+  assert.match(legacy,/from '\.\/verification\/test-report-reader\.mjs'/u);
+  assert.doesNotMatch(legacy,/function (?:parseXml|junitObservation|testReportFromContents|replayTestReports)\b/u);
+  for(const file of ['src/state.mjs','src/local-test-runs.mjs','src/test-recovery-runtime.mjs']) {
+    const text=await readFile(path.join(packageRoot,file),'utf8');assert.equal(text.includes('verification/node-test-observation.mjs'),false,file);
+  }
+  const facade=ts.createSourceFile('node-test-observation.mjs',await readFile(path.join(packageRoot,'src/verification/node-test-observation.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  assert.ok(facade.statements.every(ts.isExportDeclaration));
+  const identity=await readFile(path.join(packageRoot,'src/build-identity.mjs'),'utf8'),manifest=await readFile(path.join(packageRoot,'src/vsix-source-manifest.mjs'),'utf8');
+  for(const file of ['kernel/test-report-codec.mjs','verification/test-report-reader.mjs']) {
+    assert.ok(identity.includes("'"+file+"'"),file+' build identity');assert.ok(manifest.includes("'src/"+file+"'"),file+' staged payload');
+  }
 });
 
 test('kernel tree shaking is backed by pure initialization and no side-effect-only imports', async () => {

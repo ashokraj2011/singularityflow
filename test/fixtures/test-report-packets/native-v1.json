@@ -1,0 +1,1365 @@
+{
+  "baseline": "7c1f01311",
+  "api": [
+    "TEST_SETUP_COMMAND",
+    "assertTestReportTargetEmpty",
+    "attemptLocalIntegrationLabel",
+    "buildTestExecutionReceipt",
+    "configuredTestModuleOverrides",
+    "declaredMavenModules",
+    "environmentDoesNotCountWords",
+    "inferModuleTestCommand",
+    "isAllowedTestAutomationPath",
+    "isExecutableTestSourcePath",
+    "isSupportingTestResourcePath",
+    "isTestSourceName",
+    "junitCaseLocations",
+    "localIntegrationLabel",
+    "nearestWrapper",
+    "nodePackageManager",
+    "nodeTapCounts",
+    "normalizeRequiredTestCommand",
+    "parseNativeNodeJunitReport",
+    "parseTestManifest",
+    "parseTestResult",
+    "parseTrpJunitReport",
+    "parseXml",
+    "persistedOccurrences",
+    "prepareTestReportReader",
+    "readDurableTestObservation",
+    "redactTestReportFiles",
+    "replayLocalJavascriptJsonObservation",
+    "replayLocalJunitObservation",
+    "replayTestReports",
+    "resolveAffectedModule",
+    "runEnvironmentSha256",
+    "sourceEcosystem",
+    "structuredTestCommandRequiredError",
+    "testCommandCoversPath",
+    "testCommandEcosystem",
+    "testReceiptPassing",
+    "testSetupRoute",
+    "testSuppression"
+  ],
+  "sources": {
+    "src/code-delivery-tests.mjs": "cc33c9b3990598ced1505ea5a0aea9d08badaa3921d4d4d1803dc9ed34318397",
+    "src/test-module-markers.mjs": "c0dc55b95c994de943ee59698a921f2fd89b18131ef8c21118d5eb3868169a10",
+    "src/verification/node-test-observation.mjs": "4261aa79e76cb889326c9b5d8c14ea2f63eb5057381c8354247df6a93dd2535a"
+  },
+  "cases": [
+    {
+      "id": "lazy-not-initialized",
+      "method": "replayTestReports",
+      "adapter": "playwright-json",
+      "reports": [
+        {
+          "text": "{}"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "The playwright-json reader is not loaded.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "junit-occurrences",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuite name=\"calculator\" tests=\"3\" failures=\"1\" skipped=\"1\"><testcase classname=\"math\" name=\"adds\" time=\"0.01\"/><testcase classname=\"math\" name=\"subtracts\"><failure>actual</failure></testcase><testcase classname=\"math\" name=\"later\"><skipped/></testcase></testsuite>"
+        }
+      ],
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 3,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 1
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": "calculator",
+                "className": "math",
+                "name": "adds",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": 10,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": "calculator",
+                "className": "math",
+                "name": "subtracts",
+                "outcome": "failed",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": "calculator",
+                "className": "math",
+                "name": "later",
+                "outcome": "skipped",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-junit-xml-observer",
+              "version": 1
+            }
+          },
+          "result": {
+            "sha256": "9b61696a72093749f79494a19f172c39d90ef86df48e429e68c516350eec8792",
+            "bytes": 269,
+            "files": [
+              {
+                "sha256": "9b61696a72093749f79494a19f172c39d90ef86df48e429e68c516350eec8792",
+                "bytes": 269
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "junit-multiple-reports",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuite tests=\"1\"><testcase classname=\"a\" name=\"one\"/></testsuite>"
+        },
+        {
+          "text": "<testsuite tests=\"1\"><testcase classname=\"b\" name=\"two\"/></testsuite>"
+        }
+      ],
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 2,
+            "passed": 2,
+            "failed": 0,
+            "skipped": 0
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": "a",
+                "name": "one",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": "b",
+                "name": "two",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-junit-xml-observer",
+              "version": 1
+            }
+          },
+          "result": {
+            "sha256": "d9edf61646df9fcbed465c8e2b2e420e228018d014ecf0ce82c43719dc9033b8",
+            "bytes": 139,
+            "files": [
+              {
+                "sha256": "c8c02907693eb847b70a3461ee6601a2a7e75cb7246d33d9ad835184acd17353",
+                "bytes": 69
+              },
+              {
+                "sha256": "f6ffe7e316a3294e5c6f01ce3d551a608988b1f5bafb1bead8a33f1a662e8e00",
+                "bytes": 69
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "junit-duplicate-bytes",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuite name=\"calculator\" tests=\"3\" failures=\"1\" skipped=\"1\"><testcase classname=\"math\" name=\"adds\" time=\"0.01\"/><testcase classname=\"math\" name=\"subtracts\"><failure>actual</failure></testcase><testcase classname=\"math\" name=\"later\"><skipped/></testcase></testsuite>"
+        },
+        {
+          "text": "<testsuite name=\"calculator\" tests=\"3\" failures=\"1\" skipped=\"1\"><testcase classname=\"math\" name=\"adds\" time=\"0.01\"/><testcase classname=\"math\" name=\"subtracts\"><failure>actual</failure></testcase><testcase classname=\"math\" name=\"later\"><skipped/></testcase></testsuite>"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Local JUnit replay contains duplicate report bytes.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "junit-entity-refused",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<!DOCTYPE testsuite><testsuite tests=\"0\"/>"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result is invalid: DOCTYPE and entity declarations are forbidden",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "junit-aggregate-conflict",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuite tests=\"2\"><testcase classname=\"a\" name=\"one\"/></testsuite>"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result is invalid: JUnit aggregate 'tests' count differs from testcase outcomes",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "junit-failure-and-skip",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuite tests=\"1\"><testcase name=\"a\"><failure/><skipped/></testcase></testsuite>"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result is invalid: testcase contains contradictory or repeated terminal outcomes",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "junit-ambiguous-identities",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuite tests=\"2\"><testcase classname=\"a\" name=\"one\"/><testcase classname=\"a\" name=\"one\"/></testsuite>"
+        }
+      ],
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 2,
+            "passed": 2,
+            "failed": 0,
+            "skipped": 0
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": "a",
+                "name": "one",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "ambiguous-display-identity"
+              },
+              {
+                "suite": null,
+                "className": "a",
+                "name": "one",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "ambiguous-display-identity"
+              }
+            ],
+            "parser": {
+              "id": "sflow-junit-xml-observer",
+              "version": 1
+            }
+          },
+          "result": {
+            "sha256": "87fb08c0a2097ae8a0d00f2193a22a9eb899af7130a807c53787c889d472d8cd",
+            "bytes": 105,
+            "files": [
+              {
+                "sha256": "87fb08c0a2097ae8a0d00f2193a22a9eb899af7130a807c53787c889d472d8cd",
+                "bytes": 105
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "junit-empty-companions",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "text": "<testsuites><testsuite tests=\"0\"/></testsuites>"
+        }
+      ],
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0
+          },
+          "testcaseObservation": {
+            "occurrences": [],
+            "parser": {
+              "id": "sflow-junit-xml-observer",
+              "version": 1
+            }
+          },
+          "result": {
+            "sha256": "f395674958fc475f4a19587036b1c523aa1d467fb84b3027ff922138fe94bd70",
+            "bytes": 47,
+            "files": [
+              {
+                "sha256": "f395674958fc475f4a19587036b1c523aa1d467fb84b3027ff922138fe94bd70",
+                "bytes": 47
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "junit-invalid-utf8",
+      "method": "replayLocalJunitObservation",
+      "reports": [
+        {
+          "hex": "ff"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result 1 is not valid UTF-8: The encoded data was not valid for encoding utf-8",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "jest-strict-report",
+      "method": "replayLocalJavascriptJsonObservation",
+      "adapter": "jest-json",
+      "reports": [
+        {
+          "text": "{\"numTotalTests\":3,\"numPassedTests\":1,\"numFailedTests\":1,\"numPendingTests\":1,\"testResults\":[{\"assertionResults\":[{\"title\":\"adds\",\"fullName\":\"calculator adds\",\"ancestorTitles\":[\"calculator\"],\"status\":\"passed\",\"duration\":12},{\"title\":\"rejects\",\"fullName\":\"calculator rejects\",\"ancestorTitles\":[\"calculator\"],\"status\":\"failed\",\"duration\":4},{\"title\":\"later\",\"fullName\":\"calculator later\",\"ancestorTitles\":[\"calculator\"],\"status\":\"pending\"}]}]}"
+        }
+      ],
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 3,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 1
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": null,
+                "name": "adds",
+                "fullName": "calculator adds",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "jest",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": 12,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": null,
+                "name": "rejects",
+                "fullName": "calculator rejects",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "jest",
+                "outcome": "failed",
+                "verdict": "inconclusive",
+                "durationMs": 4,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": null,
+                "name": "later",
+                "fullName": "calculator later",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "jest",
+                "outcome": "skipped",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-javascript-json-observer",
+              "version": 1,
+              "framework": "jest"
+            }
+          },
+          "result": {
+            "sha256": "767b69ff55d545b1859761fa15797e50e2102c6197010462d3379740f50794e5",
+            "bytes": 440,
+            "files": [
+              {
+                "sha256": "767b69ff55d545b1859761fa15797e50e2102c6197010462d3379740f50794e5",
+                "bytes": 440
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "vitest-strict-report",
+      "method": "replayLocalJavascriptJsonObservation",
+      "adapter": "vitest-json",
+      "reports": [
+        {
+          "text": "{\"numTotalTests\":3,\"numPassedTests\":1,\"numFailedTests\":1,\"numPendingTests\":1,\"testResults\":[{\"assertionResults\":[{\"title\":\"adds\",\"fullName\":\"calculator adds\",\"ancestorTitles\":[\"calculator\"],\"status\":\"passed\",\"duration\":12},{\"title\":\"rejects\",\"fullName\":\"calculator rejects\",\"ancestorTitles\":[\"calculator\"],\"status\":\"failed\",\"duration\":4},{\"title\":\"later\",\"fullName\":\"calculator later\",\"ancestorTitles\":[\"calculator\"],\"status\":\"pending\"}]}]}"
+        }
+      ],
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 3,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 1
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": null,
+                "name": "adds",
+                "fullName": "calculator adds",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "vitest",
+                "outcome": "passed",
+                "verdict": "inconclusive",
+                "durationMs": 12,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": null,
+                "name": "rejects",
+                "fullName": "calculator rejects",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "vitest",
+                "outcome": "failed",
+                "verdict": "inconclusive",
+                "durationMs": 4,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": null,
+                "name": "later",
+                "fullName": "calculator later",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "vitest",
+                "outcome": "skipped",
+                "verdict": "inconclusive",
+                "durationMs": null,
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-javascript-json-observer",
+              "version": 1,
+              "framework": "vitest"
+            }
+          },
+          "result": {
+            "sha256": "767b69ff55d545b1859761fa15797e50e2102c6197010462d3379740f50794e5",
+            "bytes": 440,
+            "files": [
+              {
+                "sha256": "767b69ff55d545b1859761fa15797e50e2102c6197010462d3379740f50794e5",
+                "bytes": 440
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "jest-aggregate-conflict",
+      "method": "replayLocalJavascriptJsonObservation",
+      "adapter": "jest-json",
+      "reports": [
+        {
+          "text": "{\"numTotalTests\":3,\"numPassedTests\":2,\"numFailedTests\":1,\"numPendingTests\":1,\"testResults\":[{\"assertionResults\":[{\"title\":\"adds\",\"fullName\":\"calculator adds\",\"ancestorTitles\":[\"calculator\"],\"status\":\"passed\",\"duration\":12},{\"title\":\"rejects\",\"fullName\":\"calculator rejects\",\"ancestorTitles\":[\"calculator\"],\"status\":\"failed\",\"duration\":4},{\"title\":\"later\",\"fullName\":\"calculator later\",\"ancestorTitles\":[\"calculator\"],\"status\":\"pending\"}]}]}"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "JavaScript testcase outcomes differ from the reporter aggregate.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "jest-unknown-status",
+      "method": "replayLocalJavascriptJsonObservation",
+      "adapter": "jest-json",
+      "reports": [
+        {
+          "text": "{\"numTotalTests\":3,\"numPassedTests\":1,\"numFailedTests\":1,\"numPendingTests\":1,\"testResults\":[{\"assertionResults\":[{\"title\":\"bad\",\"status\":\"unknown\"}]}]}"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "jest JSON result contains unknown outcome 'unknown'.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "javascript-invalid-utf8",
+      "method": "replayLocalJavascriptJsonObservation",
+      "adapter": "vitest-json",
+      "reports": [
+        {
+          "hex": "ff"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Local JavaScript report is not UTF-8.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "javascript-invalid-json",
+      "method": "replayLocalJavascriptJsonObservation",
+      "adapter": "jest-json",
+      "reports": [
+        {
+          "text": "{"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Local JavaScript report is not valid JSON.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "native-result-json",
+      "method": "replayTestReports",
+      "adapter": "sflow-test-result-v1",
+      "reports": [
+        {
+          "text": "{\"tests\":{\"discovered\":4,\"passed\":3,\"failed\":1,\"skipped\":0}}"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "sflow-test-result-v1",
+          "tests": {
+            "discovered": 4,
+            "passed": 3,
+            "failed": 1,
+            "skipped": 0
+          },
+          "testcaseObservation": null,
+          "result": {
+            "sha256": "203d0e8b3cf88f0cfd5fe27fdfbd49f87faac301c2a47b9a5f263c57c923c4eb",
+            "bytes": 60,
+            "files": [
+              {
+                "sha256": "203d0e8b3cf88f0cfd5fe27fdfbd49f87faac301c2a47b9a5f263c57c923c4eb",
+                "bytes": 60
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "go-events",
+      "method": "replayTestReports",
+      "adapter": "go-test-json",
+      "reports": [
+        {
+          "text": "{\"Action\":\"pass\",\"Package\":\"a\",\"Test\":\"TestA\"}\n{\"Action\":\"skip\",\"Package\":\"b\",\"Test\":\"TestB\"}\n"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "go-test-json",
+          "tests": {
+            "discovered": 2,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 1
+          },
+          "testcaseObservation": null,
+          "result": {
+            "sha256": "bb8a56cd587d3e43ad7f691cb01a2b3cdd44026c39380117df55f31f534db534",
+            "bytes": 94,
+            "files": [
+              {
+                "sha256": "bb8a56cd587d3e43ad7f691cb01a2b3cdd44026c39380117df55f31f534db534",
+                "bytes": 94
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "node-tap",
+      "method": "replayTestReports",
+      "adapter": "node-tap",
+      "reports": [
+        {
+          "text": "# tests 3\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 1\n# todo 0\n"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "node-tap",
+          "tests": {
+            "discovered": 3,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 1
+          },
+          "testcaseObservation": null,
+          "result": {
+            "sha256": "2f3c24ce0527a8626904e054901ca15c6cbcdda09b2684197a27390eb87b53ce",
+            "bytes": 63,
+            "files": [
+              {
+                "sha256": "2f3c24ce0527a8626904e054901ca15c6cbcdda09b2684197a27390eb87b53ce",
+                "bytes": 63
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "node-exact-identities",
+      "method": "replayTestReports",
+      "adapter": "node-tap",
+      "reports": [
+        {
+          "text": "# tests 1\n# pass 1\n# fail 0\n# sflow-node-observation-v1 {\"complete\":true,\"occurrences\":[{\"file\":\"test/value.test.js\",\"line\":3,\"name\":\"adds\",\"ancestorTitles\":[\"arithmetic\"],\"outcome\":\"passed\"}]}\n"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "node-tap",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "testcaseObservation": {
+            "framework": "node:test",
+            "occurrences": [
+              {
+                "file": "test/value.test.js",
+                "line": 3,
+                "name": "adds",
+                "ancestorTitles": [
+                  "arithmetic"
+                ],
+                "outcome": "passed"
+              }
+            ]
+          },
+          "result": {
+            "sha256": "a1a5dca27d940f80bec351232f73d038c190de37a8d30b493612dc04dd047a85",
+            "bytes": 194,
+            "files": [
+              {
+                "sha256": "a1a5dca27d940f80bec351232f73d038c190de37a8d30b493612dc04dd047a85",
+                "bytes": 194
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "node-summary-missing",
+      "method": "nodeTapCounts",
+      "value": "# tests 3\n# pass 2",
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured Node test result is missing its final tests, pass, or fail summary.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "node-summary-conflict",
+      "method": "nodeTapCounts",
+      "value": "# tests 1\n# pass 2\n# fail 0",
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured Node test outcome counts exceed discovered tests.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "karma-counts",
+      "method": "replayTestReports",
+      "adapter": "karma-text",
+      "reports": [
+        {
+          "text": "TOTAL: 2 SUCCESS, 1 FAILED, 3 SKIPPED\n"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "karma-text",
+          "tests": {
+            "discovered": 6,
+            "passed": 2,
+            "failed": 1,
+            "skipped": 3
+          },
+          "testcaseObservation": null,
+          "result": {
+            "sha256": "c5ad8ecd3c9482224427ac9366636fa03a5b7a6ed6c48c1f5346cef3d90452dc",
+            "bytes": 38,
+            "files": [
+              {
+                "sha256": "c5ad8ecd3c9482224427ac9366636fa03a5b7a6ed6c48c1f5346cef3d90452dc",
+                "bytes": 38
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "karma-malformed",
+      "method": "replayTestReports",
+      "adapter": "karma-text",
+      "reports": [
+        {
+          "text": "TOTAL: 3 anything"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured Karma TOTAL summary is malformed.",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "trx-counts",
+      "method": "replayTestReports",
+      "adapter": "dotnet-trx",
+      "reports": [
+        {
+          "text": "<TestRun><ResultSummary><Counters total=\"3\" passed=\"1\" failed=\"1\" notExecuted=\"1\"/></ResultSummary></TestRun>"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "dotnet-trx",
+          "tests": {
+            "discovered": 3,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 1
+          },
+          "testcaseObservation": null,
+          "result": {
+            "sha256": "2440929dbd210b98781ec592438174142db5af0644c06d159876ec9c588aa65f",
+            "bytes": 109,
+            "files": [
+              {
+                "sha256": "2440929dbd210b98781ec592438174142db5af0644c06d159876ec9c588aa65f",
+                "bytes": 109
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "trx-conflict",
+      "method": "replayTestReports",
+      "adapter": "dotnet-trx",
+      "reports": [
+        {
+          "text": "<TestRun><Counters total=\"1\" passed=\"2\"/></TestRun>"
+        }
+      ],
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result is invalid: TRX outcome counts do not equal total tests",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "playwright-retried",
+      "method": "replayTestReports",
+      "prepare": true,
+      "adapter": "playwright-json",
+      "reports": [
+        {
+          "text": "{\"suites\":[{\"title\":\"test.js\",\"suites\":[{\"title\":\"calculator\",\"specs\":[{\"title\":\"visible\",\"file\":\"test.js\",\"line\":7,\"tests\":[{\"status\":\"flaky\",\"projectName\":\"desktop\",\"results\":[{\"status\":\"failed\",\"duration\":5},{\"status\":\"passed\",\"duration\":8}]}]}]}]}],\"stats\":{\"expected\":0,\"unexpected\":0,\"flaky\":1,\"skipped\":0}}"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "playwright-json",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": null,
+                "name": "visible",
+                "fullName": "calculator visible",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "playwright",
+                "outcome": "passed",
+                "flaky": true,
+                "file": "test.js",
+                "line": 7,
+                "project": "desktop",
+                "retries": 1,
+                "durationMs": 13,
+                "verdict": "inconclusive",
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-json-observer",
+              "version": 1,
+              "framework": "playwright"
+            }
+          },
+          "result": {
+            "sha256": "b80d0af21238290eb08c91cc8462048b2ad2e933aad1de5d0175920fb03e26f9",
+            "bytes": 313,
+            "files": [
+              {
+                "sha256": "b80d0af21238290eb08c91cc8462048b2ad2e933aad1de5d0175920fb03e26f9",
+                "bytes": 313
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "mocha-outcomes",
+      "method": "replayTestReports",
+      "prepare": true,
+      "adapter": "mocha-json",
+      "reports": [
+        {
+          "text": "{\"passes\":[{\"title\":\"adds\",\"fullTitle\":\"calculator adds\",\"duration\":3}],\"failures\":[{\"title\":\"fails\",\"fullTitle\":\"calculator fails\"}],\"pending\":[{\"title\":\"later\",\"fullTitle\":\"calculator later\"}]}"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "mocha-json",
+          "tests": {
+            "discovered": 3,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 1
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": null,
+                "name": "adds",
+                "fullName": "calculator adds",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "mocha",
+                "outcome": "passed",
+                "file": null,
+                "durationMs": 3,
+                "verdict": "inconclusive",
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": null,
+                "name": "fails",
+                "fullName": "calculator fails",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "mocha",
+                "outcome": "failed",
+                "file": null,
+                "durationMs": null,
+                "verdict": "inconclusive",
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              },
+              {
+                "suite": null,
+                "className": null,
+                "name": "later",
+                "fullName": "calculator later",
+                "ancestorTitles": [
+                  "calculator"
+                ],
+                "framework": "mocha",
+                "outcome": "skipped",
+                "file": null,
+                "durationMs": null,
+                "verdict": "inconclusive",
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-json-observer",
+              "version": 1,
+              "framework": "mocha"
+            }
+          },
+          "result": {
+            "sha256": "9d08ccaa9a34a0f764a22ccb1d14c0f133e1ac9d9cdb65f955241baba022f4e4",
+            "bytes": 195,
+            "files": [
+              {
+                "sha256": "9d08ccaa9a34a0f764a22ccb1d14c0f133e1ac9d9cdb65f955241baba022f4e4",
+                "bytes": 195
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "cargo-outcomes",
+      "method": "replayTestReports",
+      "prepare": true,
+      "adapter": "cargo-json",
+      "reports": [
+        {
+          "text": "{\"type\":\"suite\",\"event\":\"started\"}\n{\"type\":\"test\",\"event\":\"ok\",\"name\":\"tests::adds\",\"exec_time\":0.002}\n{\"type\":\"suite\",\"event\":\"ok\",\"passed\":1,\"failed\":0,\"ignored\":0}\n"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "cargo-json",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "testcaseObservation": {
+            "occurrences": [
+              {
+                "suite": null,
+                "className": null,
+                "name": "tests::adds",
+                "fullName": "tests::adds",
+                "ancestorTitles": [],
+                "framework": "cargo",
+                "outcome": "passed",
+                "durationMs": 2,
+                "verdict": "inconclusive",
+                "logicalTestId": null,
+                "declarationSha256": null,
+                "exact": false,
+                "identityStatus": "observed-name-only"
+              }
+            ],
+            "parser": {
+              "id": "sflow-json-observer",
+              "version": 1,
+              "framework": "cargo"
+            }
+          },
+          "result": {
+            "sha256": "fb5a66a9bb04a25d67458a91ae7ee80cb76b567ea77ae73fbfbad37753258619",
+            "bytes": 167,
+            "files": [
+              {
+                "sha256": "fb5a66a9bb04a25d67458a91ae7ee80cb76b567ea77ae73fbfbad37753258619",
+                "bytes": 167
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "cargo-legacy-summary",
+      "method": "replayTestReports",
+      "prepare": true,
+      "adapter": "cargo-json",
+      "reports": [
+        {
+          "text": "{\"summary\":{\"total\":2,\"passed\":1,\"failed\":1,\"skipped\":0}}"
+        }
+      ],
+      "expected": {
+        "value": {
+          "adapter": "cargo-json",
+          "tests": {
+            "discovered": 2,
+            "passed": 1,
+            "failed": 1,
+            "skipped": 0
+          },
+          "testcaseObservation": null,
+          "result": {
+            "sha256": "be108262974eacf65ba537266f2ff78ffabf107b7e5f1f3627fa785269f693f9",
+            "bytes": 57,
+            "files": [
+              {
+                "sha256": "be108262974eacf65ba537266f2ff78ffabf107b7e5f1f3627fa785269f693f9",
+                "bytes": 57
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "xml-source-spans",
+      "method": "parseXml",
+      "value": "<r><n key=\"a &gt; b\"/><n><!-- comment --> text <![CDATA[<a>]]></n></r>",
+      "expected": {
+        "value": {
+          "name": "r",
+          "localName": "r",
+          "attributes": {},
+          "children": [
+            {
+              "name": "n",
+              "localName": "n",
+              "attributes": {
+                "key": "a &gt; b"
+              },
+              "children": [],
+              "sourceStart": 3,
+              "sourceEnd": 22
+            },
+            {
+              "name": "n",
+              "localName": "n",
+              "attributes": {},
+              "children": [],
+              "sourceStart": 22,
+              "sourceEnd": 66
+            }
+          ],
+          "sourceStart": 0,
+          "sourceEnd": 70
+        }
+      }
+    },
+    {
+      "id": "xml-invalid-close",
+      "method": "parseXml",
+      "value": "<r><n></r>",
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result is invalid: closing tag 'r' does not match the open element",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "native-node-junit",
+      "method": "parseNativeNodeJunitReport",
+      "value": "<testsuites tests=\"1\"><testcase classname=\"test\" name=\"adds &amp; shows\" file=\"test/value.js\"/></testsuites>",
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "cases": [
+            {
+              "file": "test/value.js",
+              "name": "adds & shows",
+              "outcome": "passed",
+              "causeSha256": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "native-node-junit-nested",
+      "method": "parseNativeNodeJunitReport",
+      "value": "<testsuites><testsuite tests=\"1\"><testcase name=\"a\"/></testsuite></testsuites>",
+      "expected": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "CODE_TEST_RESULT_REQUIRED",
+          "message": "Structured XML test result is invalid: native Node risk evidence requires flat, non-nested test cases",
+          "details": null
+        }
+      }
+    },
+    {
+      "id": "trp-junit",
+      "method": "parseTrpJunitReport",
+      "value": "<testsuite tests=\"1\"><testcase classname=\"arithmetic\" name=\"adds\" file=\"test/value.py\"><failure>bad</failure></testcase></testsuite>",
+      "expected": {
+        "value": {
+          "tests": {
+            "discovered": 1,
+            "passed": 0,
+            "failed": 1,
+            "skipped": 0
+          },
+          "cases": [
+            {
+              "file": "test/value.py",
+              "className": "arithmetic",
+              "name": "adds",
+              "outcome": "failed",
+              "causeSha256": "sha256:7b3164bdca5d1395307c17a946c5f0c6355e7eee321f3778badb0cf0b4dcc14b"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "locations",
+      "method": "junitCaseLocations",
+      "reports": [
+        {
+          "text": "<testsuite tests=\"1\"><testcase file=\"tests/value.test.js\" line=\"7\" classname=\"a\" name=\"one\"/></testsuite>"
+        }
+      ],
+      "expected": {
+        "value": [
+          {
+            "file": "tests/value.test.js",
+            "line": 7
+          }
+        ]
+      }
+    },
+    {
+      "id": "receipt-passing",
+      "method": "testReceiptPassing",
+      "value": {
+        "status": "passed",
+        "exitCode": 0,
+        "timedOut": false,
+        "skipped": false,
+        "suppressed": false,
+        "tests": {
+          "discovered": 2,
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "id": "receipt-inconsistent",
+      "method": "testReceiptPassing",
+      "value": {
+        "status": "passed",
+        "exitCode": 0,
+        "timedOut": false,
+        "skipped": false,
+        "suppressed": false,
+        "tests": {
+          "discovered": 2,
+          "passed": 3,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "expected": {
+        "value": false
+      }
+    }
+  ],
+  "bodies": {
+    "number": "785fb288915c6b36bbe53d425c683d661872f8fdb0c11f85a7bb035ea66cc1c5",
+    "xmlFailure": "8971c70c94360629a4254800ec0a017b575194651170e49e590d60246e0a87b3",
+    "tagEnd": "75bd10d5196188b2a622d23758edcd5bf4d4d05174395aafe717a989657bd253",
+    "parseAttributes": "d8ca279eec4cae676e8e85b9eb49bb63e956c8981130f93aaf93757c95e7952a",
+    "parseXml": "c2fb2eeb85468d9fc52d56b4ef6bec66e9a74c478b1de194ab98544a85cfe1df",
+    "descendants": "2490bef36d8a99aaa3f10f33856a4395314f19ac0ed34c46f94db16b82a79998",
+    "integerAttribute": "76e500eb6ee5d948642251ea3c574d9a5560259258977a4f7c753674af3117f1",
+    "junitCaseState": "5760ec1ebe885f3c2f152314cf4be3af983bf0062e164d8fad6e50c7e7769d3f",
+    "declaredCount": "272c454b592c448c7830c7c10d6f3ba68131afbb9ad5edf46e6a5a01d61510ab",
+    "validateJunitAggregate": "9fc706ea46d12bd521522a91ad20f3f16cff9bf03b7685a4451f9ebdc10830b9",
+    "junitCases": "219706516b246c0a90dded0a6f7dd43b969d72f071eca877c532bcb5fe555b03",
+    "classifyDisplayIdentities": "b4a54dd7c8712c8489d28db82a8e0c7e64859e16a6b342ba50266e3e5353cb0b",
+    "validateJunitStructure": "7ee892d3be4c17e6969b8d9b3c757dcbd5dc1385d7f0d68b79903b92052bdfd5",
+    "emptySuites": "4c69c42dc0a2850c64b0b21def7744564fc90ed8eb91dfe3bf8fb545877b372f",
+    "junitObservation": "44027fcf6269c0576edb1f035d207f4c8512361ee16400bbd7626290b7581a96",
+    "trxCounts": "0943a5a180f5e271390cc118411213ed385ddc1d1eb2e16185781ab65ecd0da9",
+    "countsFromJson": "8c00c480e1a7b99bc658385bd2849296bcedf4de2c2eb0dc41b5f2e82af39d0e",
+    "javascriptJsonObservation": "ef51ccd2dbe496157ea3c4194f5fd2ef6b926b4636eb4150b87fe82650257183",
+    "replayLocalJavascriptJsonObservation": "ff9481a7bb5a5adfed147bdbd736d00d134ded533f193c0d066c6f0b0f932bf6",
+    "nodeTapCounts": "af353e3aae9998d961cd2228ebc0e834e3de7b3dd3f96743b98f1e87054ff9be",
+    "karmaTextCounts": "9850d7195d66d45549dd254185646f99772d8279326640132417acc186803bf5",
+    "decodeXmlReport": "9f06eab586f1443f2048637abe71f258f80fbfa5cea2ac74d1f13cc7ba5b1e1e",
+    "combinedReports": "e99234e97315816b0ac920266c1bfb59fe0ce16d2ad24f8dc1f2ca8522648f90",
+    "addTestCounts": "ebfa46d208241d8ce0abe5badad69a0fb3da0485f9457edc4c399cf6b4134bba",
+    "replayLocalJunitObservation": "ec05f3bdd56a0fc4fdc234962554f96f47c32f8c46b76f6dfa1cad437491c53b",
+    "junitCaseLocations": "2a2a0f0d323e9c41e4f524343b0c4ccb919e3704cf822d6cb08a91aa6bf367a0",
+    "parseNativeNodeJunitReport": "a0813506d1b8323846798e592fda22f5db3c01899134ba1d5efe9df72c0cf105",
+    "parseTrpJunitReport": "9d6ce9ecc8a6bde179f966ac3c172d5d0f706dbf48998c2d1eb747e4c1ebd1fd",
+    "testReportFromContents": "f7d1ddf380db186a55189c4d395718d3a1474a5f0ced159b92b746bcf9252ed2",
+    "replayTestReports": "579b72db07130d013f3ff8b33852c9a5a72c848c80f166d94b3ffd87383f5f51",
+    "persistedOccurrences": "9946d929283942bec74334059eb18f6c283a72b9240a6703d23b69ab64a96fac",
+    "consistentTestCounts": "13182478ff084c09094bd0adf72eb858daf0495d1bea37b3b6f275f78e291516",
+    "testReceiptPassing": "4a24a8542d1de03e059c53f847a2eda8872598c32316c0c101720e136a699607",
+    "playwrightObservation": "14001bd19ad178d018f926051661dde79496857a03c0e4aa5968f3311bab9c42",
+    "cargoObservation": "1a2add969ba717d0dc3d3c35b387b28b759082f77dbb74748e211ac88a52ebc4",
+    "mochaObservation": "a6e003dcaec369bb21a53dc2e188a4045fdd9926e7b3a7bdc0f23ae013be4e5b",
+    "jsonTestReport": "1ab7d4e6a108498dddcaa44bf74c6dcb054eb1a2eb980ed303b36d903b7837e6",
+    "nodeTestObservation": "e3ceb7eb399bfb16d80a5da4e0e127d5d1128071d1153b7f59ba8c44f6ed8e14"
+  }
+}

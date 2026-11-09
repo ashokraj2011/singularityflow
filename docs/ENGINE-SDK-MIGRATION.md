@@ -186,6 +186,17 @@ audit and all 13 unchanged bundle budgets passed. The SDK retains 51 operations 
 139 modules. This qualifies explicit operational execution, not phase test acceptance or a full
 application Story. No installed project, provider, Windows host or storage authority changed.
 
+The [shared test-report reader](ENGINE-SDK-TEST-REPORTS.md) extracts existing structured report
+interpretation into one pure kernel codec with explicit byte/hash capabilities. Native compatibility
+exports and the opt-in SDK entries use those same rules. Reporter environment setup remains in
+the native runtime host. Independently captured native packets and original rule-body hashes
+preserve existing parsing and refusal meaning. Parsing does not authenticate a command or accept
+phase evidence; actual portable phase execution and a complete application Story remain required.
+
+That reader passed 310 native integration checks across 13 files and all 22 installed-archive
+checks, with no failures, cancellations or skips. Phases 5, 7, 8 and 9 remain open. This does not
+change installed Git authority or authorize migration of an existing project.
+
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped
 workflows. Namespace approval checks real referenced template text before accepting it. Actual

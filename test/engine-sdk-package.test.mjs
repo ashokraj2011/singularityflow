@@ -84,6 +84,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       assert.equal(operational.SGOS_OPERATIONAL_STORE_SPI_VERSION,1);
       assert.equal(operational.SGOS_OPERATIONAL_STORE_METHODS.length,10);
       assert.equal(operational.SGOS_OPERATIONAL_STORE_CAPABILITIES.authorityEligible,false);
+      const reports=await import('${packageName}/testing/reports');
+      assert.equal(reports.TEST_REPORT_BYTE_SYNTAX,'sflow-test-report-bytes/v1');
+      assert.equal(reports.TEST_REPORT_LIMITS.maximumFileBytes,16777216);
       const artifacts = await import('${packageName}/artifacts');
       assert.equal(artifacts.renderArtifactTemplateText('{{work.id}} {{phase.label}}',
         {id:'team-review',label:'Team review'},{id:'T-1'}),'T-1 Team review');
@@ -782,6 +785,30 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     await run('operational-history.mjs',source,['fresh']);await run('operational-history.mjs',source,['reopen']);
   });
 
+  await t.test('installed report parsing replays genuine Node output without a repository or execution imports',async()=>{
+    await run('report-reader.mjs',`
+      import assert from 'node:assert/strict';
+      import {writeFile} from 'node:fs/promises';
+      import {spawnSync} from 'node:child_process';
+      import {registerHooks} from 'node:module';
+      await writeFile('arithmetic.test.mjs',"import test from 'node:test';import assert from 'node:assert/strict';test('adds',()=>assert.equal(1+1,2));");
+      const hooks=registerHooks({resolve(specifier,context,next){
+        if(['node:fs','node:fs/promises','node:child_process'].includes(specifier)||['git-access','config.mjs','model-runner'].some(value=>specifier.includes(value)))throw Error('Unexpected report dependency: '+specifier);
+        return next(specifier,context);
+      }});
+      const {createNodeTestReportCodec}=await import('${packageName}/testing/node');
+      const codec=createNodeTestReportCodec(),env={...process.env};delete env.NODE_TEST_CONTEXT;
+      const observed=spawnSync(process.execPath,['--test','--test-reporter=tap','arithmetic.test.mjs'],{encoding:'utf8',env,timeout:10000});
+      assert.equal(observed.status,0,observed.stderr);
+      const replay=codec.replayTestReports('node-tap',[{contents:observed.stdout}]);
+      assert.deepEqual(replay.tests,{discovered:1,passed:1,failed:0,skipped:0});
+      assert.equal(replay.testcaseObservation,null,'ordinary TAP counts cannot invent exact source identities');
+      await codec.prepareTestReportReader('playwright-json');
+      assert.equal(codec.replayTestReports('playwright-json',[{contents:'{"suites":[],"stats":{"expected":0,"unexpected":0,"flaky":0,"skipped":0}}'}]).tests.discovered,0);
+      assert.equal(Object.hasOwn(replay,'approved'),false);hooks.deregister();
+    `);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -812,11 +839,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createDeterministicTranslatorExecutionUnit,createAgentTaskContract,createGenericProcessExecutionUnit} from '${packageName}/execution/node';
       import {createNamespaceSgosOperationalStore} from '${packageName}/execution/storage/namespace';
       import {createDurableExecutionUnit,createNodeExecutionOwner} from '${packageName}/execution/runtime';
+      import {createNodeTestReportCodec} from '${packageName}/testing/node';
+      import type {TestReportCodec,ParsedTestReport} from '${packageName}/testing/reports';
       import type {OperationalStore,OperationalState} from '${packageName}/execution/storage';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;declare const unitPort:ExecutionUnit;
+      const reports:TestReportCodec=createNodeTestReportCodec();
+      const parsed:ParsedTestReport=reports.replayTestReports('node-tap',[{contents:new Uint8Array()}]);
+      // @ts-expect-error Report byte inputs are explicit data, never an implicit filesystem path object.
+      reports.replayTestReports('node-tap',[{path:'/another/report'}]);
       const operational:OperationalStore=createNamespaceSgosOperationalStore({records:runtimeMetadata,content:runtimeContent,scope:{projectId:'example'},storeId:'execution'});
       const operationalState:Promise<OperationalState>=operational.read();
       const durable:ExecutionUnit=createDurableExecutionUnit({unit:unitPort,store:operational,content:runtimeContent,scope:{projectId:'example'},

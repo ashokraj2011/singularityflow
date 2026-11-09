@@ -1,3 +1,4 @@
+export {jsonTestReport} from './kernel/test-report-codec.mjs';
 /**
  * Test inference beyond the core manifest table, loaded only where a code-delivery gate, its recovery
  * preview, test setup or readiness maps a changed path to the commands that test it: the build files of
@@ -852,99 +853,6 @@ export async function pythonProjectLauncher(root, moduleRoot) {
     if (!current) break;
   }
   return await exists(path.join(root, cwd, 'poetry.lock')) && !await exists(path.join(root, cwd, '.venv')) ? ['poetry', 'run', 'python'] : null;
-}
-
-const tally = (outcomes) => ({ discovered: outcomes.length, passed: outcomes.filter((status) => status === 'passed').length,
-  failed: outcomes.filter((status) => status === 'failed').length, skipped: outcomes.filter((status) => status === 'skipped').length });
-const observed = (name, suitePath, framework, outcome, extra) => ({ suite: null, className: null, name, fullName: [...suitePath, name].join(' '),
-  ancestorTitles: suitePath, framework, outcome, ...extra, verdict: 'inconclusive', logicalTestId: null, declarationSha256: null, exact: false,
-  identityStatus: 'observed-name-only' });
-
-/**
- * A Playwright JSON report's tests, each project's run of a spec one occurrence (its describe path, file,
- * line, project and retries) [TCE:REQ-071]. A test that passed only on a retry stays flaky.
- */
-function playwrightObservation(parsed) {
-  const occurrences = [];
-  const visitSuite = (suite, suitePath, depth = 0) => {
-    if (depth > 128) throw new SingularityFlowError('Playwright result suite depth exceeds 128.', { code: 'CODE_TEST_RESULT_REQUIRED' });
-    for (const spec of suite?.specs ?? []) {
-      for (const test of spec.tests ?? []) {
-        const outcome = test.status;
-        const execution = test.results?.at(-1)?.status ?? null;
-        const state = outcome === 'skipped' || execution === 'skipped' ? 'skipped'
-          : outcome === 'unexpected' || ['failed', 'timedOut', 'interrupted'].includes(execution) ? 'failed'
-            : outcome === 'flaky' || outcome === 'expected' || execution === 'passed' ? 'passed' : null;
-        if (!state) throw new SingularityFlowError(`Playwright result contains unknown outcome '${outcome ?? execution ?? 'absent'}'.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
-        const duration = (test.results ?? []).reduce((total, result) => total + (Number(result?.duration) || 0), 0);
-        occurrences.push(observed(String(spec.title ?? ''), suitePath, 'playwright', state, {
-          ...(state === 'passed' && outcome === 'flaky' ? { flaky: true } : {}), file: spec.file ?? null, line: Number.isInteger(spec.line) ? spec.line : null,
-          project: test.projectName || null, retries: Math.max(0, (test.results ?? []).length - 1), durationMs: Math.round(duration) }));
-      }
-    }
-    // The outermost suites are files; the describe path starts below them.
-    for (const child of suite?.suites ?? []) visitSuite(child, depth ? [...suitePath, String(child.title ?? '')] : [String(child.title ?? '')], depth + 1);
-  };
-  for (const suite of parsed.suites ?? []) visitSuite(suite, [], 0);
-  const tests = tally(occurrences.map((occurrence) => occurrence.outcome));
-  const stats = parsed.stats;
-  if (stats && ['expected', 'unexpected', 'flaky', 'skipped'].every((key) => Number.isInteger(stats[key]))
-      && (stats.expected + stats.unexpected + stats.flaky + stats.skipped !== tests.discovered || stats.expected + stats.flaky !== tests.passed
-        || stats.unexpected !== tests.failed || stats.skipped !== tests.skipped)) {
-    throw new SingularityFlowError('Playwright reporter statistics differ from recursively traversed test outcomes.', { code: 'CODE_TEST_RESULT_REQUIRED' });
-  }
-  return { tests, occurrences };
-}
-
-/**
- * libtest's JSON lines on stdout, from `cargo test -- -Z unstable-options --format json` or `cargo nextest run
- * --message-format libtest-json`: each test's result, checked against every suite's totals [TCE:REQ-075].
- */
-function cargoObservation(text) {
-  const occurrences = [];
-  const declared = { passed: 0, failed: 0, skipped: 0, suites: 0 };
-  for (const line of text.split(/\r?\n/u).filter((entry) => entry.startsWith('{'))) {
-    let event;
-    try { event = JSON.parse(line); } catch { throw new SingularityFlowError('cargo JSON result has a malformed line.', { code: 'CODE_TEST_RESULT_REQUIRED' }); }
-    if (event.type === 'suite' && ['ok', 'failed'].includes(event.event)) {
-      declared.suites += 1;
-      declared.passed += Number(event.passed) || 0; declared.failed += Number(event.failed) || 0; declared.skipped += Number(event.ignored) || 0;
-    } else if (event.type === 'test' && ['ok', 'failed', 'ignored'].includes(event.event)) {
-      occurrences.push(observed(String(event.name), [], 'cargo', event.event === 'ok' ? 'passed' : event.event === 'failed' ? 'failed' : 'skipped',
-        { durationMs: Number.isFinite(event.exec_time) ? Math.round(event.exec_time * 1000) : null }));
-    }
-  }
-  const tests = tally(occurrences.map((occurrence) => occurrence.outcome));
-  if (!declared.suites || ['passed', 'failed', 'skipped'].some((key) => declared[key] !== tests[key])) {
-    throw new SingularityFlowError('cargo JSON result has no finished suite, or its suite totals differ from its tests.', { code: 'CODE_TEST_RESULT_REQUIRED' });
-  }
-  return { tests, occurrences };
-}
-
-/** A mocha JSON report (`--reporter json`): each passing, failing and pending test, a failed hook among the failures. */
-function mochaObservation(parsed) {
-  const occurrences = [];
-  for (const [list, outcome] of [['passes', 'passed'], ['failures', 'failed'], ['pending', 'skipped']]) {
-    if (!Array.isArray(parsed?.[list])) throw new SingularityFlowError(`mocha JSON result has no ${list} list.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
-    for (const test of parsed[list]) {
-      const name = String(test?.title ?? '');
-      const full = String(test?.fullTitle ?? name);
-      occurrences.push(observed(name, full.endsWith(name) && full !== name ? [full.slice(0, -name.length).trim()] : [], 'mocha', outcome,
-        { file: typeof test?.file === 'string' ? test.file : null, durationMs: Number.isFinite(test?.duration) ? Math.round(test.duration) : null }));
-    }
-  }
-  return { tests: tally(occurrences.map((occurrence) => occurrence.outcome)), occurrences };
-}
-
-/**
- * A Playwright, mocha or cargo report's counts and per-test occurrences, read by code-delivery-tests.mjs;
- * null for an older cargo-json summary file, which it reads itself.
- */
-export function jsonTestReport(adapter, text) {
-  const lines = adapter === 'cargo-json';
-  if (lines && !/^\{\s*"type"\s*:\s*"suite"/mu.test(text)) return null;
-  const { tests, occurrences } = (lines ? cargoObservation : adapter === 'mocha-json' ? mochaObservation : playwrightObservation)(lines ? text : JSON.parse(text));
-  return { tests, testcaseObservation: { occurrences, parser: { id: 'sflow-json-observer', version: 1, framework: adapter.split('-')[0] } } };
 }
 
 /**

@@ -7,3 +7,6 @@ export {CONFIGURATION_PATH_SYNTAX,CONFIGURATION_PATH_SYNTAX_V2} from '../../../s
 export {specificationAnalysisPolicies,SPECIFICATION_ANALYSIS_DECLARATIONS,WITNESS_TYPES,CHECKLIST_DECISIONS,MARKER_FINDING_KINDS} from '../../../src/kernel/specification-analysis.mjs';
 export {MARKER_LIMITS,markerQuestionHash,extractMarkers,reconcileMarkers,evaluateMarkerPolicy} from '../../../src/kernel/specification-markers.mjs';
 export {inspectSpecificationScenarios} from '../../../src/kernel/specification-scenarios.mjs';
+export {javascriptDeclarationPolicies,JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions} from '../../../src/kernel/javascript-declarations.mjs';
+export {javascriptSourceComments,scanSourceClauseTags} from '../../../src/kernel/source-comments.mjs';
+export {isQualifiedAcceptanceId,acceptanceTagsInComment,adjacentWhitespace,acceptanceTagsAboveLine,acceptanceTagLines} from '../../../src/kernel/verification-policy.mjs';

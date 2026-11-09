@@ -27,13 +27,17 @@ working ports; it does not need the configured author role or writer permissions
 
 ## Result and continuation
 
-The new result contract is `sflow-delivery-evidence-inspection/v1`. It includes compact
+The namespace result contract is now `sflow-delivery-evidence-inspection/v2`; explicit v1 port
+facts retain their original v1 result. The [shared source-analysis integration](ENGINE-SDK-SOURCE-ANALYSIS.md)
+adds bounded clause-tag and exact test-declaration observations from retained source bytes.
+It preserves separate identities for source, execution evidence and human acceptance.
+Both profiles include compact
 accepted record references, source/check match flags, protected/boundary counts and test
 outcomes reconstructed from retained raw evidence. Test-root coverage uses actually passed
 test commands for the same repository and the native ecosystem rules. A Node test command
 cannot establish affected Python coverage. Root coverage is not clause acceptance.
 
-`maximumEntries` bounds only displayed paths; complete affected/uncovered counts and final
+`maximumEntries` bounds displayed paths and source-analysis file rows; complete affected/uncovered counts and final
 freshness checks still apply. Zero is valid. No source text, raw test output, private physical
 root or model prompt is included. A historical passing run remains recorded as passed when
 source drifts, while `checksMatched: false` and its action require a new current run.

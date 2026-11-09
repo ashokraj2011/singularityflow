@@ -1,4 +1,6 @@
-import type {SpecificationValues,SpecificationClaimValues,VerificationContracts,SpecificationAnalysisValues,SpecificationChecklist} from '../specifications.mjs';
+import type {SpecificationValues,SpecificationClaimValues,VerificationContracts,SpecificationAnalysisValues,SpecificationChecklist,JavaScriptDeclarationValues} from '../specifications.mjs';
+export declare const scanJavaScriptDeclarations:JavaScriptDeclarationValues['scanJavaScriptDeclarations'];
+export {JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions,javascriptSourceComments,scanSourceClauseTags} from '../specifications.mjs';
 export declare const extractClauses:SpecificationValues['extractClauses'];
 export declare const specificationIndexRecord:SpecificationValues['specificationIndexRecord'];
 export declare const proseVerificationDeclarations:VerificationContracts['proseVerificationDeclarations'];

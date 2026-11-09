@@ -23,7 +23,7 @@ import { canonicalJson } from '../foundation/record-schema.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { posix, secureRepositoryPath, writeAtomicExclusive } from '../util.mjs';
 import { classifyTestCommand } from './adapters.mjs';
-import { profileForCommand } from './profiles.mjs';
+import { profileForCommand } from '../engine-compatibility/node-specification-policy.mjs';
 
 // `local` is a run started with tests run for a Story step [RUN M2], and `candidate` an Auto Candidate's
 // run on its own worktree [TCE:REQ-084]: staged and later admitted like the others. A gate reuses a

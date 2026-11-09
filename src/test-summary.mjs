@@ -63,7 +63,7 @@ export async function occurrenceClauses(root, { occurrences = [], profile = null
   const clauses = occurrences.map(() => new Set());
   if (!occurrences.length) return [];
   const [{ profileIsExact, testAdapterProfile }, { acceptanceTagsAboveLine }] = await Promise.all([
-    import('./verification/profiles.mjs'), import('./verification/tags.mjs')]);
+    import('./engine-compatibility/node-specification-policy.mjs'), import('./kernel/verification-policy.mjs')]);
   const profileId = profile ?? 'module-counts-v1';
   const exactJavaScript = profileIsExact(profileId) && testAdapterProfile(profileId).language === 'javascript';
   if (exactJavaScript) {

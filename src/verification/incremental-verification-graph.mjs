@@ -41,6 +41,11 @@ function sha256(value) {
 const SCANNER_SOURCE_FILES = [
   './incremental-verification-graph.mjs',
   './javascript-declarations.mjs',
+  '../kernel/javascript-declarations.mjs',
+  '../kernel/source-comments.mjs',
+  '../kernel/verification-policy.mjs',
+  '../foundation/traceability-ids.mjs',
+  '../engine-compatibility/node-source-analysis.mjs',
   './corner-case-obligations.mjs',
   './corner-case-harness.mjs',
   '../ast-packs/typescript-core.mjs'

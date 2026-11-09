@@ -10,7 +10,8 @@
  */
 import { ASSURANCE, EXECUTION_ASSURANCE, combinedAssurance } from '../evidence/vocabulary.mjs';
 import { joinDeclaration } from './join.mjs';
-import { profileCeiling, TEST_ADAPTER_PROFILES } from './profiles.mjs';
+import { profileCeiling } from '../engine-compatibility/node-specification-policy.mjs';
+import { TEST_ADAPTER_PROFILES } from '../kernel/verification-policy.mjs';
 
 const OUTCOME_STATUS = Object.freeze({
   passed: 'met', flaky: 'inconclusive', failed: 'failed', 'unverified-skipped': 'missing',

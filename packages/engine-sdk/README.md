@@ -98,7 +98,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   after validation, preserving serialized byte limits and record identity. Candidate values do not
   authenticate source bytes, retain evidence or admit publication. Deterministic quality, marker,
   scenario and human-checklist value rules use explicitly declared review content; their findings
-  never claim semantic completeness, passing tests or human approval.
+  never claim semantic completeness, passing tests or human approval. Shared source-comment,
+  clause-tag and JavaScript test-declaration values preserve native logical IDs, declaration
+  hashes, limits and association gaps; they require no checkout or execution provider.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-engine`: one explicit composition of the implemented namespace operations,
@@ -154,6 +156,8 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   acknowledgement; publication readiness and human acceptance remain separate requirements.
 - `hosts/namespace-delivery-inspection`: inspect accepted original/current source archives and
   real phase-check receipts through `phase.delivery.inspect`, with bounded affected-path previews.
+  Its explicit v2 manifest adds source tags, declaration identities and syntax gaps from exact
+  retained bytes; source/execution observations remain separate from requirement acceptance.
   It checks current file matches, reports missing or stale evidence and gives registered recovery
   actions. Reading starts no test or application process and records no approval. Native code,
   claims, constitution and artifact-set publication policies retain their separate owners.

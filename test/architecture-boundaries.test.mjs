@@ -227,6 +227,20 @@ test('kernel tree shaking is backed by pure initialization and no side-effect-on
         for (const declaration of node.declarationList.declarations) if (declaration.initializer) initializer(declaration.initializer);
       }
       else if (ts.isImportDeclaration(node)) assert.ok(node.importClause, file);
+      else if (ts.isClassDeclaration(node)) {
+        // A plain Error subclass evaluates no member bodies. Computed names, fields, static
+        // blocks and decorators can evaluate effects, so none are admitted by this exception.
+        assert.equal(node.heritageClauses?.length, 1, file);
+        assert.equal(node.heritageClauses[0].token, ts.SyntaxKind.ExtendsKeyword, file);
+        assert.equal(node.heritageClauses[0].types.length, 1, file);
+        assert.equal(node.heritageClauses[0].types[0].expression.getText(ast), 'Error', file);
+        assert.equal(node.modifiers?.length ?? 0, 0, file);
+        for (const member of node.members) {
+          assert.ok(ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member), file);
+          assert.equal(member.modifiers?.length ?? 0, 0, file);
+          assert.equal(Boolean(member.name && ts.isComputedPropertyName(member.name)), false, file);
+        }
+      }
       else assert.ok(ts.isFunctionDeclaration(node) || ts.isExportDeclaration(node), file);
     }
   }
@@ -758,6 +772,32 @@ test('source inspection has no filesystem, process, lifecycle writer or draft-wr
   };visit(ast);
 });
 
+test('native analysis caches delegate to shared rules and the Node binding cannot acquire I/O',async()=>{
+  const entries=['src/kernel/javascript-declarations.mjs','src/kernel/source-comments.mjs'];
+  const graph=await inspectPureModuleGraph({root:packageRoot,entries,allowed:[...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel')]});
+  assert.deepEqual(graph.problems,[]);
+  const owner='src/engine-compatibility/node-source-analysis.mjs',allowed=new Set(['../records.mjs','../kernel/javascript-declarations.mjs','../kernel/source-comments.mjs']);
+  const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    if(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword)assert.fail('Source values cannot acquire infrastructure.');
+    if(ts.isIdentifier(node)&&['process','require','eval','Function','fetch'].includes(node.text))assert.fail('Source values cannot acquire a host.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
+  for(const file of ['src/verification/tags.mjs','src/javascript-source-comments.mjs']) {
+    const text=await readFile(path.join(packageRoot,file),'utf8');assert.doesNotMatch(text,/\b(?:function|class|const)\b/u,file+' is a compatibility reexport only');
+  }
+  const source=await readFile(path.join(packageRoot,'src/source-clause-tags.mjs'),'utf8'),declarations=await readFile(path.join(packageRoot,'src/verification/javascript-declarations.mjs'),'utf8');
+  assert.match(source,/kernel\/source-comments\.mjs/u);assert.match(declarations,/engine-compatibility\/node-source-analysis\.mjs/u);
+  assert.doesNotMatch(source+declarations,/\b(?:readFile|spawn|fetch)\s*\(/u);
+  assert.doesNotMatch(source+declarations,/function\s+(?:tokenizeJavaScript|analyzeJavaScriptDeclarations)\s*\(/u);
+  const identity=await readFile(path.join(packageRoot,'src/build-identity.mjs'),'utf8'),manifest=await readFile(path.join(packageRoot,'src/vsix-source-manifest.mjs'),'utf8');
+  for(const file of ['kernel/javascript-declarations.mjs','kernel/source-comments.mjs','engine-compatibility/node-source-analysis.mjs']){
+    assert.ok(identity.includes("'"+file+"'"),file+' must affect the native build identity');
+    assert.ok(manifest.includes("'src/"+file+"'"),file+' must be required in the staged CLI payload');
+  }
+});
+
 test('retained source proof and shared observations cannot execute or write',async()=>{
   const allowedByFile=new Map([
     ['src/engine-storage/namespace-source-control-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-control.mjs',
@@ -767,7 +807,10 @@ test('retained source proof and shared observations cannot execute or write',asy
     ['src/engine-storage/namespace-delivery-inspection.mjs',new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/source-changes.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs','../engine-compatibility/node-source-policy.mjs',
       '../sda/namespace/values.mjs','./namespace-story-reader.mjs','./namespace-preparation.mjs','./namespace-source-observations.mjs',
-      './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs'])],
+      './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-source-analysis.mjs'])],
+    ['src/engine-storage/namespace-source-analysis.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs',
+      '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-analysis.mjs',
+      './namespace-source-content-reader.mjs','../kernel/source-changes.mjs'])],
     ['src/engine-storage/namespace-source-observations.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs','../kernel/source-binding.mjs'])],
     ['src/engine-storage/namespace-source-retention-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
       '../records.mjs','../kernel/source-changes.mjs','../kernel/phase-policy.mjs','../kernel/phase-admission.mjs','../kernel/story-creation.mjs','../kernel/project-enrollment.mjs',

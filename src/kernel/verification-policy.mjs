@@ -1,4 +1,5 @@
 /** Verification witness contracts and approved verification intent over explicit value primitives. */
+import {normalizeQualifiedClauseId,clauseTagsInComment} from '../foundation/traceability-ids.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
 import {configurationPathSyntax} from './configuration-path-policies.mjs';
@@ -579,4 +580,70 @@ function plannedTestAssuranceProblem({id,slot,testPath},command) {
     ?`${id}: ${testPath} runs under ${command.id}, which reaches ${ceiling}, but its contract requires ${slot.requiredAssurance}`:null;
 }
 return Object.freeze({plannedTestSlots,plannedTestAssuranceProblem});
+}
+
+/** Shared acceptance marker vocabulary; native and headless readers use these exact rules. */
+/** True for a namespace-qualified acceptance-criterion ID such as `PAY-1:AC-001`. */
+export function isQualifiedAcceptanceId(value) {
+  return /:AC-\d{3}$/u.test(normalizeQualifiedClauseId(value) ?? '');
+}
+
+/** The qualified criterion IDs named by `@ac:` markers in one comment's text. */
+export function acceptanceTagsInComment(text) {
+  return clauseTagsInComment(text).filter(entry => entry.tag === 'ac').map(entry => entry.clauseId);
+}
+
+/** Whether a whitespace run between two comments, or a comment and code, keeps them adjacent. */
+export function adjacentWhitespace(text) {
+  return /^[ \t\r]*\n?[ \t\r]*$/u.test(String(text ?? ''));
+}
+
+/**
+ * The criterion tags directly above a line in plain source lines: walk upward through contiguous
+ * comment lines (no blank line) and collect their markers. Used for languages whose parser reports
+ * a declaration's start offset but not its comments.
+ */
+export function acceptanceTagsAboveLine(lines, lineIndex) {
+  const ids = [];
+  const commentLines = [];
+  let inBlock = false;
+  for (let index = lineIndex - 1; index >= 0; index -= 1) {
+    const line = String(lines[index] ?? '').trim();
+    if (!line) break;
+    if (inBlock) {
+      commentLines.push(index);
+      if (line.startsWith('/*')) inBlock = false;
+      ids.unshift(...acceptanceTagsInComment(line));
+      continue;
+    }
+    if (line.startsWith('//') || line.startsWith('#')) {
+      commentLines.push(index);
+      ids.unshift(...acceptanceTagsInComment(line));
+      continue;
+    }
+    if (line.endsWith('*/')) {
+      commentLines.push(index);
+      ids.unshift(...acceptanceTagsInComment(line));
+      inBlock = !line.startsWith('/*');
+      continue;
+    }
+    break;
+  }
+  return { clauseIds: [...new Set(ids)], firstCommentLine: commentLines.length ? Math.min(...commentLines) : null };
+}
+
+/** Every `@ac:` marker in a file's comment lines, with its 1-based line, wherever it is. */
+export function acceptanceTagLines(source) {
+  const found = [];
+  const lines = String(source ?? '').split(/\r?\n/u);
+  let inBlock = false;
+  for (const [index, raw] of lines.entries()) {
+    const line = raw.trim();
+    const comment = inBlock || line.startsWith('//') || line.startsWith('#') || line.startsWith('/*') || line.startsWith('*');
+    if (line.startsWith('/*') && !line.includes('*/')) inBlock = true;
+    else if (inBlock && line.includes('*/')) inBlock = false;
+    if (!comment) continue;
+    for (const clauseId of acceptanceTagsInComment(line)) found.push({ clauseId, line: index + 1 });
+  }
+  return found;
 }

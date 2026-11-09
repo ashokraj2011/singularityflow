@@ -1,6 +1,36 @@
 /** These values do not authenticate source bytes, retain evidence or grant publication/approval. */
 export declare const TEXT_DIGEST_PROFILE:'sflow-text-digests/sha256-utf8-v1';
 export interface SpecificationDigests { readonly profile:typeof TEXT_DIGEST_PROFILE; readonly sha256Utf8:(text:string)=>string }
+/** Text analysis records associations and gaps; it does not execute tests or accept requirements. */
+export declare const JAVASCRIPT_DECLARATION_SCHEMA:'javascript-test-v2';
+export interface JavaScriptDeclarationOptions {readonly sourcePath?:string;readonly framework?:string}
+export interface JavaScriptSourceToken {readonly type:string;readonly start:number;readonly end:number;readonly line:number;readonly [key:string]:unknown}
+export interface JavaScriptDeclarationGap {readonly code:string;readonly message:string}
+export interface JavaScriptAssertionObservations {readonly count:number;readonly tautological:number;readonly negative:boolean;
+  readonly boundary:boolean;readonly nullability:boolean;readonly adequacy:'missing'|'tautological'|'adequate';readonly subjects:readonly string[]}
+export interface JavaScriptTestDeclaration {readonly schema:typeof JAVASCRIPT_DECLARATION_SCHEMA;readonly sourcePath:string|undefined;
+  readonly framework:string|undefined;readonly suitePath:readonly (string|null)[];readonly name:string|null;
+  readonly logicalTestId:string;readonly line:number;readonly span:{readonly start:number;readonly end:number};readonly declarationSha256:string;
+  readonly modifiers:readonly string[];readonly skipped:boolean;readonly focused:boolean;readonly clauseIds:readonly string[];
+  readonly parameters:null|{readonly kind:'static'|'dynamic';readonly count:number|null;readonly titlePattern:string|null};
+  readonly assertions:JavaScriptAssertionObservations;readonly gaps:readonly JavaScriptDeclarationGap[]}
+export interface JavaScriptDeclarationResult {readonly schema:typeof JAVASCRIPT_DECLARATION_SCHEMA;readonly sourcePath:string|undefined;
+  readonly framework:string|undefined;readonly declarations:readonly JavaScriptTestDeclaration[];
+  readonly unattachedTags:readonly (JavaScriptDeclarationGap&{readonly line:number;readonly clauseIds:readonly string[]})[];
+  readonly fileGaps:readonly JavaScriptDeclarationGap[]}
+export interface JavaScriptDeclarationValues {scanJavaScriptDeclarations(source:string,options?:JavaScriptDeclarationOptions):JavaScriptDeclarationResult}
+export declare function javascriptDeclarationPolicies(digests:SpecificationDigests):Readonly<JavaScriptDeclarationValues>;
+export declare function tokenizeJavaScript(source:string):JavaScriptSourceToken[];
+export declare function eachTitlePattern(template:string):string|null;
+export declare function analyzeTestDeclarationAssertions(tokens:readonly JavaScriptSourceToken[],callOpen:number,callClose:number,source?:string):JavaScriptAssertionObservations;
+export interface SourceClauseTag {readonly clauseId:string;readonly line:number;readonly tag:string}
+export declare function javascriptSourceComments(source:string,options?:{readonly jsx?:boolean}):Readonly<Record<string,unknown>>[];
+export declare function scanSourceClauseTags(source:string,options?:{readonly legacy?:boolean;readonly sourcePath?:string|null}):SourceClauseTag[];
+export declare function isQualifiedAcceptanceId(value:unknown):boolean;
+export declare function acceptanceTagsInComment(text:unknown):string[];
+export declare function adjacentWhitespace(text:unknown):boolean;
+export declare function acceptanceTagsAboveLine(lines:readonly unknown[],lineIndex:number):{clauseIds:string[];firstCommentLine:number|null};
+export declare function acceptanceTagLines(source:unknown):{clauseId:string;line:number}[];
 export interface ClauseVerification { readonly methods:readonly VerificationMethod[]; readonly criterionId:string|null }
 export interface SpecificationClause { readonly id:string; readonly namespace:string; readonly type:string; readonly number:number;
   readonly anchor:string; readonly source:{readonly path:string|null;readonly line:number}; readonly body:string;

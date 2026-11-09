@@ -17,7 +17,7 @@ import path from 'node:path';
 import { readRepositoryManifest } from './repository-manifest.mjs';
 import { launcherName, resolveTestCommand, SCRIPT_RUNNERS, unwrapRunner } from './test-command-resolution.mjs';
 import { runnerNamed, runnerNameOfAdapter, runnerNameOfLauncher, runnerOfLauncher, TEST_RUNNERS, TOOLS_ON_PATH } from './test-runners.mjs';
-import { profileForCommand, profileIsExact } from './verification/profiles.mjs';
+import { profileForCommand, profileIsExact } from './engine-compatibility/node-specification-policy.mjs';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_SCANNED_ENTRIES = 4000;

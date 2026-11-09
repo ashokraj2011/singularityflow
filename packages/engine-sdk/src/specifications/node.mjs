@@ -5,3 +5,5 @@ export {extractClauses,specificationIndexRecord,parseVerificationContracts,norma
 export {normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay,
   validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence} from '../../../../src/engine-compatibility/node-specification-policy.mjs';
 export {STARTER_CHECKLIST,policyHash,witnessedClauseReviewFields,analyzeSpecification,evaluateSpecificationQuality,validateChecklistDecisions,evaluateApprovalChecklist,specificationGateValue} from '../../../../src/engine-compatibility/node-specification-policy.mjs';
+export {scanJavaScriptDeclarations,JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions,
+  javascriptSourceComments,scanSourceClauseTags} from '../../../../src/engine-compatibility/node-source-analysis.mjs';

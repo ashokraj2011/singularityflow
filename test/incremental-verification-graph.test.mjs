@@ -32,6 +32,29 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
+test('changing an extracted source-analysis owner invalidates persisted verification facts',()=>{
+  // Replace reads in isolated child processes only. No checkout file is changed, and the
+  // comparison executes the real fingerprint owner instead of duplicating its algorithm.
+  const source=`
+    import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+    const target=process.argv[1],original=fs.readFileSync;let matched=0;
+    fs.readFileSync=function(file,...args){const bytes=original.call(this,file,...args);
+      if(target&&String(file).replaceAll('\\\\','/').endsWith('/'+target)){matched++;
+        return Buffer.isBuffer(bytes)?Buffer.concat([bytes,Buffer.from('\\n// Changed source-analysis owner.\\n')]):bytes+'\\n// Changed source-analysis owner.\\n';}
+      return bytes;};syncBuiltinESMExports();
+    const {VERIFICATION_SCANNER_FINGERPRINT}=await import(${JSON.stringify(new URL('../src/verification/incremental-verification-graph.mjs',import.meta.url).href)});
+    process.stdout.write(JSON.stringify({fingerprint:VERIFICATION_SCANNER_FINGERPRINT,matched}));
+  `;
+  const capture=target=>{const child=spawnSync(process.execPath,['--input-type=module','-e',source,target],{encoding:'utf8',timeout:10000});
+    assert.equal(child.status,0,child.error?.message??child.stderr);return JSON.parse(child.stdout);};
+  const baseline=capture('');assert.equal(baseline.matched,0);
+  for(const target of ['src/kernel/javascript-declarations.mjs','src/kernel/source-comments.mjs','src/kernel/verification-policy.mjs',
+    'src/foundation/traceability-ids.mjs','src/engine-compatibility/node-source-analysis.mjs']){
+    const changed=capture(target);assert.ok(changed.matched>0,target+' must be read by the real fingerprint owner');
+    assert.notEqual(changed.fingerprint,baseline.fingerprint,target+' must invalidate the persisted cache');
+  }
+});
+
 test('Step 3A: content-addressed verification cache memoizes AST/declaration scans and persists inside .git/sflow-cache without dirtying git status', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ivg-cache-'));
   t.after(() => rm(root, { recursive: true, force: true }));

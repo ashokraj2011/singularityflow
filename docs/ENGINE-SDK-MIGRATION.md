@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared source/test analysis](ENGINE-SDK-SOURCE-ANALYSIS.md) extraction gives native and SDK
+consumers one bounded comment, qualified-tag and JavaScript declaration owner. Namespace delivery
+inspection uses original verified retained bytes and a separately versioned v2 manifest, with
+full counts, bounded metadata and explicit syntax gaps. Test execution, requirement acceptance
+and publication authority remain separate; the required code-delivery owner is not bypassed.
+Actual application publication, remaining extraction, migration and final qualification keep
+Phases 5, 7, 8 and 9 open.
+
+This integration passed 342 distinct affected Mac cases, without failures, cancellations or skips,
+including native caches/delivery replay, all three namespace storage compositions, real checks and
+installed offline consumers. Source validation passed 3,991 checks across 191 skills. VS Code types,
+the unchanged Git ownership audit and all 13 unchanged bundle ceilings passed; gateway remains
+852/852. The SDK retains 60 operations across 209 owned modules and 2,143,668 JavaScript bytes.
+
 The [namespace phase-entry and exact context-read](ENGINE-SDK-NAMESPACE-PHASE-ENTRY.md) integration
 binds the authoring manifest to actual approved inputs, agent/skill/instruction dependencies,
 human clarification receipts, private drafts and selected sources. Its explicit v2 profile returns

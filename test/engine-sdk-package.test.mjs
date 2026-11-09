@@ -508,7 +508,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           assert.equal(baseline.totals.files,1);assert.equal(baseline.baselineContentsRetained,true);
           await writeFile('retained-baseline-record.json',JSON.stringify(baseline.record));
           await engine.run('phase.prepare',{phaseId:'delivery'});
-          await writeFile(path.join(root,'app.js'),'export const answer = 43;');await writeFile(path.join(root,'package.json'),'{}');
+          await writeFile(path.join(root,'app.js'),'// @clause:CODE-STORY:REQ-001 Returns the reviewed result.\\nexport const answer = 43;');await writeFile(path.join(root,'package.json'),'{}');
         }
         const result=await createNamespaceSourceInspectionEngine({...common,localRecords,localContent}).run('phase.source.inspect',{phaseId:'delivery'});
         assert.equal(result.manifest.status,'inspected');assert.equal(result.manifest.totals.changes,2);
@@ -518,6 +518,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(delivery.manifest.status,'observed');assert.equal(delivery.manifest.evidence.baseline.operationId,'retain-baseline-bytes');
         assert.equal(delivery.manifest.evidence.changes===null,fresh);assert.equal(delivery.manifest.repositories[0].sourceMatched,fresh?null:true);
         assert.equal(delivery.manifest.publicationReadinessInspected,false);assert.equal(delivery.manifest.applicationAcceptanceEstablished,false);
+        assert.equal(delivery.manifest.schemaVersion,2);assert.equal(delivery.manifest.analysis===null,fresh);
+        if(!fresh)assert.deepEqual(delivery.manifest.analysis.files.find(file=>file.path==='app.js').tags.map(tag=>tag.clauseId),['CODE-STORY:REQ-001']);
         const sourceReaders=fresh?[await createFilesystemSourceContentReader({root,id:'installed-source-reader',source:unit.descriptor,maximumChunkBytes:4})]:[];
         if(!fresh)await rm(root,{recursive:true});
         const baseline=await createNamespaceSourceBaselineEngine({...common,sources:[],sourceReaders:[]}).run('source.baseline.retain',{
@@ -527,7 +529,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           localRecords:fresh?localRecords:undefined,localContent:fresh?localContent:undefined})
           .run('phase.source.retain',{operationId:'retain-delivery-bytes',workId,phaseId:'delivery'});
         assert.equal(retained.effects.phasePublished,false);assert.equal(retained.totals.files,2);assert.equal(retained.totals.added,1);
-        if(fresh)await writeFile('retained-code-record.json',JSON.stringify(retained.record));
+        if(fresh){await writeFile('retained-code-record.json',JSON.stringify(retained.record));
+          const analyzed=await createNamespaceDeliveryInspectionEngine({...common,localRecords,localContent}).run('phase.delivery.inspect',{phaseId:'delivery'});
+          assert.deepEqual(analyzed.manifest.analysis.retentionRecord,retained.record.content);assert.equal(analyzed.manifest.analysis.totals.tags,1);
+          assert.equal(analyzed.manifest.analysis.totals.declarations,0);assert.equal(analyzed.effects.testsRun,false);}
         else{assert.equal(retained.replayed,true);assert.deepEqual(retained.record,JSON.parse(await readFile('retained-code-record.json','utf8')));}
         process.stdout.write(JSON.stringify(result));
       }finally{database.close();privateDatabase.close();}
@@ -1133,6 +1138,26 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       assert.equal(Object.hasOwn(rules,'buildSpecIndex'),false,'value rules must not discover or write files');
     `);
   });
+  await t.test('installed source analysis preserves the native oracle with infrastructure denied and an empty PATH',async()=>{
+    const captured=JSON.parse(await readFile(path.join(root,'test/fixtures/source-analysis/native-v1.json'),'utf8'));
+    await run('source-analysis-values.mjs',`
+      import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import {registerHooks} from 'node:module';
+      const unexpected=[],hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith('node:')){unexpected.push(specifier);throw Error('Unexpected source-analysis infrastructure: '+specifier);}return next(specifier,context);}});
+      const pure=await import('${packageName}/specifications'),oracle=JSON.parse(${JSON.stringify(JSON.stringify(captured))}),
+        values=pure.javascriptDeclarationPolicies(Object.freeze({profile:pure.TEXT_DIGEST_PROFILE,sha256Utf8:text=>createHash('sha256').update(text).digest('hex')})),
+        expand=source=>typeof source==='string'?source:source.repeat.repeat(source.count);
+      const compare=api=>{
+        for(const row of oracle.declarations)assert.deepEqual(JSON.parse(JSON.stringify(api.scanJavaScriptDeclarations(expand(row.source),row.options))),row.expected,row.id);
+        for(const row of oracle.sources)assert.deepEqual(api.scanSourceClauseTags(row.source,row.options),row.expected,row.id);
+      };
+      compare({...pure,...values});assert.deepEqual(unexpected,[]);hook.deregister();
+      const native=await import('${packageName}/specifications/node');compare(native);
+      assert.equal(native.JAVASCRIPT_DECLARATION_SCHEMA,'javascript-test-v2');
+      assert.equal(native.tokenizeJavaScript,pure.tokenizeJavaScript);assert.equal(native.javascriptSourceComments,pure.javascriptSourceComments);
+      assert.throws(()=>pure.javascriptDeclarationPolicies(Object.freeze({profile:pure.TEXT_DIGEST_PROFILE,sha256Utf8:()=> 'wrong'}))
+        .scanJavaScriptDeclarations("test('actual',()=>{});",{sourcePath:'test.js',framework:'jest'}),{code:'ENGINE_TEXT_DIGEST_RESULT_INVALID'});
+    `);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -1140,6 +1165,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '${packageName}/changes';
       import type {RepositoryChangeSetCodec} from '${packageName}/changes';
       import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
+      import {javascriptDeclarationPolicies,scanSourceClauseTags} from '${packageName}/specifications';
+      import type {JavaScriptDeclarationResult,JavaScriptTestDeclaration} from '${packageName}/specifications';
+      import {scanJavaScriptDeclarations} from '${packageName}/specifications/node';
+      const declarationValues=javascriptDeclarationPolicies(Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
+      const declarationResult:JavaScriptDeclarationResult=declarationValues.scanJavaScriptDeclarations("test('works',()=>{});",{sourcePath:'test/example.test.js',framework:'jest'});
+      const declaration:JavaScriptTestDeclaration|undefined=scanJavaScriptDeclarations('',{}).declarations[0];
+      const tagIds:string[]=scanSourceClauseTags('// @clause:VALUE:REQ-001',{sourcePath:'app.js'}).map(tag=>tag.clauseId);
+      // @ts-expect-error Source values cannot receive a checkout or infer retained publication readiness.
+      declarationValues.scanJavaScriptDeclarations('',{root:'/checkout',ready:true});
+      // @ts-expect-error Exact declaration identity uses a versioned digest capability, not a readiness result.
+      javascriptDeclarationPolicies({profile:TEXT_DIGEST_PROFILE,ready:true});
       import type {SpecificationClause,SpecificationIndex,VerificationContract,ClaimTimestampRequest,SpecificationClaimMap} from '${packageName}/specifications';
       import {extractClauses,parseVerificationContracts,normalizeClaimMapReplay,analyzeSpecification,STARTER_CHECKLIST,evaluateApprovalChecklist} from '${packageName}/specifications/node';
       import {specificationAnalysisPolicies,SPECIFICATION_ANALYSIS_DECLARATIONS,TEXT_VALUE_SYNTAX_PROFILE} from '${packageName}/specifications';

@@ -24,6 +24,7 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_STORAGE_CORRUPT',cause=undefined)=>new SingularityFlowError(message,{code,cause});
 export const emptySourceRetentionTotals=()=>({added:0,modified:0,removed:0,files:0,bytes:0,chunks:0,protectedChanges:0,boundaryViolations:0});
 export function createNamespaceSourceRetentionReader({records,content,scope,workId,authority,observer:givenObserver}={}) {
+  const verified=new WeakMap();
   scope=namespaceScope(scope);const observer=givenObserver??createNamespaceStoryObserver({records,content,scope,workId,authority});
   const limits=namespaceLimits(records.descriptor.limits);
   const observations=createNamespaceSourceObservations({observer,scope});
@@ -144,7 +145,8 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
     if(!same(body.totals,totals))throw error('The source summary contradicts its retained files.');
     const binding=sourceRetentionRecord('binding',{operationId:input.operationId,result:{key:k.manifest,version:saved.version,content:metadata.content},
       index:{key:codec.indexKey(prepared.plan),version:result.records.find(row=>row.key===codec.indexKey(prepared.plan)).version}});sourceRetentionBinding(binding);
-    return {...prepared,body,record:binding.result,binding,replayed:true};
+    const value={...prepared,body,record:binding.result,binding,replayed:true};
+    verified.set(value,hash(canonicalJson(value)));return value;
   }
   async function inspectDraft({phaseId,generation,baseRevision,draft,artifact,configuration},{signal}={}) {
     const key=codec.indexKey({input:{phaseId},generation,basis:{headVersion:baseRevision},draft});
@@ -156,5 +158,7 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
       ||!same(found.plan.basis.configuration,configuration)||!same(found.plan.artifact,artifact))throw error('The retained source index has another authored draft binding.');
     return found;
   }
-  return Object.freeze({observer,codec,json,intent,snapshot,projected,accepted,verifyRepository,inspectDraft});
+  function isAccepted(value){const identity=value&&verified.get(value);if(!identity)return false;
+    try{return identity===hash(canonicalJson(value));}catch{return false;}}
+  return Object.freeze({observer,codec,json,intent,snapshot,projected,accepted,verifyRepository,inspectDraft,isAccepted});
 }

@@ -23,7 +23,7 @@ function allowedSource(relative) {
       'src/sgos/node-check-execution-unit.mjs','src/sgos/node-git-source-control-reader.mjs','src/git-status-detail.mjs',
       'src/verification/test-report-reader.mjs','src/test-runners.mjs',
       'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
-      'src/engine-compatibility/node-source-policy.mjs','src/engine-compatibility/node-specification-policy.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
+      'src/engine-compatibility/node-source-policy.mjs','src/engine-compatibility/node-source-analysis.mjs','src/engine-compatibility/node-specification-policy.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
       'src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
     || /^src\/sda\/([^/]+)\.mjs$/u.test(relative) && adapterNames.has(path.posix.basename(relative, '.mjs'));
 }

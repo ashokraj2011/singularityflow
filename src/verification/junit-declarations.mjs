@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { acceptanceTagLines, acceptanceTagsAboveLine } from './tags.mjs';
+import { acceptanceTagLines, acceptanceTagsAboveLine } from '../kernel/verification-policy.mjs';
 
 export const JUNIT_DECLARATION_SCHEMA = 'junit5-method-v2';
 const KINDS = new Set(['test', 'parameterized', 'repeated', 'factory', 'template']);

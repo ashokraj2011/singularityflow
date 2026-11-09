@@ -2,6 +2,7 @@
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,sourceRelativePath} from '../foundation/source-snapshot.mjs';
+import {normalizeQualifiedClauseId} from '../foundation/traceability-ids.mjs';
 import {phaseAccessIdentity} from './phase-preparation.mjs';
 import {projectEnrollmentTimestamp} from './project-enrollment.mjs';
 
@@ -12,6 +13,8 @@ const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.t
 const revision=value=>typeof value==='string'&&value.length>0&&value.length<=512&&!/[\u0000-\u0020\u007f]/u.test(value);
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 const count=value=>Number.isSafeInteger(value)&&value>=0;
+export const DELIVERY_INSPECTION_PROFILE_V2='sflow-delivery-evidence-inspection/v2';
+export const SOURCE_ANALYSIS_PROFILE='sflow-retained-source-analysis/v1';
 
 export function phaseSourceInspectionInput(input) {
   if(!plain(input)||Object.keys(input).some(key=>!['workId','phaseId','maximumEntries'].includes(key))
@@ -191,7 +194,9 @@ export function sourceBaselineRetentionResult(input,facts) {
 /** Bounded observed source/test evidence. No publication, requirement or acceptance verdict. */
 export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntries) {
   const bad=()=>fail('The delivery inspector returned another or unbounded evidence binding.','ENGINE_PORT_RESULT_INVALID');
-  if(!exact(facts,['workId','phase','status','revision','authorityVersion','configuration','draft','sourceBinding','evidence','repositories','tests','requiredPolicyOwners'])
+  const v2=facts?.profile===DELIVERY_INSPECTION_PROFILE_V2;
+  if(facts?.profile!==undefined&&!v2)fail('The delivery-inspection profile needs its matching reader.','ENGINE_STORAGE_UNSUPPORTED');
+  if(!exact(facts,['workId','phase','status','revision','authorityVersion','configuration','draft','sourceBinding','evidence','repositories','tests','requiredPolicyOwners',...(v2?['profile','analysis']:[])])
     ||facts.workId!==workId||facts.phase!==phaseId||!['missing-draft','stale-draft','not-code-generation','observed'].includes(facts.status)
     ||!revision(facts.revision)||!revision(facts.authorityVersion)||!exact(facts.configuration,['key','content'])
     ||typeof facts.configuration.key!=='string'||!exact(facts.configuration.content,['namespace','sha256','bytes'])
@@ -242,6 +247,42 @@ export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntr
     if(facts.tests.status!=='not-configured'&&(facts.tests.status!=='passed'||facts.repositories.some(row=>row.checksMatched===false)))action('phase.checks.run',{workId,phaseId},['operationId'],
       ['failed','unavailable','partial','invalid'].includes(facts.tests.status)?['repair-observed-check-failures']:[]);
   }else if(facts.sourceBinding!==null||facts.repositories.length||Object.values(facts.evidence).some(Boolean))bad();
-  return {schemaVersion:1,contract:'sflow-delivery-evidence-inspection/v1',...facts,actions,
+  if(v2)validateSourceAnalysisPreview(facts,maximumEntries,bad);
+  return {schemaVersion:v2?2:1,contract:v2?DELIVERY_INSPECTION_PROFILE_V2:'sflow-delivery-evidence-inspection/v1',...facts,actions,
     observationsOnly:true,publicationReadinessInspected:false,applicationAcceptanceEstablished:false};
+}
+
+/** Bounded syntax associations only. Exact declarations are distinct from executed witnesses. */
+function validateSourceAnalysisPreview(facts,maximumEntries,bad) {
+  const value=facts.analysis;
+  if((facts.evidence.changes===null)!==(value===null))bad();if(value===null)return;
+  if(!exact(value,['profile','retentionRecord','totals','files','truncated'])||value.profile!==SOURCE_ANALYSIS_PROFILE
+    ||canonicalJson(value.retentionRecord)!==canonicalJson(facts.evidence.changes.record.content)
+    ||!exact(value.totals,['files','tags','declarations','gaps'])||Object.values(value.totals).some(number=>!count(number))
+    ||!Array.isArray(value.files)||value.files.length>maximumEntries||value.files.length>value.totals.files||typeof value.truncated!=='boolean')bad();
+  const sums={tags:0,declarations:0,gaps:0},paths=new Set();let truncated=value.files.length<value.totals.files;
+  const positive=number=>count(number)&&number>0,qualified=clause=>typeof clause==='string'&&normalizeQualifiedClauseId(clause)===clause;
+  for(const file of value.files) {
+    if(!exact(file,['repositoryId','path','change','role','source','kind','counts','tags','declarations','gaps','truncated'])
+      ||!facts.repositories.some(repository=>repository.id===file.repositoryId)||!id(file.role)||!['A','M','D'].includes(file.change)
+      ||!['text','binary','removed','too-large'].includes(file.kind)||!exact(file.counts,['tags','declarations','gaps'])
+      ||Object.values(file.counts).some(number=>!count(number))||typeof file.truncated!=='boolean')bad();
+    sourceRelativePath(file.path);const key=file.repositoryId+'\0'+file.path;if(paths.has(key))bad();paths.add(key);
+    if((file.change==='D')!==(file.kind==='removed'))bad();
+    if(file.source===null?file.kind!=='removed':!exact(file.source,['sha256','bytes','executable'])||!sha(file.source.sha256)
+      ||!count(file.source.bytes)||typeof file.source.executable!=='boolean'||file.kind==='removed')bad();
+    for(const name of ['tags','declarations','gaps']) {
+      if(!Array.isArray(file[name])||file[name].length>file.counts[name]||file[name].length>100)bad();sums[name]+=file.counts[name];
+    }
+    if(file.truncated!==['tags','declarations','gaps'].some(name=>file[name].length<file.counts[name]))bad();truncated||=file.truncated;
+    for(const tag of file.tags)if(!exact(tag,['clauseId','line','tag'])||!qualified(tag.clauseId)||!positive(tag.line)||!['clause','ac'].includes(tag.tag))bad();
+    for(const declaration of file.declarations)if(!exact(declaration,['logicalTestId','declarationSha256','line','clauseIds','skipped','focused'])
+      ||!/^sha256:[a-f0-9]{64}$/u.test(declaration.logicalTestId??'')||!/^sha256:[a-f0-9]{64}$/u.test(declaration.declarationSha256??'')
+      ||!positive(declaration.line)||!Array.isArray(declaration.clauseIds)||!declaration.clauseIds.every(qualified)
+      ||typeof declaration.skipped!=='boolean'||typeof declaration.focused!=='boolean')bad();
+    for(const gap of file.gaps)if(!exact(gap,['code','line','messagePreview'])||!id(gap.code)||gap.line!==null&&!positive(gap.line)
+      ||typeof gap.messagePreview!=='string'||gap.messagePreview.length>512)bad();
+  }
+  if(Object.entries(sums).some(([key,total])=>total>value.totals[key])||value.truncated!==truncated
+    ||!value.truncated&&Object.entries(sums).some(([key,total])=>total!==value.totals[key]))bad();
 }

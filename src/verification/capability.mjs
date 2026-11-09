@@ -16,7 +16,7 @@ import path from 'node:path';
 import { inferModuleTestCommand } from '../code-delivery-tests.mjs';
 import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { posix } from '../util.mjs';
-import { profileCeiling, profileForCommand, profileIsExact } from './profiles.mjs';
+import { profileCeiling, profileForCommand, profileIsExact } from '../engine-compatibility/node-specification-policy.mjs';
 import { isDotnetManifest, selectDotnetManifest } from '../dotnet-manifests.mjs';
 import { repositoryManifestExists } from '../repository-manifest.mjs';
 import { isXcodeManifest } from '../swift-manifests.mjs';

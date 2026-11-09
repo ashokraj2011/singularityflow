@@ -1,0 +1,1470 @@
+{
+  "schemaVersion": 1,
+  "profile": "sflow-native-source-analysis-oracle/v1",
+  "nativeCommit": "5ca5accb4ddc1d856a616144b34ffd644971d107",
+  "sourceSha256": {
+    "src/verification/javascript-declarations.mjs": "ae04558b35db4afbddead56d69535a350dbb93ceacb6890eba27ad9dbebd45e1",
+    "src/source-clause-tags.mjs": "19518b939b90714553f3a01a20379e597fa227d0778151ff1504594967affa0d",
+    "src/javascript-source-comments.mjs": "326661bb4540cb6cca03b34f216cad2acac75b5cf675a8a5c155bb8ce772af2a",
+    "src/verification/tags.mjs": "7da8a73be90497627a0e2f1b20ffd07d60e8daae4307c994e71785f5fef213af"
+  },
+  "declarations": [
+    {
+      "id": "node-direct",
+      "source": "import test from 'node:test';import assert from 'node:assert/strict';\n// @ac:STORY-1:AC-001\ntest('converts',()=>assert.equal(255..toString(16),'ff'));\n",
+      "options": {
+        "sourcePath": "test/converter.test.mjs",
+        "framework": "node:test"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/converter.test.mjs",
+        "framework": "node:test",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "node:test",
+            "sourcePath": "test/converter.test.mjs",
+            "suitePath": [],
+            "name": "converts",
+            "logicalTestId": "sha256:c81d307668a68a473388ace1ab4b54ccd1a6a894a16887c605fdf322e14d2e62",
+            "line": 3,
+            "span": {
+              "start": 92,
+              "end": 150
+            },
+            "declarationSha256": "sha256:7cd17f8e450bffd768a6e06390e292037c3f258510176f742628ebe026d4d809",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 1,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "adequate",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "node-alias",
+      "source": "import {test as check} from 'node:test';\n// @ac:STORY-1:AC-001\ncheck('convert',()=>{});",
+      "options": {
+        "sourcePath": "test/alias.test.mjs",
+        "framework": "node:test"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/alias.test.mjs",
+        "framework": "node:test",
+        "declarations": [],
+        "unattachedTags": [
+          {
+            "line": 2,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "code": "AC_TAG_NOT_ATTACHED",
+            "message": "the tag is not directly above a test declaration"
+          }
+        ],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "node-no-import",
+      "source": "// @ac:STORY-1:AC-001\ntest('convert',()=>{});",
+      "options": {
+        "sourcePath": "test/missing.test.mjs",
+        "framework": "node:test"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/missing.test.mjs",
+        "framework": "node:test",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "node:test",
+            "sourcePath": "test/missing.test.mjs",
+            "suitePath": [],
+            "name": "convert",
+            "logicalTestId": "sha256:5313ead32831c63a6d42887041ffb21af09ab1ad4ce88e87285b8ce82c9e8cf4",
+            "line": 2,
+            "span": {
+              "start": 22,
+              "end": 45
+            },
+            "declarationSha256": "sha256:635df19b7033cc93de650e0a16984567276b6da6497dcc85e9120bc561c02da4",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "NODE_TEST_IMPORT_UNSUPPORTED",
+                "message": "use a direct named node:test import (or default test import) for an exact native declaration"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "nested-suite",
+      "source": "describe('converter',()=>{\n// @ac:STORY-1:AC-001\nit('convert',()=>expect(convert(255)).toBe('ff'));\n});",
+      "options": {
+        "sourcePath": "test/converter.test.js",
+        "framework": "vitest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/converter.test.js",
+        "framework": "vitest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "vitest",
+            "sourcePath": "test/converter.test.js",
+            "suitePath": [
+              "converter"
+            ],
+            "name": "convert",
+            "logicalTestId": "sha256:1be23c3a3ffcbbfbdb5018194748900e466e3799eeab61d5a311688fde42d330",
+            "line": 3,
+            "span": {
+              "start": 49,
+              "end": 99
+            },
+            "declarationSha256": "sha256:6a5772a552322f20a99e2b0417a02d5d1d63636a0c4ba074bfdea90772dfa7a8",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 1,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "adequate",
+              "subjects": [
+                "convert"
+              ]
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "adjacent-tags",
+      "source": "// @ac:STORY-1:AC-001\n// @ac:STORY-1:AC-002\ntest('two contracts',()=>expect(value()).toEqual(1));",
+      "options": {
+        "sourcePath": "test/multiple.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/multiple.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/multiple.test.js",
+            "suitePath": [],
+            "name": "two contracts",
+            "logicalTestId": "sha256:542f691119933e29fbd9403570999550c728d1ddb4303a04d04937deacfa357d",
+            "line": 3,
+            "span": {
+              "start": 44,
+              "end": 97
+            },
+            "declarationSha256": "sha256:0dde279bfe33dc326d747676d354f00c16628c8fec169cd0998a791ad1cecd83",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001",
+              "STORY-1:AC-002"
+            ],
+            "assertions": {
+              "count": 1,
+              "tautological": 0,
+              "negative": false,
+              "boundary": true,
+              "nullability": false,
+              "adequacy": "adequate",
+              "subjects": [
+                "value"
+              ]
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "unattached-tag",
+      "source": "// @ac:STORY-1:AC-001\n\ntest('not attached',()=>{});",
+      "options": {
+        "sourcePath": "test/gap.test.js",
+        "framework": "vitest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/gap.test.js",
+        "framework": "vitest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "vitest",
+            "sourcePath": "test/gap.test.js",
+            "suitePath": [],
+            "name": "not attached",
+            "logicalTestId": "sha256:945d11c46e7fb7e4c43eddd7295dcec40234409610bc096bb7bc4c23d26359c7",
+            "line": 3,
+            "span": {
+              "start": 23,
+              "end": 51
+            },
+            "declarationSha256": "sha256:dd3038eda6bc2bccc3d935d368b858eea0c775b7f67d27bdb229ede484c43e98",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [
+          {
+            "line": 1,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "code": "AC_TAG_NOT_ATTACHED",
+            "message": "the tag is not directly above a test declaration"
+          }
+        ],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "tag-on-suite",
+      "source": "// @ac:STORY-1:AC-001\ndescribe('group',()=>{it('one',()=>{});});",
+      "options": {
+        "sourcePath": "test/suite.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/suite.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/suite.test.js",
+            "suitePath": [
+              "group"
+            ],
+            "name": "one",
+            "logicalTestId": "sha256:97056e94a312ee2a327bc6d845b4416f1692e69cbea7290017b053e9c0cf6518",
+            "line": 2,
+            "span": {
+              "start": 44,
+              "end": 61
+            },
+            "declarationSha256": "sha256:74ae66ca1d4ddddd6a4a7db1075a39f8377e1a485d209b85458eca5497659d6e",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [
+          {
+            "line": 2,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "code": "AC_TAG_ON_SUITE",
+            "message": "the tag is above a describe block; place it directly above the test that verifies the criterion"
+          }
+        ],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "dynamic-title",
+      "source": "// @ac:STORY-1:AC-001\ntest(prefix + suffix,()=>{});",
+      "options": {
+        "sourcePath": "test/dynamic.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/dynamic.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/dynamic.test.js",
+            "suitePath": [],
+            "name": null,
+            "logicalTestId": "sha256:a2fb8aed30e1725bc578db0d657c4aa1ea615d102d929e98bfabd43b7c30bc1b",
+            "line": 2,
+            "span": {
+              "start": 22,
+              "end": 51
+            },
+            "declarationSha256": "sha256:f18639046f58bfac8c2cc550a530e4371093aa872c9036ae1f245cb766c6518e",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "DYNAMIC_TITLE",
+                "message": "the test title is not a string literal"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "conditional",
+      "source": "if (enabled) {\n// @ac:STORY-1:AC-001\ntest('conditional',()=>{});\n}",
+      "options": {
+        "sourcePath": "test/condition.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/condition.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/condition.test.js",
+            "suitePath": [],
+            "name": "conditional",
+            "logicalTestId": "sha256:60595ec6b8bd68412478000ad5aad2d024ed830a25f2103c9524f8791af0b483",
+            "line": 3,
+            "span": {
+              "start": 37,
+              "end": 64
+            },
+            "declarationSha256": "sha256:7189f59729be41b392097b81022d41d366acfc89000d9cb5a565b1b750bafb10",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "DECLARATION_IN_DYNAMIC_CONTEXT",
+                "message": "the test is declared inside a loop, condition, function or expression rather than at the top level or directly in a describe body"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "loop",
+      "source": "for(const x of inputs){\n// @ac:STORY-1:AC-001\nit('iteration',()=>{});\n}",
+      "options": {
+        "sourcePath": "test/loop.test.js",
+        "framework": "vitest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/loop.test.js",
+        "framework": "vitest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "vitest",
+            "sourcePath": "test/loop.test.js",
+            "suitePath": [],
+            "name": "iteration",
+            "logicalTestId": "sha256:235aa8004904d7ef4a87dcd3977e48c11268836cee50deaee4f3f1b534a70973",
+            "line": 3,
+            "span": {
+              "start": 46,
+              "end": 69
+            },
+            "declarationSha256": "sha256:a1b98d365b63546c379d08e196f6175bf4d2f422da3ae0b075713bf62ffbefa5",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "DECLARATION_IN_DYNAMIC_CONTEXT",
+                "message": "the test is declared inside a loop, condition, function or expression rather than at the top level or directly in a describe body"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "parameterized",
+      "source": "// @ac:STORY-1:AC-001\ntest.each([[1,2],[2,4]])('double %d',(input,expected)=>expect(input*2).toBe(expected));",
+      "options": {
+        "sourcePath": "test/table.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/table.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/table.test.js",
+            "suitePath": [],
+            "name": "double %d",
+            "logicalTestId": "sha256:efd9a10481f4b3d61a5a07d034c6b28367b1d21b4e9d4436d8c17d5ab2a349a2",
+            "line": 2,
+            "span": {
+              "start": 22,
+              "end": 109
+            },
+            "declarationSha256": "sha256:2c7f4d5a4269f0d66e94895cb20074c37382352a5ed6e0b19ced7ec1ca722fa1",
+            "modifiers": [
+              "each"
+            ],
+            "skipped": false,
+            "focused": false,
+            "parameters": {
+              "kind": "static",
+              "count": 2,
+              "titlePattern": "^double .*?$"
+            },
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 1,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "adequate",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "dynamic-table",
+      "source": "// @ac:STORY-1:AC-001\ntest.each(inputs)('entry %s',()=>{});",
+      "options": {
+        "sourcePath": "test/dynamic-table.test.js",
+        "framework": "vitest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/dynamic-table.test.js",
+        "framework": "vitest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "vitest",
+            "sourcePath": "test/dynamic-table.test.js",
+            "suitePath": [],
+            "name": "entry %s",
+            "logicalTestId": "sha256:d28bca737375007b164d8ebb0b88149dffdd11cfe48aae0c0133979c9e62eb4f",
+            "line": 2,
+            "span": {
+              "start": 22,
+              "end": 59
+            },
+            "declarationSha256": "sha256:d7850614d6b1c84acac781e6f4f2f3cfefc27ad0150e0f4c311b86ef003eecd8",
+            "modifiers": [
+              "each"
+            ],
+            "skipped": false,
+            "focused": false,
+            "parameters": {
+              "kind": "dynamic",
+              "count": null,
+              "titlePattern": "^entry .*?$"
+            },
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "DYNAMIC_PARAMETER_SET",
+                "message": "the parameter table is not a literal, so the expected instances are unknown"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "duplicate",
+      "source": "test('same',()=>{});\ntest('same',()=>{});",
+      "options": {
+        "sourcePath": "test/duplicate.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/duplicate.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/duplicate.test.js",
+            "suitePath": [],
+            "name": "same",
+            "logicalTestId": "sha256:1fd128233cc0711066ae480357cd2a2aeca3598ee705bd2cc12efd86168dfa45",
+            "line": 1,
+            "span": {
+              "start": 0,
+              "end": 20
+            },
+            "declarationSha256": "sha256:4be548a20c24bb5341f7c482ab7b297393acfcac377824abee3f9033c0dfa9c9",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "DUPLICATE_DECLARATION",
+                "message": "2 tests in this file share the describe path and title"
+              }
+            ]
+          },
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/duplicate.test.js",
+            "suitePath": [],
+            "name": "same",
+            "logicalTestId": "sha256:1fd128233cc0711066ae480357cd2a2aeca3598ee705bd2cc12efd86168dfa45",
+            "line": 2,
+            "span": {
+              "start": 21,
+              "end": 41
+            },
+            "declarationSha256": "sha256:4be548a20c24bb5341f7c482ab7b297393acfcac377824abee3f9033c0dfa9c9",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "DUPLICATE_DECLARATION",
+                "message": "2 tests in this file share the describe path and title"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "skip-focus",
+      "source": "test.skip('skip',()=>{});\ntest.only('focus',()=>{});\ntest.failing('failure',()=>{});",
+      "options": {
+        "sourcePath": "test/modifiers.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/modifiers.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/modifiers.test.js",
+            "suitePath": [],
+            "name": "skip",
+            "logicalTestId": "sha256:e7cda89ada8a1e3784dac8f72172dc93db2001318f4841ce398baa178fd90e0b",
+            "line": 1,
+            "span": {
+              "start": 0,
+              "end": 25
+            },
+            "declarationSha256": "sha256:fbb35615539e3b57ee3c993dbfc53bb29e8a59ea2f870def8e387c2b2b7dfa84",
+            "modifiers": [
+              "skip"
+            ],
+            "skipped": true,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": []
+          },
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/modifiers.test.js",
+            "suitePath": [],
+            "name": "focus",
+            "logicalTestId": "sha256:b55c78eb6e2c703fd1a7ab9164ec376c17e238d6046da61a4a2bbc75085d92ad",
+            "line": 2,
+            "span": {
+              "start": 26,
+              "end": 52
+            },
+            "declarationSha256": "sha256:dc3c9c0f8bef31c3a2661817fc796c277f117d7b51ce2bd90e165fd03b4e73d5",
+            "modifiers": [
+              "only"
+            ],
+            "skipped": false,
+            "focused": true,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": []
+          },
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/modifiers.test.js",
+            "suitePath": [],
+            "name": "failure",
+            "logicalTestId": "sha256:8c20a54e8e973b2ede341024e7d9c5d18a9b2c5c91e8a07523b8b9c4fab01b8e",
+            "line": 3,
+            "span": {
+              "start": 53,
+              "end": 84
+            },
+            "declarationSha256": "sha256:471d325e64c8aff9a577d5fac75f9de15e7679b8272fbbe3191686fbfb185b4a",
+            "modifiers": [
+              "failing"
+            ],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": [
+              {
+                "code": "INVERTED_TEST",
+                "message": "the test is expected to fail, so a pass would mean its body failed"
+              }
+            ]
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "assertions",
+      "source": "test('bounds',()=>{expect(value).toBeGreaterThan(0);expect(()=>convert(-1)).toThrow();assert.notEqual(result,null);});",
+      "options": {
+        "sourcePath": "test/bounds.test.js",
+        "framework": "vitest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/bounds.test.js",
+        "framework": "vitest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "vitest",
+            "sourcePath": "test/bounds.test.js",
+            "suitePath": [],
+            "name": "bounds",
+            "logicalTestId": "sha256:2e01dab4f70ce798d723e1b85ec8fb2abdfc169899dee264c443994ebcfea447",
+            "line": 1,
+            "span": {
+              "start": 0,
+              "end": 118
+            },
+            "declarationSha256": "sha256:ab9936536ada8c1d4eb64466d94d67ec527820d3d9be21733ae6fd0f2a558d2a",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 3,
+              "tautological": 0,
+              "negative": true,
+              "boundary": true,
+              "nullability": true,
+              "adequacy": "adequate",
+              "subjects": [
+                "convert"
+              ]
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "tautology",
+      "source": "test('weak',()=>{expect(1).toBe(1);assert.equal(true,true);});",
+      "options": {
+        "sourcePath": "test/weak.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/weak.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/weak.test.js",
+            "suitePath": [],
+            "name": "weak",
+            "logicalTestId": "sha256:7e07ad1f18b42d06005f32ad3556c228e391df1acb2b3e138f47c68ef05940c7",
+            "line": 1,
+            "span": {
+              "start": 0,
+              "end": 62
+            },
+            "declarationSha256": "sha256:e81c098f1c51fd653f085eff1c57b1eb98c939c5fdae27301b3a32165e06f84d",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 2,
+              "tautological": 2,
+              "negative": false,
+              "boundary": true,
+              "nullability": false,
+              "adequacy": "tautological",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "unicode",
+      "source": "// @ac:STORY-1:AC-001\ntest('é 中 😀',()=>expect(convert(255)).toBe('ff'));",
+      "options": {
+        "sourcePath": "test/unicode.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/unicode.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/unicode.test.js",
+            "suitePath": [],
+            "name": "é 中 😀",
+            "logicalTestId": "sha256:f93ccfcacedb4c7dbf92209767b8023344fbfd5b8b65378a5e3fb75501c2bf71",
+            "line": 2,
+            "span": {
+              "start": 22,
+              "end": 73
+            },
+            "declarationSha256": "sha256:395623dda03e17d9bfa2fc617fd52e211c257a1dd5c52d8a894c9f2f523f7318",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 1,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "adequate",
+              "subjects": [
+                "convert"
+              ]
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "template-title",
+      "source": "test(`a literal title`,()=>{});",
+      "options": {
+        "sourcePath": "test/template.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/template.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/template.test.js",
+            "suitePath": [],
+            "name": "a literal title",
+            "logicalTestId": "sha256:1ff8a5e27c9d245f35e7c4c8f9dea27a574ce4cdb13194487e900030fbce2573",
+            "line": 1,
+            "span": {
+              "start": 0,
+              "end": 31
+            },
+            "declarationSha256": "sha256:8f33903d6aa9a1ebd983a2223b54d1eb434335a8bcb4caf00ed2c002b7f85db3",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "malformed",
+      "source": "// @ac:STORY-1:AC-001\ntest('unterminated,()=>{});",
+      "options": {
+        "sourcePath": "test/malformed.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/malformed.test.js",
+        "framework": "jest",
+        "declarations": [],
+        "unattachedTags": [
+          {
+            "line": 1,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "code": "JAVASCRIPT_SOURCE_UNREADABLE",
+            "message": "the file cannot be read as data: unterminated string on line 2"
+          }
+        ],
+        "fileGaps": [
+          {
+            "code": "JAVASCRIPT_SOURCE_UNREADABLE",
+            "message": "unterminated string on line 2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "regex-and-template",
+      "source": "const re=/test\\('not real'/;const text=`test('fake',()=>{})`;\n// @ac:STORY-1:AC-001\ntest('real',()=>{});",
+      "options": {
+        "sourcePath": "test/literals.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/literals.test.js",
+        "framework": "jest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "jest",
+            "sourcePath": "test/literals.test.js",
+            "suitePath": [],
+            "name": "real",
+            "logicalTestId": "sha256:2ba84c9158ca923e48879a8948e7dd744245e26af39324d746d460cb2bffddef",
+            "line": 3,
+            "span": {
+              "start": 84,
+              "end": 104
+            },
+            "declarationSha256": "sha256:c13e456aed52bf52f187b809cb83d1f22d1f5d6de982ad61b742d66ad066fcdc",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 0,
+              "tautological": 0,
+              "negative": false,
+              "boundary": false,
+              "nullability": false,
+              "adequacy": "missing",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "typescript",
+      "source": "const value: number = 1;\n// @ac:STORY-1:AC-001\nit('typed',()=>expect(value).toBe(1));",
+      "options": {
+        "sourcePath": "test/typed.test.ts",
+        "framework": "vitest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/typed.test.ts",
+        "framework": "vitest",
+        "declarations": [
+          {
+            "schema": "javascript-test-v2",
+            "framework": "vitest",
+            "sourcePath": "test/typed.test.ts",
+            "suitePath": [],
+            "name": "typed",
+            "logicalTestId": "sha256:cbf56549917d2ef2beaecdf2d797840afacbe36c6f4774bcdb992be24ef61f48",
+            "line": 3,
+            "span": {
+              "start": 47,
+              "end": 85
+            },
+            "declarationSha256": "sha256:08a68c862dcb0eb81b87ead932d904993d8eaf191f7f8a8828ed4af22f909865",
+            "modifiers": [],
+            "skipped": false,
+            "focused": false,
+            "parameters": null,
+            "clauseIds": [
+              "STORY-1:AC-001"
+            ],
+            "assertions": {
+              "count": 1,
+              "tautological": 0,
+              "negative": false,
+              "boundary": true,
+              "nullability": false,
+              "adequacy": "adequate",
+              "subjects": []
+            },
+            "gaps": []
+          }
+        ],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "empty",
+      "source": "",
+      "options": {
+        "sourcePath": "test/empty.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/empty.test.js",
+        "framework": "jest",
+        "declarations": [],
+        "unattachedTags": [],
+        "fileGaps": []
+      }
+    },
+    {
+      "id": "limit",
+      "source": {
+        "repeat": "x",
+        "count": 1048577
+      },
+      "options": {
+        "sourcePath": "test/huge.test.js",
+        "framework": "jest"
+      },
+      "expected": {
+        "schema": "javascript-test-v2",
+        "sourcePath": "test/huge.test.js",
+        "framework": "jest",
+        "declarations": [],
+        "unattachedTags": [],
+        "fileGaps": [
+          {
+            "code": "JAVASCRIPT_SOURCE_LIMIT_EXCEEDED",
+            "message": "the file exceeds 1048576 characters"
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "javascript-comment",
+      "source": "// @clause:STORY-1:REQ-001 Converts the integer using radix 16.\nexport const convert=x=>x.toString(16);",
+      "options": {
+        "sourcePath": "src/convert.js"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 0,
+          "end": 63,
+          "kind": "line",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "literal-is-not-comment",
+      "source": "const text='// @clause:STORY-1:REQ-999';\n// @clause:STORY-1:REQ-001 Real comment.\n",
+      "options": {
+        "sourcePath": "src/value.js"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 2,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 41,
+          "end": 81,
+          "kind": "line",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "jsx-container",
+      "source": "export const View=()=> <main>{/* @clause:STORY-1:REQ-001 Shows the result. */}<span>/* @clause:STORY-1:REQ-999 */</span></main>;",
+      "options": {
+        "sourcePath": "src/View.jsx"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 30,
+          "end": 77,
+          "kind": "block",
+          "jsxContainer": true
+        }
+      ]
+    },
+    {
+      "id": "jsx-attributes",
+      "source": "const node=<p title='// @clause:STORY-1:REQ-999'>{/* @clause:STORY-1:REQ-001 Actual comment */}</p>;",
+      "options": {
+        "sourcePath": "src/View.tsx"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 50,
+          "end": 94,
+          "kind": "block",
+          "jsxContainer": true
+        }
+      ]
+    },
+    {
+      "id": "template-expression",
+      "source": "const html=`// @clause:STORY-1:REQ-999 ${(() => {\n// @clause:STORY-1:REQ-001 In an expression.\nreturn 1;})()}`;",
+      "options": {
+        "sourcePath": "src/template.js"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 2,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 50,
+          "end": 94,
+          "kind": "line",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "block-comment",
+      "source": "/* @clause:STORY-1:REQ-001\n * @clause:STORY-1:REQ-002 Both clauses. */\nconst x=1;",
+      "options": {
+        "sourcePath": "src/value.ts"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        },
+        {
+          "clauseId": "STORY-1:REQ-002",
+          "line": 2,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 0,
+          "end": 70,
+          "kind": "block",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "after-code",
+      "source": "const x=1; // @clause:STORY-1:REQ-001 Not a leading comment.\n",
+      "options": {
+        "sourcePath": "src/value.js"
+      },
+      "expected": [],
+      "comments": [
+        {
+          "start": 11,
+          "end": 60,
+          "kind": "line",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "python",
+      "source": "# @clause:STORY-1:REQ-001 Convert an integer.\ndef convert(value): return hex(value)\n",
+      "options": {
+        "sourcePath": "src/convert.py"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        }
+      ],
+      "comments": null
+    },
+    {
+      "id": "java",
+      "source": "// @clause:STORY-1:REQ-001 Convert an integer.\npublic int convert(int value) { return value; }",
+      "options": {
+        "sourcePath": "src/Converter.java"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        }
+      ],
+      "comments": null
+    },
+    {
+      "id": "legacy",
+      "source": "// @clause:REQ-001\n// @nfr:NFR-002\n// @ac:STORY-1:AC-001",
+      "options": {
+        "sourcePath": "src/legacy.js",
+        "legacy": true
+      },
+      "expected": [
+        {
+          "clauseId": "REQ-001",
+          "line": 1,
+          "tag": "clause"
+        },
+        {
+          "clauseId": "STORY-1:AC-001",
+          "line": 3,
+          "tag": "ac"
+        }
+      ],
+      "comments": [
+        {
+          "start": 0,
+          "end": 18,
+          "kind": "line",
+          "jsxContainer": false
+        },
+        {
+          "start": 19,
+          "end": 34,
+          "kind": "line",
+          "jsxContainer": false
+        },
+        {
+          "start": 35,
+          "end": 56,
+          "kind": "line",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "normalized",
+      "source": "// @clause:story-1:req-001\n// @ac:story-1:ac-001",
+      "options": {
+        "sourcePath": "src/value.js"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        },
+        {
+          "clauseId": "STORY-1:AC-001",
+          "line": 2,
+          "tag": "ac"
+        }
+      ],
+      "comments": [
+        {
+          "start": 0,
+          "end": 26,
+          "kind": "line",
+          "jsxContainer": false
+        },
+        {
+          "start": 27,
+          "end": 48,
+          "kind": "line",
+          "jsxContainer": false
+        }
+      ]
+    },
+    {
+      "id": "closed-comment",
+      "source": "/* @clause:STORY-1:REQ-001 */ const fake='@clause:STORY-1:REQ-999';",
+      "options": {
+        "sourcePath": "src/value.js"
+      },
+      "expected": [
+        {
+          "clauseId": "STORY-1:REQ-001",
+          "line": 1,
+          "tag": "clause"
+        }
+      ],
+      "comments": [
+        {
+          "start": 0,
+          "end": 29,
+          "kind": "block",
+          "jsxContainer": false
+        }
+      ]
+    }
+  ],
+  "tags": [
+    {
+      "text": "// @ac:STORY-1:AC-001 @clause:STORY-1:REQ-002",
+      "expected": [
+        "STORY-1:AC-001"
+      ]
+    }
+  ]
+}

@@ -96,6 +96,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/kernel/mcp-policy.mjs',
   'src/kernel/step-action-policy.mjs',
   'src/kernel/test-report-codec.mjs', 'src/kernel/phase-checks.mjs',
+  'src/kernel/javascript-declarations.mjs','src/kernel/source-comments.mjs','src/engine-compatibility/node-source-analysis.mjs',
   'src/verification/test-report-reader.mjs',
   'src/kernel/project-enrollment.mjs',
   'src/kernel/configuration-policy.mjs',

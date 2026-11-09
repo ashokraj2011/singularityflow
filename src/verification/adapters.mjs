@@ -19,9 +19,10 @@ import { classifyJavascriptTestCommandScope } from '../wel-javascript.mjs';
 import { classifyJunit5SurefireCommandScope, parseJunitTestSources } from '../wel-junit5.mjs';
 import { scanJavaScriptDeclarations } from './javascript-declarations.mjs';
 import { joinDeclaration } from './join.mjs';
-import { profileIsExact, testAdapterProfile } from './profiles.mjs';
+import { profileIsExact, testAdapterProfile } from '../engine-compatibility/node-specification-policy.mjs';
 
-export { TEST_ADAPTER_PROFILES, profileCeiling, profileForCommand, profileIsExact, testAdapterProfile } from './profiles.mjs';
+export { TEST_ADAPTER_PROFILES } from '../kernel/verification-policy.mjs';
+export { profileCeiling, profileForCommand, profileIsExact, testAdapterProfile } from '../engine-compatibility/node-specification-policy.mjs';
 
 const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_DISCOVERY_FILES = 256;

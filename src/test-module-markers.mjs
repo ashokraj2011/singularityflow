@@ -16,7 +16,7 @@ import { readRepositoryManifest } from './repository-manifest.mjs';
 import { exists, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { androidTestVariant, gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
 import { MODULE_RUNNERS, moduleRunnerOfSystem, PROPOSED_RUNNERS, SCRIPT_RUNNER_REFUSALS, scriptRunnerOf, TEST_RUNNERS } from './test-runners.mjs';
-import { acceptanceTagsAboveLine, acceptanceTagsInComment } from './verification/tags.mjs';
+import { acceptanceTagsAboveLine, acceptanceTagsInComment } from './kernel/verification-policy.mjs';
 
 // [name, the ecosystem it builds, what it is]. Alone in a directory one owns everything below it; beside
 // a supported manifest of another ecosystem it owns its ecosystem's files, and a native build owns none

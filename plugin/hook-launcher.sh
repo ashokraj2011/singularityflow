@@ -49,14 +49,12 @@ hook_input_goes_to_node() {
   shopt -u nocasematch
   return "$status"
 }
-# The session's folder as the host wrote it, or nothing: an escaped character is not unescaped here.
+# The session's folder as the host wrote it, with or without spaces around the colon, or nothing: an escaped
+# character is not unescaped here.
 hook_input_cwd() {
-  local LC_ALL=C text=$hook_input
-  [[ $text == *'"cwd":"'* ]] || return 1
-  text=${text#*'"cwd":"'}
-  text=${text%%\"*}
-  [[ $text == /* && $text != *\\* ]] || return 1
-  printf '%s' "$text"
+  local LC_ALL=C pattern='"cwd"[[:space:]]*:[[:space:]]*"(/[^"\\]*)"'
+  [[ $hook_input =~ $pattern ]] || return 1
+  printf '%s' "${BASH_REMATCH[1]}"
 }
 # A repository that uses SFlow, from its files alone (usesSflow in src/copilot-environment-files-guard.mjs): its
 # singularity/*.yml, or SFlow's folder or branch under its Git directory. Walked up from the session's folder to

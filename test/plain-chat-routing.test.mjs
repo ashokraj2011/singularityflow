@@ -412,11 +412,12 @@ async function launcherHost(t) {
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
 async function assertLauncher(host, launch) {
-  const sends = (payload) => { const before = host.starts(); launch('boundary-guard', JSON.stringify(payload)); return host.starts() > before; };
+  const sends = (payload, spacing = undefined) => { const before = host.starts(); launch('boundary-guard', JSON.stringify(payload, null, spacing)); return host.starts() > before; };
   const view = (cwd) => ({ sessionId: 'plain', cwd, toolName: 'view', toolArgs: { path: 'README.md' } });
   assert.ok(sends(view(host.sflowClone)), 'a clone that uses SFlow');
   assert.ok(sends(view(path.join(host.sflowClone, 'src', 'not-there-yet'))), 'a folder inside it');
   assert.ok(sends(view(host.linked)), 'a linked checkout, by its common Git directory');
+  assert.ok(sends(view(host.sflowClone), 1), 'a host that writes spaces around the colon');
   assert.ok(!sends(view(host.plainClone)), 'a clone that does not use SFlow starts no Node');
   assert.ok(!sends(view(path.join(host.directory, 'nowhere'))), 'nor a folder in no repository');
   // The prompt hook: a plain prompt ends the session's turn before Node starts; a skill prompt or a continuation is the runtime's.

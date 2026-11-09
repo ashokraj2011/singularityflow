@@ -45,11 +45,9 @@ function Test-HookInputGoesToNode {
 function Get-HookInputCwd {
   if ($script:hookMore -or $script:hookHeldCount -le 0) { return $null }
   $text = [Text.Encoding]::UTF8.GetString($script:hookHeld, 0, $script:hookHeldCount)
-  $at = $text.IndexOf('"cwd":"', [StringComparison]::Ordinal)
-  if ($at -lt 0) { return $null }
-  $end = $text.IndexOf('"', $at + 7, [StringComparison]::Ordinal)
-  if ($end -lt 0) { return $null }
-  $value = $text.Substring($at + 7, $end - $at - 7).Replace('\\', [string][char]1)
+  $found = [regex]::Match($text, '"cwd"\s*:\s*"((?:[^"\\]|\\\\)*)"')
+  if (-not $found.Success) { return $null }
+  $value = $found.Groups[1].Value.Replace('\\', [string][char]1)
   if ($value.Contains('\')) { return $null }
   return $value.Replace([string][char]1, '\')
 }

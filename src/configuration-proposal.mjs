@@ -195,6 +195,21 @@ function workflowProposalCommand(action, branch, commit = null, acknowledge = fa
   return args.join(' ');
 }
 
+/**
+ * How a person activates a proposal that is valid and not merged: the exact line to type, and the
+ * VS Code place that does the same. The line carries --acknowledge-unprotected because activation
+ * refuses an unmerged proposal without it; the person still types it, so the acknowledgement stays
+ * theirs. A proposal reviewed with only `workflow proposal` used to end with no way forward.
+ */
+export function workflowActivationRoute(branch, commit) {
+  return {
+    command: `singularity-flow workflow activate ${quoted(branch, '<PROPOSAL-BRANCH>')} --confirm ${quoted(commit, '<COMMIT-SHA>')} --acknowledge-unprotected`,
+    acknowledgement: `--acknowledge-unprotected says you accept that SFlow updates ${CONFIGURATION_BRANCH} itself. `
+      + `Where the server protects ${CONFIGURATION_BRANCH}, the update is refused, nothing changes, and the branch is merged through the repository's review instead.`,
+    vscode: 'Workflow Studio → Changes → Review and activate'
+  };
+}
+
 function workflowProposalBranch(value) {
   const branch = String(value ?? '').trim();
   if (!branch.startsWith(REVIEW_PREFIX)
@@ -315,11 +330,15 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
     }).stdout
     : null;
   const failure = merged ? null : workflowReadinessFailure(reader, reviewBase, proposalCommit);
+  const valid = changed.names.length > 0 && invalidFiles.length === 0 && failure === null;
+  // Only a proposal a person could activate now names the way to do it.
+  const activation = valid && !merged ? workflowActivationRoute(branch, proposalCommit) : null;
   return {
     remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
     targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
-    valid: changed.names.length > 0 && invalidFiles.length === 0 && failure === null,
+    valid,
     ...(failure ? { failure } : {}),
+    ...(activation ? { activation, nextAction: activation.command } : {}),
     invalidFiles, changedFiles: changed.statuses,
     workflows: workflowChanges(reader, reviewBase, proposalCommit),
     diff: diff == null ? null
@@ -1160,7 +1179,8 @@ export async function proposeConfigurationChange(root, {
     const reviewBranch = `${REVIEW_PREFIX}${label}-${baseCommit.slice(0, 8)}-${tree.slice(0, 12)}`;
     const stateService = await openConfigurationStateService(root, remoteUrl);
     const proposalId = stateService.identity(reviewBranch);
-    // A real command: it shows the proposal and the exact activation command for that revision.
+    // A real command: it shows the proposal and, while it waits, the exact activation line and the
+    // VS Code place for that revision (inspectWorkflowProposalCheckout's `activation`).
     const nextAction = workflowProposalCommand('proposal', reviewBranch);
     const existingCommit = await existingProposalCommit(remoteUrl, reviewBranch, remoteSession);
     if (existingCommit) {

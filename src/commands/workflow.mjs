@@ -61,4 +61,10 @@ export async function run(argv, { positionals, options }) {
   for (const workflow of value.workflows) console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
   for (const file of value.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
   if (value.invalidFiles.length) console.log(`  refused files: ${value.invalidFiles.join(', ')}`);
+  // The way forward, for the person who may change the approved configuration (src/cli.mjs prints the same).
+  if (value.activation) {
+    console.log(`Activate it: ${value.activation.command}`);
+    console.log(`  ${value.activation.acknowledgement}`);
+    console.log(`  VS Code: ${value.activation.vscode}`);
+  }
 }

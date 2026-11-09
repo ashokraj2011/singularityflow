@@ -5181,6 +5181,12 @@ async function workflowCommand(positionals, options) {
     }
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
+    // The way forward, as src/commands/workflow.mjs prints it.
+    if (proposal.activation) {
+      console.log(`Activate it: ${proposal.activation.command}`);
+      console.log(`  ${proposal.activation.acknowledgement}`);
+      console.log(`  VS Code: ${proposal.activation.vscode}`);
+    }
     return;
   }
 

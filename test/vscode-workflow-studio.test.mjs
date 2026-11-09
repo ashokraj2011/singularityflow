@@ -1699,6 +1699,24 @@ test('proposals waiting for review are listed in Changes, and reviewing one relo
   assert.match(host, /private openableFile\(relative: string\): boolean \{\s*if \(relative\.split\('\/'\)\.some/);
 });
 
+test('the Changes count shows no number until the proposals were checked, and opening Studio checks them once (RTC:REQ-008)', () => {
+  const { logic, posted, reply } = studioWithHost();
+  assert.equal(logic.changesCount(), null, 'nothing is counted before Studio has loaded');
+  reply({ type: 'studio.model', model: { workflows: [{ id: 'custom', label: 'Custom', phases: ['intake'] }], protection: {}, phases: [] } });
+  assert.equal(logic.changesCount(), null, 'no false 0 while the host checks the proposals');
+  logic.requestProposals();
+  assert.equal(posted.filter((message) => message.type === 'studio.proposals').length, 0,
+    'the host already checks right after the model, so opening Changes does not ask again');
+  const waiting = { branch: 'sflow/config-change/workflow/save-config-tests-aaaaaaaa-bbbbbbbbbbbb', proposalCommit: 'a'.repeat(40),
+    proposalCreatedAt: null, proposalId: null, valid: true, merged: false, workflows: [], files: 1, invalidFiles: [], failure: null };
+  reply({ type: 'studio.proposals', proposals: [waiting] });
+  assert.equal(logic.changesCount(), 1, 'a proposal made from a chat is counted');
+  reply({ type: 'studio.proposals', proposals: [], error: 'Git could not reach the remote.' });
+  assert.equal(logic.changesCount(), null, 'a failed check is not a 0');
+  reply({ type: 'studio.proposals', proposals: [], local: true });
+  assert.equal(logic.changesCount(), 0, 'a working-tree configuration has no proposals to wait for');
+});
+
 test('several approval groups survive editing a step, and taking a group off drops it from the groups that must approve', () => {
   const { logic } = studioLogic();
   const approval = logic.approvalDraft({ mode: 'required', authorities: ['architecture-reviewers', 'engineering-reviewers'], requiredAuthorities: ['engineering-reviewers'], minimum: 2 });

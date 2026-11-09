@@ -1008,7 +1008,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     keepSetForm: function () { return keepSetForm.apply(null, arguments); },
     chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
     // Proposals waiting for review, workflow bundles, governed files.
-    requestProposals: function () { return requestProposals.apply(null, arguments); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
+    requestProposals: function () { return requestProposals.apply(null, arguments); }, changesCount: function () { return changesCount(); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
     uploadView: function () { return uploadView.apply(null, arguments); },
     importWorkflows: function () { return importWorkflows.apply(null, arguments); }, openFile: function () { return openFile.apply(null, arguments); },
     // Epic workflows.
@@ -1490,10 +1490,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }, { class: 'secondary', 'data-key': 'back-link' })));
   }
 
-  function renderNav(root) {
+  /**
+   * What the Changes item counts: unpublished edits, saved drafts, proposals waiting and uploads. No
+   * number (null) until the proposals were checked: a count without them read 0 while one waited (RTC:REQ-008).
+   */
+  function changesCount() {
+    if (!proposalsChecked()) return null;
     var waitingProposals = (proposalsState().list || []).filter(function (proposal) { return !proposal.merged; }).length;
-    var waitingUploads = (proposalsState().uploads || []).length;
-    var pending = changesNow().length + savedDrafts().length + waitingProposals + waitingUploads;
+    return changesNow().length + savedDrafts().length + waitingProposals + (proposalsState().uploads || []).length;
+  }
+
+  function renderNav(root) {
+    var pending = changesCount();
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
     // A target some step sends to, whose secret this machine does not have: its deliveries would wait.
     var secretsHere = integrationsState().secrets;
@@ -1527,7 +1535,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
       item('integrations', 'Integrations', 'plug', missingSecrets || targetIds().length || null, missingSecrets > 0),
-      item('changes', 'Changes', 'list', pending, pending > 0),
+      item('changes', 'Changes', 'list', pending, pending !== null && pending > 0),
       compact ? null : el('p', { class: 'note', text: 'Running Stories keep the workflow they started with. What you publish applies to new Stories after review.' })));
   }
 
@@ -5854,6 +5862,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // diff; activating merges it into the approved configuration after the person confirms.
 
   function proposalsState() { return state.proposals || (state.proposals = { list: null, error: null, loading: false, local: false, uploads: [] }); }
+  /** Whether the list of waiting proposals is known: answered without an error, or kept in the working tree. */
+  function proposalsChecked() { var view = proposalsState(); return view.local || (view.list !== null && !view.error); }
   function requestProposals() {
     var view = proposalsState();
     if (view.loading) return;
@@ -6843,6 +6853,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (message.type === 'studio.model') {
       var keep = state.draft && state.model && changeSetFrom(state.model, state.draft).changes.length && !message.reset;
       state.model = message.model; state.error = null;
+      // The host checks the proposals right after every model it sends (WorkflowStudioPanel.load and
+      // reviewProposal), in the background: one check when Studio opens, not a second from Changes.
+      proposalsState().loading = true;
       if (!keep) { state.draft = initialDraft(message.model); state.configurationChanged = null; }
       if (state.workflow && !state.draft.workflows[state.workflow]) state.workflow = null;
       // Whether this machine has the secrets the targets name decides the Integrations badge.
@@ -6958,6 +6971,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       else if (message.view === 'agents' && (message.newAgent === true || typeof message.agent === 'string')) focusAgent(message.newAgent === true ? null : message.agent);
       else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
+      // A load that failed after its model never reaches its proposals check; Changes may ask again.
+      if (state.proposals && state.proposals.list === null) state.proposals.loading = false;
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {
       state.busy = null; render();

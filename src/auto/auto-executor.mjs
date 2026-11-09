@@ -253,7 +253,8 @@ async function stop(root, id, status, reason, nextAction, extra = {}, {
   });
 }
 
-function childLifecycle(root, args, {
+/** One CLI lifecycle step in its own process group. Exported for the process-tree test. */
+export function childLifecycle(root, args, {
   signal = null, timeoutMs = 30 * 60 * 1000, env = null
 } = {}) {
   return new Promise((resolve, reject) => {
@@ -275,8 +276,11 @@ function childLifecycle(root, args, {
         catch { child.kill('SIGTERM'); }
       }
       hardKillTimer ??= setTimeout(() => {
-        if (child.exitCode != null || child.signalCode != null || !child.pid) return;
+        if (!child.pid) return;
         if (process.platform === 'win32') {
+          // An exited ID may name another process here; a POSIX group outlives its leader while a
+          // descendant holds the pipes, so what trapped the SIGTERM still gets SIGKILL [TCE:REQ-034].
+          if (child.exitCode != null || child.signalCode != null) return;
           if (!tryWindowsTaskkill(child.pid, {
             force: true, environment: process.env, spawnSyncCommand: spawnSync,
             timeoutMs: 5_000

@@ -1085,15 +1085,14 @@ async function runVerificationCommand(command, workspace, signal, testRuntime) {
     let timedOut = false;
     let stopped = false;
     const terminate = () => {
-      if (child.exitCode != null || child.signalCode != null) return;
-      stopped = true;
-      if (process.platform === 'win32' && child.pid) {
-        if (!tryWindowsTaskkill(child.pid, {
-          force: true, environment: process.env, spawnSyncCommand: spawnSync,
-          timeoutMs: 5_000
-        })) child.kill('SIGKILL');
-      } else {
+      if (process.platform !== 'win32') {
+        stopped = true;
         try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      } else if (child.exitCode == null && child.signalCode == null) { // an exited ID may be reused
+        stopped = true;
+        if (!child.pid || !tryWindowsTaskkill(child.pid, {
+          force: true, environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
+        })) child.kill('SIGKILL');
       }
     };
     const append = (chunk) => {

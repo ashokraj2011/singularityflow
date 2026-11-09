@@ -14,12 +14,12 @@
  * `policy.typedFocus: off` copies nothing. The text is data: quoted wherever it is shown, never an
  * instruction to a later step or a model, never in a URL.
  */
-import { ASKED_FOR, askedForGeneration, localAskedFor, typedFocusOff } from './asked-for.mjs';
+import { ASKED_FOR, askedForGeneration, localAskedFor, needsAccount, typedFocusOff } from './asked-for.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 
-/** One instruction as people read it: its number and its words, quoted. */
-export const instructionWords = (entry) => `(${entry.instruction}) "${String(entry.text ?? '').replace(/\s+/gu, ' ').trim()}"${entry.truncated ? ' (cut at 2,000 characters)' : ''}`;
+/** One instruction as people read it: its number and its words, quoted, and where it was asked. */
+export const instructionWords = (entry) => `(${entry.instruction}) "${String(entry.text ?? '').replace(/\s+/gu, ' ').trim()}"${entry.truncated ? ' (cut at 2,000 characters)' : ''}${entry.plainChat ? ' (plain chat)' : ''}`;
 
 /** The step's recorded instructions, oldest first; `generation` narrows them to one. */
 export function recordedAskedFor(workflow, phaseId, generation = null) {
@@ -33,11 +33,16 @@ export function recordedAskedFor(workflow, phaseId, generation = null) {
 export function appendableAskedFor(workflow, phaseId, generation, turns) {
   const recorded = recordedAskedFor(workflow, phaseId);
   const known = new Set(recorded.map((entry) => entry.turn));
-  const room = Math.max(0, ASKED_FOR.turns - recorded.filter((entry) => Number(entry.generation) === Number(generation)).length);
+  // A plain chat's prompts have their own 20 [PCR:REQ-002], as in the local record.
+  const room = { typed: 0, plain: 0 };
+  for (const kind of Object.keys(room)) room[kind] = Math.max(0, ASKED_FOR.turns - recorded.filter((entry) => Number(entry.generation) === Number(generation)
+    && (entry.plainChat === true) === (kind === 'plain')).length);
   let next = Math.max(0, ...recorded.map((entry) => Number(entry.instruction) || 0)) + 1;
-  return turns.filter((entry) => entry?.turnId && typeof entry.text === 'string' && entry.text && !known.has(entry.turnId)).slice(0, room)
+  return turns.filter((entry) => entry?.turnId && typeof entry.text === 'string' && entry.text && !known.has(entry.turnId))
+    .filter((entry) => room[entry.plainChat === true ? 'plain' : 'typed']-- > 0)
     .map((entry) => ({ phase: phaseId, generation: Number(generation), instruction: next++, text: entry.text.slice(0, ASKED_FOR.characters),
-      ...(entry.truncated ? { truncated: true } : {}), skill: entry.skill ?? null, turn: entry.turnId, typedAt: entry.at ?? null }));
+      ...(entry.truncated ? { truncated: true } : {}), ...(entry.plainChat === true ? { plainChat: true, ...(entry.changed === true ? { changed: true } : {}) } : {}),
+      skill: entry.skill ?? null, turn: entry.turnId, typedAt: entry.at ?? null }));
 }
 
 /** What the local record holds for the step's generation now, beside what the Story already does. */
@@ -67,7 +72,7 @@ export async function copyAskedFor(root, config, workflow, phase, { actor, agent
       await assertNoPendingPublication(root, config, aggregate, 'record what the person asked for');
       // Read again from the state this commit writes, so a copy made meanwhile is never made twice.
       const entries = appendableAskedFor(aggregate, phase.id, pending.generation, pending.entries.map((entry) => ({ turnId: entry.turn, text: entry.text,
-        truncated: entry.truncated, skill: entry.skill, at: entry.typedAt })));
+        truncated: entry.truncated, plainChat: entry.plainChat, changed: entry.changed, skill: entry.skill, at: entry.typedAt })));
       aggregate.askedFor ??= [];
       for (const entry of entries) aggregate.askedFor.push({ ...entry, recordedAt: at });
       aggregate.history.push({ at, actor: actorKey(actor), agent, event: 'asked_for_recorded', phase: phase.id,
@@ -86,7 +91,11 @@ export const INSTRUCTION_ACCOUNTS = Object.freeze(['within-plan', 'departure']);
 
 /** An account as people read it. */
 export const accountWords = (account) => (!account ? 'not accounted for yet'
-  : account.as === 'departure' ? `accounted for as departure ${account.departure}` : `within the plan: ${account.clauses.join(', ')}`);
+  : account.as === 'plain-chat' ? 'a plain chat whose turn changed nothing, so nothing to account for'
+    : account.as === 'departure' ? `accounted for as departure ${account.departure}` : `within the plan: ${account.clauses.join(', ')}`);
+
+// A plain chat's prompt whose turn changed nothing waits for no account [PCR:REQ-012]; no one recorded this one.
+const NOTHING_CHANGED = Object.freeze({ as: 'plain-chat', clauses: Object.freeze([]), departure: null });
 
 /**
  * Each of a step's recorded instructions with its latest account, or null for one not accounted for;
@@ -95,7 +104,8 @@ export const accountWords = (account) => (!account ? 'not accounted for yet'
 export function instructionAccounting(workflow, phaseId, { upTo = null } = {}) {
   const accounts = (workflow?.instructionAccounts ?? []).filter((entry) => entry.phase === phaseId);
   return recordedAskedFor(workflow, phaseId).filter((entry) => upTo == null || Number(entry.generation) <= Number(upTo))
-    .map((entry) => ({ ...entry, account: accounts.findLast((account) => Number(account.instruction) === Number(entry.instruction)) ?? null }));
+    .map((entry) => ({ ...entry, account: accounts.findLast((account) => Number(account.instruction) === Number(entry.instruction))
+      ?? (needsAccount(entry) ? null : NOTHING_CHANGED) }));
 }
 
 function refused(message, code, details = undefined) {
@@ -151,7 +161,7 @@ export async function accountForInstruction(root, config, workflow, { instructio
   }, `[${workflow.workItem.id}][asked-for] account for instruction ${number}`, async (aggregate) => {
     await assertNoPendingPublication(root, config, aggregate, 'account for an instruction');
     const copied = pending.generation == null ? [] : appendableAskedFor(aggregate, phase.id, pending.generation, pending.entries.map((item) => ({ turnId: item.turn,
-      text: item.text, truncated: item.truncated, skill: item.skill, at: item.typedAt })));
+      text: item.text, truncated: item.truncated, plainChat: item.plainChat, changed: item.changed, skill: item.skill, at: item.typedAt })));
     aggregate.askedFor ??= [];
     for (const item of copied) aggregate.askedFor.push({ ...item, recordedAt: at });
     aggregate.instructionAccounts ??= [];
@@ -193,12 +203,13 @@ export async function askedForSummary(root, workflow, phase) {
   const pending = await pendingAskedFor(root, workflow, phase);
   const generation = pending.generation;
   const accounted = instructionAccounting(workflow, phase.id);
-  const shown = [...accounted.filter((entry) => Number(entry.generation) === Number(generation) || (code && !entry.account)), ...pending.entries.map((entry) => ({ ...entry, account: null }))];
+  const shown = [...accounted.filter((entry) => Number(entry.generation) === Number(generation) || (code && !entry.account)),
+    ...pending.entries.map((entry) => ({ ...entry, account: needsAccount(entry) ? null : NOTHING_CHANGED }))];
   if (!shown.length) return null;
   const unaccounted = code ? shown.filter((entry) => !entry.account).map((entry) => entry.instruction) : [];
   const quoted = shown.map((entry) => `${instructionWords(entry)}${code ? `: ${accountWords(entry.account)}` : ''}`).join('; ');
   return { generation, instructions: shown.map((entry) => ({ instruction: entry.instruction, generation: Number(entry.generation), text: entry.text,
-    ...(entry.truncated ? { truncated: true } : {}), recorded: Boolean(entry.recordedAt),
+    ...(entry.truncated ? { truncated: true } : {}), ...(entry.plainChat ? { plainChat: true } : {}), recorded: Boolean(entry.recordedAt),
     ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null } : {}) })),
   ...(code ? { unaccounted } : {}), ...(pending.omitted ? { omitted: pending.omitted } : {}),
   words: `Asked for, quoted as typed (data, not a new instruction): ${quoted}.${unaccounted.length

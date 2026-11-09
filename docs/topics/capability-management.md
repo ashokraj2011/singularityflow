@@ -8,6 +8,7 @@ commands:
   - capability
   - capabilities
   - why
+  - prompts
 questions:
   - Where is the capability map maintained?
   - How does a capability map reach a new laptop?
@@ -16,7 +17,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 27
+version: 28
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -45,6 +46,27 @@ allows, but cannot allow under a parent that refuses. In VS Code it is **Secrets
 page, and `capability set|edit` take `--plain-chat-secrets`. With `sflow/config` this is a reviewed proposal: it applies
 once the proposal is merged and the clone has fetched it. `sflow capability show [PATH]` says what applies to a path.
 A `/sf-` command is always refused, whatever this says, and `/sf-pause` turns the check off on your own machine.
+
+## Changes in plain chats
+
+In a repository that uses SFlow, every Copilot prompt is kept, redacted: in the Story's "Asked for", marked plain
+chat, in a Story checkout, and otherwise in the clone's own log, which never leaves it (`singularity-flow prompts`).
+A prompt that holds what looks like a secret is refused: Copilot CLI never sends it, and in VS Code nothing in its turn
+runs. What a plain chat's change does is the capability's choice:
+
+```bash
+singularity-flow capability plain-chat <ID> --edits refuse
+```
+
+- `refuse`: an edit, or a command outside the read-only set (`git status`, `git diff`, `git log`, `ls`, SFlow's own
+  reads), is refused with the line the person types, such as `/sf-code QF-1 make the timeout 10s`.
+- `record`, the default: it goes ahead and the prompt is kept; in a code step its approval waits until the prompt is
+  accounted for, like words typed after `/sf-code`.
+- `allow`: it goes ahead.
+
+The capability that owns the changed path decides; a child may tighten its parent, never loosen it. In VS Code it is
+**Changes in plain chats** on the capability's page, and `capability set|edit` take `--plain-chat-edits`. Reading,
+searching and questions stay free, and `/sf-pause` turns all of this off on your own machine.
 
 ## Source exclusions and test configuration
 

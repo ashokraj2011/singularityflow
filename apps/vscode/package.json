@@ -1424,6 +1424,10 @@
         "title": "Singularity Flow: Show Computed Impact"
       },
       {
+        "command": "singularityFlow.showPrompts",
+        "title": "Singularity Flow: Show Kept Copilot Prompts"
+      },
+      {
         "command": "singularityFlow.doctor",
         "title": "Singularity Flow: Diagnostics",
         "icon": "$(pulse)"

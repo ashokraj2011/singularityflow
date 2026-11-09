@@ -650,10 +650,12 @@ async function showCapabilityInScope(root, subject, {
     } : {})
   });
   const config = await support.loadDefinition(root);
-  // The guard's own answer, which reads the approved map even where this checkout pins or holds another.
-  const { plainChatSecretsPolicy } = await import('../copilot-environment-files-guard.mjs');
+  // The guards' own answers, which read the approved map even where this checkout pins or holds another.
+  const [{ plainChatSecretsPolicy }, { plainChatEditsPolicy }] = await Promise.all([
+    import('../copilot-environment-files-guard.mjs'), import('../copilot-plain-chat.mjs')]);
   const record = { ...explanationRecord(capability, relative, config, support),
-    plainChatSecrets: await plainChatSecretsPolicy(root, relative === '.' ? '' : relative) };
+    plainChatSecrets: await plainChatSecretsPolicy(root, relative === '.' ? '' : relative),
+    plainChatEdits: await plainChatEditsPolicy(root, relative === '.' ? '' : relative) };
   let gitShadowSummary = null;
   if (gitShadow) {
     const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
@@ -680,6 +682,7 @@ async function showCapabilityInScope(root, subject, {
     console.log(`  ${record.approvalProfile} profile${record.selfApprovalAllowed ? '; self-approval is allowed' : ''}`);
   }
   console.log(`\nSecrets in a plain Copilot chat:\n  ${record.plainChatSecrets === 'allow' ? 'allowed by this capability' : 'refused'}`);
+  console.log(`\nChanges in a plain Copilot chat:\n  ${{ refuse: 'refused, with the /sf- line to type', record: 'go ahead and are recorded; a code step\'s approval waits for them', allow: 'go ahead' }[record.plainChatEdits] ?? record.plainChatEdits}`);
   console.log(`\nWhy:\n  ${implicit
     ? 'No more specific ownership is configured, so this repository owns the path.'
     : `${capability.name} is the most specific approved capability for this path.`}`);
@@ -788,7 +791,7 @@ async function runMutation(subcommand, context) {
           ? await proposeProgressiveCapabilityChange(lead, {
               operation: 'plain-chat',
               capabilityId: required(context.positionals, 2, '<CAPABILITY-ID>'),
-              plainChatSecrets: capabilityPlainChatOption(options)
+              ...capabilityPlainChatOptions(options)
             })
           : await proposeProgressiveCapabilityChange(lead, {
             operation: 'depend',
@@ -828,12 +831,21 @@ function positiveOrNull(value, label) {
 }
 
 /** `inherit` removes this capability's own value, so an ancestor's or the default `refuse` applies. */
-function capabilityPlainChatOption(options) {
+/** `--secrets` and `--edits` [PCR:REQ-013], one or both: each value, `null` for inherit, `undefined` when not given. */
+function capabilityPlainChatOptions(options) {
   const secrets = optionString(options, 'secrets');
-  if (!['inherit', 'refuse', 'allow'].includes(secrets ?? '')) {
+  const edits = optionString(options, 'edits');
+  if (secrets == null && edits == null) {
+    throw new SingularityFlowError('Name --secrets inherit|refuse|allow, --edits inherit|refuse|record|allow, or both.', { code: 'CAPABILITY_POLICY_INVALID' });
+  }
+  if (secrets != null && !['inherit', 'refuse', 'allow'].includes(secrets)) {
     throw new SingularityFlowError('--secrets must be inherit, refuse, or allow.', { code: 'CAPABILITY_POLICY_INVALID' });
   }
-  return secrets === 'inherit' ? null : secrets;
+  if (edits != null && !['inherit', 'refuse', 'record', 'allow'].includes(edits)) {
+    throw new SingularityFlowError('--edits must be inherit, refuse, record, or allow.', { code: 'CAPABILITY_POLICY_INVALID' });
+  }
+  const value = (given) => (given == null ? undefined : given === 'inherit' ? null : given);
+  return { plainChatSecrets: value(secrets), plainChatEdits: value(edits) };
 }
 
 function capabilityAutoOptions(options) {

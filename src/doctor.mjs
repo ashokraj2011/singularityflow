@@ -66,6 +66,20 @@ async function appendPerformanceCheck(checks, root, definition = null, workflow 
   }
 }
 
+/** What a plain Copilot chat meets in this repository, when it uses SFlow (copilot-plain-chat.mjs), or null. */
+async function plainChatNotice(root) {
+  try {
+    const [{ sflowRepositoryAt, plainChatEditsPolicy }, { readCopilotMode }] = await Promise.all([
+      import('./copilot-plain-chat.mjs'), import('./copilot-mode.mjs')]);
+    if (!sflowRepositoryAt(root)) return null;
+    if (readCopilotMode().paused) return check('plain-chat-routing', 'pass', 'SFlow is paused on this machine: Copilot prompts here are not kept, and plain chats\' changes are not checked.');
+    const edits = await plainChatEditsPolicy(root, '');
+    const changes = { refuse: 'refused with the /sf- line to type', record: 'recorded, and a code step\'s approval waits for them', allow: 'let through' }[edits] ?? edits;
+    return check('plain-chat-routing', 'pass', `Copilot prompts in this repository are kept, redacted: in the Story's "Asked for" in a Story checkout, else in this clone's own log (singularity-flow prompts). A prompt that holds what looks like a secret is refused. A plain chat's changes are ${changes} (policy.plainChatEdits: ${edits}). /sf-pause turns this off on this machine.`,
+      null, { plainChatEdits: edits });
+  } catch { return null; }
+}
+
 export async function doctorSnapshot(root, {
   workId = null, offline = false, performance = false, probeModelProvider = true,
   execution = null
@@ -73,8 +87,11 @@ export async function doctorSnapshot(root, {
   const checks = [];
   const mutationGuard = await (await import('./copilot-mutation-guard.mjs')).mutationGuardDiagnostics(root);
   checks.push(check('phase-mutation-guard', mutationGuard.active.length ? 'warn' : 'pass',
-    mutationGuard.active.length ? mutationGuard.detail : 'No active explicit SFlow mutation turn; native chat is unchanged.',
+    mutationGuard.active.length ? mutationGuard.detail : 'No active explicit SFlow mutation turn.',
     'Inspect explicit-turn hook coverage on the running host; installation is not prevention proof.', { mutationGuard }));
+  // People know their prompts here are kept, and what a plain chat's change does [PCR:REQ-004].
+  const plainChat = await plainChatNotice(root);
+  if (plainChat) checks.push(plainChat);
   let performanceReport = null;
   let schemaReport = null;
   const node = nodeRequirement();

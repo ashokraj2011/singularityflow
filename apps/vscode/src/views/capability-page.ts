@@ -31,7 +31,7 @@ const FIELDS = [
   'name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots',
   'sourceHashExcludedRoots', 'testConfigurationPaths', 'metadata',
   'jira.projectKey', 'jira.board', 'appId', 'teams', 'autoEligibility', 'autoProtectedScope',
-  'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights', 'plainChatSecrets'
+  'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights', 'plainChatSecrets', 'plainChatEdits'
 ] as const;
 
 function fieldInfo(label: string, explanation: string): string {
@@ -194,9 +194,15 @@ function managedCapabilityHtml(
   </section>`;
 }
 
-/** One policy field, editable because a team chooses it: the guard for files that hold secrets in a plain chat. */
+const PLAIN_CHAT_EDITS_APPLIES: Record<string, string> = { refuse: 'refused with the /sf- line', record: 'recorded', allow: 'allowed' };
+
+/**
+ * Two policy fields, editable because a team chooses them: the guard for files that hold secrets in a plain chat,
+ * and what a plain chat's change does [PCR:REQ-013].
+ */
 function plainChatPolicyEditor(detail: CapabilityDetail, managed = false): string {
   const { declared, effective } = detail.plainChatSecrets;
+  const edits = detail.plainChatEdits;
   return `<div class="card">
     <div class="card-head"><div><h2>${icon('policy')}Secrets in plain chats</h2>
       <p class="muted">Whether a Copilot chat with no <code>/sf-</code> command may read a file that holds secrets, such as <code>.env</code> or a config file with a real value. A <code>/sf-</code> command is always refused.</p></div>
@@ -210,6 +216,21 @@ function plainChatPolicyEditor(detail: CapabilityDetail, managed = false): strin
             .map(([value, label]) => `<option value="${value}"${(declared ?? 'inherit') === value ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
         <small>A child cannot allow what an ancestor refuses.</small>
+      </label>
+    </div>
+    <div class="card-head"><div><h2>${icon('policy')}Changes in plain chats</h2>
+      <p class="muted">What happens when a Copilot chat with no <code>/sf-</code> command edits a file or runs a command that writes. Reading, searching and read-only <code>git</code> stay free, and every prompt is kept, redacted.</p></div>
+      <span class="grow"></span>
+      <span class="pill ${edits.effective === 'allow' ? '' : 'ok'}" data-plain-chat-edits-applies>applies: ${escape(PLAIN_CHAT_EDITS_APPLIES[edits.effective] ?? edits.effective)}</span>
+    </div>
+    <div class="form-grid">
+      <label class="field"><span>Changes</span>
+        <select data-field="plainChatEdits">
+          ${[['inherit', 'Inherit (recorded unless an ancestor says otherwise)'], ['refuse', 'Refuse, with the /sf- line to type'],
+            ['record', 'Record: go ahead, and a code step\'s approval waits for it'], ['allow', 'Allow']]
+            .map(([value, label]) => `<option value="${value}"${(edits.declared ?? 'inherit') === value ? ' selected' : ''}>${escape(label)}</option>`).join('')}
+        </select>
+        <small>A child may tighten an ancestor (refuse, record, allow), never loosen it.</small>
       </label>
     </div>
     ${managed

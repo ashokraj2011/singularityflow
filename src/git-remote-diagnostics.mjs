@@ -72,7 +72,7 @@ const SCP_PASSWORD_SHAPED_USER_INFO = /^[^/@\s:]+:[^/@\s]+@[^:\s]+:.+/;
 // missing/mixed slashes or an invalid host make WHATWG URL parsing impossible.
 const MALFORMED_BUILTIN_CREDENTIAL = /^(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[\\/]*[^/@\s:]+:[^/@\s]+@/i;
 const DIAGNOSTIC_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;
-const DIAGNOSTIC_SECRET_VALUES = [
+export const DIAGNOSTIC_SECRET_VALUES = [
   /\bghp_[A-Za-z0-9]{20,}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,

@@ -664,6 +664,7 @@ Every public operation is classified before its implementation module is importe
 | prompt-log.list | read | never | — | — |
 | prompt-log.status | read | never | — | — |
 | prompt-log.view | read | never | — | — |
+| prompts | read | never | — | — |
 | proof.explain | read | never | — | — |
 | proof.gaps | read | never | — | — |
 | proof.signals | read | never | — | — |

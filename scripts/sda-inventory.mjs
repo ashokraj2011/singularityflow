@@ -111,6 +111,8 @@ const OVERRIDES = {
   // What a person typed after /sf-code or /sf-phase (SCS M4), kept under the Git directory until prepublish copies it
   // into the Story: until then it is the only copy.
   'asked-for.mjs': 'local-authored',
+  // Every prompt in a repository that uses SFlow, redacted (PCR P1): outside a Story, the clone's own log is its only copy.
+  'plain-chat-prompts.mjs': 'local-authored',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

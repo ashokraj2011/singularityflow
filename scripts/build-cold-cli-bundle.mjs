@@ -26,7 +26,9 @@ const FAMILIES = Object.freeze([
     // Unclaimed, a denied edit's failure note (copilot-repository-boundary.mjs) loads the compatibility chunk.
     'copilot-environment-files-guard.mjs', 'copilot-search-exposure.mjs', 'local-config-policy.mjs', 'copilot-review-completion.mjs',
     // What a person typed after /sf-code or /sf-phase, kept by the prompt hook for its Story [SCS:REQ-040].
-    'asked-for.mjs']],
+    'asked-for.mjs',
+    // Plain-chat routing: every prompt kept, a secret refused, a change routed through a skill [PCR P1, P2].
+    'copilot-plain-chat.mjs', 'plain-chat-prompts.mjs']],
   // Small worker/presentation helper closures share a slot without increasing deployment files.
   // Claim output before policy reads: otherwise even status pays to load the policy chunk when
   // rendering --for-agent. Entry programs remain private; helper imports never start a worker.

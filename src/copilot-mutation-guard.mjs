@@ -2149,6 +2149,35 @@ function readOnlyShell(call, value) {
   });
 }
 
+// The words a tool that types into a running shell sends it: its next command line.
+const typedShellLine = args => [args.command, args.cmd, args.script, args.chars, args.input, args.text].find(value => typeof value === 'string');
+
+/**
+ * What in a plain chat's batch would change the work [PCR:REQ-010]: an edit tool, `sflow_run`, or a shell line
+ * outside the read-only set a review turn runs (readOnlyShell) and SFlow's own read commands. Each with the paths it
+ * names and its working directory, which decide the repository and the capability. Reads, searches, questions, the
+ * other `sflow_*` tools and every other tool change nothing here. `rootOf` gives a call's repository root, so a
+ * `cd <root> && git diff` reads as the read it is.
+ */
+export function plainChatChanges(payload, { rootOf = () => null } = {}) {
+  const found = [];
+  for (const call of calls(payload).slice(0, 64)) {
+    const cwd = typeof call.args?.cwd === 'string' ? call.args.cwd : payload.cwd;
+    if (isEdit(call.name)) found.push({ kind: 'edit', name: call.name, targets: targets(call.args), cwd });
+    else if (GATEWAY_RUN_TOOL.test(call.name)) found.push({ kind: 'run', name: call.name, targets: [], cwd });
+    else if (SHELL_INPUT_TOOLS.has(call.name)) {
+      const line = typedShellLine(call.args ?? {});
+      // Nothing typed, or only a key such as Ctrl-C, reads or stops the shell; a line typed into it is judged as the command it is.
+      if (typeof line !== 'string' || /^[\s\u0000-\u001f\u007f]*$/u.test(line)) continue;
+      const command = { ...call, args: { ...call.args, command: line.replace(/[\r\n]+$/u, '') } };
+      const value = { repositoryRoot: rootOf(cwd) };
+      if (readOnlyShell(command, value) || shellAllowed(command, 'read', value)) continue;
+      found.push({ kind: 'command', name: call.name, command: line, targets: [], cwd });
+    }
+  }
+  return found;
+}
+
 function postFinding(denial) {
   // Config-file postToolUse supports additionalContext, not permissionDecision/continue.
   // The next pre-tool guard latches the file/shell restriction; this cannot undo execution.

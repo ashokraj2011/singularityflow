@@ -40,13 +40,87 @@ function Test-HookInputGoesToNode {
   return [regex]::IsMatch($text, '(^|[^a-z0-9_)\]])\.env|\.(env|ya?ml|properties|toml|ini|cfg|conf|json|pem|key|p12|pfx|jks|keystore)($|[^a-z0-9_.(\[])|secret|credential',
     [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')
 }
+# The session's folder as the host wrote it, or $null: JSON's escaped backslash is the only escape read here.
+# Mirrors hook_input_cwd in hook-launcher.sh.
+function Get-HookInputCwd {
+  if ($script:hookMore -or $script:hookHeldCount -le 0) { return $null }
+  $text = [Text.Encoding]::UTF8.GetString($script:hookHeld, 0, $script:hookHeldCount)
+  $found = [regex]::Match($text, '"cwd"\s*:\s*"((?:[^"\\]|\\\\)*)"')
+  if (-not $found.Success) { return $null }
+  $value = $found.Groups[1].Value.Replace('\\', [string][char]1)
+  if ($value.Contains('\')) { return $null }
+  return $value.Replace([string][char]1, '\')
+}
+# A repository that uses SFlow, from its files alone (usesSflow in src/copilot-environment-files-guard.mjs),
+# walked up to the first checkout. Plain-chat routing's guard runs in Node for these [PCR:REQ-001]. Mirrors
+# cwd_uses_sflow in hook-launcher.sh; anything unexpected is no SFlow repository.
+function Test-CwdUsesSflow([string]$Directory) {
+  try {
+    if (-not $Directory -or -not [IO.Path]::IsPathRooted($Directory)) { return $false }
+    $current = [IO.Path]::GetFullPath($Directory)
+    for ($depth = 0; $depth -lt 64 -and $current; $depth++) {
+      $dotGit = [IO.Path]::Combine($current, '.git')
+      if ([IO.Directory]::Exists($dotGit) -or [IO.File]::Exists($dotGit)) {
+        foreach ($name in @('workflow.yml', 'capabilities.yml', 'environments.yml')) {
+          if ([IO.File]::Exists([IO.Path]::Combine($current, 'singularity', $name))) { return $true }
+        }
+        $common = $dotGit
+        if ([IO.File]::Exists($dotGit)) {
+          $line = [IO.File]::ReadAllLines($dotGit) | Select-Object -First 1
+          if ($line -notmatch '^gitdir:\s*(.+?)\s*$') { return $false }
+          $common = $Matches[1]
+          if (-not [IO.Path]::IsPathRooted($common)) { $common = [IO.Path]::Combine($current, $common) }
+          $pointerFile = [IO.Path]::Combine($common, 'commondir')
+          if ([IO.File]::Exists($pointerFile)) {
+            $pointer = ([IO.File]::ReadAllLines($pointerFile) | Select-Object -First 1).Trim()
+            $common = if ([IO.Path]::IsPathRooted($pointer)) { $pointer } else { [IO.Path]::Combine($common, $pointer) }
+          }
+        }
+        $branch = [IO.Path]::Combine($common, 'refs', 'heads', 'sflow')
+        return [IO.Directory]::Exists([IO.Path]::Combine($common, 'singularity-flow')) -or [IO.File]::Exists($branch) -or [IO.Directory]::Exists($branch)
+      }
+      $current = [IO.Path]::GetDirectoryName($current)
+    }
+  } catch { }
+  return $false
+}
 # Answered here, or the bytes go to Node as the host sent them: held ones first, then the rest.
 function Complete-QuietHook {
   if ($Action -eq 'boundary-guard') {
     Read-HookInput
     if (Test-HookInputGoesToNode) { return }
+    if (Test-CwdUsesSflow (Get-HookInputCwd)) { return }
   } else { [void][Console]::In.ReadToEnd() }
   Write-Output '{}'; exit 0
+}
+# [PCR:REQ-016] Before Node starts for a prompt, the session's copy of its last prompt goes, and a plain prompt
+# ends the session's earlier /sf- turn, so a prompt hook that fails or times out leaves neither governing this one.
+# A prompt that may name a skill, or a stop continuation, is left to the runtime. Mirrors clear_stale_turn in
+# hook-launcher.sh, copilotModeFile() and recordPath() in src/copilot-repository-boundary.mjs.
+function Clear-StaleTurn {
+  try {
+    Read-HookInput
+    if ($script:hookMore) { return }
+    $text = [Text.Encoding]::UTF8.GetString($script:hookHeld, 0, $script:hookHeldCount)
+    # A stop continuation reads the turn it continues; a subagent's task shares the person's session.
+    if ($text.Contains('SFLOW_') -or $text.Contains('"agentId"') -or $text.Contains('"agent_id"')) { return }
+    $session = [regex]::Match($text, '"session(?:Id|_id)"\s*:\s*"([A-Za-z0-9._:-]{1,256})"')
+    if (-not $session.Success) { return }
+    $modeFile = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE }
+      elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
+    if (-not $modeFile -or -not [IO.Path]::IsPathRooted($modeFile) -or $modeFile -match '[\\/]\.\.?([\\/]|$)' -or $modeFile -match '[\\/]$') { return }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($session.Groups[1].Value)) | ForEach-Object { $_.ToString('x2') })
+    $machine = Split-Path -Parent $modeFile
+    [IO.File]::Delete((Join-Path $machine "copilot-prompts/$hash.json"))
+    $at = $text.IndexOf('"cwd":"', [StringComparison]::Ordinal)
+    if ($at -ge 0) {
+      $end = $text.IndexOf('"', $at + 7, [StringComparison]::Ordinal)
+      if ($end -ge 0) { $text = $text.Substring(0, $at) + $text.Substring($end + 1) }
+    }
+    if ($text.Contains('/sf') -or $text.Contains('skill-context')) { return }
+    foreach ($name in @("$hash.json", "$hash.mutation.json")) { [IO.File]::Delete((Join-Path $machine "copilot-boundaries/$name")) }
+  } catch { }
 }
 function ConvertTo-HookArgument([string]$Value) {
   if ($Value -and $Value -notmatch '[\s"]') { return $Value }
@@ -71,6 +145,7 @@ function Invoke-HookNode([string]$File, [string[]]$Arguments) {
 # os.homedir(): USERPROFILE on Windows, HOME elsewhere (pwsh on macOS and Linux).
 $windowsHost = $IsWindows -or $env:OS -eq 'Windows_NT'
 $homeDirectory = if ($windowsHost) { $env:USERPROFILE } else { $env:HOME }
+if ($Action -eq 'boundary-turn') { Clear-StaleTurn }
 $managedRoot = if ($env:SINGULARITY_FLOW_ENGINE_HOME) { $env:SINGULARITY_FLOW_ENGINE_HOME } else { Join-Path $homeDirectory '.singularity-flow/engine' }
 $managedActive = Join-Path $managedRoot 'active'
 if (Test-Path -LiteralPath $managedActive -PathType Leaf) {

@@ -126,16 +126,39 @@ async function settleObservedEdits(payload) {
 }
 
 /**
- * Reset on EVERY prompt, including native turns; never retain the prompt or its attachments, except the
- * redacted words a person typed after /sf-code or /sf-phase, kept for their Story [SCS:REQ-040]. A prompt
+ * Reset on EVERY prompt, including native turns; never retain the prompt or its attachments as sent. In a
+ * repository that uses SFlow each prompt is kept redacted (copilot-plain-chat.mjs [PCR:REQ-002]), and the redacted
+ * words a person typed after /sf-code or /sf-phase go to their Story [SCS:REQ-040]. A prompt
  * naming an SFlow skill, paused or not, also gets the CLI's verified invocation while the CLI is off
  * PATH: that skill's first command would otherwise fail with `command not found`.
  */
 export async function recordRepositoryBoundaryTurn(payload = {}, options = {}) {
   const answer = await recordTurn(payload, options);
   const line = hookCliLine();
-  return line && explicitSflowSkill(payload.prompt)
+  return line && explicitSflowSkill(payload.prompt) && answer.decision !== 'block'
     ? { ...answer, additionalContext: answer.additionalContext ? `${answer.additionalContext} ${line}` : line } : answer;
+}
+
+/** Where the session's copy of its last prompt lives (plain-chat-prompts.mjs): one lstat says whether to look. */
+function promptCopyPath(payload) {
+  const id = sessionId(payload);
+  return id ? path.join(path.dirname(copilotModeFile()), 'copilot-prompts', `${createHash('sha256').update(id).digest('hex')}.json`) : null;
+}
+
+/**
+ * Plain-chat routing's part of the prompt hook (copilot-plain-chat.mjs): in a repository that uses SFlow every
+ * prompt is kept, redacted [PCR:REQ-002], and one that holds what looks like a secret is blocked [PCR:REQ-003].
+ * Paused, nothing is kept. Keeping a prompt never stops it: a failure here answers nothing.
+ */
+async function notePlainChatPrompt(payload, { skill, paused, now }) {
+  try {
+    if (paused) {
+      const copy = promptCopyPath(payload);
+      if (copy) await rm(copy, { force: true });
+      return null;
+    }
+    return await (await import('./copilot-plain-chat.mjs')).notePrompt(payload, { skill, now });
+  } catch { return null; }
 }
 
 async function recordTurn(payload, { now = Date.now(), captureMutation = null }) {
@@ -162,6 +185,13 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   await attribute(payload, (recorder, directory) => recorder.sfGuardNotePrompt(payload, { directory, paused: mode.paused,
     explicitSkill: explicitSflowSkill(payload.prompt), now }), { always: true });
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
+  const blocked = await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
+  if (blocked) {
+    // The prompt never reaches the model (Copilot CLI): no turn of it, and none left from before.
+    await removeRecord(file);
+    await removeMutationRecord(file);
+    return blocked;
+  }
   if (!skill || ['sf-pause', 'sflow-pause'].includes(skill)) {
     await removeRecord(file);
     await removeMutationRecord(file);
@@ -194,6 +224,7 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
 export async function endRepositoryBoundaryTurn(payload = {}) {
   await settleObservedEdits(payload).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardEndSession(payload, { directory }));
+  await removeRecord(promptCopyPath(payload)).catch(() => {});
   await removeRecord(recordPath(payload));
   const file = recordPath(payload);
   await removeMutationRecord(file);
@@ -201,13 +232,15 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
 }
 
 /**
- * File permissions and discovery share explicit-turn opt-in, never native lifecycle gating. Outside a
- * turn (a plain prompt, or a paused session) a person's own step is refused, because no prompt makes it
- * an agent's, and so, unless SFlow is paused, is a file that holds secrets.
+ * File permissions and discovery share explicit-turn opt-in. Outside a turn (a plain prompt, or a paused
+ * session) a person's own step is refused, because no prompt makes it an agent's, and so, unless SFlow is
+ * paused, is a file that holds secrets, and in a repository that uses SFlow a change its capability sends
+ * through an /sf- skill (policy.plainChatEdits [PCR:REQ-010]). A turn whose prompt held what looks like a
+ * secret runs nothing [PCR:REQ-003].
  */
 export async function repositoryToolGuard(payload = {}) {
   const explicitTurn = await hasBoundaryTurn(payload);
-  const decision = explicitTurn ? await turnToolGuard(payload) : await plainChatGuard(payload);
+  const decision = await secretInPrompt(payload) ?? (explicitTurn ? await turnToolGuard(payload) : await plainChatGuard(payload));
   if (explicitTurn && decision.permissionDecision === 'deny') await (await import('./copilot-review-completion.mjs'))
     .noteTaskCompletionFailure(payload, decision).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
@@ -241,11 +274,28 @@ export async function repositoryToolFailure(payload = {}) {
   return (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
 }
 
+/**
+ * A turn whose prompt held what looks like a secret runs nothing [PCR:REQ-003], whichever kind of turn it is:
+ * the host sent that prompt on. One lstat when the session kept no prompt; a failure lets the call through.
+ */
+async function secretInPrompt(payload) {
+  if (readCopilotMode().paused) return null;
+  const copy = promptCopyPath(payload);
+  if (!copy || !await lstat(copy).then(() => true, () => false)) return null;
+  try { return await (await import('./copilot-plain-chat.mjs')).secretInPromptDenial(payload); }
+  catch { return null; }
+}
+
 async function plainChatGuard(payload) {
   const step = await personStepGuard(payload);
   if (step.permissionDecision === 'deny' || readCopilotMode().paused) return step;
-  // A plain chat is someone's ordinary work: this check failing is no reason to stop it.
-  try { return await (await import('./copilot-environment-files-guard.mjs')).plainChatEnvironmentFilesGuard(payload) ?? step; }
+  // A plain chat is someone's ordinary work: these checks failing are no reason to stop it [PCR:REQ-017].
+  try {
+    const secrets = await (await import('./copilot-environment-files-guard.mjs')).plainChatEnvironmentFilesGuard(payload);
+    if (secrets) return secrets;
+  } catch { /* the change check still runs */ }
+  // A change outside an /sf- skill, as the capability that owns its path says [PCR:REQ-010 to REQ-013].
+  try { return await (await import('./copilot-plain-chat.mjs')).plainChatChangeGuard(payload) ?? step; }
   catch { return step; }
 }
 

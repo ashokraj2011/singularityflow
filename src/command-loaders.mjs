@@ -88,6 +88,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/backup.mjs': () => import('./commands/backup.mjs'),
   './commands/guard.mjs': () => import('./commands/guard.mjs'),
   './commands/findings.mjs': () => import('./commands/findings.mjs'),
+  './commands/prompts.mjs': () => import('./commands/prompts.mjs'),
   './commands/validate.mjs': () => import('./commands/validate.mjs'),
   './commands/why.mjs': () => import('./commands/why.mjs'),
   './commands/wm.mjs': () => import('./commands/wm.mjs'),

@@ -1391,12 +1391,17 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
     );
   }
   // Schema migration proves readability; normalization enforces the pinned clause and path bounds.
-  normalizeClaimMap(record, { kind, clauseIds, policy, plannedClaims });
   if (kind === 'planned') {
+    // The clauses are checked on the plan as its approvers corrected it: a row they removed for a clause an
+    // intent amendment took out of the specification is no longer the plan's [PHR:REQ-002, finding 15].
+    normalizeClaimMap(record, { kind, policy, plannedClaims });
     const itemRoot = posix(path.relative(root, itemDirectory));
     await verifyPlanEvidenceAmendments(root, workflow, itemRoot);
-    return applyPlanCorrections(record, workflow, { evidenceRoot: `${itemRoot}/evidence` });
+    const corrected = applyPlanCorrections(record, workflow, { evidenceRoot: `${itemRoot}/evidence` });
+    normalizeClaimMap(corrected, { kind, clauseIds, policy, plannedClaims });
+    return corrected;
   }
+  normalizeClaimMap(record, { kind, clauseIds, policy, plannedClaims });
   return record;
 }
 

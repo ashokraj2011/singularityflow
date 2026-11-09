@@ -29,6 +29,8 @@ const portablePath = z.string().min(1).max(512).refine((value) => !/[\\:*?"<>|\x
 
 const Operation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('add-row'), clauseId: clause, claim: z.record(z.string(), z.unknown()) }),
+  // A row for a clause an intent amendment removed from the specification [PHR:REQ-002, finding 15].
+  z.strictObject({ op: z.literal('remove-row'), clauseId: clause, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('set-fulfillment'), clauseId: clause, fulfillment: fulfillmentKind, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('add-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('remove-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
@@ -86,6 +88,12 @@ function applyOperation(result, operation, { check }) {
   if (!claim) return check(false, `The plan has no row for ${id}.`, { clauseId: id });
   check(recordSha256(claim) === operation.previousClaimSha256,
     `The plan row for ${id} is not the row this correction was decided against.`, { clauseId: id });
+  if (operation.op === 'remove-row') {
+    // The row goes with its proof: a contract for a clause the plan no longer plans would cite nothing.
+    delete result.claims[id];
+    if (result.verificationContracts) result.verificationContracts = result.verificationContracts.filter((entry) => entry.clauseId !== id);
+    return;
+  }
   if (operation.op === 'set-fulfillment') {
     check((claim.fulfillment ?? null) !== operation.fulfillment, `${id} is already planned as ${operation.fulfillment}.`, { clauseId: id });
     claim.fulfillment = operation.fulfillment;
@@ -172,16 +180,22 @@ export function recordPlanRowCorrection(workflow, {
 }) {
   if (!ownerRecord || ownerRecord.kind !== 'planned') refused('A plan correction needs the approved plan it corrects.');
   if (!operations.length || operations.length > MAX_OPERATIONS) {
-    refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --set-fulfillment, --add-test, --remove-test, --replace-test, --remove-location or --replace-location.`);
+    refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --remove-row, --set-fulfillment, --add-test, --remove-test, --replace-test, --remove-location or --replace-location.`);
   }
   const active = new Set(activeClauseIds.map((value) => String(value).toUpperCase()));
   const result = structuredClone(ownerRecord);
   const check = (condition, message, details) => { if (!condition) refused(message, details); };
   const recorded = operations.map((input) => {
     const clauseId = String(input.clauseId ?? '').toUpperCase();
-    if (!active.has(clauseId)) refused(`${clauseId || 'That clause'} is not an approved clause of this Story.`, { clauseId });
+    // A row is removed only for a clause the specification no longer holds; every other change is to an approved clause.
+    if (input.op === 'remove-row' && active.has(clauseId)) {
+      refused(`${clauseId} is still an approved clause of this Story, so its row stays; correct the row instead.`, { clauseId });
+    }
+    if (input.op !== 'remove-row' && !active.has(clauseId)) refused(`${clauseId || 'That clause'} is not an approved clause of this Story.`, { clauseId });
     let operation;
-    if (input.op === 'add-row') {
+    if (input.op === 'remove-row') {
+      operation = { op: 'remove-row', clauseId };
+    } else if (input.op === 'add-row') {
       const raw = {
         expectedPaths: (input.expectedPaths ?? []).map((value) => exactPath(value, `An expected path of ${clauseId}`)),
         tests: (input.tests ?? []).map((value) => exactPath(value, `A planned test of ${clauseId}`)),
@@ -207,7 +221,7 @@ export function recordPlanRowCorrection(workflow, {
       operation = { op: 'replace-location', clauseId, from: exactPath(input.from, `The path to replace in ${clauseId}`),
         to: exactPath(input.to, `The replacement path for ${clauseId}`) };
     } else {
-      refused('A plan correction adds a row or a test, changes a row\'s fulfillment, or removes or replaces a test or a path.');
+      refused('A plan correction adds or removes a row, adds a test, changes a row\'s fulfillment, or removes or replaces a test or a path.');
     }
     if (operation.op !== 'add-row') {
       if (!result.claims[clauseId]) refused(`The plan has no row for ${clauseId}; add one with --add-row.`, { clauseId });
@@ -217,7 +231,7 @@ export function recordPlanRowCorrection(workflow, {
     return operation;
   });
   // Every row a correction touched must still be a row the planner could have written.
-  for (const clauseId of new Set(recorded.map((operation) => operation.clauseId))) normalizeRow(clauseId, result.claims[clauseId]);
+  for (const clauseId of new Set(recorded.filter((operation) => operation.op !== 'remove-row').map((operation) => operation.clauseId))) normalizeRow(clauseId, result.claims[clauseId]);
   validate(result);
   const text = String(reason ?? '').trim();
   if (text.length < 20 || text.length > 1000) refused('Say why the plan is corrected in 20 to 1000 characters with --reason.');

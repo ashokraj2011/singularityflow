@@ -5,6 +5,7 @@ import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { normalizeClaimMap } from '../src/specifications.mjs';
 import { applyPlanCorrections, planRowCorrections, recordPlanRowCorrection } from '../src/plan-row-corrections.mjs';
+import { planClauseGaps } from '../src/plan-clause-gaps.mjs';
 import { planCorrectionOperations } from '../src/commands/plan-correction.mjs';
 
 const W = 'PRC-STORY';
@@ -209,4 +210,28 @@ test('the command line names each correction exactly', () => {
   assert.throws(() => planCorrectionOperations({ 'add-row': [AC1, AC3], test: 'test/a.test.mjs' }), { code: 'PLAN_ROW_CORRECTION_INVALID' });
   assert.throws(() => planCorrectionOperations({ 'replace-location': `${AC1}=src/a.mjs` }), { code: 'PLAN_ROW_CORRECTION_INVALID' });
   assert.throws(() => planCorrectionOperations({ 'add-test': 'test/x.test.mjs' }), { code: 'PLAN_ROW_CORRECTION_INVALID' });
+});
+
+test('[PHR:REQ-002] finding 15: a plan\'s parting from the amended clauses is named with its corrections, and a row for a removed clause is removed in place', () => {
+  const { record, workflow } = subject();
+  // The amendment removed AC-002 and added AC-003: the plan has a row for one and none for the other.
+  const amended = [AC1, AC3];
+  const gap = planClauseGaps(workflow, 'planning', record.claims, amended);
+  assert.deepEqual([gap.unplanned, gap.removed], [[AC3], [AC2]]);
+  assert.deepEqual(gap.routes.map((entry) => entry.command), [
+    `singularity-flow decision plan ${W} --owner planning --add-row ${AC3}=<PATH> --test <TEST> --reason <why>`,
+    `singularity-flow decision plan ${W} --owner planning --remove-row ${AC2} --reason <why>`]);
+  assert.deepEqual(planClauseGaps(workflow, 'planning', record.claims, [AC1, AC2]).routes, [], 'a plan that plans every clause and no other');
+  assert.deepEqual(planCorrectionOperations({ 'remove-row': AC2 }), [{ op: 'remove-row', clauseId: AC2 }]);
+
+  // Its approvers remove the row of the clause the specification no longer holds; every reader sees it gone.
+  const removal = (overrides) => correct(workflow, record, [{ op: 'remove-row', clauseId: AC2 }], { activeClauseIds: amended, ...overrides });
+  const recorded = removal();
+  assert.deepEqual(recorded.operations, [{ op: 'remove-row', clauseId: AC2, previousClaimSha256: recordSha256(record.claims[AC2]) }]);
+  assert.deepEqual(Object.keys(applyPlanCorrections(record, workflow).claims), [AC1]);
+  assert.deepEqual(planClauseGaps(workflow, 'planning', applyPlanCorrections(record, workflow).claims, amended).removed, []);
+  // A row of a clause the specification still holds stays: it is corrected, never removed.
+  const fresh = subject();
+  assert.throws(() => correct(fresh.workflow, fresh.record, [{ op: 'remove-row', clauseId: AC2 }]),
+    (error) => error.code === 'PLAN_ROW_CORRECTION_INVALID' && /still an approved clause/u.test(error.message));
 });

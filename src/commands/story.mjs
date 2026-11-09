@@ -2126,6 +2126,9 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   }
   // Validate the pinned content and planned-clause contracts before recording any proposal.
   await assertAmendedScopeContent(root, config, workflow, specification, proposedText, afterClauses.map((clause) => clause.id));
+  // A separate approved plan that would part from the amended clauses is named now, with its approvers'
+  // corrections; approving the amendment runs that plan again [PHR:REQ-002, finding 15]. It informs only.
+  const planGaps = await (await import('../state.mjs')).separatePlanGaps(root, config, workflow, afterClauses.map((clause) => clause.id));
   const requiredClauses = intentAmendmentClauses(diff, optionStrings(options, 'clause'));
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const radius = intentAmendmentBlastRadius(diff, records);
@@ -2270,7 +2273,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
       worktreeGuard: exactInputGuard
     }
   );
-  return { proposal, summary, publication };
+  return { proposal, summary, publication, ...(planGaps.length ? { planGaps } : {}) };
 }
 
 /**
@@ -2439,6 +2442,11 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     const result = await proposeIntentAmendment(root, config, workflow, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
+    for (const gap of result.planGaps ?? []) {
+      console.log(`The approved plan of ${gap.phase} ${[gap.unplanned.length ? `has no row for ${gap.unplanned.join(', ')}` : null,
+        gap.removed.length ? `still has rows for ${gap.removed.join(', ')}` : null].filter(Boolean).join(' and ')}; approving this amendment runs ${gap.phase} again, or its approvers correct the plan:`);
+      for (const route of gap.routes) console.log(`  ${route.command}`);
+    }
     printCommandRoutes(
       `singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id}`,
       { label: 'Authority decision' }

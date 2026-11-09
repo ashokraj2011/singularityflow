@@ -498,7 +498,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // existing and removed rows against the Story's base, and the code refusal names the plan's corrections
     // (delivery-evidence.mjs +1950, state.mjs +916, phase-prepublish.mjs +735, phase-resolution.mjs +43); the base read
     // stays lazy (plan-base-paths.mjs) [PHR:REQ-002]. No new eager file.
-    assert.ok(closure.bytes <= 9_657_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,663,100 (measured 9,663,053, commands/phase-lifecycle.mjs): a separate plan is checked against the amended clauses at
+    // the amendment, its approval and an unchanged revalidation, the code step names the plan's corrections, and a row of a
+    // removed clause is removed in place (state.mjs +4539, plan-row-corrections.mjs +1050, specifications.mjs +389,
+    // phase-resolution.mjs +35, person-step-catalog.mjs +14); the gaps stay lazy (plan-clause-gaps.mjs) [PHR:REQ-002]. No new eager file.
+    assert.ok(closure.bytes <= 9_663_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -728,7 +732,9 @@ test('the common session projection does not import attach, state stores or publ
   // (phase-roles.mjs +860) [PHR:REQ-002].
   // 4,188,500 (measured 4,188,489): the plan's corrections for a planned fulfillment the delivery cannot meet
   // (delivery-evidence.mjs +1950) [PHR:REQ-003].
-  assert.ok(current.bytes <= 4_188_500, `session current loads ${current.bytes} source bytes`);
+  // 4,189,950 (measured 4,189,942): a plan row removed for a clause an amendment removed, read where every plan is read
+  // (plan-row-corrections.mjs +1050, specifications.mjs +389) [PHR:REQ-002].
+  assert.ok(current.bytes <= 4_189_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

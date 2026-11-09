@@ -21,6 +21,7 @@ import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { plannedBasePathProblems } from '../src/plan-base-paths.mjs';
 import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
+import { separatePlanGaps } from '../src/state.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
 import { recordScopeDecision } from '../src/scope/decisions.mjs';
@@ -254,4 +255,29 @@ test('[PHR:REQ-002] finding 14: the plan\'s existing and removed rows are checke
   const choices = phaseResolutionChoices(coding, coding.phases.implementation, refusal).choices;
   assert.deepEqual(choices.filter((entry) => ['plan-correction', 'upstream-issue'].includes(entry.kind)).map((entry) => [entry.kind, entry.owner, entry.command]),
     [['plan-correction', 'planning-approval-authority', planCorrections[0].command], ['upstream-issue', 'planning-approval-authority', planCorrections[2].command]]);
+});
+
+test('[PHR:REQ-002] finding 15: an approved separate plan that parts from the amended clauses is named, with its approvers\' corrections', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phr-amend-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const planPath = 'singularity/work-items/AMD-1/context/claims/planning-gen1-planned.json';
+  await mkdir(path.join(root, path.dirname(planPath)), { recursive: true });
+  const row = { expectedPaths: ['src/a.mjs'], tests: ['test/a.test.mjs'], testDisposition: 'applicable', testReason: null, deviation: null, fulfillment: 'modified' };
+  await writeFile(path.join(root, planPath), JSON.stringify({ kind: 'planned', workId: 'AMD-1', phase: 'planning', generation: 1,
+    claims: { 'AMD-1:REQ-001': row, 'AMD-1:REQ-002': row } }));
+  const step = (id, status, extra = {}) => ({ id, label: id, status, generation: 1, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1 }, ...extra });
+  const workflow = (pinned) => ({ workItem: { id: 'AMD-1' }, status: 'in_progress', currentPhase: 'code', phaseOrder: ['specification', 'planning', 'code'],
+    resolution: { ...(pinned ? PINNED : {}) },
+    phases: { specification: step('specification', 'approved', { requiredArtifact: { kind: 'requirements' } }),
+      planning: step('planning', 'approved', { claimMaps: { planned: { path: planPath, generation: 1 } } }),
+      code: step('code', 'in_progress', { generationPolicy: { task: 'code' } }) } });
+  const config = { workItemRoot: 'singularity/work-items' };
+  // The amendment drops REQ-002 and adds REQ-003: the plan has a row for one and none for the other.
+  const [gap] = await separatePlanGaps(root, config, workflow(true), ['AMD-1:REQ-001', 'AMD-1:REQ-003']);
+  assert.deepEqual([gap.phase, gap.unplanned, gap.removed], ['planning', ['AMD-1:REQ-003'], ['AMD-1:REQ-002']]);
+  assert.match(gap.routes[0].command, /--owner planning --add-row AMD-1:REQ-003=<PATH> --test <TEST>/u);
+  assert.match(gap.routes[1].command, /--owner planning --remove-row AMD-1:REQ-002 /u);
+  assert.deepEqual(await separatePlanGaps(root, config, workflow(true), ['AMD-1:REQ-001', 'AMD-1:REQ-002']), [], 'a plan that still plans every clause');
+  // A Story started before the check keeps its policy: nothing is judged at the amendment.
+  assert.deepEqual(await separatePlanGaps(root, config, workflow(false), ['AMD-1:REQ-001', 'AMD-1:REQ-003']), []);
 });

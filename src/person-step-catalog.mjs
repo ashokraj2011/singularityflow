@@ -22,7 +22,7 @@ const CHAT_CHOICE = new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join(
  * person who approves the plan reviews the exact rows in a live terminal, so outside a preview it is
  * their own terminal step; a narrow amendment (`--add-location`) is not.
  */
-export const PLAN_CORRECTION_FLAGS = Object.freeze(['add-row', 'set-fulfillment', 'add-test', 'remove-test', 'replace-test', 'remove-location', 'replace-location']);
+export const PLAN_CORRECTION_FLAGS = Object.freeze(['add-row', 'remove-row', 'set-fulfillment', 'add-test', 'remove-test', 'replace-test', 'remove-location', 'replace-location']);
 export function planRowCorrectionStep([command, sub], options) {
   return command === 'decision' && sub === 'plan' && options['dry-run'] !== true
     && PLAN_CORRECTION_FLAGS.some((flag) => options[flag] !== undefined);

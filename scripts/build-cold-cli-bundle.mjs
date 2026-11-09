@@ -88,6 +88,8 @@ const FAMILIES = Object.freeze([
     'owner-step-evidence.mjs',
     // The plan's existing and removed rows against the Story's base, read at planning prepublish and publication [PHR:REQ-002].
     'plan-base-paths.mjs',
+    // Where an approved plan and the amended clauses part, read at an amendment and its revalidation [PHR:REQ-002].
+    'plan-clause-gaps.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',

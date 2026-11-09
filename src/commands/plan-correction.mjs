@@ -50,6 +50,8 @@ export function planCorrectionOperations(options) {
       const [clauseId, paths] = String(entry).includes('=') ? pair(entry, '--add-row') : [String(entry).trim(), ''];
       return { op: 'add-row', clauseId, expectedPaths: list(paths), ...rowFields };
     }),
+    // A row for a clause the specification no longer holds, after an intent amendment [PHR:REQ-002].
+    ...optionStrings(options, 'remove-row').map((entry) => ({ op: 'remove-row', clauseId: String(entry).trim() })),
     // Before tests and paths, so they correct the row as the new fulfillment reads it.
     ...optionStrings(options, 'set-fulfillment').map((entry) => {
       const [clauseId, fulfillment] = pair(entry, '--set-fulfillment', '=', 'fulfillment');

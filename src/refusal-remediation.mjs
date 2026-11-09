@@ -1166,11 +1166,15 @@ const KNOWN = Object.freeze({
     step('recover-story-state', 'Inspect the Story\'s recovery plan for the current phase before retrying.',
       'singularity-flow recover --json')
   ].filter(Boolean),
-  SPEC_CLAIM_MAP_UNKNOWN_CLAUSE: () => [
+  SPEC_CLAIM_MAP_UNKNOWN_CLAUSE: (argv, error) => [
     step('list-defined-clauses',
       'List the clauses the Story defines. Cite only those; the phase that defines a clause owns its wording and must not be edited from here.',
-      'singularity-flow spec trace --format json')
-  ],
+      'singularity-flow spec trace --format json'),
+    // An approved plan's row for a clause an intent amendment removed: its approvers remove the row [PHR:REQ-002, finding 15].
+    error?.details?.kind === 'planned' && /^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\d{3}$/u.test(String(error.details.clause ?? ''))
+      ? step('correct-plan-row', `If an approved plan still has a row for ${error.details.clause}, which the specification no longer holds, an approver of that plan removes it in their own terminal.`,
+        `singularity-flow decision plan --remove-row ${error.details.clause} --reason <why>`, 'remediation') : null
+  ].filter(Boolean),
   SPEC_CLAUSE_DEPENDENCY_MISSING: () => [
     step('list-defined-clauses',
       'List the clauses the Story defines. A clause may depend only on a defined clause; an earlier phase\'s clause changes only by its own return or amendment.',
@@ -1949,7 +1953,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const known = (configurationProblemsBlocked ? configurationProblemSteps(error) : KNOWN[code]?.(argv, error) ?? APPEAL_ROUTES[code]?.(argv, error) ?? []).filter(Boolean);
   // A planned fulfillment the delivery cannot meet may be the plan's to correct: its approvers' correction and the
   // upstream issue go beside the delivery, never in its place [PHR:REQ-003, finding 14].
-  if (code === 'CODE_DELIVERY_EVIDENCE_REQUIRED') known.push(...planCorrectionSteps(error?.details?.planCorrections));
+  if (['CODE_DELIVERY_EVIDENCE_REQUIRED', 'SPEC_PLANNED_CLAIM_MAP_REQUIRED'].includes(code)) known.push(...planCorrectionSteps(error?.details?.planCorrections));
   const sessionTransportBlocked = code === 'SESSION_STATE_REFRESH_UNAVAILABLE';
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   // A producer action that repeats a known step's exact command adds a second label, not a route.

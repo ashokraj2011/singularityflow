@@ -93,7 +93,7 @@ import {
 } from './telemetry.mjs';
 import { amendmentRetentionCandidates, retainUnchangedPhases } from './phase-retention.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
-import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments } from './forward-amendments.mjs';
+import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments, revalidateCommand } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -124,7 +124,7 @@ import {
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps, decidesConformanceDifferences } from './conformance-verdicts.mjs';
 import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
-import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, settledUpstreamClauses, upstreamIssueStates, withClauseIntentOwner } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, raiseUpstreamIssueRoute, reopenAuthorityStep, settledUpstreamClauses, upstreamIssueStates, withClauseIntentOwner } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
@@ -1808,6 +1808,36 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   return record;
 }
 
+/** An approved plan's rows as its approvers corrected them, read without judging its clauses; null when it cannot be read. */
+async function approvedPlanClaims(root, config, workflow, phase) {
+  const pointer = phase?.claimMaps?.planned;
+  if (!pointer?.path) return null;
+  try {
+    const raw = JSON.parse(await readFile(path.join(root, pointer.path), 'utf8'));
+    const { applyPlanCorrections } = await import('./plan-row-corrections.mjs');
+    return applyPlanCorrections(raw, workflow, { evidenceRoot: `${workDirRelative(config, workflow.workItem.id)}/evidence` })?.claims ?? null;
+  } catch { return null; }
+}
+
+/**
+ * Each approved plan, other than the step that defines the scope, that would part from `clauseIds`:
+ * clauses it has no row for, rows for clauses no longer held [PHR:REQ-002, finding 15]. Only for a
+ * Story that pinned the owner-step checks.
+ */
+export async function separatePlanGaps(root, config, workflow, clauseIds, { except = scopeStepOf(workflow)?.id ?? null, phases = null } = {}) {
+  if (!ownerStepChecks(workflow)) return [];
+  const { planClauseGaps } = await import('./plan-clause-gaps.mjs');
+  const gaps = [];
+  for (const id of phases ?? workflow.phaseOrder ?? []) {
+    const phase = workflow.phases?.[id];
+    if (id === except || phase?.status !== 'approved' || !phase.claimMaps?.planned) continue;
+    const claims = await approvedPlanClaims(root, config, workflow, phase);
+    const gap = claims ? planClauseGaps(workflow, id, claims, clauseIds) : null;
+    if (gap && (gap.unplanned.length || gap.removed.length)) gaps.push(gap);
+  }
+  return gaps;
+}
+
 function planningOwnerForCode(workflow, codePhase) {
   const configured = plannedClaimsPolicy(workflow)?.owners?.[codePhase.id];
   if (configured) return workflow.phases[configured] ?? null;
@@ -1845,6 +1875,17 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
       ? `singularity-flow recover ${workflow.workItem.id} --phase ${owner.id}`
       : `singularity-flow recover ${workflow.workItem.id} --phase ${codePhase.id}`;
     const refusalMessage = `${message} Return to '${ownerId}', complete its exact clause/path/test table, publish, and approve it before starting implementation.`;
+    // The plan's approvers may plan the missing rows in place, or hear of it as an upstream issue [PHR:REQ-003, finding 15].
+    const planned = Object.assign({}, ...ownedPlanned.map((entry) => entry.claims ?? {}));
+    const raised = owner && ownedPlanned.length ? raiseUpstreamIssueRoute(workflow, owner.id, codePhase.id) : null;
+    const planCorrections = owner && ownedPlanned.length ? [
+      ...gaps.slice(0, 3).map((clause) => (planned[clause]
+        ? { command: `singularity-flow decision plan ${workflow.workItem.id} --owner ${owner.id} --add-test ${clause}=<TEST> --reason <why>`,
+          label: `An approver of ${owner.id} plans ${clause}'s test in their own terminal.` }
+        : { command: `singularity-flow decision plan ${workflow.workItem.id} --owner ${owner.id} --add-row ${clause}=<PATH> --test <TEST> --reason <why>`,
+          label: `An approver of ${owner.id} plans ${clause}, which the specification holds, in their own terminal.` })),
+      ...(raised ? [{ command: raised.command.replace('<clause-or-section>', gaps.join(',')), skill: '/sf-decide',
+        label: `Or record it for ${owner.id}'s approvers: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])] : [];
     throw new SingularityFlowError(
       refusalMessage,
       {
@@ -1853,6 +1894,7 @@ export async function assertPlannedSpecificationClaims(root, config, workflow, c
           phase: codePhase.id,
           ownerPhase: owner?.id ?? null,
           clauses: gaps,
+          ...(planCorrections.length ? { planningOwner: owner.id, planCorrections } : {}),
           recoveryCommand,
           gate: implementationEntryRefusal(workflow, codePhase.id, {
             code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED', message: refusalMessage, checkpoint: owner?.id ?? null, recoveryCommand,
@@ -8776,7 +8818,10 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
     const phase = workflow.phases[workflow.phaseOrder[index]];
     let directlyAffected = isConvergencePhase(phase)
-      || (phaseRequiresCodeDelivery(phase) && Number(proposal.radius?.totals?.affected ?? 0) > 0);
+      || (phaseRequiresCodeDelivery(phase) && Number(proposal.radius?.totals?.affected ?? 0) > 0)
+      // A separate plan that would no longer plan every clause the amended specification holds runs again,
+      // never kept by rule E8 for a code step to meet the gap [PHR:REQ-002, finding 15].
+      || (await separatePlanGaps(root, config, workflow, currentClauses.map((clause) => clause.id), { phases: [phase.id] })).length > 0;
     for (const artifact of phase.artifacts ?? []) {
       let affected = evidencePaths.has(posix(artifact.path));
       if (!affected) {
@@ -9188,6 +9233,18 @@ export async function revalidateAfterForwardAmendment(root, config, workflow, {
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   let binding = null;
   if (outcome === 'unchanged') {
+    // A plan is said to still hold only while it plans every clause the specification now holds, and no other [PHR:REQ-002, finding 15].
+    const clauseIds = specificationClauseIds(await loadActiveSpecRecords(itemDirectory, workflow));
+    const [gap] = await separatePlanGaps(root, config, workflow, clauseIds, { phases: [phaseId] });
+    if (gap) {
+      throw new SingularityFlowError(`${phaseId} does not hold under ${amendmentId} as it is: ${[
+        gap.unplanned.length ? `it has no row for ${gap.unplanned.join(', ')}` : null,
+        gap.removed.length ? `it still has rows for ${gap.removed.join(', ')}, which the specification no longer holds` : null].filter(Boolean).join('; ')}. `
+        + `Its approvers correct the plan first (decision plan --add-row or --remove-row), or return the Story to ${phaseId}.`,
+      { code: 'AMENDMENT_REVALIDATION_INVALID', details: { phase: phaseId, ownerPhase: phaseId, amendment: amendmentId, unplanned: gap.unplanned, removed: gap.removed,
+        recoveryCommands: [...gap.routes, { command: revalidateCommand(workflow.workItem.id, owed).replace('<unchanged|return>', 'return'),
+          label: `Or return the Story to ${phaseId}, whose author plans the amended clauses.` }] } });
+    }
     const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory, itemRelative, generation: phase.generation });
     const amended = inputs.records.find((entry) => entry.phase === owed.producer);
     if (!amended || amended.status !== 'captured' || !phase.inputContext?.sha256) {

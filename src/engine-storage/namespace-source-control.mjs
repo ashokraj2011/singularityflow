@@ -10,7 +10,7 @@ import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace
 import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespaceSourceContent} from './namespace-source-content.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
-import {sourceControlRecord,NAMESPACE_SOURCE_CONTROL_PROFILE} from './namespace-source-control-contract.mjs';
+import {sourceControlRecord,NAMESPACE_SOURCE_CONTROL_PROFILE,NAMESPACE_SOURCE_CONTROL_PROFILE_V2} from './namespace-source-control-contract.mjs';
 const hash=v=>createHash('sha256').update(v).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_INPUT_INVALID',details=null)=>new SingularityFlowError(message,{code,details});
 function cancelled(signal){if(signal?.aborted)throw error('Control evidence was cancelled; prepared work is preserved.','ENGINE_OPERATION_CANCELLED');}
@@ -28,12 +28,12 @@ export function createNamespaceSourceControlPort(options={},runtime=null){
   function checked(value,s){if(value&&(value.parametersSha256!==s.parameters||!same(value.input,s.input)))throw error('The operation ID belongs to another control request.','ENGINE_OPERATION_ID_REUSED');return value;}
   function bound(id,expected){const port=readers.get(id);if(!port||!same(port.descriptor,expected))throw error('Bind the prepared source-control reader for this repository.','ENGINE_SOURCE_CONTROL_READER_UNAVAILABLE',{
     operation:'phase.source-control.retain',repositoryId:id,readerId:expected?.id??null});return port;}
-  async function capture(port,source,id,signal){cancelled(signal);const subject=reader.subject(source),answer=await port.capture(subject,{signal});cancelled(signal);
+  async function capture(port,source,id,signal,originBinding=null){cancelled(signal);const subject=reader.subject(source),answer=await port.capture(subject,{signal});cancelled(signal);
     const value=sourceControlObservation(answer?.observation,port.descriptor,subject),revision='sha256:'+hash(canonicalJson(value));
     if(answer.revision!==revision)throw error('The source-control reader returned another observation digest.','ENGINE_PORT_RESULT_INVALID');
     if(value.current.revision!==source.plan.sources.find(row=>row.repository.id===id)?.observed.revision)throw error('Source bytes changed after retention; refresh their retained evidence in this phase.','ENGINE_SOURCE_CHANGED',{
       repositoryId:id,operation:'phase.source.retain',newOperationRequired:true});
-    await reader.verifyObservation(value,port.descriptor,source,{id},signal);return {value,revision};
+    const verified=await reader.verifyObservation(value,port.descriptor,source,{id},signal,originBinding);return {value,revision,originBinding:verified.originBinding};
   }
   async function acknowledge(s,signal){const saved=await reader.accepted(s.input,{signal});if(!saved)return null;checked(saved.plan,s);cancelled(signal);
     const identity=phaseAccessIdentity(namespaceJson(await current({projectId:scope.projectId,workId,operation:'phase.source.retain',signal})),scope.projectId);
@@ -41,8 +41,14 @@ export function createNamespaceSourceControlPort(options={},runtime=null){
   async function fresh(s,signal){cancelled(signal);await runtime.revalidateDraft(s.admission,{signal});
     const found=await sourceReader.inspectDraft(s.identity,{signal});if(!found||!same(found.binding,s.plan.source))throw error('The retained source selection changed after control preparation; select a new control operation.','ENGINE_CONTEXT_CHANGED',{
       operation:'phase.source-control.retain',newOperationRequired:true});
-    for(const row of s.plan.observations){const observed=await capture(bound(row.id,row.reader),found,row.id,signal);
-      if(observed.revision!==row.revision)throw error('Git/source facts changed after control preparation; preserve the intent and select a new operation.','ENGINE_SOURCE_CHANGED',{
+    for(const row of s.plan.observations){const proof=s.plan.origins?.find(item=>item.id===row.id)??null;
+      if(proof)for(const archive of [proof.origin,proof.baseline])for(const [read,immutable]of [[archive.result,true],[archive.index,false]]){
+        const selected=await observer.record('evidence',read.key,immutable,signal);
+        if(selected.version!==read.version)throw error('The selected origin archive changed after preparation.','ENGINE_CONTEXT_CHANGED',{
+          operation:'phase.source-control.retain',newOperationRequired:true});
+      }
+      const observed=await capture(bound(row.id,row.reader),s.source,row.id,signal,proof);
+      if(observed.revision!==row.revision||!same(observed.originBinding,s.plan.origins?.find(item=>item.id===row.id)??null))throw error('Git/source facts changed after control preparation; preserve the intent and select a new operation.','ENGINE_SOURCE_CHANGED',{
         repositoryId:row.id,operation:'phase.source-control.retain',newOperationRequired:true});}
     await runtime.revalidateDraft(s.admission,{signal});
   }
@@ -60,17 +66,18 @@ export function createNamespaceSourceControlPort(options={},runtime=null){
       if(!source)throw error('Retain this generation\'s actual changed source bytes before accepting control observations.','ENGINE_SOURCE_RETENTION_REQUIRED',{
         operation:'phase.source.retain',inputs:{workId,phaseId:s.input.phaseId},requires:['operationId']});
       const original=await reader.intent(s.input,{signal});
-      if(original){s.plan=checked(original.plan,s);s.reference=original.reference;
+      if(original){s.source=original.source;s.plan=checked(original.plan,s);s.reference=original.reference;
         if(!same(s.plan.source,source.binding)||!same(s.plan.draft,s.identity.draft)||!same(s.plan.actor,{actor:facts.actor,agentId:facts.agentId}))throw error('The preserved control intent belongs to another draft, source receipt or author; select a new operation.','ENGINE_CONTEXT_CHANGED');
         await fresh(s,signal);
       }else{
-        const observations=[];for(const row of source.plan.sources){const port=readers.get(row.repository.id);
+        s.source=source;const observations=[],origins=[];for(const row of source.plan.sources){const port=readers.get(row.repository.id);
           if(!port||!same(port.descriptor.source,row.repository.descriptor))throw error('Bind the original repository control reader.','ENGINE_SOURCE_CONTROL_READER_UNAVAILABLE',{
             repositoryId:row.repository.id,operation:'phase.source-control.retain'});
-          const captured=await capture(port,source,row.repository.id,signal);observations.push({id:row.repository.id,reader:port.descriptor,revision:captured.revision,
+          const captured=await capture(port,source,row.repository.id,signal);if(captured.originBinding)origins.push(captured.originBinding);observations.push({id:row.repository.id,reader:port.descriptor,revision:captured.revision,
             content:await shared(Buffer.from(canonicalJson(captured.value)),'runtime',signal)});}
-        s.plan=sourceControlRecord('plan',{profile:NAMESPACE_SOURCE_CONTROL_PROFILE,binding:codec.binding,input:s.input,parametersSha256:s.parameters,
-          actor:{actor:facts.actor,agentId:facts.agentId},basis:source.plan.basis,generation:source.plan.generation,draft:source.plan.draft,source:source.binding,observations});
+        const version=origins.length?2:1;
+        s.plan=sourceControlRecord('plan',{profile:version===2?NAMESPACE_SOURCE_CONTROL_PROFILE_V2:NAMESPACE_SOURCE_CONTROL_PROFILE,binding:codec.binding,input:s.input,parametersSha256:s.parameters,
+          actor:{actor:facts.actor,agentId:facts.agentId},basis:source.plan.basis,generation:source.plan.generation,draft:source.plan.draft,source:source.binding,observations,...(version===2?{origins}:{})},version);
         s.reference=await shared(Buffer.from(canonicalJson(s.plan)),'runtime',signal);await fresh(s,signal);const tx=codec.transaction(s.plan,s.reference,{intent:true});
         try{codec.receipt(await transact(scope,tx,{signal}),tx);}catch(cause){if(!['SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
           const concurrent=await reader.intent(s.input,{signal});if(!concurrent||!same(concurrent.plan,s.plan))throw cause;}
@@ -78,10 +85,10 @@ export function createNamespaceSourceControlPort(options={},runtime=null){
       const token=Object.freeze({});prepared.set(token,context);return token;
     },
     async collect(context,token,{signal}={}){if(prepared.get(token)!==context)throw error('Use the issued control preparation.');const s=selected(context),source=await sourceReader.accepted({workId,phaseId:s.input.phaseId,operationId:s.plan.source.operationId},{signal}),repositories=[];
-      let changes=0;for(const row of s.plan.observations){const verified=await reader.readObservation(row,source,signal);
+      let changes=0;for(const row of s.plan.observations){const verified=await reader.readObservation(row,source,signal,s.plan.origins?.find(item=>item.id===row.id)??null);
         repositories.push({id:row.id,revision:row.revision,changes:verified.changes,observation:await shared(Buffer.from(canonicalJson(verified.value)),'evidence',signal)});changes+=verified.changes;}
-      const body=sourceControlRecord('result',{profile:NAMESPACE_SOURCE_CONTROL_PROFILE,plan:s.reference,recordedAt:projectEnrollmentTimestamp(await now()),
-        repositories,totals:{repositories:repositories.length,changes}}),reference=await shared(Buffer.from(canonicalJson(body)),'evidence',signal),issued=Object.freeze({});
+      const body=sourceControlRecord('result',{profile:s.plan.profile,plan:s.reference,recordedAt:projectEnrollmentTimestamp(await now()),
+        repositories,totals:{repositories:repositories.length,changes}},s.plan.schemaVersion),reference=await shared(Buffer.from(canonicalJson(body)),'evidence',signal),issued=Object.freeze({});
       collected.set(issued,{context,reference});return issued;},
     async commit(context,token,{signal}={}){const completed=collected.get(token);if(!completed||completed.context!==context)throw error('Use the completed control collection.');const s=selected(context);
       for(let attempt=0;attempt<8;attempt++){const existing=await acknowledge(s,signal);if(existing)return existing;await fresh(s,signal);

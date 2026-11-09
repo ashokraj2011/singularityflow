@@ -15,6 +15,37 @@ export const SOURCE_TAG_ORIGIN_VALUES_PROFILE='sflow-source-tag-origin-values/v1
 const TRAILING_COMMENT = /\s*(?:\*\/(?:\s*\})?|-->|#\}|%\})\s*$/u;
 
 /** Source-control references and line changes are explicit facts, never discovered repositories. */
+/** Reconstruct Git's kind-specific line deltas from positions and independently verified bytes. */
+export function sourceOriginPatchPolicies(paths,roots) {
+  const {isApplicationPath}=applicationPathPolicies(roots),{isTestAutomationPath}=sourceBoundaryPolicies(paths),
+    {isDocumentationPath}=deliveryClassificationPolicies(paths,roots),{isConfigurationPath}=configurationFilePolicies(paths);
+  function* sourceOriginLineDeltasReplay({patch,tag,pathContext}) {
+    const included=path=>path&&isApplicationPath(path,pathContext)&&(tag==='clause'
+      ?!isTestAutomationPath(path)&&!isDocumentationPath(path)&&!isConfigurationPath(path):isTestAutomationPath(path));
+    const lines=text=>text.match(/[^\n]*\n|[^\n]+$/gu)??[],text=line=>line.replace(/\n$/u,''),deltas=[],pattern=tag==='clause'?/@clause/iu:/@ac/iu;
+    const invalid=()=>{throw new SingularityFlowError('Retained hunk positions do not describe the verified original and current bytes.',{code:'ENGINE_SOURCE_CONTROL_BINDING_INVALID',details:{reason:'origin-hunk-bytes'}});};
+    for(const row of patch){
+      if(!included(row.oldPath)&&!included(row.newPath))continue;
+      const original=row.oldPath===null?new Uint8Array():yield Object.freeze({kind:'origin-source-bytes',side:'origin',path:row.oldPath}),
+        current=row.newPath===null?new Uint8Array():yield Object.freeze({kind:'origin-source-bytes',side:'current',path:row.newPath}),
+        decode=bytes=>new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes),before=lines(decode(original)),after=lines(decode(current)),file=[];
+      if(!row.hunks.length&&(original.subarray(0,8000).includes(0)||current.subarray(0,8000).includes(0)))continue;
+      let a=0,b=0;
+      for(const hunk of row.hunks){
+        const startA=hunk.beforeStart-(hunk.beforeLines?1:0),startB=hunk.afterStart-(hunk.afterLines?1:0);
+        if(startA<a||startB<b||startA+hunk.beforeLines>before.length||startB+hunk.afterLines>after.length
+          ||canonicalJson(before.slice(a,startA))!==canonicalJson(after.slice(b,startB)))invalid();
+        for(let i=0;i<hunk.beforeLines;i++)file.push({path:row.oldPath,side:'removed',line:null,text:text(before[startA+i])});
+        for(let i=0;i<hunk.afterLines;i++)file.push({path:row.newPath,side:'added',line:startB+i+1,text:text(after[startB+i])});
+        a=startA+hunk.beforeLines;b=startB+hunk.afterLines;
+      }
+      if(canonicalJson(before.slice(a))!==canonicalJson(after.slice(b)))invalid();
+      if(file.some(row=>pattern.test(row.text)))deltas.push(...file);
+    }
+    return deltas;
+  }
+  return Object.freeze({sourceOriginLineDeltasReplay});
+}
 export function sourceTagOriginPolicies(paths,roots) {
   const {isApplicationPath}=applicationPathPolicies(roots),{isTestAutomationPath}=sourceBoundaryPolicies(paths),
     {isDocumentationPath}=deliveryClassificationPolicies(paths,roots),{isConfigurationPath}=configurationFilePolicies(paths),

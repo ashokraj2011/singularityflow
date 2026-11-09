@@ -11,6 +11,8 @@ import {createFilesystemSourceUnit} from '../src/sgos/filesystem-source-unit.mjs
 import {createNodeGitSourceControlReader,NODE_GIT_SOURCE_CONTROL_PROFILE} from '../src/sgos/node-git-source-control-reader.mjs';
 import {buildRepositoryChangeSet,verifyRepositoryChangeSetIntegrity} from '../src/repository-change-set.mjs';
 import {canonicalJson} from '../src/foundation/record-schema.mjs';
+import {gitPatchCoordinates,gitTagLineDeltas} from '../src/git-status-detail.mjs';
+import {sourceOriginLineDeltasReplay} from '../src/engine-compatibility/node-source-policy.mjs';
 import {SOURCE_CONTROL_READER_CONTRACT,SOURCE_CONTROL_OBSERVATION_FORMAT,SOURCE_CONTROL_LIMITS,
   sourceControlReaderDescriptor,validateSourceControlReader,sourceControlCaptureRequest,sourceControlObservation} from '../src/foundation/source-control.mjs';
 
@@ -36,6 +38,28 @@ async function fixture(t,{files={'app.js':'baseline application\n'},excludePaths
   const options={id:'local-git',root,source:unit.descriptor,baselineCommit,git:{...gitBinary},authorizeCapture:async()=>true};
   return {root,git,baselineCommit,unit,options,reader:extra=>createNodeGitSourceControlReader({...options,...extra})};
 }
+test('versioned line origins reconstruct native -G deltas without publishing source text',async t=>{
+  const name=process.platform==='win32'?'spaced 🧮.js':'quoted" 🧮.js',before='// @clause:SHARED:REQ-001 earlier statement\nexport const a=1;\n',
+    after='// @clause:SHARED:REQ-001 revised statement\nexport const a=2;\n',f=await fixture(t,{files:{[name]:before}});
+  await writeFile(path.join(f.root,name),after);f.git('add',name);
+  const reader=await f.reader({originCommit:f.baselineCommit}),answer=await reader.capture(subject),value=answer.observation;
+  assert.equal(reader.descriptor.contract,'sflow-source-control-reader/v2');assert.equal(value.schemaVersion,2);
+  assert.equal(value.origin.patch[0].oldPath,name);assert.equal(JSON.stringify(value).includes('revised statement'),false);
+  const run=sourceOriginLineDeltasReplay({patch:value.origin.patch,tag:'clause',pathContext:null});
+  let next=run.next();while(!next.done)next=run.next(Buffer.from(next.value.side==='origin'?before:after));
+  const raw=execFileSync(gitBinary.executable,['-c','core.quotePath=false','diff','--no-color','--no-ext-diff','--no-textconv',
+    '--unified=0','--find-renames','--src-prefix=a/','--dst-prefix=b/','-G@[Cc][Ll][Aa][Uu][Ss][Ee]',f.baselineCommit,'--'],{cwd:f.root,env:process.env,encoding:'utf8'});
+  assert.deepEqual(next.value,gitTagLineDeltas(raw));assert.deepEqual(gitPatchCoordinates(raw),value.origin.patch);
+  assert.equal((await reader.capture(subject)).revision,answer.revision);
+});
+test('v2 records include metadata-only renames and binary changes without inventing text hunks',async t=>{
+  const f=await fixture(t,{files:{'old.js':'// @clause:SHARED:REQ-001 old tag\n','blob.bin':Buffer.from([0,1,2])}});
+  f.git('mv','old.js','new.js');await writeFile(path.join(f.root,'blob.bin'),Buffer.from([0,2,3]));
+  const answer=await(await f.reader({originCommit:f.baselineCommit})).capture(subject);
+  assert.equal(answer.observation.origin.patch.length,2);
+  assert.ok(answer.observation.origin.patch.every(row=>row.hunks.length===0));
+  assert.ok(answer.observation.origin.patch.some(row=>row.oldPath==='old.js'&&row.newPath==='new.js'));
+});
 test('actual committed, staged, working, deleted, mode and untracked changes retain native identities and real baseline hashes',async t=>{
   const files={'app.js':'baseline application\n','old.txt':Array.from({length:40},(_,i)=>'original row '+i).join('\n'),
     'deleted.txt':'deleted baseline\n','mode.sh':'echo example\n'};

@@ -160,8 +160,10 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   The `specifications` value entry exposes `sourceTagOriginPolicies`, and `specifications/node`
   binds its exact carried-identifier and Story-added-line generators. Supply real source/line
   observations through their explicit requests; these values do not authenticate source proofs,
-  retain evidence or grant publication. Namespace shared-tag origins still need the separately
-  versioned acceptance owner. See `docs/ENGINE-SDK-SOURCE-TAG-ORIGINS.md` in the source repository.
+  retain evidence or grant publication. Supplying explicit `originCommit` alongside `baselineCommit`
+  to the Node Git reader selects v2 line-origin evidence. Acceptance binds actual original and
+  generation archives; shared-tag inspection uses verified positions and bytes. The v1 metadata
+  path retains its original meaning. See `docs/ENGINE-SDK-PORTABLE-SOURCE-ORIGINS.md` in the repository.
 - `hosts/namespace-delivery-inspection`: inspect accepted original/current source archives and
   real phase-check receipts through `phase.delivery.inspect`, with bounded affected-path previews.
   Its v3 manifest adds independently approved plan references and source-clause bindings from

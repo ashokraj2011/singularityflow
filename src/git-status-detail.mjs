@@ -27,6 +27,42 @@ export function gitTagLineDeltas(patch) {
   }
   return deltas;
 }
+/** Portable provenance stores coordinates, never the source text in Git's patch output. */
+export function gitPatchCoordinates(patch) {
+  const decode=(value,prefix)=>{
+    if(value==='/dev/null')return null;
+    let text=value.replace(/\t$/u,'');
+    if(text.startsWith('"')){
+      const bytes=[];for(let i=1;i<text.length-1;i++){
+        if(text[i]!=='\\'){const point=String.fromCodePoint(text.codePointAt(i));bytes.push(...new TextEncoder().encode(point));i+=point.length-1;continue;}
+        const octal=/^[0-7]{3}/u.exec(text.slice(i+1));if(octal){bytes.push(Number.parseInt(octal[0],8));i+=3;}
+        else {const c=text[++i];bytes.push(...new TextEncoder().encode(({n:'\n',t:'\t',r:'\r',b:'\b',f:'\f',v:'\v'})[c]??c));}
+      }text=new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(bytes));
+    }
+    if(!text.startsWith(prefix))throw new GitStatusParseError('Git patch has another path prefix.');return text.slice(prefix.length);
+  };
+  const rows=[];let row=null,remaining=null;
+  for(const line of patch.split('\n')){
+    if(remaining&&(remaining.before||remaining.after)){
+      if(line.startsWith('-')&&remaining.before)remaining.before--;
+      else if(line.startsWith('+')&&remaining.after)remaining.after--;
+      else if(!line.startsWith('\\ No newline'))throw new GitStatusParseError('Git patch has incomplete zero-context lines.');
+      continue;
+    }
+    if(line.startsWith('diff --git ')){row=null;remaining=null;}
+    else if(line.startsWith('--- ')){row={oldPath:decode(line.slice(4),'a/'),newPath:null,hunks:[]};}
+    else if(line.startsWith('+++ ')&&row)row.newPath=decode(line.slice(4),'b/');
+    else if(line.startsWith('@@ ')){
+      const h=/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(line);
+      if(!row||!h)throw new GitStatusParseError('Git patch has another hunk format.');
+      if(!row.hunks.length)rows.push(row);
+      const hunk={beforeStart:Number(h[1]),beforeLines:Number(h[2]??1),afterStart:Number(h[3]),afterLines:Number(h[4]??1)};
+      row.hunks.push(hunk);remaining={before:hunk.beforeLines,after:hunk.afterLines};
+    }
+  }
+  if(remaining&&(remaining.before||remaining.after))throw new GitStatusParseError('Git patch is truncated.');
+  return rows;
+}
 const utf8 = /* @__PURE__ */ new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_RECORDS = 500_000;

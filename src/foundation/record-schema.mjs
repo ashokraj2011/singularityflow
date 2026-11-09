@@ -207,7 +207,16 @@ export const NAMESPACE_SOURCE_BASELINE_SCHEMAS = /* @__PURE__ */ Object.freeze({
   manifest: /* @__PURE__ */ frozenFamily('namespace-source-baseline-manifest'),
   index: /* @__PURE__ */ frozenFamily('namespace-source-baseline-index')
 });
-export const SOURCE_CONTROL_OBSERVATION_SCHEMA=/* @__PURE__ */ frozenFamily('source-control-observation');
+export const SOURCE_CONTROL_OBSERVATION_SCHEMA=/* @__PURE__ */ Object.freeze({id:'source-control-observation',currentVersion:2,
+  minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'});
+/** A v1 capability keeps its original readable range, including future-version errors. */
+export function sourceControlObservationRecordProfile(contract,input){
+  const v2=contract==='sflow-source-control-reader/v2',expected=v2?2:1,
+    family=v2?SOURCE_CONTROL_OBSERVATION_SCHEMA:{...SOURCE_CONTROL_OBSERVATION_SCHEMA,currentVersion:1,maximumReadableVersion:1},
+    {storedVersion}=admitRecordSchemaVersion(family,input);
+  if(storedVersion!==expected)throw new SingularityFlowError('The source-control capability requires its own observation version.',{code:'SCHEMA_VERSION_INVALID'});
+  return Object.freeze({version:storedVersion,format:'sflow-source-control-observation/v'+storedVersion});
+}
 // Native claim-map v2 retains its v1 reader/migration path; the actual conversion stays in SDA.
 export const SPECIFICATION_CLAIM_MAP_SCHEMA=/* @__PURE__ */ Object.freeze({id:'specification-claim-map',currentVersion:2,
   minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'migrate-on-read'});
@@ -222,10 +231,15 @@ export function codeDeliveryReplayVersion(receipt) {
   return Boolean(receipt&&receipt.kind==='code-delivery'&&Number(receipt.schemaVersion)===2);
 }
 export const NAMESPACE_SOURCE_CONTROL_SCHEMAS=/* @__PURE__ */ Object.freeze({
-  plan:/* @__PURE__ */ frozenFamily('namespace-source-control-plan'),intent:/* @__PURE__ */ frozenFamily('namespace-source-control-intent'),
-  result:/* @__PURE__ */ frozenFamily('namespace-source-control-result'),manifest:/* @__PURE__ */ frozenFamily('namespace-source-control-manifest'),
-  index:/* @__PURE__ */ frozenFamily('namespace-source-control-index')
+  ...Object.fromEntries(['plan','intent','result','manifest','index'].map(kind=>[kind,Object.freeze({id:'namespace-source-control-'+kind,currentVersion:2,
+    minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})]))
 });
+export function namespaceSourceControlRecordProfile(kind,input){
+  if(!Object.hasOwn(NAMESPACE_SOURCE_CONTROL_SCHEMAS,kind))throw new SingularityFlowError('Unknown source-control record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_SOURCE_CONTROL_SCHEMAS[kind],input);
+  return Object.freeze({version:storedVersion,profile:'sflow-namespace-source-control/v'+storedVersion,
+    format:'sflow-namespace-source-control-'+kind+'/v'+storedVersion,origins:storedVersion===2});
+}
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
   manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,

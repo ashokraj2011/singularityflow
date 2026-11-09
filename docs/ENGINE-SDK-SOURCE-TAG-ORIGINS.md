@@ -54,12 +54,11 @@ lines, renames, spaces/quotes/Unicode in paths, private inputs and multiple work
 oracle is not generated from the extracted rules. Native public source binding is also compared
 against its original captured outcomes.
 
-This extraction supplies the common rule, not an accepted portable line-origin record. Namespace
-source-control v1 currently retains file identities and changes without exact line provenance.
-Its old profile remains unchanged. Shared-namespace delivery still requires the named
-`source-tag-origin` owner until a separately versioned observation and acceptance path binds
-actual first-Story/generation references, archived bytes, line locations and fresh conditional
-receipts. A metadata-only observation cannot silently satisfy that owner.
+The subsequent [portable line-origin delivery](ENGINE-SDK-PORTABLE-SOURCE-ORIGINS.md) connects these
+rules to separately versioned v2 observations and accepted archive/receipt proofs. Namespace
+source-control v1 retains its original file-metadata meaning and cannot satisfy `source-tag-origin`.
+Delivery inspection requires the actual first-Story/generation archives, positions and accepted
+conditional evidence before closing that owner.
 
 Repository-qualified plan ownership, complete application publication and cross-agent Story
 execution, existing-project migration/cutover and final distribution/performance qualification

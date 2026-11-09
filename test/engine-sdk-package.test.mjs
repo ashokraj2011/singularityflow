@@ -1093,6 +1093,32 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(result.record,original.record);assert.equal(result.recordedAt,original.recordedAt);assert.equal(result.status,'retained');
     assert.deepEqual(await f.head(),before);
   });
+  await t.test('installed v2 line-origin receipts replay real archived lines without the old checkout or Git',async sub=>{
+    const {namespaceSourceClauseFixture}=await import('./helpers/namespace-source-clause-fixture.mjs');
+    const f=await namespaceSourceClauseFixture(sub,{namespace:'SHARED',lineOrigins:true}),input={operationId:'clause-line-origins',workId:f.inputs.workId,phaseId:'build'},
+      original=await f.engine.run('phase.source-control.retain',input),before=await f.head(),
+      facts={...await f.access.current({projectId:f.scope.projectId,workId:f.inputs.workId,operation:'phase.source.retain'}),permissions:[],agentId:null};
+    await rm(f.root,{recursive:true,force:true});
+    const result=JSON.parse(await run('portable-line-origins.mjs',`
+      import path from 'node:path';import assert from 'node:assert/strict';
+      import {DatabaseSync} from 'node:sqlite';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceSourceControlEngine} from '${packageName}/hosts/namespace-source-control';
+      import {SOURCE_CONTROL_READER_CONTRACT_V2,SOURCE_CONTROL_OBSERVATION_FORMAT_V2} from '${packageName}/source-control';
+      assert.equal(SOURCE_CONTROL_READER_CONTRACT_V2,'sflow-source-control-reader/v2');
+      assert.equal(SOURCE_CONTROL_OBSERVATION_FORMAT_V2,'sflow-source-control-observation/v2');
+      const selected=JSON.parse(process.argv[2]),database=new DatabaseSync(path.join(selected.directory,'content.db'));
+      database.enableDefensive(true);database.enableLoadExtension(false);
+      const records=await createFilesystemNamespaceStore({root:path.join(selected.directory,'records'),binding:{kind:'shared'},create:false});
+      try{const content=createSqliteContentStore({database,binding:{kind:'shared'},create:false});
+        const engine=createNamespaceSourceControlEngine({records,content,scope:selected.scope,workId:selected.input.workId,authority:selected.authority,
+          access:{current:()=>selected.facts},clock:{now(){throw Error('Do not restamp accepted line origins.');}}});
+        process.stdout.write(JSON.stringify(await engine.run('phase.source-control.retain',selected.input)));
+      }finally{records.close?.();database.close();}
+    `,[JSON.stringify({directory:f.directory,scope:f.scope,authority:f.authority,input,facts})]));
+    assert.equal(result.status,'retained');assert.deepEqual(result.record,original.record);assert.deepEqual(await f.head(),before);
+  });
   await t.test('installed specification values reproduce native indexes without a checkout or implicit infrastructure',async()=>{
     const oracle=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-values/native-v1.json'),'utf8'));
     const claims=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-claims/native-v2.json'),'utf8'));
@@ -1303,7 +1329,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createNamespaceDeliveryInspectionEngine} from '${packageName}/hosts/namespace-delivery-inspection';
       import {createNamespaceSourceControlEngine} from '${packageName}/hosts/namespace-source-control';
       import type { SourceUnit,SourceDescriptor } from '${packageName}/source';
-      import type {SourceControlReader,SourceControlSubject} from '${packageName}/source-control';
+      import type {SourceControlReader,SourceControlReaderDescriptorV1,SourceControlSubject} from '${packageName}/source-control';
       import {createNodeGitSourceControlReader} from '${packageName}/sources/git';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
       import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
@@ -1323,6 +1349,26 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         git:{executable:'/explicit/git',executableSha256:'sha256:exact'},authorizeCapture:(descriptor,subject)=>subject.phase==='implementation'});
       const gitSubject:SourceControlSubject={workId:'example',phase:'implementation',generation:1,generationIntentId:null};
       gitReader.then(reader=>reader.capture(gitSubject,{signal:null}));
+      const legacyReader=createNodeGitSourceControlReader({id:'legacy',root:'/explicit',source:gitSource,baselineCommit:'exact',
+        git:{executable:'/explicit/git',executableSha256:'sha256:exact'},authorizeCapture:(descriptor:SourceControlReaderDescriptorV1)=>descriptor.contract==='sflow-source-control-reader/v1'});
+      legacyReader.then(async reader=>{const contract:'sflow-source-control-reader/v1'=reader.descriptor.contract;
+        const answer=await reader.capture(gitSubject);const version:1=answer.observation.schemaVersion;
+        // @ts-expect-error Omitted originCommit preserves the v1 capability type.
+        reader.descriptor.originRevision;});
+      const boundOriginReader=createNodeGitSourceControlReader({id:'exact-origins',root:'/explicit',source:gitSource,baselineCommit:'generation',originCommit:'story',
+        git:{executable:'/explicit/git',executableSha256:'sha256:exact'},authorizeCapture:()=>true});
+      boundOriginReader.then(async reader=>{const origin:string=reader.descriptor.originRevision;
+        const answer=await reader.capture(gitSubject);const version:2=answer.observation.schemaVersion;});
+      const originReader:Promise<SourceControlReader>=createNodeGitSourceControlReader({id:'origins',root:'/explicit',source:gitSource,
+        baselineCommit:'exact-generation',originCommit:'exact-story-origin',git:{executable:'/explicit/git',executableSha256:'sha256:exact'},authorizeCapture:()=>true});
+      originReader.then(async reader=>{
+        if(reader.descriptor.contract==='sflow-source-control-reader/v2'){const original:string=reader.descriptor.originRevision;}
+        // @ts-expect-error A v1 descriptor does not claim first-Story origin evidence.
+        if(reader.descriptor.contract==='sflow-source-control-reader/v1')reader.descriptor.originRevision;
+        const answer=await reader.capture(gitSubject);if(answer.observation.schemaVersion===2){const position:number|undefined=answer.observation.origin.patch[0]?.hunks[0]?.afterStart;}
+      });
+      // @ts-expect-error A source origin is an explicit revision, not a readiness flag.
+      createNodeGitSourceControlReader({id:'origins',root:'/explicit',source:gitSource,baselineCommit:'exact',originCommit:true,git:{executable:'/git',executableSha256:'sha256:exact'},authorizeCapture:()=>true});
       // @ts-expect-error Local Git access requires an explicit authorization capability.
       createNodeGitSourceControlReader({id:'git',root:'/explicit',source:gitSource,baselineCommit:'exact-commit',git:{executable:'/git',executableSha256:'sha256:exact'}});
       // @ts-expect-error Fixed Git commands cannot be replaced by operation data.

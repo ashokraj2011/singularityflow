@@ -16,6 +16,7 @@ import {createNamespaceSourceRetentionReader} from './namespace-source-retention
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceSourceAnalysisReader} from './namespace-source-analysis.mjs';
 import {createNamespaceSourceClauseReader} from './namespace-source-clauses.mjs';
+import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_INPUT_INVALID',details=null)=>new SingularityFlowError(message,{code,details});
 function cancelled(signal){if(signal?.aborted)throw error('Delivery inspection was cancelled before its next read.','ENGINE_OPERATION_CANCELLED');}
@@ -25,7 +26,7 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
   const sources=createNamespaceSourceObservations({observer,scope,sources:options.sources}),contexts=new WeakMap();
   const baseline=createNamespaceSourceBaselineReader({...options,scope,workId}),changed=createNamespaceSourceRetentionReader({...options,scope,workId}),checks=createNamespacePhaseCheckReader({...options,scope,workId,observer});
   const analysis=createNamespaceSourceAnalysisReader({observer,retention:changed});
-  const clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changed,baseline,checks});
+  const controlReader=createNamespaceSourceControlReader({...options,scope,workId}),clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changed,baseline,checks,controlReader});
   async function indexFresh(binding,signal){if(!binding)return;const value=await observer.record('evidence',binding.index.key,false,signal);
     if(value.version!==binding.index.version)throw error('Retained delivery evidence changed during inspection.','ENGINE_CONTEXT_CHANGED',{operation:'phase.delivery.inspect',workId});}
   return {
@@ -47,7 +48,7 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
         const definition=(await observer.approved(captured.snapshot,{signal})).compiled.definition,{selected,repositories}=await sources.generation(w,p,signal);
         result.sourceBinding={operationId:selected.operationId};result.requiredPolicyOwners=[...primaryDocumentPublicationRequirements(w,phase,{definition})];
         const identity={phaseId:f.phase,generation:p.generation,baseRevision:f.revision,draft:{workId,phase:f.phase,revision:f.draft.revision,bodySha256:f.draft.bodySha256},artifact:p.artifact.current,configuration:f.configuration};
-        const original=await baseline.inspectBinding(selected.operationId,{signal}),retained=await changed.inspectDraft(identity,{signal}),tested=await checks.inspectDraft(identity,{signal});
+        const original=await baseline.inspectBinding(selected.operationId,{signal}),retained=await changed.inspectDraft(identity,{signal}),tested=await checks.inspectDraft(identity,{signal}),control=await controlReader.inspectDraft(identity,{signal});
         if(original)result.evidence.baseline=compact(original.plan.input.operationId,original.record,{key:original.indexKey,version:original.indexVersion});
         if(retained){result.evidence.changes=compact(retained.plan.input.operationId,retained.record,retained.binding.index);
           result.analysis=analysis.preview(await analysis.analyze(retained,{signal}),{maximumEntries:input.maximumEntries});}
@@ -75,8 +76,9 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
             safety:{protectedChanges:classified.protectedChanges,boundaryViolations:classified.boundaryViolations},
             coverage:{required:w.resolution.codeDelivery?.tests?.requireAffectedModuleCoverage!==false,affectedPaths:affected.length,uncoveredPaths:uncovered.length,changedExecutableTests:testPaths.length,pathCount:order.length,paths:rows,truncated:rows.length<order.length}});
         }
-        result.clauses=clauses.preview(await clauses.inspect(captured.snapshot,f.phase,retained,original,{signal}),{maximumEntries:input.maximumEntries});
-        await sources.fresh(observed,signal);for(const binding of Object.values(result.evidence))await indexFresh(binding,signal);result.status='observed';
+        result.clauses=clauses.preview(await clauses.inspect(captured.snapshot,f.phase,retained,original,{signal,control}),{maximumEntries:input.maximumEntries});
+        await sources.fresh(observed,signal);for(const binding of [...Object.values(result.evidence),control?.binding])await indexFresh(binding,signal);
+        for(const row of control?.plan.origins??[])for(const proof of [row.origin,row.baseline])await indexFresh(proof,signal);result.status='observed';
       }
       await runtime.revalidateSourceDraft(s.token,{signal});cancelled(signal);return result;
     }

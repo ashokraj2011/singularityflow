@@ -1,13 +1,16 @@
 /** Real independent scope/plan approvals, source selection, private generation and retained bytes. */
+import {execFileSync} from 'node:child_process';
 import {mkdir,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {namespaceSpecificationFixture,specificationText,planText} from './namespace-specification-fixture.mjs';
 import {createNamespaceEngine} from '../../src/engine-storage/namespace-engine.mjs';
 import {createFilesystemSourceUnit,createFilesystemSourceContentReader} from '../../src/sgos/filesystem-source-unit.mjs';
+import {pinnedLocalGit} from './pinned-local-git.mjs';
+import {createNodeGitSourceControlReader} from '../../src/sgos/node-git-source-control-reader.mjs';
 export const converterSource='// @clause:STORY-1:REQ-001 Converts the selected integer into hexadecimal.\n'
   +'// @clause:STORY-1:AC-001 Returns FF for the approved 255 example.\nexport const convert=value=>value.toString(16).toUpperCase();\n';
 export async function namespaceSourceClauseFixture(t,{backend='filesystem',configure=()=>{},source=converterSource,baselineSource='export const convert=value=>String(value);\n',
-  retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1'}={}) {
+  retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true}={}) {
   const f=await namespaceSpecificationFixture(t,{backend,configure:definition=>{
     definition.definition.spec.namespace=namespace;
     definition.definition.codeDelivery={traceability:{sourceBindings:'enforce'}};configure(definition);
@@ -15,11 +18,15 @@ export async function namespaceSourceClauseFixture(t,{backend='filesystem',confi
   await f.author('intake',replace(specificationText));await f.approve('intake');
   await f.author('design',replace(planText));await f.approve('design');
   f.control.permissions.push('source.baseline.retain','phase.source.retain','phase.source.inspect');
-  const sources=[],sourceReaders=[],roots=[];
+  const sources=[],sourceReaders=[],roots=[],gitBindings=[],binary=lineOrigins?await pinnedLocalGit():null;
   for(let index=0;index<repositories;index++) {
     const root=path.join(f.directory,'source-clauses-'+index);await mkdir(path.join(root,'src'),{recursive:true});await mkdir(path.join(root,'test'));
-    await writeFile(path.join(root,'src/converter.js'),replace(baselineSource));
+    await writeFile(path.join(root,'src/converter.js'),replace(lineOrigins?originalSource:baselineSource));
     await writeFile(path.join(root,'test/converter.test.js'),'// Original test source.\n');
+    if(lineOrigins){const git=(...args)=>execFileSync(binary.executable,args,{cwd:root,encoding:'utf8',env:process.env,timeout:15000}).trim();
+      git('init','-q','-b','main');git('config','user.name','Example fixture');git('config','user.email','fixture@example.test');
+      git('config','core.ignorecase','false');git('add','src','test');git('commit','-qm','Original Story source');
+      gitBindings.push({git,origin:git('rev-parse','HEAD'),baseline:git('rev-parse','HEAD')});}
     const unit=await createFilesystemSourceUnit({root,id:'clause-source-'+index,projectId:f.scope.projectId,repositoryId:index?'service-'+index:'app'});
     sources.push(unit);sourceReaders.push(await createFilesystemSourceContentReader({root,id:'clause-content-'+index,source:unit.descriptor}));roots.push(root);
   }
@@ -27,6 +34,13 @@ export async function namespaceSourceClauseFixture(t,{backend='filesystem',confi
   await engine.run('source.bind',{operationId:'clause-source-selection',workId:f.inputs.workId,expectedRevision:(await f.head()).record.version,
     repositories:sources.map(unit=>unit.descriptor.repositoryId),reason:'Bind the real source after its exact plan was independently approved.'});
   if(retainBaseline)await engine.run('source.baseline.retain',{operationId:'clause-original-bytes',workId:f.inputs.workId,sourceBindingId:'clause-source-selection'});
+  let sourceBindingId='clause-source-selection';
+  if(lineOrigins&&originalSource!==baselineSource){
+    for(const [index,root]of roots.entries()){await writeFile(path.join(root,'src/converter.js'),replace(baselineSource));const {git}=gitBindings[index];git('add','src');git('commit','-qm','Earlier authored source');gitBindings[index].baseline=git('rev-parse','HEAD');}
+    sourceBindingId='clause-generation-selection';
+    await engine.run('source.bind',{operationId:sourceBindingId,workId:f.inputs.workId,expectedRevision:(await f.head()).record.version,repositories:sources.map(unit=>unit.descriptor.repositoryId),reason:'Bind the real later-generation baseline while preserving the first Story origin.'});
+    if(retainBaseline)await engine.run('source.baseline.retain',{operationId:'clause-generation-bytes',workId:f.inputs.workId,sourceBindingId});
+  }
   await engine.run('phase.prepare',{phaseId:'build'});
   for(const root of roots) {
     if(source===null)await rm(path.join(root,'src/converter.js'));else await writeFile(path.join(root,'src/converter.js'),replace(source));
@@ -34,5 +48,10 @@ export async function namespaceSourceClauseFixture(t,{backend='filesystem',confi
   }
   const retain=(operationId='clause-current-bytes')=>engine.run('phase.source.retain',{operationId,workId:f.inputs.workId,phaseId:'build'});
   if(retainChanges)await retain();
-  return {...f,options,make,engine,sources,sourceReaders,roots,root:roots[0],retain,inspect:input=>engine.run('phase.delivery.inspect',{phaseId:'build',...input})};
+  let active=engine;
+  if(lineOrigins){options.sourceControlReaders=await Promise.all(roots.map((root,index)=>createNodeGitSourceControlReader({
+    id:'clause-git-'+index,root,source:sources[index].descriptor,baselineCommit:gitBindings[index].baseline,originCommit:gitBindings[index].origin,git:binary,authorizeCapture:()=>true})));
+    active=make();if(retainOrigins)await active.run('phase.source-control.retain',{operationId:'clause-line-origins',workId:f.inputs.workId,phaseId:'build'});
+  }
+  return {...f,options,make,engine:active,sourceBindingId,gitBindings,sources,sourceReaders,roots,root:roots[0],retain,inspect:input=>active.run('phase.delivery.inspect',{phaseId:'build',...input})};
 }

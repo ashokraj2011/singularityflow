@@ -251,6 +251,8 @@ export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntr
   }else if(facts.sourceBinding!==null||facts.repositories.length||Object.values(facts.evidence).some(Boolean))bad();
   if(v2)validateSourceAnalysisPreview(facts,maximumEntries,bad);
   if(v3)validateSourceClausePreview(facts,maximumEntries,bad);
+  if(v3&&facts.clauses?.requiredPolicyOwners.includes('source-tag-origin'))action('phase.source-control.retain',{workId,phaseId},['operationId'],
+    ['origin-bound-source-control-reader','original-source-bytes-available']);
   return {schemaVersion:v3?3:v2?2:1,contract:v3?DELIVERY_INSPECTION_PROFILE_V3:v2?DELIVERY_INSPECTION_PROFILE_V2:'sflow-delivery-evidence-inspection/v1',...facts,actions,
     observationsOnly:true,publicationReadinessInspected:false,applicationAcceptanceEstablished:false};
 }

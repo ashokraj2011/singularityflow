@@ -565,14 +565,35 @@ export function sourceControlObservationPolicies(port,roots,values){
   const oid=v=>typeof v==='string'&&/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v);
   const fail=reason=>{throw new SingularityFlowError('Source-control observations do not match their retained source binding.',{
     code:'ENGINE_SOURCE_CONTROL_BINDING_INVALID',details:{reason}});};
-  function verifySourceControlObservation(observation,{descriptor,subject,baseline,current,definition,workflow}){
-    if(descriptor.profile!=='git-selected-worktree-change-set/v1')throw new SingularityFlowError('The source-control profile needs its own evidence verifier.',{code:'ENGINE_SOURCE_CONTROL_PROFILE_UNSUPPORTED'});
-    const c=observation.control;
+  function verifySourceControlObservation(observation,{descriptor,subject,baseline,current,origin,definition,workflow}){
+    const v2=descriptor.profile==='git-selected-worktree-line-origins/v2';
+    if(descriptor.profile!=='git-selected-worktree-change-set/v1'&&!v2)throw new SingularityFlowError('The source-control profile needs its own evidence verifier.',{code:'ENGINE_SOURCE_CONTROL_PROFILE_UNSUPPORTED'});
+    const c=observation.control;let originTracked=null;
     if(!same(observation.subject,subject)||!same(observation.current.snapshot,current)||observation.baseline.revision!==descriptor.baselineRevision)fail('subject-or-current-source');
     const inventory=snapshot=>sourceBaselineInventory(snapshot,{definition,workflow}).entries;
     // Filesystem executable bits and repository file modes are distinct facts (notably on Windows).
     const contents=rows=>rows.map(({path,sha256,bytes})=>({path,sha256,bytes}));
     if(!same(contents(inventory(baseline)),contents(inventory({entries:observation.baseline.entries}))))fail('baseline-source');
+    if(v2&&(!origin||observation.origin.revision!==descriptor.originRevision
+      ||!same(contents(inventory(origin)),contents(inventory({entries:observation.origin.entries})))))fail('story-origin-source');
+    if(v2){
+      const tracked=originTracked=new Set(),originalPaths=new Set(observation.origin.entries.map(row=>row.path)),currentPaths=new Set(current.entries.map(row=>row.path));for(const path of observation.origin.trackedPaths){sourceRelativePath(path);
+        if(tracked.has(path)||descriptor.source.selection.excludePaths.some(exclude=>path===exclude||path.startsWith(exclude+'/')))fail('origin-tracking');tracked.add(path);}
+      const seen=new Set(),covered=new Set();for(const row of observation.origin.patch){
+        if(!exact(row,['oldPath','newPath','hunks'])||row.oldPath===null&&row.newPath===null||!Array.isArray(row.hunks)||row.hunks.length>100000)fail('origin-hunks');
+        for(const path of [row.oldPath,row.newPath])if(path!==null){sourceRelativePath(path);
+          if(descriptor.source.selection.excludePaths.some(exclude=>path===exclude||path.startsWith(exclude+'/')))fail('origin-excluded-path');covered.add(path);}
+        const key=canonicalJson([row.oldPath,row.newPath]);if(seen.has(key))fail('origin-duplicate-path');seen.add(key);
+        if(row.oldPath!==null&&!originalPaths.has(row.oldPath)
+          ||row.newPath!==null&&(!currentPaths.has(row.newPath)||!tracked.has(row.newPath)))fail('origin-patch-member');
+        for(const hunk of row.hunks)if(!exact(hunk,['beforeStart','beforeLines','afterStart','afterLines'])
+          ||Object.values(hunk).some(value=>!Number.isSafeInteger(value)||value<0)||hunk.beforeLines+hunk.afterLines<1
+          ||hunk.beforeLines>0&&hunk.beforeStart===0||hunk.afterLines>0&&hunk.afterStart===0)fail('origin-hunk-coordinates');
+      }
+      const old=new Map(inventory({entries:observation.origin.entries}).map(row=>[row.path,row])),next=new Map(inventory(current).map(row=>[row.path,row]));
+      for(const path of new Set([...old.keys(),...next.keys()]))if((old.has(path)&&!tracked.has(path)
+        ||(!next.has(path)||tracked.has(path))&&(!old.has(path)||!next.has(path)||old.get(path).sha256!==next.get(path).sha256))&&!covered.has(path))fail('unreported-origin-change');
+    }
     if(!exact(c,['schemaVersion','kind','subject','base','target','entries','digest']))fail('control-record');
     admitRecordSchemaVersion(REPOSITORY_CHANGE_SET_SCHEMA,c);
     if(c.kind!=='repository-change-set'
@@ -587,6 +608,7 @@ export function sourceControlObservationPolicies(port,roots,values){
         ||previous!==null&&codec.entryOrder(previous,row)>=0||row.similarity!==null&&(!Number.isSafeInteger(row.similarity)||row.similarity<0||row.similarity>100)
         ||![row.oldObject,row.newObject].every(value=>value===null||oid(value))||Object.hasOwn(row,'untracked')&&(row.untracked!==true||row.status!=='added'))fail('change-entry');
       ids.add(row.changeId);previous=row;
+      if(v2&&row.newPath!==null&&originTracked.has(row.newPath)===Boolean(row.untracked))fail('origin-control-tracking');
       for(const relative of [row.oldPath,row.newPath])if(relative!==null){sourceRelativePath(relative);
         if(descriptor.source.selection.excludePaths.some(exclude=>relative===exclude||relative.startsWith(exclude+'/')))fail('excluded-path');paths.add(relative);}
       if(row.status==='added'?(row.oldPath!==null||row.newPath===null):row.status==='deleted'?(row.newPath!==null||row.oldPath===null)

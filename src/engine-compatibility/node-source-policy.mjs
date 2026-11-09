@@ -5,7 +5,7 @@ import {NODE_CONFIGURATION_PATH_SYNTAX,TEST_COMMAND_ECOSYSTEMS} from './node-con
 import {ecosystemOfAdapter,ecosystemOfProgram} from '../test-runners.mjs';
 import {GOVERNED_ROOTS} from '../governed-roots.mjs';
 import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,sourceControlObservationPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS,createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES,configurationMaterializationPolicies} from '../kernel/source-path-policies.mjs';
-import {codeDeliveryEvidencePolicies,sourceTagOriginPolicies} from '../kernel/code-delivery-evidence.mjs';
+import {codeDeliveryEvidencePolicies,sourceTagOriginPolicies,sourceOriginPatchPolicies} from '../kernel/code-delivery-evidence.mjs';
 export {SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '../kernel/code-delivery-evidence.mjs';
 import {TEST_REPORT_BYTE_SYNTAX} from '../kernel/test-report-codec.mjs';
 export {SOURCE_BOUNDARIES,normalizeSourceBoundary} from '../kernel/configuration-declarations.mjs';
@@ -96,6 +96,8 @@ export const canonicalFinding=/* @__PURE__ */ (()=>deliveryEvidenceBinding.canon
 export const canonicalFindingId=/* @__PURE__ */ (()=>deliveryEvidenceBinding.canonicalFindingId)();
 export const codeDeliveryCandidateSha256=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryCandidateSha256)();
 const originValuesBinding=/* @__PURE__ */ sourceTagOriginPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS);
+const originPatchBinding=/* @__PURE__ */ sourceOriginPatchPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS);
+export const sourceOriginLineDeltasReplay=/* @__PURE__ */ (()=>originPatchBinding.sourceOriginLineDeltasReplay)();
 export const carriedTagIdsReplay=/* @__PURE__ */ (()=>originValuesBinding.carriedTagIdsReplay)();
 export const storyTagLinesReplay=/* @__PURE__ */ (()=>originValuesBinding.storyTagLinesReplay)();
 

@@ -983,7 +983,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); }, proposalEntityCard: function () { return proposalEntityCard.apply(null, arguments); },
-    proposalCard: function () { return proposalCard.apply(null, arguments); },
+    proposalCard: function () { return proposalCard.apply(null, arguments); }, stepTestsWords: function () { return stepTestsWords.apply(null, arguments); },
+    repositoryTestsCard: function () { return repositoryTestsCard(); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
@@ -1725,6 +1726,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       userWorkflows.appendChild(card);
       search.add(card, [upload.branch, view.status, view.reason], [upload.branch], userWorkflows);
     });
+    var testsCard = repositoryTestsCard();
+    if (testsCard) main.appendChild(testsCard);
     renderEpicList(main, search);
     search.finish();
   }
@@ -3545,9 +3548,53 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var step = find(own) || workflows.map(find).find(Boolean);
     if (!step) return null;
     var named = (step.qualityCommands || []).map(function (entry) { return typeof entry === 'string' ? entry : entry.command || (entry.argv || []).join(' '); });
-    if (step.output === 'code') named.push('the tests of the code it changes');
-    if (step.runsRepositoryTests) named.push("the repository's tests");
+    var from = step.testsFrom && step.testsFrom.source === 'repository' ? stepTestsWords(step) : null;
+    if (from) named.push(from);
+    else if (step.output === 'code') named.push('the tests of the code it changes');
+    else if (step.runsRepositoryTests) named.push("the repository's tests");
     return named;
+  }
+  /** The published step, as the model has it for this workflow. */
+  function publishedStep(workflowId, phaseId) {
+    var workflows = (state.model && state.model.workflows) || [];
+    var own = workflows.find(function (entry) { return entry.id === workflowId; });
+    return ((own && own.steps) || []).find(function (entry) { return entry.id === phaseId; }) || null;
+  }
+  /**
+   * Which tests a step runs (RTC:REQ-009): this step's own, all the repository's, the levels or IDs it
+   * names, or, with no repository tests, the ones SFlow finds from the build files.
+   */
+  function stepTestsWords(step) {
+    var from = step && step.testsFrom;
+    if (!from) return null;
+    if (from.source === 'step') return "this step's own: " + from.ids.join(', ');
+    if (from.source === 'inferred') return step.output === 'code' ? 'the tests of the code it changes, found from the build files' : "the repository's tests, found from the build files";
+    var all = ((state.model && state.model.tests) || []).length;
+    var named = [].concat(from.levels ? ['levels ' + from.levels.join(', ')] : [], from.ids ? ['IDs ' + from.ids.join(', ')] : []);
+    return named.length ? "the repository's tests at " + named.join(' or ') + ': ' + from.runs.join(', ')
+      : 'all ' + all + " of the repository's tests: " + from.runs.join(', ');
+  }
+  /** A step's line saying which tests it runs, with where they are changed. */
+  function stepTestsSection(workflowId, phaseId) {
+    var words = stepTestsWords(publishedStep(workflowId, phaseId));
+    if (!words) return null;
+    return section('step-tests', 'Tests', [
+      el('p', { text: words, 'data-key': 'step-tests' }),
+      el('span', { class: 'hint', text: "The repository's tests are set in Configuration Center → Tests or with /sf-test-setup; a step chooses levels or IDs with testLevels or testIds in workflow.yml." })
+    ], null, words.split(':')[0]);
+  }
+  /** The repository's own test commands, with their level and folders (RTC:REQ-009). */
+  function repositoryTestsCard() {
+    var tests = (state.model && state.model.tests) || [];
+    if (!tests.length) return null;
+    return el('section', { class: 'studio-card', 'aria-label': 'Repository tests' },
+      el('h2', { text: 'Repository tests' }),
+      el('p', { class: 'muted', text: 'Every step that runs tests runs these, in every workflow, unless it has its own or names the levels or IDs it runs.' }),
+      el('ul', null, tests.map(function (test) {
+        return el('li', { 'data-key': 'repository-test-' + test.id }, el('strong', { text: test.id }),
+          el('span', { class: 'muted', text: ' · ' + test.level + ' · ' + (test.affectedRoots.length ? test.affectedRoots.join(', ') : test.workingDirectory)
+            + (test.environment ? ' · environment ' + test.environment : '') + (test.env && test.env.length ? ' · sets ' + test.env.join(', ') : '') }));
+      })));
   }
   /** A seeded step, read-only: what it produces, who drafts it, what it reads, who signs it off, what follows, its World Model and skills. */
   function renderReadOnlyStep(workflowId, phaseId) {
@@ -3618,6 +3665,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         button('Use a copy in this workflow', function () { copyStepForWorkflow(workflowId, phaseId); }, { class: 'secondary', style: 'margin-top:6px' })) : null
     ], null, look.label));
     aside.appendChild(aboutSection(workflowId, phaseId, phase, false));
+    var testsSection = stepTestsSection(workflowId, phaseId);
+    if (testsSection) aside.appendChild(testsSection);
 
     aside.appendChild(section('agent', 'Drafting agent', [
       el('div', { class: 'agent-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: agent ? initials(agent.label) : '?' }),

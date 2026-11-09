@@ -209,7 +209,8 @@ async function configurationCenterPages() {
   const inspection = { repositoryPath: '/tmp/guard/repo', sourceRoots: ['.'], diagnostics: [], suggestions: [{ ...command, id: 'suggested' }], instructionCandidates: [] };
   return [{ name: 'test setup with a chosen workflow phase and its command rows',
     html: page('Configuration Center', configurationCenterHtml(configurationCenterView(snapshot), 'tests', null, null, null, [], null,
-      { targets, selected: targets[0].id, inspection, testScope: { enabled: false, reviews: false } }), '', 'guard', CONFIGURATION_CENTER_SCRIPT, { nav: 'configuration' }) }];
+      { targets, selected: targets.find((target) => target.phaseId === 'implementation' && target.workType === null).id, inspection, testScope: { enabled: false, reviews: false } }),
+      '', 'guard', CONFIGURATION_CENTER_SCRIPT, { nav: 'configuration' }) }];
 }
 
 async function specStudioPages() {

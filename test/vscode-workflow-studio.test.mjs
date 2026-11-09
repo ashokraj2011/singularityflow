@@ -1730,6 +1730,40 @@ test('a proposal that changes only the repository\'s tests reads as Repository t
   assert.ok(all(card).some((node) => node.tag === 'button' && /Review and activate/u.test(text(node))));
 });
 
+test('Workflow Studio lists the repository tests with their level and folders, and says which of them each step runs (RTC:REQ-009)', async () => {
+  const unit = { id: 'shop-unit', kind: 'test', level: 'unit', argv: ['npx', 'vitest', 'run'], workingDirectory: 'apps/shop', affectedRoots: ['apps/shop'],
+    modelPolicy: 'never', result: { adapter: 'vitest-json', path: '.sflow/results/shop-unit.json', minimumDiscovered: 1 } };
+  const relay = { ...unit, id: 'e2e-relay', level: 'e2e', argv: ['npx', 'playwright', 'test'], environment: 'relay',
+    result: { adapter: 'playwright-json', path: '.sflow/results/e2e-relay.json', minimumDiscovered: 1 } };
+  const root = await repository({ edit: (document) => {
+    document.setIn(['tests'], document.createNode([unit, relay]));
+    document.setIn(['phases', 'implementation', 'testLevels'], ['unit']);
+  } });
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  assert.deepEqual(model.tests.map((test) => [test.id, test.level, test.affectedRoots, test.environment ?? null]),
+    [['shop-unit', 'unit', ['apps/shop'], null], ['e2e-relay', 'e2e', ['apps/shop'], 'relay']]);
+  const tested = model.workflows.find((workflow) => ['implementation', 'verification'].every((id) => workflow.phases.includes(id)));
+  const step = (id) => tested.steps.find((entry) => entry.id === id);
+  assert.deepEqual(step('implementation').testsFrom, { source: 'repository', levels: ['unit'], runs: ['shop-unit'] });
+  assert.deepEqual(step('verification').testsFrom, { source: 'repository', runs: ['shop-unit', 'e2e-relay'] });
+  assert.deepEqual(step('implementation').qualityCommands, [], "the repository's tests are not shown as the step's own checks");
+  assert.equal(step('design')?.testsFrom, undefined, 'a step that runs no tests says nothing about them');
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: { setProperty() {} }, textContent: '',
+    setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; },
+    addEventListener(event, fn) { (this.listeners ??= {})[event] = fn; } });
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createElementNS: (ns, tag) => element(tag), createTextNode: (value) => ({ text: value }) });
+  const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  assert.equal(page.stepTestsWords(step('implementation')), "the repository's tests at levels unit: shop-unit");
+  assert.equal(page.stepTestsWords(step('verification')), "all 2 of the repository's tests: shop-unit, e2e-relay");
+  assert.equal(page.stepTestsWords({ testsFrom: { source: 'step', ids: ['own'] } }), "this step's own: own");
+  assert.match(text(page.repositoryTestsCard()).replace(/\s+/gu, ' '), /Repository tests .* shop-unit · unit · apps\/shop e2e-relay · e2e · apps\/shop · environment relay/u);
+  // An editable workflow's step panel says the same, with where the tests are changed.
+  const editable = model.workflows.find((workflow) => !workflow.readOnly && workflow.phases.includes('implementation'));
+  assert.ok(editable, 'the repository owns an editable workflow with a code step');
+  const panel = text(page.renderInspector(editable.id, 'implementation')).replace(/\s+/gu, ' ');
+  assert.match(panel, /Tests the repository's tests at levels unit: shop-unit The repository's tests are set in Configuration Center → Tests/u);
+});
+
 test('several approval groups survive editing a step, and taking a group off drops it from the groups that must approve', () => {
   const { logic } = studioLogic();
   const approval = logic.approvalDraft({ mode: 'required', authorities: ['architecture-reviewers', 'engineering-reviewers'], requiredAuthorities: ['engineering-reviewers'], minimum: 2 });

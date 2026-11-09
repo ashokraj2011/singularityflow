@@ -143,6 +143,8 @@ export async function planTestCommandProposal(root, { step: phase = null, workfl
     const existing = repository || inOverride !== undefined || !workflow ? document.getIn(scope, true) : null;
     const list = YAML.isSeq(existing) ? existing : document.createNode(current);
     list.flow = false;
+    // The comment above the list's first entry belongs to that entry: replacing it drops the comment.
+    if (at.includes(0) && list === existing) list.commentBefore = undefined;
     proposed.forEach(({ command: entry, source: from }, position) => {
       const node = document.createNode(entry);
       if (from) node.commentBefore = ` Read from ${from.file}:${from.line} by capability test-setup.`;

@@ -1,5 +1,6 @@
 /** Durable, read-only source packet and append-only review evidence for published Story generations. */
 import { latestStepBefore, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
+import { upstreamIssueStates } from './upstream-routes.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -366,6 +367,10 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
     kind, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
     sources, ...(visualSources.length ? { visualSources } : {}),
     ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
+    // What a planning finding about the approved specification is raised as [PHR:REQ-003]; not bound.
+    ...(approved ? { upstreamSpecPhase: approved.id, upstreamIssues: upstreamIssueStates(workflow)
+      .filter((state) => !state.supersededBy && state.issue.phase === approved.id)
+      .map(({ issue, status }) => ({ id: issue.id, about: issue.about ?? '', problem: issue.problem ?? '', status })) } : {}),
     ...(clarifications.length ? { clarifications } : {}),
     authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256,
     recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null
@@ -761,6 +766,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
     artifact: hashView(input.artifact, input.binding.artifact),
     ...(input.upstreamSpec ? { upstreamSpec: hashView(input.upstreamSpec, input.binding.upstreamSpec) } : {}),
+    // A finding about that specification names this step as its ownerPhase [PHR:REQ-003].
+    ...(input.upstreamSpecPhase ? { upstreamSpecPhase: input.upstreamSpecPhase } : {}),
     citationGuide: sourceReviewCitationGuide(input),
     reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath,
     stagingProtocol

@@ -36,7 +36,8 @@ const reviewerFinding = z.strictObject({
   id, severity: z.enum(['blocking', 'advisory']),
   message: text().describe('Explain the evidence and gap in message; not explanation.'),
   clauseId: id.optional(), sourceId: id.optional(),
-  line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional()
+  line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(),
+  ownerPhase: id.optional().describe('Planning review only: the approved earlier step whose output this finding is about (the specification), never the plan. It is raised there as an upstream issue and then holds only the Story\'s ending, not the plan.')
 });
 
 function schema(kind) {

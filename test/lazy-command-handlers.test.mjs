@@ -471,7 +471,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // admits (forward-amendments.mjs +197); the stale-evidence routes stay lazy (evidence/terminal.mjs) [PHR:REQ-003].
     // 9,633,750 (measured 9,633,719, commands/phase-lifecycle.mjs): the ending reads every step as earlier for a decided
     // upstream issue (upstream-routes.mjs +85); the settlement itself stays lazy (evidence/evaluate.mjs) [PHR:REQ-003].
-    assert.ok(closure.bytes <= 9_633_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,638,400 (measured 9,638,359, commands/phase-lifecycle.mjs): a planning review finding about the approved
+    // specification names that step and is raised there (source-grounded-review.mjs +1649, source-review-continuation.mjs
+    // +1575, source-review-lifecycle.mjs +652, state.mjs +508, source-review-contract.mjs +256) [PHR:REQ-003]. No new eager file.
+    assert.ok(closure.bytes <= 9_638_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

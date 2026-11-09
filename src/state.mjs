@@ -5501,7 +5501,9 @@ async function submitPhaseTransition(root, config, workflow, {
             workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
             status: review.status, findings: review.findings ?? [],
             pendingDispositions: review.pendingDispositions ?? [],
-            nextAction: { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
+            // A finding about the approved specification is raised there, never re-reviewed here [PHR:REQ-003].
+            nextAction: (await import('./source-review-continuation.mjs')).reviewUpstreamRoute(workflow, phase, review)
+              ?? { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
           }
         }
       );
@@ -6668,8 +6670,11 @@ export async function evaluateApproval(root, config, workflow, {
           // A review is made while the step is in progress, so review-source context refuses here: this
           // laptop restores the missing documents, or the step goes back to be reviewed again.
           const restore = review.status === 'documents-required' ? (review.continuation?.actions ?? []).find((entry) => entry?.command) : null;
+          // A finding about the approved specification is raised there; no return of this step can clear it [PHR:REQ-003].
+          const upstream = (await import('./source-review-continuation.mjs')).reviewUpstreamRoute(workflow, phase, review);
           const nextAction = restore
             ? { command: restore.command, label: 'Restore each original document on this laptop with the exact file, then approve again; nothing about the step changes.' }
+            : upstream ? upstream
             : phase.status === 'in_progress'
               ? { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
               : { command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`, skill: '/sf-reject',

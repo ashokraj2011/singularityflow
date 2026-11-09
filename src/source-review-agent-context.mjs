@@ -49,6 +49,7 @@ export function compactSourceReviewContext(packet, binding) {
         ? 'Apply the requirement-review calibration in reviewer.effectiveInstructions; existing acceptance criteria count as coverage.'
         : REQUIREMENT_REVIEW_PROTOCOL } : {}),
       verification: 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
+      ...(packet.upstreamSpecPhase ? { upstreamFindings: `A blocking finding about the approved specification itself, not the plan, names ownerPhase "${packet.upstreamSpecPhase}": it is raised there as an upstream issue and holds only the Story's ending, not the plan.` } : {}),
       next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Read the exact source text files; their 1-based lines, not packet JSON lines, are citation lines. Use citationGuide to check all scenarios/clauses. Stage, check, repair format/citations using repair hints in this turn (at most two changed packets), then retain when retentionReady, even with honest semantic gaps. Use stagingProtocol; native file-read tools, not shell parsers or duplicate inventories.' } };
   const ordered = {};
   for (const key of FIRST_FIELDS) if (Object.hasOwn(merged, key)) ordered[key] = merged[key];

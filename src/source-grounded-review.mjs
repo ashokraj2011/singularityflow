@@ -12,6 +12,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
 import { nonTestVerification } from './verification/intent.mjs';
 import { extractNormativeStatements, normalizeStatement } from './scope/extract.mjs';
+import { issueNamesClause } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -145,6 +146,14 @@ function reviewedClarificationSet(report, binding, findings) {
 
 function finding(code, message, details = {}) {
   return { code, message, ...details };
+}
+
+/** Whether an upstream issue names a reviewer finding: by its clause, else by the finding's own id. */
+function reviewFindingRaised(issue, entry) {
+  const text = `${issue.about ?? ''} ${issue.problem ?? ''}`;
+  if (entry.clauseId) return issueNamesClause(text, entry.clauseId);
+  const id = String(entry.id).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9._:-])${id}(?![A-Za-z0-9_:-])`, 'u').test(text);
 }
 
 /**
@@ -386,6 +395,7 @@ export function evaluateSourceGroundedReview(report, context) {
   const reportSha256 = recordSha256(report);
   const findings = [];
   const pendingDispositions = [];
+  const upstreamFindings = [];
   let versionReadable = true;
   try { readRecord('source-grounded-review', Buffer.from(JSON.stringify(report))); }
   catch { versionReadable = false; }
@@ -441,7 +451,16 @@ export function evaluateSourceGroundedReview(report, context) {
         } else citedSource(entry, new Map(context.sources.map((source) => [source.id, source])), findings,
           `Reviewer finding '${entry.id}'`, `findings[${index}]`);
       }
-      if (entry.severity === 'blocking') findings.push(finding('reviewer-blocker',
+      // A planning finding about the approved specification is that step's to correct: once raised there
+      // it holds only the Story's ending, never the plan; until then its route is the raise [PHR:REQ-003].
+      const owner = entry.severity === 'blocking' && context.kind === 'planning' && entry.ownerPhase
+        && entry.ownerPhase === context.upstreamSpecPhase ? entry.ownerPhase : null;
+      const raised = owner ? (context.upstreamIssues ?? []).find((issue) => reviewFindingRaised(issue, entry)) : null;
+      if (raised) upstreamFindings.push({ id: entry.id, ownerPhase: owner, issue: raised.id, status: raised.status, message: entry.message });
+      else if (owner) findings.push(finding('reviewer-blocker',
+        `Reviewer finding '${entry.id}' is about ${owner}'s approved output: ${entry.message} Raise it to ${owner}'s approvers as an upstream issue; then it holds only the Story's ending, not ${context.phase}.`,
+        { reviewFindingId: entry.id, ownerPhase: owner, upstreamPhase: owner, about: entry.clauseId ?? entry.id }));
+      else if (entry.severity === 'blocking') findings.push(finding('reviewer-blocker',
         `Reviewer finding '${entry.id}': ${entry.message}`, { reviewFindingId: entry.id }));
     }
   }
@@ -459,6 +478,7 @@ export function evaluateSourceGroundedReview(report, context) {
   return {
     status: findings.length ? 'correction-required' : 'ready',
     binding, reportSha256, findings, pendingDispositions: unresolved,
+    ...(upstreamFindings.length ? { upstreamFindings } : {}),
     disclaimer: 'A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment.'
   };
 }

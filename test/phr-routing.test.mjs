@@ -14,6 +14,11 @@ import { evidenceWaitingOnIssues } from '../src/evidence/terminal.mjs';
 import { findingOwnedByPhase, phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { sourceReviewBinding } from '../src/source-grounded-review.mjs';
+import { reviewUpstreamRoute, sourceReviewContinuation } from '../src/source-review-continuation.mjs';
+import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport } from '../src/source-review-contract.mjs';
+import { checkSourceReviewReport } from '../src/source-review-lifecycle.mjs';
+import { compactSourceReviewContext } from '../src/source-review-agent-context.mjs';
 import { planCorrectionRoutes, upstreamWaiting, withoutSettledClauses } from '../src/spec-coverage-preview.mjs';
 import { settledUpstreamClauses } from '../src/upstream-routes.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -218,4 +223,67 @@ test('[PHR:REQ-003] at the end of the Story a decided upstream issue settles its
   const partial = ending({ issues: [issue], bothMissing: true });
   assert.deepEqual(await evidenceWaitingOnIssues(partial.workflow, partial.evaluation), []);
   assert.deepEqual(await evidenceWaitingOnIssues(plain.workflow, plain.evaluation), []);
+});
+
+/** A planning review of an approved specification, with the Story's upstream issues against it. */
+function planningReview(issues = []) {
+  const context = { kind: 'planning', workId: 'REVIEW-1', phase: 'planning', generation: 1,
+    authorAgentId: 'architect', reviewerAgentId: 'source-reviewer', reviewerAgentSha256: 'a'.repeat(64),
+    sources: [{ id: 'story', path: 'USER-STORY.md', text: 'The existing behavior must be verified.' }],
+    upstreamSpec: { path: 'spec.md', text: '# Requirements\n- Verify existing behavior. [REVIEW-1:REQ-001]\n- Show both success and error screenshots. [REVIEW-1:AC-001]\n' },
+    artifact: { path: 'plan.md', text: `# Plan
+| Clause | Expected paths | Planned tests | Fulfillment | Steps | Observable result |
+|---|---|---|---|---|---|
+| \`REVIEW-1:REQ-001\` | - | \`test/app.test.mjs\` | test-only | verification | Existing behavior verified |
+| \`REVIEW-1:AC-001\` | \`docs/screenshots.md\` | not-applicable: manual screenshot inspection | document | implementation | Success screenshot |
+` }, upstreamSpecPhase: 'specification', upstreamIssues: issues };
+  return { ...context, binding: sourceReviewBinding(context) };
+}
+
+test('[PHR:REQ-003] a planning review finding about the approved specification is raised there and then does not hold planning', () => {
+  const report = (findings) => {
+    const packet = sourceReviewReportTemplate(planningReview());
+    for (const row of packet.rows) row.assessment = 'supported';
+    return { ...packet, findings };
+  };
+  const aboutSpec = { id: 'spec-gap', severity: 'blocking', clauseId: 'REVIEW-1:AC-001', ownerPhase: 'specification',
+    message: 'The specification never says what the error screenshot shows.' };
+  assert.equal(validateSourceReviewReport(report([aboutSpec]), 'planning').status, 'ready', 'the report schema admits ownerPhase');
+  assert.match(JSON.stringify(sourceReviewReportSchema('planning')), /ownerPhase/u);
+  // The reviewer is told which step to name.
+  const ctx = planningReview();
+  const guide = compactSourceReviewContext({ canReview: true, kind: 'planning', binding: ctx.binding, sources: ctx.sources, upstreamSpec: ctx.upstreamSpec,
+    upstreamSpecPhase: 'specification', artifact: ctx.artifact, reportTemplate: sourceReviewReportTemplate(ctx), reportSchema: sourceReviewReportSchema('planning') },
+  { workId: ctx.workId, ready: true }).reviewGuide;
+  assert.match(guide.upstreamFindings, /names ownerPhase "specification"/u);
+
+  // Not raised yet: it still holds planning, and its way on is the raise to the specification's approvers.
+  const held = checkSourceReviewReport(report([aboutSpec]), planningReview()).evaluation;
+  assert.equal(held.status, 'correction-required');
+  const [blocker] = held.findings.filter((entry) => entry.code === 'reviewer-blocker');
+  assert.deepEqual([blocker.ownerPhase, blocker.upstreamPhase, blocker.about], ['specification', 'specification', 'REVIEW-1:AC-001']);
+  const step = (id, status, generation = 1) => ({ id, status, generation, approvals: [], approvalPolicy: { authorities: ['reviewers'], minimum: 1 } });
+  const workflow = { workItem: { id: 'REVIEW-1' }, status: 'in_progress', currentPhase: 'planning', phaseOrder: ['specification', 'planning', 'code'],
+    phases: { specification: step('specification', 'approved'), planning: step('planning', 'in_progress'), code: step('code', 'not_started', 0) }, resolution: {} };
+  const route = reviewUpstreamRoute(workflow, workflow.phases.planning, held);
+  assert.equal(route.command, 'singularity-flow upstream-issue raise --work-id REVIEW-1 --phase specification --about REVIEW-1:AC-001 --problem <what-is-wrong>');
+  assert.equal(route.skill, '/sf-decide');
+  const continuation = sourceReviewContinuation(workflow, workflow.phases.planning, held);
+  assert.equal(continuation.classification, 'upstream-issue-required', 'never a successor of the plan, which would meet it again');
+  assert.equal(continuation.nextCommand, route.command);
+
+  // Raised (open or decided): it no longer holds planning, and the review says where it went.
+  for (const status of ['open', 'decided']) {
+    const raised = checkSourceReviewReport(report([aboutSpec]), planningReview([{ id: 'UPI-001', about: 'REVIEW-1:AC-001', problem: 'No error screenshot.', status }])).evaluation;
+    // Only the fixture's own not-applicable row still waits for a person; nothing of the reviewer's holds the plan.
+    assert.deepEqual(raised.findings.map((entry) => entry.code), ['human-disposition-required']);
+    assert.equal(sourceReviewContinuation(workflow, workflow.phases.planning, raised).classification, 'human-disposition-required');
+    assert.deepEqual(raised.upstreamFindings.map((entry) => [entry.id, entry.issue, entry.ownerPhase]), [['spec-gap', 'UPI-001', 'specification']]);
+  }
+  // A finding about the plan itself, or naming a step that is not the approved specification, holds as before.
+  const own = checkSourceReviewReport(report([{ ...aboutSpec, ownerPhase: undefined }]), planningReview()).evaluation;
+  assert.equal(own.findings.find((entry) => entry.code === 'reviewer-blocker').upstreamPhase, undefined);
+  assert.equal(reviewUpstreamRoute(workflow, workflow.phases.planning, own), null);
+  assert.equal(checkSourceReviewReport(report([{ ...aboutSpec, ownerPhase: 'intake' }]), planningReview()).evaluation
+    .findings.find((entry) => entry.code === 'reviewer-blocker').upstreamPhase, undefined);
 });

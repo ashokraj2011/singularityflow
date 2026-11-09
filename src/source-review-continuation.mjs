@@ -6,6 +6,21 @@ import { copilotAction } from './copilot-guidance.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
+import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
+
+/**
+ * When everything a review still holds is a reviewer finding about the approved specification, the
+ * way on is to raise it there [PHR:REQ-003]: the plan's author cannot correct it, and a successor of
+ * the plan would meet it again. Null otherwise, or when no raise is open from here.
+ */
+export function reviewUpstreamRoute(workflow, phase, review) {
+  const holding = (review?.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required');
+  if (review?.status !== 'correction-required' || !holding.length || !holding.every((entry) => entry.code === 'reviewer-blocker' && entry.upstreamPhase)) return null;
+  const [first] = holding;
+  const raised = raiseUpstreamIssueRoute(workflow, first.upstreamPhase, phase.id);
+  return raised ? { command: raised.command.replace('<clause-or-section>', first.about ?? first.reviewFindingId), skill: '/sf-decide',
+    label: `${holding.length === 1 ? 'The reviewer finding is' : `${holding.length} reviewer findings are`} about ${first.upstreamPhase}'s approved output: raise ${holding.length === 1 ? 'it' : 'each'} to ${first.upstreamPhase}'s approvers; then ${phase.id} is not held by ${holding.length === 1 ? 'it' : 'them'}, only the Story's ending.` } : null;
+}
 
 export function sourceReviewContinuation(workflow, phase, review = null) {
   const hold = phaseGovernanceHold(workflow, phase);
@@ -16,6 +31,10 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
     classification = 'lifecycle-review-required';
     actions = [action('/sf-nextsteps', `singularity-flow nextsteps ${workflow.workItem.id} --json`,
       'Inspect the current lifecycle. Submitted evidence requires an authorized return before authoring a successor.')];
+  } else if (!phaseNeedsGeneration(workflow, phase) && reviewUpstreamRoute(workflow, phase, review)) {
+    const route = reviewUpstreamRoute(workflow, phase, review);
+    classification = 'upstream-issue-required';
+    actions = [action(route.skill, route.command, route.label)];
   } else if (phaseNeedsGeneration(workflow, phase) || (review?.status === 'correction-required'
       && (review.findings ?? []).some(finding => finding.code !== 'human-disposition-required'))) {
     classification = 'successor-publication-required'; generation = nextPhaseGeneration(phase);

@@ -80,7 +80,7 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
+  const namespaceAdapters = new Set(['src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
     'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
     'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',
@@ -129,6 +129,20 @@ test('namespace operational history uses SDA ports without selecting files, Git,
     assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
     if(ts.isIdentifier(node)&&['process','repoRoot','loadDefinition','invokeModel','transactStory'].includes(node.text))assert.fail('Operational storage must use explicit SDA ports.');
     if(ts.isStringLiteral(node))assert.equal(['state','config','evidence','local'].includes(node.text),false,'Operational storage may only publish runtime records.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
+});
+
+test('durable execution decorates explicit operational ports without selecting native storage or lifecycle authority',async()=>{
+  const file='src/sgos/durable-execution-unit.mjs',allowed=new Set(['node:crypto','../foundation/record-schema.mjs',
+    '../foundation/execution-unit-port.mjs','../foundation/failures.mjs','./operational-contract.mjs',
+    '../sda/content/contract.mjs','../sda/namespace/values.mjs']);
+  const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+    if(ts.isIdentifier(node)&&['process','repoRoot','loadDefinition','invokeModel','transactStory'].includes(node.text))assert.fail('Execution coordination must use its captured ports.');
+    if(ts.isStringLiteral(node))assert.equal(['state','config','evidence','local'].includes(node.text),false,'The decorator writes operational history only.');
     ts.forEachChild(node,visit);
   };visit(ast);
 });

@@ -8,7 +8,7 @@
 import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
-  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, recordJsonSyntax,
+  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, EXECUTION_UNIT_ABI_SCHEMA, recordJsonSyntax,
   recordReadTargetVersion,assertRecordRestampAllowed } from './foundation/record-schema.mjs';
 
 const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
@@ -4016,6 +4016,7 @@ const families = [
   ...Object.values(NAMESPACE_STORAGE_SCHEMAS).map(entry => family(entry)),
   ...Object.values(SQLITE_NAMESPACE_SCHEMAS).map(entry => family(entry)),
   family(CONTENT_STORAGE_SCHEMA),
+  family(EXECUTION_UNIT_ABI_SCHEMA),
   ...Object.values(NAMESPACE_READER_SCHEMAS).map(entry => family(entry))
 ];
 

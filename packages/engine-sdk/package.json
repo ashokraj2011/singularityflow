@@ -16,6 +16,7 @@
     "./source": { "types": "./dist/source.d.mts", "import": "./dist/source.mjs" },
     "./execution": { "types": "./dist/execution.d.mts", "import": "./dist/execution.mjs" },
     "./execution/node": { "types": "./dist/execution/node.d.mts", "import": "./dist/execution/node.mjs" },
+    "./execution/runtime": { "types": "./dist/execution/runtime.d.mts", "import": "./dist/execution/runtime.mjs" },
     "./execution/storage": { "types": "./dist/execution/storage.d.mts", "import": "./dist/execution/storage.mjs" },
     "./execution/storage/namespace": { "types": "./dist/execution/storage/namespace.d.mts", "import": "./dist/execution/storage/namespace.mjs" },
     "./sources/filesystem": { "types": "./dist/sources/filesystem.d.mts", "import": "./dist/sources/filesystem.mjs" },

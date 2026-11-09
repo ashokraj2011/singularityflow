@@ -3,7 +3,7 @@ import {lstat,readFile} from 'node:fs/promises';
 import {spawn,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
-import {canonicalJson,cloneSgosRecordValue} from '../foundation/record-schema.mjs';
+import {canonicalJson,cloneSgosRecordValue,EXECUTION_UNIT_LIMITS,EXECUTION_UNIT_ABI_SCHEMA} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {tryWindowsTaskkill} from '../platform-process-values.mjs';
 const nowIso=()=>new Date().toISOString();
@@ -14,9 +14,9 @@ function sha256(value){const bytes=Buffer.isBuffer(value)||value instanceof Uint
 const ID = /^[a-z][a-z0-9-]{1,63}$/;
 const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?$/;
 const HASH = /^sha256:[a-f0-9]{64}$/;
-const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
-const MAX_EVENTS = 4096;
-const MAX_SESSIONS = 1024;
+const MAX_OUTPUT_BYTES = EXECUTION_UNIT_LIMITS.maximumOutputBytes;
+const MAX_EVENTS = EXECUTION_UNIT_LIMITS.maximumEvents;
+const MAX_SESSIONS = EXECUTION_UNIT_LIMITS.maximumSessions;
 const TERMINATION_GRACE_MS = 2_000;
 const SAFE_PROCESS_ENVIRONMENT = new Set([
   'CI', 'LANG', 'LC_ALL', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'TEMP', 'TMP',
@@ -66,7 +66,7 @@ function freezeDeep(value) {
 
 function seal(kind, hashField, value) {
   const core = {
-    schemaVersion: 1, // schema-transient: Execution Unit ABI envelope, never persisted by this adapter
+    schemaVersion: EXECUTION_UNIT_ABI_SCHEMA.currentVersion, // Execution Unit ABI envelope, never persisted by this adapter
     kind,
     ...structuredClone(value)
   };

@@ -172,6 +172,20 @@ cancellations or skips in those final runs. The SDK preview retains 51 operation
 modules. Final source and host qualification remain separate from complete application execution;
 Phases 5, 7, 8 and 9 remain open.
 
+The [durable execution-unit delivery](ENGINE-SDK-DURABLE-EXECUTION.md) conditionally claims real
+attempts before launch, authenticates live ownership, and retains the actual event stream,
+candidate, failure and quiescence. Original-owner collection can resume without launching again;
+fresh hosts read accepted results and original diagnostics. Unknown effects remain explicit.
+Native execution-unit records and limits retain one shared owner and their existing meaning.
+Full recovery-policy integration, phase-test authentication/certification and complete application
+Story execution remain Phase 7 work. Phases 5, 7, 8 and 9 are not complete.
+
+That delivery passed 140 affected Mac checks across nine files and all 21 installed-archive
+checks, with no failures, cancellations or skips. Typechecking, the unchanged 2,011-site ownership
+audit and all 13 unchanged bundle budgets passed. The SDK retains 51 operations and builds from
+139 modules. This qualifies explicit operational execution, not phase test acceptance or a full
+application Story. No installed project, provider, Windows host or storage authority changed.
+
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped
 workflows. Namespace approval checks real referenced template text before accepting it. Actual

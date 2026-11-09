@@ -2,6 +2,8 @@
 import { SingularityFlowError } from './failures.mjs';
 
 export const TEXT_DIGEST_PROFILE = 'sflow-text-digests/sha256-utf8-v1';
+/** Existing execution-unit v1 ABI bounds, shared by operational hosts and durable decoration. */
+export const EXECUTION_UNIT_LIMITS=Object.freeze({maximumEvents:4096,maximumSessions:1024,maximumOutputBytes:16*1024*1024});
 const TEXT_DIGEST_CAPABILITIES = new WeakMap();
 
 export const RECORD_BYTES_PROFILE = 'sflow-record-bytes/utf8-v1';
@@ -110,6 +112,8 @@ export function textDigestCapability(port) {
 // Shared immutable format metadata, not backend selection or model/World Model behavior.
 const frozenFamily = id => Object.freeze({ id, currentVersion: 1, minimumReadableVersion: 1,
   maximumReadableVersion: 1, unversionedAs: null, immutable: true, migrationPolicy: 'frozen-identity' });
+/** The existing execution-unit ABI envelope is retained verbatim when journaled. */
+export const EXECUTION_UNIT_ABI_SCHEMA=frozenFamily('sgos-execution-unit-abi');
 export const NAMESPACE_STORAGE_SCHEMAS = Object.freeze({
   manifest: frozenFamily('namespace-filesystem-manifest'),
   entry: frozenFamily('namespace-filesystem-entry')

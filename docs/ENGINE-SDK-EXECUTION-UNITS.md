@@ -47,11 +47,13 @@ and ordinary provider/preflight errors remain distinguishable.
 
 ## Recovery boundary
 
-Execution handles and buffered sessions belong to the adapter process. A different process cannot
-reconstruct an execution from its digest: it receives `SGOS_GEU_HANDLE_STALE`. Portable durable
-attempts, leases, uncertain-effect reconciliation and retained phase-check evidence remain a
-separate SGOS/engine integration gate. Applications must use that owner rather than infer an
-accepted phase or automatically repeat an unknown external effect.
+Unwrapped execution handles and buffered sessions belong to the adapter process. A different
+process cannot reconstruct an execution from its digest: it receives `SGOS_GEU_HANDLE_STALE`.
+The optional [durable decorator](ENGINE-SDK-DURABLE-EXECUTION.md) retains actual attempts,
+ownership, events and terminal candidates through explicit runtime storage. A later process can
+read a genuinely retained result. Foreign unresolved attempts still require their original owner
+or explicit recovery; full phase-check evidence remains a separate SGOS/engine integration gate.
+Applications must not infer an accepted phase or automatically repeat an unknown external effect.
 
 This component does not migrate an installed project or complete application publication.
 Remaining phase policy/query extraction, production execution ports, the full cross-agent

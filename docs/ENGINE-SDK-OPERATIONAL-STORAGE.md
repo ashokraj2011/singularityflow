@@ -106,9 +106,10 @@ provider, product installation, existing-project migration, merge or push ran.
 
 ## Remaining integration
 
-This component supplies durable operational persistence. The portable execution coordinator still
-needs to bind actual SGOS attempts, live-owner checks, leases, uncertain-effect reconciliation and
-retained phase-test evidence to the engine operations. Merely storing a lease or rolling back a
-record does not establish that a process stopped. Complete application Story execution, remaining
+This component supplies durable operational persistence. The [explicit durable execution unit](ENGINE-SDK-DURABLE-EXECUTION.md)
+now binds actual attempts, live ownership, events, candidates and quiescence to that history.
+Full SGOS recovery-policy integration and retained phase-test evidence still need their engine
+integration owners. Merely storing a lease or rolling back a record does not establish that a
+process stopped. Complete application Story execution, remaining
 native-rule/query extraction, existing-project migration/cutover and final distribution/performance
 qualification retain their Phase 5, 7, 8 and 9 scope. Installed Git authority is unchanged.

@@ -89,6 +89,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
 - `execution`: provider-neutral execution-unit method binding and operational TypeScript contracts.
 - `execution/node`: explicitly selected deterministic or fixed-command Node execution units.
+- `execution/runtime`: decorate an explicit unit with durable attempts, live ownership, exact
+  event/candidate retention and cross-process collection. Unknown effects never launch again
+  automatically. Runtime results do not certify phase tests or grant lifecycle authority.
 - `execution/storage`: pure SGOS Operational Store v1 protocol and TypeScript contracts.
 - `execution/storage/namespace`: durable execution history over explicit shared SDA record/content
   ports, with conditional heads, retained lineage and confirmed backup/restore/rollback. It does

@@ -738,6 +738,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const {createFilesystemNamespaceStore}=await import('${packageName}/storage/filesystem');
       const {createSqliteContentStore}=await import('${packageName}/storage/sqlite-content');
       const {createNamespaceSgosOperationalStore}=await import('${packageName}/execution/storage/namespace');
+      const {createDurableExecutionUnit,createNodeExecutionOwner}=await import('${packageName}/execution/runtime');
+      const {createDeterministicTranslatorExecutionUnit,createAgentTaskContract}=await import('${packageName}/execution/node');
       const fresh=process.argv[2]==='fresh',root=path.join(process.cwd(),'operational-history'),binding={kind:'shared'},scope={projectId:'execution-project'};
       if(fresh)await mkdir(root);
       const records=await createFilesystemNamespaceStore({root:path.join(root,'metadata'),binding,create:fresh});
@@ -746,6 +748,19 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       try{
         const content=createSqliteContentStore({database,binding,create:fresh});
         const store=createNamespaceSgosOperationalStore({records,content,scope,storeId:'fixture-execution'});
+        const executionStore=createNamespaceSgosOperationalStore({records,content,scope,storeId:'installed-owned-execution'});
+        const executor=createDeterministicTranslatorExecutionUnit(),hash='sha256:'+'a'.repeat(64);
+        const contract=createAgentTaskContract({taskId:'archive-task',processId:'ARCHIVE',instructionId:'execute',objective:'Retain a real port result.',
+          acceptanceClauses:[],policySnapshotSha256:hash,programSha256:hash,inputs:[],readScope:[],writeScope:[],forbiddenScope:[],allowedDevices:[],
+          environmentManifestSha256:hash,candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:[],
+          budgets:{activeMinutes:1,modelInvocations:0,touchedResources:0},stopConditions:[],executionUnitManifestSha256:executor.descriptor().manifestSha256});
+        const execution=createDurableExecutionUnit({unit:fresh?executor:{...executor,start(){throw Error('An acknowledged execution must not run again.');}},
+          store:executionStore,content,scope,owner:createNodeExecutionOwner({hostId:fresh?'original-host':'next-host'}),clock:{now:()=>new Date().toISOString()}});
+        if(fresh){const handle=await execution.start(contract),candidate=await execution.collect(handle);
+          await writeFile(path.join(root,'execution.json'),JSON.stringify({handle,candidate,quiet:await execution.quiesce(handle)}));
+        }else{const expected=JSON.parse(await readFile(path.join(root,'execution.json'),'utf8'));
+          assert.deepEqual(await execution.start(contract),expected.handle);assert.deepEqual(await execution.collect(expected.handle),expected.candidate);
+          assert.deepEqual(await execution.quiesce(expected.handle),expected.quiet);}
         if(fresh){const initial=await store.read();await store.transact({expectedRevision:initial.revision,expectedStateSha256:initial.stateSha256,
           changes:[{op:'put',key:'attempt/one',value:{state:'running',owner:'first-device'}}]});
           const running=await store.read();const completed=await store.transact({expectedRevision:running.revision,expectedStateSha256:running.stateSha256,
@@ -796,13 +811,18 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
       import {createDeterministicTranslatorExecutionUnit,createAgentTaskContract,createGenericProcessExecutionUnit} from '${packageName}/execution/node';
       import {createNamespaceSgosOperationalStore} from '${packageName}/execution/storage/namespace';
+      import {createDurableExecutionUnit,createNodeExecutionOwner} from '${packageName}/execution/runtime';
       import type {OperationalStore,OperationalState} from '${packageName}/execution/storage';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
-      declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;
+      declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;declare const unitPort:ExecutionUnit;
       const operational:OperationalStore=createNamespaceSgosOperationalStore({records:runtimeMetadata,content:runtimeContent,scope:{projectId:'example'},storeId:'execution'});
       const operationalState:Promise<OperationalState>=operational.read();
+      const durable:ExecutionUnit=createDurableExecutionUnit({unit:unitPort,store:operational,content:runtimeContent,scope:{projectId:'example'},
+        owner:createNodeExecutionOwner({hostId:'declared-host'}),clock:{now:()=>new Date().toISOString()}});
+      // @ts-expect-error A durable execution needs a live owner capability, not a stored lease object.
+      createDurableExecutionUnit({unit:unitPort,store:operational,content:runtimeContent,scope:{projectId:'example'},clock:{now:()=>new Date().toISOString()}});
       // @ts-expect-error Runtime persistence requires an explicit immutable-content port.
       createNamespaceSgosOperationalStore({records:runtimeMetadata,scope:{projectId:'example'},storeId:'execution'});
       // @ts-expect-error Operational transactions do not expose lifecycle approval operations.

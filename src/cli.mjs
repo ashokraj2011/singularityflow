@@ -5164,6 +5164,10 @@ async function workflowCommand(positionals, options) {
       console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
         + `${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
       if (subjects) console.log(`  workflows: ${subjects}`);
+      if (proposal.repositoryTests) {
+        const { repositoryTestsWords } = await import('./commands/workflow.mjs');
+        console.log(`  ${repositoryTestsWords(proposal.repositoryTests)} (${proposal.repositoryTests.change})`);
+      }
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
     }
     return;
@@ -5178,6 +5182,10 @@ async function workflowCommand(positionals, options) {
     console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
     for (const workflow of proposal.workflows) {
       console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
+    }
+    if (proposal.repositoryTests) {
+      const { repositoryTestsWords } = await import('./commands/workflow.mjs');
+      console.log(`  ${proposal.repositoryTests.change.padEnd(8)} ${repositoryTestsWords(proposal.repositoryTests)}`);
     }
     for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
     if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);

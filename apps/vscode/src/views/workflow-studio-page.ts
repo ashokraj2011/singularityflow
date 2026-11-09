@@ -376,6 +376,8 @@ export interface StudioProposalSummary {
   proposalCreatedAt: string | null;
   proposalId: string | null;
   workflows: Array<{ id: string; governs: string | null; change: string; label: string | null; phases?: string[] }>;
+  /** A change to the repository's own test commands, which belong to no workflow [RTC:REQ-007]. */
+  repositoryTests?: { change: string; added: string[]; changed: string[]; removed: string[] };
   files: number; invalidFiles: string[]; failure: string | null;
 }
 
@@ -398,8 +400,11 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
         ...(phases.length ? { phases } : {})
       };
     });
+    const tests = entry.repositoryTests && typeof entry.repositoryTests === 'object' ? entry.repositoryTests as Record<string, unknown> : null;
+    const ids = (value: unknown): string[] => (Array.isArray(value) ? value : []).filter((id): id is string => typeof id === 'string').slice(0, 50).map((id) => id.slice(0, 120));
     return [{
       branch, proposalCommit, valid: entry.valid === true, merged: entry.merged === true, workflows,
+      ...(tests ? { repositoryTests: { change: text(tests.change, 20) ?? 'modified', added: ids(tests.added), changed: ids(tests.changed), removed: ids(tests.removed) } } : {}),
       proposalId: typeof entry.proposalId === 'string' && /^cfp-[a-f0-9]{64}$/.test(entry.proposalId) ? entry.proposalId : null,
       proposalCreatedAt: typeof entry.proposalCreatedAt === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(entry.proposalCreatedAt)
         && Number.isFinite(Date.parse(entry.proposalCreatedAt)) ? entry.proposalCreatedAt : null,
@@ -978,6 +983,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); }, proposalEntityCard: function () { return proposalEntityCard.apply(null, arguments); },
+    proposalCard: function () { return proposalCard.apply(null, arguments); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
@@ -5897,8 +5903,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       return { current: tie ? group.proposals : group.proposals.slice(0, 1), earlier: tie ? [] : group.proposals.slice(1) };
     });
   }
+  /** The repository's own test commands a proposal changes: they belong to no workflow (RTC:REQ-007). */
+  function repositoryTestsWords(change) {
+    var parts = [['adds', change.added], ['changes', change.changed], ['removes', change.removed]]
+      .filter(function (part) { return part[1] && part[1].length; }).map(function (part) { return part[0] + ' ' + part[1].join(', '); });
+    return 'Repository tests (' + change.change + (parts.length ? ': ' + parts.join('; ') : '') + ')';
+  }
   function proposalCard(proposal, earlier) {
-    var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; });
+    var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; })
+      .concat(proposal.repositoryTests ? [repositoryTestsWords(proposal.repositoryTests)] : []);
     return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + proposal.branch },
       el('div', { class: 'studio-row spread' },
         el('div', null, el('code', { text: proposal.branch }), el('span', { class: 'muted', text: '  ' + proposal.proposalCommit.slice(0, 12) })),
@@ -5912,7 +5925,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function proposalEntityCard(group) {
     var revisions = group.current.concat(group.earlier);
     var first = revisions[0];
-    var name = first.workflows.map(function (workflow) { return workflow.label || workflow.id; }).join(', ') || 'Configuration proposal';
+    var name = first.workflows.map(function (workflow) { return workflow.label || workflow.id; })
+      .concat(first.repositoryTests ? ['Repository tests'] : []).join(', ') || 'Configuration proposal';
     var chosenMap = proposalsState().chosen || (proposalsState().chosen = {});
     var defaultBranch = group.current.length === 1 && first.valid ? first.branch : '';
     var saved = Object.prototype.hasOwnProperty.call(chosenMap, first.proposalId) ? chosenMap[first.proposalId] : defaultBranch;

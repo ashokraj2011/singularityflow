@@ -280,6 +280,26 @@ function workflowChanges(reader, base, proposal) {
 }
 
 /**
+ * How a proposal changes the repository's own test commands (`tests:`), or null [RTC:REQ-007]. They
+ * belong to no workflow, so a proposal that changes only them reads as "Repository tests", never as
+ * a change to each workflow that runs them.
+ */
+function repositoryTestsChange(reader, base, proposal) {
+  const tests = (commit) => (YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {}).tests;
+  const [before, after] = [tests(base), tests(proposal)];
+  if (stable(before ?? null) === stable(after ?? null)) return null;
+  const ids = (list) => (Array.isArray(list) ? list.map((entry) => entry?.id).filter((id) => typeof id === 'string') : []);
+  return {
+    label: 'Repository tests',
+    change: before == null ? 'added' : after == null ? 'removed' : 'modified',
+    added: ids(after).filter((id) => !ids(before).includes(id)),
+    changed: ids(after).filter((id) => ids(before).includes(id)
+      && stable(before.find((entry) => entry?.id === id)) !== stable(after.find((entry) => entry?.id === id))),
+    removed: ids(before).filter((id) => !ids(after).includes(id))
+  };
+}
+
+/**
  * Why activation would refuse this proposal's workflows, or null.
  *
  * Activation runs this gate against the approved configuration; the list runs it too, so a
@@ -333,6 +353,7 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
   const valid = changed.names.length > 0 && invalidFiles.length === 0 && failure === null;
   // Only a proposal a person could activate now names the way to do it.
   const activation = valid && !merged ? workflowActivationRoute(branch, proposalCommit) : null;
+  const repositoryTests = repositoryTestsChange(reader, reviewBase, proposalCommit);
   return {
     remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
     targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
@@ -341,6 +362,7 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
     ...(activation ? { activation, nextAction: activation.command } : {}),
     invalidFiles, changedFiles: changed.statuses,
     workflows: workflowChanges(reader, reviewBase, proposalCommit),
+    ...(repositoryTests ? { repositoryTests } : {}),
     diff: diff == null ? null
       : diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff,
     diffDeferred: diff == null

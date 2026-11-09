@@ -1717,6 +1717,19 @@ test('the Changes count shows no number until the proposals were checked, and op
   assert.equal(logic.changesCount(), 0, 'a working-tree configuration has no proposals to wait for');
 });
 
+test('a proposal that changes only the repository\'s tests reads as Repository tests in Changes, not as a workflow (RTC:REQ-007)', async () => {
+  const { proposalSummaries } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
+  const [summary] = proposalSummaries([{ branch: 'sflow/config-change/workflow/save-config-tests-aaaaaaaa-bbbbbbbbbbbb', proposalCommit: 'a'.repeat(40),
+    valid: true, merged: false, workflows: [], changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }], invalidFiles: [],
+    repositoryTests: { label: 'Repository tests', change: 'added', added: ['e2e-local', 'e2e-relay'], changed: [], removed: [] } }]);
+  assert.deepEqual(summary.repositoryTests, { change: 'added', added: ['e2e-local', 'e2e-relay'], changed: [], removed: [] });
+  const { page, all, text } = agentDuplicationPage();
+  const card = page.proposalCard(summary, false);
+  assert.match(text(card), /Repository tests \(added: adds e2e-local, e2e-relay\)/u);
+  assert.doesNotMatch(text(card), /Configuration-only change/u);
+  assert.ok(all(card).some((node) => node.tag === 'button' && /Review and activate/u.test(text(node))));
+});
+
 test('several approval groups survive editing a step, and taking a group off drops it from the groups that must approve', () => {
   const { logic } = studioLogic();
   const approval = logic.approvalDraft({ mode: 'required', authorities: ['architecture-reviewers', 'engineering-reviewers'], requiredAuthorities: ['engineering-reviewers'], minimum: 2 });

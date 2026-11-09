@@ -755,24 +755,45 @@ export function approvalHoldOwner(error) {
 }
 
 /**
- * The way through a hold: the route its refusal names for itself (its next action, recovery command,
- * test-run risk renewal or first action), else the one its owner implies: work the author revises is
+ * The step a named return sends the work to, when that is not the step being approved: the step
+ * that owns what the refusal names [PHR:REQ-004].
+ */
+function returnTarget(command, phase) {
+  const argv = String(command ?? '').split(/\s+/u);
+  const at = argv.indexOf('--to');
+  return argv[1] === 'reject' && argv[2] === phase.id && at > 0 && argv[at + 1] && argv[at + 1] !== phase.id ? argv[at + 1] : null;
+}
+
+/**
+ * The way through a hold: the route its refusal names for itself (its next action, recovery or
+ * repair command, test-run risk renewal, first action or its gate's first action), else the step it
+ * names as the owner of its cause, else the one its owner implies: work the author revises is
  * returned for changes, and what Singularity Flow finishes, this checkout's changes and a refusal
- * nothing here knows are inspected with recover. Only a known author-repairs code ever offers reject.
+ * nothing here knows are inspected with recover. Only a known author-repairs code ever offers reject,
+ * and it goes to the step that owns the fault before it goes to this one [PHR:REQ-004].
  */
 function holdRoute(error, owner, workflow, phase) {
   const details = error.details ?? {};
   const workId = workflow.workItem.id;
-  const named = [details.nextAction, details.recoveryCommand, details.command, details.testRunRisk?.command,
-    ...(Array.isArray(details.recoveryCommands) ? details.recoveryCommands : []), ...(Array.isArray(details.actions) ? details.actions : [])]
+  const named = [details.nextAction, details.recoveryCommand, details.repairCommand, details.command, details.testRunRisk?.command,
+    ...(Array.isArray(details.recoveryCommands) ? details.recoveryCommands : []), ...(Array.isArray(details.actions) ? details.actions : []),
+    ...(Array.isArray(details.gate?.actions) ? details.gate.actions : [])]
     .map((entry) => (typeof entry === 'string' ? { command: entry } : entry))
     .map((entry) => (typeof entry?.command === 'string' ? { ...entry, command: entry.command.replaceAll('<WORK-ID>', workId) } : entry))
     .find((entry) => typeof entry?.command === 'string' && safeCommandGuidance({ command: entry.command }));
+  const owning = named ? returnTarget(named.command, phase) : null;
   if (named) return { label: String(named.label ?? named.detail ?? (owner === 'this-checkout' ? SET_ASIDE_WORDS :
     owner === 'someone-decides' && error.code === 'SPEC_COVERAGE_INCOMPLETE' && details.coverage?.unclaimedChangedPaths?.length
       ? `An approver of the plan accounts for the exact changed path; preserve the submitted code and test evidence.${details.planRows?.length
-        ? ` The plan's rows: ${details.planRows.map((row) => row.clauseId).join(', ')}.` : ''}` : '')).replaceAll('<WORK-ID>', workId).slice(0, 400),
+        ? ` The plan's rows: ${details.planRows.map((row) => row.clauseId).join(', ')}.` : ''}`
+      : owning ? `An approver returns ${phase.id} to ${owning}, which owns what this refusal names; ${owning}'s author repairs it there.` : '')).replaceAll('<WORK-ID>', workId).slice(0, 400),
   command: safeCommandGuidance({ command: named.command }).command };
+  // The refusal names the earlier step that owns its cause: a return there, when this step may make it.
+  const upstream = typeof details.upstreamPhase === 'string' && details.upstreamPhase !== phase.id ? details.upstreamPhase : null;
+  if (owner === 'author-repairs' && upstream && (phase.approvalPolicy?.rejectTo ?? []).includes(upstream)) {
+    return { label: `An approver returns ${phase.id} to ${upstream}, which owns what this refusal names; ${upstream}'s author repairs it there.`,
+      command: `singularity-flow reject ${phase.id} --work-id ${workId} --to ${upstream} --reason <REASON>` };
+  }
   if (owner === 'author-repairs') return { label: `An approver returns ${phase.id} for changes; its author revises it and submits it again.`,
     command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` };
   const recover = `singularity-flow recover ${workId} --phase ${phase.id} --json`;

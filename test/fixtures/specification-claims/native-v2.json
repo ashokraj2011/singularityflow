@@ -1,0 +1,4993 @@
+{
+  "schemaVersion": 1,
+  "capturedAtCommit": "ce8f198f0",
+  "owners": {
+    "src/specifications.mjs": {
+      "validatePlannedEvidenceTypes": "94dcaa77b68a324339c6dab6fafa1323320c08ac647f2e5186ee615382fa792b",
+      "planSupportingFiles": "6fcb4a2501df113806fa494a75e84651ba8c34550a9d6709b8bb38da5ac459ca",
+      "inspectPlannedClaimMap": "6686ae981f1c5c4c7281d48601b7edd1b18e5636604810ce336ddfe257d8d04a",
+      "derivePlannedClaimMap": "46d7d9d0393e22eedf3eabce1eec9719f4adeda7ee3a9bba298dd6294b4947e5",
+      "testOnlyClaimEvidence": "0f374101b19c18d3e65bccb7acd22a4f02ded6a06a835b9466036cda61e3a683",
+      "normalizeClaimMap": "a58853a773ace5ecb65441f5fa581e456c91abf6410460bfc2c0f2b8ebf0bf9e",
+      "deriveObservedClaimMap": "52c14c33c759055756e604802a7712ae3bff7757dd854499ead0c884c83fedee"
+    },
+    "src/kernel/code-delivery-evidence.mjs": {
+      "plannedImplementationPaths": "5d6d246a551e44e76cf1787071e065f1436ab682655d0fc98e7614f93616be3c",
+      "plannedProductSourcePaths": "3437529183a2fcc23fb3337a5187562a235a1a2b404e5ba6da29ff47ec7baec1",
+      "plannedSupportingFiles": "26c2d21032f824ce5f9a8acf8226d84b830dde43d031a9a74cf32bcee0bb45e1",
+      "changesProductSource": "d800a87eb60338588bba9d6fe066ce8caf6ba9ab221c8ce84db04b1c1880930f"
+    }
+  },
+  "cases": [
+    {
+      "name": "ordinary",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "empty",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {},
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "mixed-case",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "claim:req-001": {
+              "expectedPaths": [
+                "src/value.js",
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "duplicate-identity",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {},
+            "claim:req-001": {}
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim map defines clause CLAIM:REQ-001 more than once using different letter casing.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "unknown-clause",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-999": {}
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_CLAIM_MAP_UNKNOWN_CLAUSE",
+          "message": "planned claim map references unknown clause CLAIM:REQ-999. Cite only clauses this Story defines.",
+          "details": {
+            "kind": "planned",
+            "clause": "CLAIM:REQ-999"
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-kind",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "other",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "Claim map kind must be planned or observed.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-policy",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "policy": {
+            "mode": "other"
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "spec.mode must be off, record, or enforce.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "null",
+      "operation": "normalizeClaimMap",
+      "args": [
+        null,
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim map must be an object.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "array",
+      "operation": "normalizeClaimMap",
+      "args": [
+        [],
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim map must be an object.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "null-claims",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": null
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_CLAIM_MAP_UNKNOWN_CLAUSE",
+          "message": "planned claim map references unknown clause CLAIMS. Cite only clauses this Story defines.",
+          "details": {
+            "kind": "planned",
+            "clause": "CLAIMS"
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-claims",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": []
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim map claims must be an object keyed by clause ID.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-row",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": null
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim CLAIM:REQ-001 must be an object.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "paths-[\"src/value.js\",null]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js",
+                null
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.expectedPaths must be an array of paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "paths-[\"../escape.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "../escape.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.expectedPaths must contain repository-relative paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "paths-[\"src/../escape.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/../escape.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.expectedPaths must contain repository-relative paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "paths-[\"/tmp/value.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "/tmp/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.expectedPaths must contain repository-relative paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "paths-[\"./src/value.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "./src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "./src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "paths-[\"src\\\\value.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src\\value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src\\value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "paths-[\"C:/value.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "C:/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "C:/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "path-count",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/a.js",
+                "src/b.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "policy": {
+            "limits": {
+              "maxPathsPerClaim": 1
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.expectedPaths exceeds 1 paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-disposition",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "testDisposition": "waived"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.testDisposition must be applicable, not-applicable, non-test, or unspecified.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "not-applicable",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Exact visual inspection proves this requirement."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Exact visual inspection proves this requirement.",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "not-applicable-with-tests",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "not-applicable",
+              "testReason": "Exact visual inspection."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001 not-applicable test disposition requires no tests and a concrete testReason.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "not-applicable-without-reason",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001 not-applicable test disposition requires no tests and a concrete testReason.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "unexpected-reason",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testReason": "This is not an exemption."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.testReason is only allowed when testDisposition is not-applicable.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "non-test",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "singularity/work-items/claim/evidence/screen.png"
+              ],
+              "tests": [],
+              "testDisposition": "non-test",
+              "verificationCriterion": "CLAIM:AC-001"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "singularity/work-items/claim/evidence/screen.png"
+              ],
+              "tests": [],
+              "testDisposition": "non-test",
+              "testReason": null,
+              "verificationCriterion": "CLAIM:AC-001",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "non-test-wrong-criterion",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "non-test",
+              "verificationCriterion": "CLAIM:AC-002"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "CLAIM:AC-001 non-test proof requires no executable tests and an exact approved AC verificationCriterion.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "unexpected-criterion",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "verificationCriterion": "CLAIM:AC-001"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "CLAIM:REQ-001.verificationCriterion is only allowed for non-test proof.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-new",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "new",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "new",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-new",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "new"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is new: name the exact paths that change under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-modified",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "modified",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-modified",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "modified"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is modified: name the exact paths that change under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-existing",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "existing",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "existing",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-existing",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "existing"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is existing: name the exact paths where the behaviour already lives under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-removed",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "removed",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "removed",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-removed",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "removed"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is removed: name the exact paths that are removed under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-test-only",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "test-only",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "fulfillment-document",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "docs/value.md"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "document",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "docs/value.md"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "document",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-document",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "document"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is document: name the exact paths that change under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-configuration",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "package.json"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "configuration",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "package.json"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "configuration",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-configuration",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "configuration"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is configuration: name the exact paths that change under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-evidence",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "evidence/screen.png"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "evidence",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "evidence/screen.png"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "evidence",
+              "steps": [
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "missing-path-evidence",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "evidence"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is evidence: name the exact paths that change under Expected paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "fulfillment-other",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "other",
+              "steps": [
+                "repair",
+                "implement",
+                "repair"
+              ],
+              "observableResult": "A real observable outcome."
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001.fulfillment must be one of new, modified, existing, removed, test-only, document, configuration, evidence.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "missing-path-other",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "other"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001.fulfillment must be one of new, modified, existing, removed, test-only, document, configuration, evidence.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "test-only-source",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is test-only: list its planned tests and no expected product paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "test-only-no-tests",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [],
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "message": "CLAIM:REQ-001 is test-only: list its planned tests and no expected product paths.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-steps",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "steps": [
+                "Bad Step"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_ALLOCATION_INVALID",
+          "message": "CLAIM:REQ-001.steps must be step IDs; not Bad Step.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "empty-observable",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "observableResult": " "
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_OBSERVABLE_INVALID",
+          "message": "CLAIM:REQ-001.observableResult must be 1 to 500 characters.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "long-observable",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "observableResult": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_OBSERVABLE_INVALID",
+          "message": "CLAIM:REQ-001.observableResult must be 1 to 500 characters.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "supporting",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          },
+          "supportingFiles": [
+            "package.json"
+          ],
+          "supportingFileDetails": [
+            {
+              "path": "package.json",
+              "class": "build-configuration",
+              "reason": "Adds the pinned test dependency."
+            }
+          ]
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null
+            }
+          },
+          "supportingFiles": [
+            "package.json"
+          ],
+          "supportingFileDetails": [
+            {
+              "path": "package.json",
+              "class": "build-configuration",
+              "reason": "Adds the pinned test dependency."
+            }
+          ]
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "supporting-class-forged",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          },
+          "supportingFiles": [
+            "package.json"
+          ],
+          "supportingFileDetails": [
+            {
+              "path": "package.json",
+              "class": "documentation",
+              "reason": "Adds the pinned test dependency."
+            }
+          ]
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "supportingFileDetails gives package.json a class its path does not have.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "supporting-unlisted",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          },
+          "supportingFiles": [
+            "package.json"
+          ],
+          "supportingFileDetails": [
+            {
+              "path": "README.md",
+              "class": "documentation",
+              "reason": "Documents the test command."
+            }
+          ]
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "supportingFileDetails must describe each supporting file once; README.md does not match.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "supporting-missing-details",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          },
+          "supportingFiles": [
+            "package.json",
+            "README.md"
+          ],
+          "supportingFileDetails": [
+            {
+              "path": "package.json",
+              "class": "build-configuration",
+              "reason": "Adds the pinned test dependency."
+            }
+          ]
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "supportingFileDetails must describe every supporting file.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "bad-contract",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          },
+          "verificationContracts": [
+            {
+              "clauseId": "CLAIM:AC-001",
+              "combination": "all",
+              "slots": []
+            }
+          ]
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "The contract of CLAIM:AC-001 has no primary witness.",
+          "details": {}
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "byte-limit-after-clock",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "policy": {
+            "limits": {
+              "maxClaimBytes": 100
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim map exceeds 100 bytes.",
+          "details": null
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "unicode-byte-limit",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "deviation": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            }
+          }
+        },
+        {
+          "kind": "planned",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "policy": {
+            "limits": {
+              "maxClaimBytes": 1000
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "planned claim map exceeds 1000 bytes.",
+          "details": null
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-matched",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ],
+              "verdict": "matched",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              ],
+              "verdict": "matched",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-partial",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ],
+              "verdict": "partial",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              ],
+              "verdict": "partial",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-missing",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ],
+              "verdict": "missing",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              ],
+              "verdict": "missing",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-deviated",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ],
+              "verdict": "deviated",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              ],
+              "verdict": "deviated",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-unplanned",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ],
+              "verdict": "unplanned",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              ],
+              "verdict": "unplanned",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-other",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ],
+              "verdict": "other",
+              "deviation": "Actual limitation."
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.verdict must be matched, partial, missing, deviated, unplanned.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "observed-no-source",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.observedPaths must identify source evidence when verdict is matched.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "observed-ac-tests",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:AC-001": {
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:AC-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "commits-[\"short\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "short"
+              ],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.commits must be an array of full Git commit SHAs.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "commits-[1]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                1
+              ],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.commits must be an array of full Git commit SHAs.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "commits-null",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": null,
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "commits-\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.commits must be an array of full Git commit SHAs.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "observed-test-only-[\"test/value.test.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "plannedClaims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "test-only"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "observed-test-only-[]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "plannedClaims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "test-only"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_OBSERVED_TEST_ONLY_EVIDENCE_INVALID",
+          "message": "CLAIM:REQ-001 is planned as test-only: verdict matched must cite its exact planned test files, not product-source paths.",
+          "details": {
+            "clauseId": "CLAIM:REQ-001",
+            "verdict": "matched",
+            "plannedTests": [
+              "test/value.test.js"
+            ],
+            "testResults": [],
+            "observedPaths": []
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "observed-test-only-[\"test/other.test.js\"]",
+      "operation": "normalizeClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/other.test.js"
+              ],
+              "verdict": "matched"
+            }
+          }
+        },
+        {
+          "kind": "observed",
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "plannedClaims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "test-only"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_OBSERVED_TEST_ONLY_EVIDENCE_INVALID",
+          "message": "CLAIM:REQ-001 is planned as test-only: verdict matched must cite its exact planned test files, not product-source paths.",
+          "details": {
+            "clauseId": "CLAIM:REQ-001",
+            "verdict": "matched",
+            "plannedTests": [
+              "test/value.test.js"
+            ],
+            "testResults": [
+              "test/other.test.js"
+            ],
+            "observedPaths": []
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "inspect-complete",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireComplete": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": true,
+          "diagnostics": [],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": {
+            "schemaVersion": 2,
+            "kind": "planned",
+            "recordedAt": "2026-02-03T04:05:06.789Z",
+            "claims": {
+              "CLAIM:REQ-001": {
+                "expectedPaths": [
+                  "src/value.js"
+                ],
+                "tests": [
+                  "test/value.test.js"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null
+              },
+              "CLAIM:AC-001": {
+                "expectedPaths": [
+                  "src/value.js"
+                ],
+                "tests": [
+                  "test/value.test.js"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null
+              }
+            }
+          },
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [],
+          "missingTestClauseIds": []
+        },
+        "clocks": 3
+      }
+    },
+    {
+      "name": "derive-complete",
+      "operation": "derivePlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "claimMap": {
+            "schemaVersion": 2,
+            "kind": "planned",
+            "recordedAt": "2026-02-03T04:05:06.789Z",
+            "claims": {
+              "CLAIM:REQ-001": {
+                "expectedPaths": [
+                  "src/value.js"
+                ],
+                "tests": [
+                  "test/value.test.js"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null
+              },
+              "CLAIM:AC-001": {
+                "expectedPaths": [
+                  "src/value.js"
+                ],
+                "tests": [
+                  "test/value.test.js"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null
+              }
+            }
+          },
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [],
+          "missingTestClauseIds": []
+        },
+        "clocks": 3
+      }
+    },
+    {
+      "name": "inspect-missing-row",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireComplete": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_ROW_REQUIRED",
+              "message": "Clause CLAIM:AC-001 has no exact planned test or reviewed not-applicable reason. Complete its approved clause row.",
+              "line": null,
+              "clauseId": "CLAIM:AC-001",
+              "field": "plannedTests",
+              "details": {
+                "clauseId": "CLAIM:AC-001",
+                "field": "plannedTests"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001"
+          ]
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "inspect-reordered",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Expected paths | Clause | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireComplete": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_TABLE_INVALID",
+              "message": "Planned claim table at line 2 has its columns as 'Expected paths | Clause | Planned tests'; the first three must be Clause | Expected paths | Planned tests, in this order, then any of Fulfillment, Steps, Observable result.",
+              "line": 2,
+              "clauseId": null,
+              "field": "header",
+              "details": {
+                "line": 2,
+                "field": "header"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ]
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "derive-reordered",
+      "operation": "derivePlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Expected paths | Clause | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireComplete": true
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_TABLE_INVALID",
+          "message": "Planned claim table at line 2 has its columns as 'Expected paths | Clause | Planned tests'; the first three must be Clause | Expected paths | Planned tests, in this order, then any of Fulfillment, Steps, Observable result.",
+          "details": {
+            "line": 2,
+            "field": "header",
+            "diagnostics": [
+              {
+                "code": "SPEC_PLANNED_TABLE_INVALID",
+                "message": "Planned claim table at line 2 has its columns as 'Expected paths | Clause | Planned tests'; the first three must be Clause | Expected paths | Planned tests, in this order, then any of Fulfillment, Steps, Observable result.",
+                "line": 2,
+                "clauseId": null,
+                "field": "header",
+                "details": {
+                  "line": 2,
+                  "field": "header"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "inspect-invalid-row",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `../escape.js` | `test/*.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireComplete": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_TABLE_INVALID",
+              "message": "CLAIM:REQ-001.expectedPaths must be an exact repository-relative path without traversal, globs, placeholders, or platform-specific syntax; '../escape.js' is not: it climbs out with ..; write the path from the repository root. It holds '`../escape.js`'.",
+              "line": 4,
+              "clauseId": "CLAIM:REQ-001",
+              "field": "expectedPaths",
+              "details": {
+                "line": 4,
+                "clauseId": "CLAIM:REQ-001",
+                "field": "expectedPaths",
+                "actual": "`../escape.js`"
+              }
+            },
+            {
+              "code": "SPEC_PLANNED_TABLE_INVALID",
+              "message": "CLAIM:REQ-001.tests must be an exact repository-relative path without traversal, globs, placeholders, or platform-specific syntax; 'test/*.js' is not: it is a pattern (* ? [ ] { }); name one exact file. It holds '`test/*.js`'.",
+              "line": 4,
+              "clauseId": "CLAIM:REQ-001",
+              "field": "plannedTests",
+              "details": {
+                "line": 4,
+                "clauseId": "CLAIM:REQ-001",
+                "field": "plannedTests",
+                "actual": "`test/*.js`"
+              }
+            },
+            {
+              "code": "SPEC_PLANNED_ROW_REQUIRED",
+              "message": "Clause CLAIM:AC-001 has no exact planned test or reviewed not-applicable reason. Complete its approved clause row.",
+              "line": null,
+              "clauseId": "CLAIM:AC-001",
+              "field": "plannedTests",
+              "details": {
+                "clauseId": "CLAIM:AC-001",
+                "field": "plannedTests"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ]
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "inspect-duplicate",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_TABLE_INVALID",
+              "message": "Planned claim table defines clause CLAIM:REQ-001 more than once.",
+              "line": 5,
+              "clauseId": "CLAIM:REQ-001",
+              "field": "clause",
+              "details": {
+                "line": 5,
+                "clauseId": "CLAIM:REQ-001",
+                "field": "clause"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001"
+          ]
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "inspect-unqualified",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| REQ-001 | `src/value.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_TABLE_INVALID",
+              "message": "Planned claim table row 4 must contain exactly one namespace-qualified clause ID, such as `ORDER:REQ-001`: the Story's namespace, a colon, REQ, BEH, IFC, AC or CON, and three digits. It holds 'REQ-001'.",
+              "line": 4,
+              "clauseId": null,
+              "field": "clause",
+              "details": {
+                "line": 4,
+                "field": "clause",
+                "actual": "REQ-001"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ]
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "inspect-source-test-confusion",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `test/value.test.js` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_PATH_ROLE_INVALID",
+              "message": "CLAIM:REQ-001: Expected paths for new/modified delivery must contain product source only; test/value.test.js belongs in Planned tests. Use fulfillment test-only with no Expected paths when tests are the entire delivery.",
+              "line": 4,
+              "clauseId": "CLAIM:REQ-001",
+              "field": "expectedPaths",
+              "details": {
+                "line": 4,
+                "clauseId": "CLAIM:REQ-001",
+                "field": "expectedPaths",
+                "paths": [
+                  "test/value.test.js"
+                ],
+                "expectedRole": "product-source",
+                "correction": "separate-source-and-test-paths"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001"
+          ]
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "inspect-configuration",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `package.json` | `test/value.test.js` |\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_PATH_ROLE_INVALID",
+              "message": "CLAIM:REQ-001: package.json is configuration, not product source. Use fulfillment configuration for a configuration obligation, or list build/tooling dependencies under Supporting files with a reason. Do not insert @clause tags into configuration.",
+              "line": 4,
+              "clauseId": "CLAIM:REQ-001",
+              "field": "expectedPaths",
+              "details": {
+                "line": 4,
+                "clauseId": "CLAIM:REQ-001",
+                "field": "expectedPaths",
+                "paths": [
+                  "package.json"
+                ],
+                "expectedRole": "configuration",
+                "correction": "separate-configuration-from-source"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001"
+          ]
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "inspect-supporting",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n\n## Supporting files\n- `package.json` — Adds the required test dependency.\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": true,
+          "diagnostics": [],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": {
+            "schemaVersion": 2,
+            "kind": "planned",
+            "recordedAt": "2026-02-03T04:05:06.789Z",
+            "claims": {
+              "CLAIM:REQ-001": {
+                "expectedPaths": [
+                  "src/value.js"
+                ],
+                "tests": [
+                  "test/value.test.js"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null
+              },
+              "CLAIM:AC-001": {
+                "expectedPaths": [
+                  "src/value.js"
+                ],
+                "tests": [
+                  "test/value.test.js"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null
+              }
+            },
+            "supportingFiles": [
+              "package.json"
+            ],
+            "supportingFileDetails": [
+              {
+                "path": "package.json",
+                "class": "build-configuration",
+                "reason": "Adds the required test dependency."
+              }
+            ]
+          },
+          "supportingFiles": [
+            "package.json"
+          ],
+          "supportingFileDetails": [
+            {
+              "path": "package.json",
+              "class": "build-configuration",
+              "reason": "Adds the required test dependency."
+            }
+          ],
+          "missingClauseIds": [],
+          "missingTestClauseIds": []
+        },
+        "clocks": 3
+      }
+    },
+    {
+      "name": "inspect-supporting-source",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n\n## Supporting files\n- `src/extra.js` — Adds extra behavior.\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_SUPPORTING_FILE_INVALID",
+              "message": "Supporting files entry `src/extra.js` at line 8 cannot be a supporting file: it is application source, and it can carry application behaviour, so a clause must claim it. Supporting files are dependency locks, build and CI configuration, repository metadata and documentation.",
+              "line": null,
+              "clauseId": null,
+              "field": "supportingFiles",
+              "details": {
+                "field": "supportingFiles"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [],
+          "missingTestClauseIds": []
+        },
+        "clocks": 3
+      }
+    },
+    {
+      "name": "inspect-none-supporting",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n\n## Supporting files\n- none\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": false,
+          "diagnostics": [
+            {
+              "code": "SPEC_PLANNED_TABLE_INVALID",
+              "message": "Supporting files entry at line 8 holds 'none': when the plan has no supporting files, remove the whole ## Supporting files section.",
+              "line": null,
+              "clauseId": null,
+              "field": "supportingFiles",
+              "details": {
+                "field": "supportingFiles"
+              }
+            }
+          ],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": null,
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [],
+          "missingTestClauseIds": []
+        },
+        "clocks": 3
+      }
+    },
+    {
+      "name": "inspect-masked",
+      "operation": "inspectPlannedClaimMap",
+      "args": [
+        "```md\n## Planned evidence\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n| CLAIM:REQ-001 | `src/value.js` | `test/value.test.js` |\n| CLAIM:AC-001 | `src/value.js` | `test/value.test.js` |\n```\n",
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "valid": true,
+          "diagnostics": [],
+          "diagnosticSummary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          },
+          "claimMap": {
+            "schemaVersion": 2,
+            "kind": "planned",
+            "recordedAt": "2026-02-03T04:05:06.789Z",
+            "claims": {}
+          },
+          "supportingFiles": [],
+          "supportingFileDetails": [],
+          "missingClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ],
+          "missingTestClauseIds": [
+            "CLAIM:AC-001",
+            "CLAIM:REQ-001"
+          ]
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "supporting-class-only",
+      "operation": "planSupportingFiles",
+      "args": [
+        "## Supporting files\n- `package.json`\n"
+      ],
+      "outcome": {
+        "result": [
+          {
+            "path": "package.json",
+            "class": "build-configuration",
+            "reason": ""
+          }
+        ],
+        "clocks": 0
+      }
+    },
+    {
+      "name": "supporting-refused-class",
+      "operation": "planSupportingFiles",
+      "args": [
+        "## Supporting files\n- `src/extra.js` — Extra behavior.\n"
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_SUPPORTING_FILE_INVALID",
+          "message": "Supporting files entry `src/extra.js` at line 2 cannot be a supporting file: it is application source, and it can carry application behaviour, so a clause must claim it. Supporting files are dependency locks, build and CI configuration, repository metadata and documentation.",
+          "details": null
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "evidence-wrong-role",
+      "operation": "validatePlannedEvidenceTypes",
+      "args": [
+        {
+          "CLAIM:REQ-001": {
+            "expectedPaths": [
+              "evidence/screen.png"
+            ],
+            "tests": [
+              "test/value.test.js"
+            ],
+            "fulfillment": "new"
+          }
+        },
+        {
+          "evidenceRoot": "evidence"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_EVIDENCE_TYPE_INVALID",
+          "message": "CLAIM:REQ-001: evidence/screen.png is not product source. Allocate a separate fulfillment evidence row; do not mix a screenshot with source changes.",
+          "details": {
+            "clauseId": "CLAIM:REQ-001",
+            "path": "evidence/screen.png"
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "evidence-wrong-root",
+      "operation": "validatePlannedEvidenceTypes",
+      "args": [
+        {
+          "CLAIM:AC-001": {
+            "expectedPaths": [
+              "other/screen.png"
+            ],
+            "tests": [],
+            "fulfillment": "evidence"
+          }
+        },
+        {
+          "evidenceRoot": "evidence"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_EVIDENCE_TYPE_INVALID",
+          "message": "CLAIM:AC-001: retained evidence must be inside this Story's evidence directory.",
+          "details": {
+            "clauseId": "CLAIM:AC-001",
+            "path": "other/screen.png"
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "evidence-as-test",
+      "operation": "validatePlannedEvidenceTypes",
+      "args": [
+        {
+          "CLAIM:REQ-001": {
+            "expectedPaths": [
+              "src/value.js"
+            ],
+            "tests": [
+              "evidence/screen.png"
+            ]
+          }
+        },
+        {
+          "evidenceRoot": "evidence"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_PLANNED_EVIDENCE_TYPE_INVALID",
+          "message": "CLAIM:REQ-001: evidence/screen.png is retained delivery evidence, not an executable test. Use fulfillment evidence and an inspection/visual verification contract.",
+          "details": {
+            "clauseId": "CLAIM:REQ-001",
+            "path": "evidence/screen.png"
+          }
+        },
+        "clocks": 0
+      }
+    },
+    {
+      "name": "projection-default",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "sourcePaths": [
+            "src/value.js"
+          ],
+          "testPaths": [
+            "test/value.test.js"
+          ],
+          "traceability": {
+            "bindings": [
+              {
+                "clauseId": "CLAIM:AC-001",
+                "testSource": "test/value.test.js"
+              }
+            ],
+            "sourceBindings": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "sourcePath": "src/value.js"
+              },
+              {
+                "clauseId": "CLAIM:AC-001",
+                "sourcePath": "src/value.js"
+              }
+            ]
+          }
+        },
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "generationCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "verdict": "partial",
+              "deviation": null
+            },
+            "CLAIM:AC-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-exact-bindings",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "sourcePaths": [
+            "src/value.js"
+          ],
+          "testPaths": [
+            "test/value.test.js"
+          ],
+          "traceability": {
+            "bindings": [
+              {
+                "clauseId": "CLAIM:AC-001",
+                "testSource": "test/value.test.js"
+              }
+            ],
+            "sourceBindings": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "sourcePath": "src/value.js"
+              },
+              {
+                "clauseId": "CLAIM:AC-001",
+                "sourcePath": "src/value.js"
+              }
+            ]
+          }
+        },
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "generationCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "requireSourceBindings": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "verdict": "matched",
+              "deviation": null
+            },
+            "CLAIM:AC-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-without-bindings",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "sourcePaths": [
+            "src/value.js"
+          ],
+          "testPaths": [
+            "test/value.test.js"
+          ]
+        },
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireSourceBindings": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [],
+              "verdict": "missing",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-empty",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {},
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-bad-path",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "sourcePaths": [
+            "../escape.js"
+          ]
+        },
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "delivery source evidence.sourcePaths must contain repository-relative paths.",
+          "details": null
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "projection-bad-commit",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "sourcePaths": [
+            "src/value.js"
+          ],
+          "testPaths": [
+            "test/value.test.js"
+          ],
+          "traceability": {
+            "bindings": [
+              {
+                "clauseId": "CLAIM:AC-001",
+                "testSource": "test/value.test.js"
+              }
+            ],
+            "sourceBindings": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "sourcePath": "src/value.js"
+              },
+              {
+                "clauseId": "CLAIM:AC-001",
+                "sourcePath": "src/value.js"
+              }
+            ]
+          }
+        },
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "generationCommit": "short"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "CLAIM:REQ-001.commits must be an array of full Git commit SHAs.",
+          "details": null
+        },
+        "clocks": 1
+      }
+    },
+    {
+      "name": "projection-unbound-test",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            },
+            "CLAIM:AC-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [
+                "test/value.test.js"
+              ]
+            }
+          }
+        },
+        {
+          "sourcePaths": [
+            "src/value.js"
+          ],
+          "testPaths": [
+            "test/value.test.js"
+          ],
+          "traceability": {
+            "bindings": [
+              {
+                "clauseId": "CLAIM:AC-999",
+                "testSource": "test/value.test.js"
+              }
+            ]
+          }
+        },
+        {
+          "clauseIds": [
+            "CLAIM:REQ-001",
+            "CLAIM:AC-001"
+          ],
+          "requireSourceBindings": true
+        }
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [],
+              "verdict": "missing",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-existing",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "existing"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "existing",
+                "paths": [
+                  {
+                    "path": "src/value.js",
+                    "state": "present",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-wrong-existing",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "existing"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "existing",
+                "paths": [
+                  {
+                    "path": "src/value.js",
+                    "state": "other",
+                    "sha256": "short"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-removed",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "removed"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "removed",
+                "paths": [
+                  {
+                    "path": "src/value.js",
+                    "state": "absent",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "src/value.js"
+              ],
+              "testResults": [],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-wrong-removed",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "src/value.js"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "removed"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "removed",
+                "paths": [
+                  {
+                    "path": "src/value.js",
+                    "state": "other",
+                    "sha256": "short"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-document",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "docs/value.md"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "document"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "document",
+                "paths": [
+                  {
+                    "path": "docs/value.md",
+                    "state": "changed",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "docs/value.md"
+              ],
+              "testResults": [],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-wrong-document",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "docs/value.md"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "document"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "document",
+                "paths": [
+                  {
+                    "path": "docs/value.md",
+                    "state": "other",
+                    "sha256": "short"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-configuration",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "package.json"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "configuration"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "configuration",
+                "paths": [
+                  {
+                    "path": "package.json",
+                    "state": "changed",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "package.json"
+              ],
+              "testResults": [],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-wrong-configuration",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "package.json"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "configuration"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "configuration",
+                "paths": [
+                  {
+                    "path": "package.json",
+                    "state": "other",
+                    "sha256": "short"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-evidence",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "evidence/screen.png"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "evidence"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "evidence",
+                "paths": [
+                  {
+                    "path": "evidence/screen.png",
+                    "state": "present",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [
+                "evidence/screen.png"
+              ],
+              "testResults": [],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-wrong-evidence",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [
+                "evidence/screen.png"
+              ],
+              "tests": [],
+              "testDisposition": "not-applicable",
+              "testReason": "Reviewed exact inspection of the planned deliverable.",
+              "fulfillment": "evidence"
+            }
+          }
+        },
+        {
+          "fulfillment": {
+            "obligations": [
+              {
+                "clauseId": "CLAIM:REQ-001",
+                "fulfillment": "evidence",
+                "paths": [
+                  {
+                    "path": "evidence/screen.png",
+                    "state": "other",
+                    "sha256": "short"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {}
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "projection-test-only",
+      "operation": "deriveObservedClaimMap",
+      "args": [
+        {
+          "claims": {
+            "CLAIM:REQ-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.js"
+              ],
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        {
+          "testPaths": [
+            "test/value.test.js"
+          ]
+        },
+        {}
+      ],
+      "outcome": {
+        "result": {
+          "schemaVersion": 2,
+          "kind": "observed",
+          "recordedAt": "2026-02-03T04:05:06.789Z",
+          "claims": {
+            "CLAIM:REQ-001": {
+              "observedPaths": [],
+              "testResults": [
+                "test/value.test.js"
+              ],
+              "commits": [],
+              "verdict": "matched",
+              "deviation": null
+            }
+          }
+        },
+        "clocks": 2
+      }
+    },
+    {
+      "name": "test-only-proof",
+      "operation": "testOnlyClaimEvidence",
+      "args": [
+        "CLAIM:REQ-001",
+        {
+          "expectedPaths": [],
+          "tests": [
+            "test/value.test.js"
+          ],
+          "fulfillment": "test-only"
+        },
+        {
+          "observedPaths": [],
+          "testResults": [
+            "test/value.test.js"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": true,
+        "clocks": 0
+      }
+    },
+    {
+      "name": "test-only-incomplete",
+      "operation": "testOnlyClaimEvidence",
+      "args": [
+        "CLAIM:REQ-001",
+        {
+          "expectedPaths": [],
+          "tests": [
+            "test/value.test.js",
+            "test/other.test.js"
+          ],
+          "fulfillment": "test-only"
+        },
+        {
+          "observedPaths": [],
+          "testResults": [
+            "test/value.test.js"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": false,
+        "clocks": 0
+      }
+    }
+  ]
+}

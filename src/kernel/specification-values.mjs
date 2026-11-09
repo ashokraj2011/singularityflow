@@ -1,10 +1,14 @@
 /** Specification clause/index values. Observation, retention and publication remain engine/SDA responsibilities. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,textDigestCapability,SPECIFICATION_INDEX_SCHEMA} from '../foundation/record-schema.mjs';
+import {canonicalJson,textDigestCapability,textValueSyntax,TEXT_DIGEST_PROFILE,SPECIFICATION_INDEX_SCHEMA,SPECIFICATION_CLAIM_MAP_SCHEMA} from '../foundation/record-schema.mjs';
 import {GOVERNED_CLAUSE_TYPES,GOVERNED_CLAUSE_TYPE_PATTERN,qualifiedClauseIds} from '../foundation/traceability-ids.mjs';
-import {DEFAULT_SPECIFICATION_LIMITS as DEFAULT_LIMITS} from './configuration-policy.mjs';
+import {DEFAULT_SPECIFICATION_LIMITS as DEFAULT_LIMITS,normalizeSpecPolicy} from './configuration-policy.mjs';
 import {authoredArtifactText} from './artifact-content.mjs';
-import {parseVerificationIntent} from './verification-policy.mjs';
+import {parseVerificationIntent,validatePlannedVerification,verificationContractPolicies} from './verification-policy.mjs';
+import {collectDraftDiagnostic,draftDiagnosticSummary,inspectDraftValue,pathDefect,shown} from './draft-diagnostics.mjs';
+import {configurationPathSyntax} from './configuration-path-policies.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,plannedClaimPathPolicies} from './source-path-policies.mjs';
+import {SOURCE_CHANGING_FULFILLMENT} from './specification-policy.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const NAMESPACE = '[A-Za-z0-9][A-Za-z0-9._-]{0,63}';
@@ -304,4 +308,717 @@ function specificationIndexRecord({workId,phase,generation=0,source,clauses}) {
   return {...indexWithoutHash,indexSha256:sha256(canonicalJson(indexWithoutHash))};
 }
 return Object.freeze({extractClauses,specificationIndexRecord});
+}
+
+
+/** Existing native v2 claim semantics; the engine supplies the clock only at the issued checkpoint. */
+export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration', 'evidence']);
+export const SPECIFICATION_CLAIM_TIMESTAMP_REQUEST=Object.freeze({kind:'specification-claim-timestamp',version:1});
+
+export function specificationClaimPolicies(pathSyntax,utf8) {
+const {path,posix}=configurationPathSyntax(pathSyntax);
+const text=textValueSyntax(utf8),{byteLengthUtf8}=text;
+const digest=Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:text.sha256Utf8});
+const {normalizeVerificationContracts,parseVerificationContracts,validateRetainedEvidenceDeclarations}=verificationContractPolicies(pathSyntax,digest);
+const {isConfigurationPath}=configurationFilePolicies(pathSyntax);
+const {isTestAutomationPath}=sourceBoundaryPolicies(pathSyntax);
+const {SUPPORTING_CHANGE_CLASSES,classifySupportingChange}=supportingChangePolicies(pathSyntax);
+const {plannedImplementationPaths}=plannedClaimPathPolicies(pathSyntax);
+const VERDICTS=new Set(['matched','partial','missing','deviated','unplanned']);
+function* inspectClaimReplay(diagnostics,read,location={}) {
+  try{return {valid:true,value:yield* read()};}
+  catch(error){collectDraftDiagnostic(diagnostics,error,location);return {valid:false,value:null};}
+}
+function normalizePaths(value, label, limits) {
+    if (value == null)
+        return [];
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item))
+        throw new SingularityFlowError(`${label} must be an array of paths.`);
+    if (value.length > limits.maxPathsPerClaim)
+        throw new SingularityFlowError(`${label} exceeds ${limits.maxPathsPerClaim} paths.`);
+    const paths = value.map((item) => posix(item));
+    for (const candidate of paths) {
+        if (path.posix.isAbsolute(candidate) || candidate === '..' || candidate.startsWith('../') || candidate.includes('/../')) {
+            throw new SingularityFlowError(`${label} must contain repository-relative paths.`);
+        }
+    }
+    return [...new Set(paths)].sort();
+}
+function exactStructuredPath(value, label) {
+    const candidate = String(value);
+    const normalized = posix(candidate);
+    if (candidate !== candidate.trim()
+        || candidate.includes('\\')
+        || normalized !== candidate
+        || !candidate
+        || candidate === '.'
+        || candidate.startsWith('./')
+        || candidate.endsWith('/')
+        || candidate.includes('//')
+        || path.posix.isAbsolute(candidate)
+        || candidate === '..'
+        || candidate.startsWith('../')
+        || candidate.includes('/../')
+        || candidate.includes('/./')
+        || /^[A-Za-z]:/.test(candidate)
+        || /^[a-z][a-z0-9+.-]*:/i.test(candidate)
+        || /[\0-\x1f\x7f]/.test(candidate)
+        || /[*?\[\]{}<>$]/.test(candidate)
+        || candidate.includes('...')
+        || /(?:^|\/)(?:TODO|TBD|PLACEHOLDER)(?:\.|\/|$)/i.test(candidate)) {
+        const defect = pathDefect(candidate);
+        throw new SingularityFlowError(`${label} must be an exact repository-relative path without traversal, globs, placeholders, or platform-specific syntax; ${shown(candidate)} is not${defect ? `: ${defect}` : ''}.`);
+    }
+    return candidate;
+}
+function markdownCells(line) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('|') || !trimmed.endsWith('|'))
+        return null;
+    return trimmed.slice(1, -1).split('|').map((cell) => cell.trim());
+}
+function tableDivider(cells, width) {
+    return Array.isArray(cells)
+        && cells.length === width
+        && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+function tableHeader(cells) {
+    return cells?.map((cell) => cell.toLowerCase().replace(/\s+/g, ' '));
+}
+function parseClauseCell(cell, known, label) {
+    let value = String(cell ?? '').trim();
+    if (value.startsWith('`') && value.endsWith('`') && value.indexOf('`', 1) === value.length - 1) {
+        value = value.slice(1, -1).trim();
+    }
+    if (value.startsWith('[') && value.endsWith(']'))
+        value = value.slice(1, -1).trim();
+    const match = value.match(new RegExp(`^(${NAMESPACE}:(?:REQ|BEH|IFC|AC|CON)-\\d{3})$`, 'i'));
+    if (!match)
+        throw new SingularityFlowError(`${label} must contain exactly one namespace-qualified clause ID, such as \`ORDER:REQ-001\`: the Story's namespace, a colon, REQ, BEH, IFC, AC or CON, and three digits.`);
+    const id = match[1].toUpperCase();
+    if (!known.has(id))
+        throw new SingularityFlowError(`${label} references unknown clause ${id}.`);
+    return id;
+}
+function parseBacktickedPathCell(cell, label) {
+    const source = String(cell ?? '').trim();
+    if (!source || /^(?:-|—)$/.test(source))
+        return [];
+    if (/^`(?:-|—)`$/u.test(source))
+        throw new SingularityFlowError(`${label}: a backticked dash names a file, not an empty cell. Use an unquoted dash for no paths, or name the exact required source/test/evidence path.`, { code: 'SPEC_PLANNED_PATH_SENTINEL_INVALID' });
+    const paths = [];
+    const remainder = source.replace(/`([^`\n]+)`/g, (_whole, value) => {
+        paths.push(exactStructuredPath(value, label));
+        return '';
+    });
+    const separators = remainder
+        .replace(/<br\s*\/?\s*>/gi, '')
+        .replace(/[\s,;]+/g, '');
+    if (!paths.length || separators) {
+        const extra = remainder.replace(/<br\s*\/?\s*>/giu, ' ').trim();
+        throw new SingularityFlowError(`${label} must list each exact repository-relative path in backticks${paths.length && extra
+            ? `; ${shown(extra)} is outside the backticks. Keep only the paths here, separated by commas, and put notes in another column`
+            : '; it names no path in backticks'}.`);
+    }
+    return [...new Set(paths)].sort();
+}
+/**
+ * Exact implementation obligations. Older approved plans sometimes repeated an exact test
+ * path in both columns. Its explicit test role and the collector's test boundary agree, so it is
+ * still owed as a test, never as product source. Do not rewrite the hash-bound approved map, infer
+ * a test-only fulfillment, or excuse an absent product/configuration path or test result.
+ */
+/** Configuration keeps its exact obligation, but never becomes product-code tag duty. */
+const PLANNED_OPTIONAL_COLUMNS = Object.freeze(['fulfillment', 'steps', 'observable result']);
+const PLANNED_STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const MAX_OBSERVABLE_RESULT = 500;
+const DELIVERY_MEDIA = /\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|webm|mov|zip)$/iu;
+/** Authoring-time typing, not a reinterpretation of an already approved legacy plan. */
+function validatePlannedEvidenceTypes(claims, { evidenceRoot = null } = {}) {
+    for (const [id, claim] of Object.entries(claims)) {
+        const configurationTests = (claim.tests ?? []).filter(isConfigurationPath);
+        if (configurationTests.length)
+            throw new SingularityFlowError(`${id}: ${configurationTests.join(', ')} configures tools or runtime behavior; it is not executable test source. Put configuration in its own fulfillment configuration row or the plan's Supporting files, and name actual tests in Planned tests.`, { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: configurationTests, expectedRole: 'configuration', correction: 'separate-configuration-from-tests' } });
+        if (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment)) {
+            const tests = new Set(claim.tests ?? []);
+            const configurations = (claim.expectedPaths ?? []).filter(isConfigurationPath);
+            if (configurations.length)
+                throw new SingularityFlowError(`${id}: ${configurations.join(', ')} is configuration, not product source. Use fulfillment configuration for a configuration obligation, or list build/tooling dependencies under Supporting files with a reason. Do not insert @clause tags into configuration.`, { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: configurations, expectedRole: 'configuration', correction: 'separate-configuration-from-source' } });
+            const misplaced = (claim.expectedPaths ?? []).filter(candidate => tests.has(candidate) || isTestAutomationPath(candidate));
+            if (misplaced.length)
+                throw new SingularityFlowError(`${id}: Expected paths for new/modified delivery must contain product source only; ${misplaced.join(', ')} belongs in Planned tests. Use fulfillment test-only with no Expected paths when tests are the entire delivery.`, { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: misplaced, expectedRole: 'product-source', correction: 'separate-source-and-test-paths' } });
+        }
+        const evidencePath = (candidate) => DELIVERY_MEDIA.test(candidate) || (evidenceRoot
+            ? candidate.startsWith(`${evidenceRoot}/`) : /(?:^|\/)work-items\/[^/]+\/evidence\//u.test(candidate));
+        const misplacedTest = (claim.tests ?? []).find(evidencePath);
+        if (misplacedTest)
+            throw new SingularityFlowError(`${id}: ${misplacedTest} is retained delivery evidence, not an executable test. Use fulfillment evidence and an inspection/visual verification contract.`, { code: 'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', details: { clauseId: id, path: misplacedTest } });
+        if (claim.fulfillment === 'evidence') {
+            for (const candidate of claim.expectedPaths ?? []) {
+                if (evidenceRoot ? !candidate.startsWith(`${evidenceRoot}/`) : !/(?:^|\/)evidence\/[^/]/u.test(candidate)) {
+                    throw new SingularityFlowError(`${id}: retained evidence must be inside this Story's evidence directory.`, { code: 'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', details: { clauseId: id, path: candidate } });
+                }
+            }
+        }
+        else if (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment)) {
+            const misplacedSource = (claim.expectedPaths ?? []).find((candidate) => evidenceRoot
+                ? candidate.startsWith(`${evidenceRoot}/`) : /(?:^|\/)work-items\/[^/]+\/evidence\//u.test(candidate));
+            if (misplacedSource)
+                throw new SingularityFlowError(`${id}: ${misplacedSource} is not product source. Allocate a separate fulfillment evidence row; do not mix a screenshot with source changes.`, { code: 'SPEC_PLANNED_EVIDENCE_TYPE_INVALID', details: { clauseId: id, path: misplacedSource } });
+        }
+    }
+}
+function emptyCell(cell) {
+    const value = String(cell ?? '').trim();
+    return !value || /^(?:-|—)$/u.test(value);
+}
+function parseFulfillmentCell(cell, label) {
+    if (cell == null || emptyCell(cell))
+        return null;
+    const value = String(cell).trim().replace(/^`|`$/gu, '').toLowerCase();
+    if (!FULFILLMENT_TYPES.includes(value)) {
+        throw new SingularityFlowError(`${label} must be one of ${FULFILLMENT_TYPES.join(', ')}.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+    }
+    return value;
+}
+function parseStepsCell(cell, label) {
+    if (cell == null || emptyCell(cell))
+        return [];
+    const steps = String(cell).split(/[\s,;]+/u).map((entry) => entry.replace(/^`|`$/gu, '').trim()).filter(Boolean);
+    const invalid = steps.filter((entry) => !PLANNED_STEP_ID.test(entry));
+    if (invalid.length) {
+        throw new SingularityFlowError(`${label} must list step IDs such as \`implementation\`; not ${invalid.join(', ')}.`, { code: 'SPEC_PLANNED_ALLOCATION_INVALID' });
+    }
+    return [...new Set(steps)].sort();
+}
+function parseObservableResultCell(cell, label) {
+    if (cell == null || emptyCell(cell))
+        return null;
+    const value = String(cell).replace(/<br\s*\/?\s*>/giu, ' ').replace(/\s+/gu, ' ').trim();
+    if (value.length > MAX_OBSERVABLE_RESULT) {
+        throw new SingularityFlowError(`${label} must be at most ${MAX_OBSERVABLE_RESULT} characters.`, { code: 'SPEC_PLANNED_OBSERVABLE_INVALID' });
+    }
+    return value;
+}
+/**
+ * The plan-obligation fields a planned claim may carry beyond its paths and tests, checked the same
+ * way whether the claim came from the plan's table or from a stored record.
+ */
+function plannedObligationFields(id, claim, { expectedPaths, tests, testDisposition }) {
+    const fulfillment = claim.fulfillment == null ? null : String(claim.fulfillment);
+    if (fulfillment != null && !FULFILLMENT_TYPES.includes(fulfillment)) {
+        throw new SingularityFlowError(`${id}.fulfillment must be one of ${FULFILLMENT_TYPES.join(', ')}.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+    }
+    if (fulfillment === 'test-only' && (expectedPaths.length || !tests.length)) {
+        throw new SingularityFlowError(`${id} is test-only: list its planned tests and no expected product paths.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+    }
+    if (fulfillment != null && fulfillment !== 'test-only' && !expectedPaths.length) {
+        throw new SingularityFlowError(`${id} is ${fulfillment}: name the exact paths ${fulfillment === 'existing' ? 'where the behaviour already lives' : fulfillment === 'removed' ? 'that are removed' : 'that change'} under Expected paths.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+    }
+    if (fulfillment === 'test-only' && testDisposition === 'not-applicable') {
+        throw new SingularityFlowError(`${id} is test-only, so its tests cannot be not-applicable.`, { code: 'SPEC_PLANNED_FULFILLMENT_INVALID' });
+    }
+    const steps = claim.steps == null ? [] : (Array.isArray(claim.steps) ? claim.steps : [claim.steps]).map((entry) => String(entry));
+    const invalidSteps = steps.filter((entry) => !PLANNED_STEP_ID.test(entry));
+    if (invalidSteps.length) {
+        throw new SingularityFlowError(`${id}.steps must be step IDs; not ${invalidSteps.join(', ')}.`, { code: 'SPEC_PLANNED_ALLOCATION_INVALID' });
+    }
+    const observableResult = claim.observableResult == null ? null : String(claim.observableResult).trim();
+    if (observableResult != null && (!observableResult || observableResult.length > MAX_OBSERVABLE_RESULT)) {
+        throw new SingularityFlowError(`${id}.observableResult must be 1 to ${MAX_OBSERVABLE_RESULT} characters.`, { code: 'SPEC_PLANNED_OBSERVABLE_INVALID' });
+    }
+    return {
+        ...(fulfillment ? { fulfillment } : {}),
+        ...(steps.length ? { steps: [...new Set(steps)].sort() } : {}),
+        ...(observableResult ? { observableResult } : {})
+    };
+}
+function parseNotApplicable(cell, label) {
+    const match = String(cell ?? '').trim().match(/^not-applicable\s*:\s*(.+)$/i);
+    if (!match)
+        return null;
+    const reason = match[1].trim();
+    if (!reason || /^(?:todo|tbd|placeholder)$/i.test(reason)) {
+        throw new SingularityFlowError(`${label} not-applicable requires a concrete reason.`);
+    }
+    return reason;
+}
+/**
+ * The plan's `## Supporting files`: repository paths the code may change without any clause
+ * claiming them, because they cannot carry a `@clause` tag (a manifest, a lockfile, CI
+ * configuration). Each entry is a bullet that starts with one backticked exact path followed by its
+ * reason. Globs and directories are refused, so the list says exactly what may change, and only the
+ * closed supporting classes qualify: application source, tests and migrations need a clause row.
+ */
+function supportingFilesFromPlan(lines, { classesOnly = false } = {}) {
+    const found = new Map();
+    let inside = false;
+    for (const [index, line] of lines.entries()) {
+        const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/u);
+        if (heading) {
+            inside = /^supporting files$/iu.test(heading[2].trim());
+            continue;
+        }
+        if (!inside || !/^\s*[-*+]\s+/u.test(line))
+            continue;
+        const entry = line.match(/^\s*[-*+]\s+`([^`]+)`(.*)$/u);
+        if (!entry && classesOnly)
+            continue;
+        if (!entry) {
+            const text = line.replace(/^\s*[-*+]\s+/u, '').trim();
+            throw new SingularityFlowError(/^(?:none|n\/a|nothing|-|—)\.?$/iu.test(text)
+                ? `Supporting files entry at line ${index + 1} holds ${shown(text)}: when the plan has no supporting files, remove the whole ## Supporting files section.`
+                : `Supporting files entry at line ${index + 1} must start with one backticked repository path, for example - \`package.json\` — adds the ledger client; it holds ${shown(text)}.`);
+        }
+        let candidate;
+        try {
+            candidate = exactStructuredPath(entry[1], `Supporting files entry at line ${index + 1}`);
+        }
+        catch (error) {
+            if (classesOnly)
+                continue;
+            throw error;
+        }
+        const reason = entry[2].replace(/^\s*[—–:-]*\s*/u, '').trim();
+        const invalid = (message) => new SingularityFlowError(`Supporting files entry \`${candidate}\` at line ${index + 1} ${message}`, {
+            code: 'SPEC_SUPPORTING_FILE_INVALID'
+        });
+        if (!classesOnly && !reason)
+            throw invalid(`needs its reason after the path, for example - \`${candidate}\` — pins the client the export uses.`);
+        if (!classesOnly && (reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason)))
+            throw invalid('has a reason longer than 500 characters or with control characters.');
+        const classified = classifySupportingChange(candidate);
+        if (classified.refused) {
+            throw invalid(`cannot be a supporting file: it is ${classified.refused.replace('-', ' ')}, and ${classified.reason}. Supporting files are dependency locks, build and CI configuration, repository metadata and documentation.`);
+        }
+        if (found.has(candidate) && !classesOnly)
+            throw invalid('is listed twice.');
+        found.set(candidate, { path: candidate, class: classified.class, reason });
+    }
+    return [...found.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+/**
+ * The plan's `## Supporting files` alone, for a plan no claim map is derived from. Only the class
+ * rule refuses here, with the planned claim map's own message: an entry naming application source,
+ * a test, a migration or runtime configuration. Its other format checks belong to the claim map.
+ */
+function planSupportingFiles(markdown) {
+    return supportingFilesFromPlan(plannedClaimSource(markdown).split(/\r?\n/), { classesOnly: true });
+}
+/**
+ * Derive a planned claim map only from the reviewed structured Markdown
+ * contract. Prose, guessed filenames, globs, and unqualified clause IDs are
+ * deliberately ignored/refused rather than interpreted.
+ */
+function* inspectPlannedClaimMapReplay(markdown, { clauseIds = [], clauses = [], policy = {}, evidenceRoot = null, requireComplete = false } = {}) {
+    if (typeof markdown !== 'string')
+        throw new SingularityFlowError('Planned claim source must be UTF-8 Markdown.');
+    const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
+    const claims = {};
+    const diagnostics = [];
+    const seen = new Set();
+    const locations = new Map();
+    const lines = plannedClaimSource(markdown).split(/\r?\n/);
+    for (let index = 0; index < lines.length - 1; index += 1) {
+        const cells = markdownCells(lines[index]);
+        const headers = tableHeader(cells);
+        if (!headers || headers.slice(0, 3).join('|') !== 'clause|expected paths|planned tests') {
+            // A table with these columns in another order was skipped in silence, and every row then read as
+            // missing while the author could see it (2026-10-29).
+            if (headers && ['clause', 'expected paths', 'planned tests'].every((name) => headers.includes(name))) {
+                collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table at line ${index + 1} has its columns as ${shown(cells.join(' | '))}; the first three must be Clause | Expected paths | Planned tests, in this order, then any of Fulfillment, Steps, Observable result.`, { code: 'SPEC_PLANNED_TABLE_INVALID' }), { line: index + 1, field: 'header' });
+            }
+            continue;
+        }
+        const optional = headers.slice(3);
+        if (optional.some((name) => !PLANNED_OPTIONAL_COLUMNS.includes(name)) || new Set(optional).size !== optional.length) {
+            collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table at line ${index + 1} may add only these columns, each once: Fulfillment, Steps, Observable result.`, { code: 'SPEC_PLANNED_TABLE_INVALID' }), { line: index + 1, field: 'header' });
+            continue;
+        }
+        const column = (row, name) => (headers.indexOf(name) < 0 ? null : row[headers.indexOf(name)]);
+        if (!tableDivider(markdownCells(lines[index + 1]), headers.length)) {
+            collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table at line ${index + 1} must be followed by a Markdown divider row.`), { line: index + 1, field: 'divider' });
+            continue;
+        }
+        index += 2;
+        for (; index < lines.length; index += 1) {
+            const row = markdownCells(lines[index]);
+            if (!row) {
+                index -= 1;
+                break;
+            }
+            if (row.length !== headers.length) {
+                collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table row at line ${index + 1} must contain exactly ${headers.length === 3 ? 'three' : headers.length} columns.`), { line: index + 1, field: 'row' });
+                continue;
+            }
+            const identity = inspectDraftValue(diagnostics, () => parseClauseCell(row[0], known, `Planned claim table row ${index + 1}`), { line: index + 1, field: 'clause', actual: row[0] });
+            const id = identity.value;
+            if (identity.valid && seen.has(id)) {
+                collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table defines clause ${id} more than once.`), { line: index + 1, clauseId: id, field: 'clause' });
+                continue;
+            }
+            if (identity.valid) {
+                seen.add(id);
+                locations.set(id, index + 1);
+            }
+            const field = (name, actual, read) => inspectDraftValue(diagnostics, read, { line: index + 1, clauseId: id, field: name, actual });
+            const expected = field('expectedPaths', row[1], () => parseBacktickedPathCell(row[1], `${id ?? 'Clause'}.expectedPaths`));
+            const manual = /^verification:\s*(.+)$/iu.exec(row[2]);
+            const criterion = field('verificationCriterion', manual?.[1], () => manual
+                ? parseClauseCell(manual[1], known, `${id ?? 'Clause'}.verificationCriterion`) : null);
+            const reason = field('plannedTests', row[2], () => manual ? null : parseNotApplicable(row[2], `${id ?? 'Clause'}.plannedTests`));
+            const tests = manual || (reason.valid && reason.value != null) ? { valid: true, value: [] }
+                : field('plannedTests', row[2], () => parseBacktickedPathCell(row[2], `${id ?? 'Clause'}.tests`));
+            const fulfillment = field('fulfillment', column(row, 'fulfillment'), () => parseFulfillmentCell(column(row, 'fulfillment'), `${id ?? 'Clause'}.fulfillment`));
+            const steps = field('steps', column(row, 'steps'), () => parseStepsCell(column(row, 'steps'), `${id ?? 'Clause'}.steps`));
+            const observable = field('observableResult', column(row, 'observable result'), () => parseObservableResultCell(column(row, 'observable result'), `${id ?? 'Clause'}.observableResult`));
+            if (![identity, expected, criterion, reason, tests, fulfillment, steps, observable].every(value => value.valid))
+                continue;
+            const claim = {
+                expectedPaths: expected.value,
+                tests: tests.value,
+                testDisposition: manual ? 'non-test' : reason.value == null ? (tests.value.length ? 'applicable' : 'unspecified') : 'not-applicable',
+                testReason: reason.value,
+                ...(manual ? { verificationCriterion: criterion.value } : {}),
+                deviation: null,
+                ...(fulfillment.value ? { fulfillment: fulfillment.value } : {}),
+                ...(steps.value.length ? { steps: steps.value } : {}),
+                ...(observable.value ? { observableResult: observable.value } : {})
+            };
+            const normalized = yield* inspectClaimReplay(diagnostics, function* () {
+                return yield* normalizeClaimMapReplay({ claims: { [id]: claim } }, { kind: 'planned', clauseIds: [...known], policy });
+            }, { line: index + 1, clauseId: id });
+            if (normalized.valid)
+                claims[id] = normalized.value.claims[id];
+        }
+    }
+    const supporting = inspectDraftValue(diagnostics, () => supportingFilesFromPlan(lines), { field: 'supportingFiles' });
+    const supportingFileDetails = supporting.value ?? [];
+    const supportingFiles = supportingFileDetails.map((entry) => entry.path);
+    const normalized = yield* inspectClaimReplay(diagnostics, function* () {
+        return yield* normalizeClaimMapReplay({ claims, supportingFiles, supportingFileDetails }, { kind: 'planned', clauseIds: [...known], policy });
+    });
+    const claimMap = normalized.value;
+    for (const [id, claim] of Object.entries(claims))
+        inspectDraftValue(diagnostics, () => validatePlannedEvidenceTypes({ [id]: claim }, { evidenceRoot }), { line: locations.get(id), clauseId: id, field: 'expectedPaths' });
+    inspectDraftValue(diagnostics, () => validateRetainedEvidenceDeclarations(plannedClaimSource(markdown), claims, { evidenceRoot }), { field: 'retainedEvidence' });
+    const contracts = parseVerificationContracts(plannedClaimSource(markdown), {
+        clauseIds: [...known], plannedClaims: claims, diagnostics
+    });
+    if (contracts.length && claimMap)
+        claimMap.verificationContracts = contracts;
+    inspectDraftValue(diagnostics, () => validatePlannedVerification(claims, contracts, clauses), { field: 'verification' });
+    const missingClauseIds = [...known].filter((id) => !claims[id]).sort();
+    const missingTestClauseIds = [...known].filter((id) => !claims[id]
+        || (!claims[id].tests.length && !['not-applicable', 'non-test'].includes(claims[id].testDisposition))).sort();
+    // A row or table already refused says why; "complete its row" on top sent authors to a row they had written.
+    const tableRefused = diagnostics.some((entry) => ['header', 'divider'].includes(entry.field));
+    if (requireComplete && !tableRefused)
+        for (const id of [...new Set([...missingClauseIds, ...missingTestClauseIds])]
+            .filter((candidate) => !diagnostics.some((entry) => entry.clauseId === candidate))) {
+            collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Clause ${id} has no exact planned test or reviewed not-applicable reason. Complete its approved clause row.`, { code: 'SPEC_PLANNED_ROW_REQUIRED' }), { clauseId: id, line: locations.get(id), field: 'plannedTests' });
+        }
+    return {
+        valid: diagnostics.length === 0, diagnostics, diagnosticSummary: draftDiagnosticSummary(diagnostics),
+        claimMap: diagnostics.length ? null : claimMap,
+        supportingFiles,
+        supportingFileDetails,
+        missingClauseIds, missingTestClauseIds
+    };
+}
+/** Strict publication reader: all diagnostics are returned, but no partial map is admitted. */
+function* derivePlannedClaimMapReplay(markdown, options = {}) {
+    const inspected = yield* inspectPlannedClaimMapReplay(markdown, options);
+    if (!inspected.valid) {
+        const first = inspected.diagnostics[0];
+        throw new SingularityFlowError(first.message, { code: first.code,
+            details: { ...first.details, diagnostics: inspected.diagnostics, diagnosticSummary: inspected.diagnosticSummary } });
+    }
+    const { valid, diagnostics, diagnosticSummary, ...derived } = inspected;
+    return derived;
+}
+/** Each supporting file's class and reason, exactly one per listed path when present. */
+function normalizeSupportingFileDetails(value, supportingFiles) {
+    if (value == null)
+        return [];
+    if (!Array.isArray(value))
+        throw new SingularityFlowError('supportingFileDetails must be a list.');
+    const listed = new Set(supportingFiles);
+    const seen = new Set();
+    const details = value.map((entry) => {
+        const candidate = posix(String(entry?.path ?? ''));
+        if (!listed.has(candidate) || seen.has(candidate))
+            throw new SingularityFlowError(`supportingFileDetails must describe each supporting file once; ${candidate || 'an entry'} does not match.`);
+        seen.add(candidate);
+        if (!SUPPORTING_CHANGE_CLASSES.includes(entry.class) || classifySupportingChange(candidate).class !== entry.class) {
+            throw new SingularityFlowError(`supportingFileDetails gives ${candidate} a class its path does not have.`);
+        }
+        const reason = typeof entry.reason === 'string' ? entry.reason.trim() : '';
+        if (!reason || reason.length > 500)
+            throw new SingularityFlowError(`supportingFileDetails needs a reason of at most 500 characters for ${candidate}.`);
+        return { path: candidate, class: entry.class, reason };
+    });
+    if (details.length && details.length !== listed.size)
+        throw new SingularityFlowError('supportingFileDetails must describe every supporting file.');
+    return details.sort((left, right) => left.path.localeCompare(right.path));
+}
+/**
+ * Delivery trace for a reviewed test-only obligation, never proof that its tests passed.
+ * Requirements need an explicit fulfillment; legacy acceptance rows may name tests alone.
+ * Consumers supply the authoritative plan, not a fulfillment asserted by the observed record.
+ */
+function testOnlyClaimEvidence(id, plan, claim, { complete = true } = {}) {
+    if (!plan || !claim || (plan.expectedPaths ?? []).length || (claim.observedPaths ?? []).length)
+        return false;
+    if (plan.fulfillment !== 'test-only'
+        && !(plan.fulfillment == null && /:AC-\d{3}$/u.test(id)))
+        return false;
+    const plannedTests = new Set(plan.tests ?? []);
+    const observedTests = new Set(claim.testResults ?? []);
+    if (!plannedTests.size || !observedTests.size || [...observedTests].some((candidate) => !plannedTests.has(candidate)))
+        return false;
+    return !complete || [...plannedTests].every((candidate) => observedTests.has(candidate));
+}
+function* normalizeClaimMapReplay(value, { kind, clauseIds = [], policy = {}, plannedClaims = {} } = {}) {
+    const normalized = normalizeSpecPolicy(policy);
+    if (!['planned', 'observed'].includes(kind))
+        throw new SingularityFlowError('Claim map kind must be planned or observed.');
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+        throw new SingularityFlowError(`${kind} claim map must be an object.`);
+    const raw = value.claims ?? value;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        throw new SingularityFlowError(`${kind} claim map claims must be an object keyed by clause ID.`);
+    const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
+    const claims = {};
+    for (const [rawId, claim] of Object.entries(raw)) {
+        const id = rawId.toUpperCase();
+        if (claims[id])
+            throw new SingularityFlowError(`${kind} claim map defines clause ${id} more than once using different letter casing.`);
+        if (known.size && !known.has(id)) {
+            throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}. Cite only clauses this Story defines.`, {
+                code: 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', details: { kind, clause: id }
+            });
+        }
+        if (!claim || typeof claim !== 'object' || Array.isArray(claim))
+            throw new SingularityFlowError(`${kind} claim ${id} must be an object.`);
+        if (kind === 'planned') {
+            const tests = normalizePaths(claim.tests, `${id}.tests`, normalized.limits);
+            const testDisposition = claim.testDisposition ?? (tests.length ? 'applicable' : 'unspecified');
+            if (!['applicable', 'not-applicable', 'non-test', 'unspecified'].includes(testDisposition)) {
+                throw new SingularityFlowError(`${id}.testDisposition must be applicable, not-applicable, non-test, or unspecified.`);
+            }
+            const testReason = claim.testReason == null ? null : String(claim.testReason).trim();
+            if (testDisposition === 'not-applicable' && (tests.length || !testReason)) {
+                throw new SingularityFlowError(`${id} not-applicable test disposition requires no tests and a concrete testReason.`);
+            }
+            if (testDisposition !== 'not-applicable' && testReason) {
+                throw new SingularityFlowError(`${id}.testReason is only allowed when testDisposition is not-applicable.`);
+            }
+            const expectedPaths = normalizePaths(claim.expectedPaths, `${id}.expectedPaths`, normalized.limits);
+            const verificationCriterion = claim.verificationCriterion == null ? null : String(claim.verificationCriterion).toUpperCase();
+            if (testDisposition === 'non-test' && (tests.length || !/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(verificationCriterion ?? '')
+                || (known.size && !known.has(verificationCriterion)) || (/:AC-\d{3}$/u.test(id) && verificationCriterion !== id))) {
+                throw new SingularityFlowError(`${id} non-test proof requires no executable tests and an exact approved AC verificationCriterion.`, { code: 'SPEC_VERIFICATION_INTENT_INVALID' });
+            }
+            if (testDisposition !== 'non-test' && verificationCriterion != null) {
+                throw new SingularityFlowError(`${id}.verificationCriterion is only allowed for non-test proof.`, { code: 'SPEC_VERIFICATION_INTENT_INVALID' });
+            }
+            claims[id] = {
+                expectedPaths,
+                tests,
+                testDisposition,
+                testReason,
+                ...(verificationCriterion ? { verificationCriterion } : {}),
+                deviation: claim.deviation == null ? null : String(claim.deviation),
+                ...plannedObligationFields(id, claim, { expectedPaths, tests, testDisposition })
+            };
+        }
+        else {
+            const verdict = claim.verdict ?? 'missing';
+            if (!VERDICTS.has(verdict))
+                throw new SingularityFlowError(`${id}.verdict must be ${[...VERDICTS].join(', ')}.`);
+            const observedPaths = normalizePaths(claim.observedPaths, `${id}.observedPaths`, normalized.limits);
+            const testResults = normalizePaths(claim.testResults, `${id}.testResults`, normalized.limits);
+            const plannedClaim = plannedClaims[id];
+            const testOnlyEvidence = testOnlyClaimEvidence(id, plannedClaim, { observedPaths, testResults }, { complete: verdict === 'matched' });
+            if (plannedClaim?.fulfillment === 'test-only' && ['matched', 'partial', 'deviated'].includes(verdict) && !testOnlyEvidence) {
+                throw new SingularityFlowError(`${id} is planned as test-only: verdict ${verdict} must cite its exact planned test files, not product-source paths.`, {
+                    code: 'SPEC_OBSERVED_TEST_ONLY_EVIDENCE_INVALID',
+                    details: { clauseId: id, verdict, plannedTests: plannedClaim.tests ?? [], testResults, observedPaths }
+                });
+            }
+            const acceptanceTestEvidence = /:AC-\d{3}$/.test(id) && testResults.length > 0;
+            if (['matched', 'partial', 'deviated'].includes(verdict) && !observedPaths.length && !acceptanceTestEvidence && !testOnlyEvidence) {
+                throw new SingularityFlowError(`${id}.observedPaths must identify source evidence when verdict is ${verdict}.`);
+            }
+            const rawCommits = claim.commits ?? [];
+            if (!Array.isArray(rawCommits) || rawCommits.some((commit) => typeof commit !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commit))) {
+                throw new SingularityFlowError(`${id}.commits must be an array of full Git commit SHAs.`);
+            }
+            claims[id] = {
+                observedPaths,
+                testResults,
+                commits: [...new Set(rawCommits.map((commit) => commit.toLowerCase()))].sort(),
+                verdict,
+                deviation: claim.deviation == null ? null : String(claim.deviation)
+            };
+        }
+    }
+    // Present only when the plan lists some, so a plan without the section records what it always did.
+    const supportingFiles = kind === 'planned'
+        ? normalizePaths(value.supportingFiles ?? [], 'supportingFiles', normalized.limits) : [];
+    const supportingFileDetails = kind === 'planned' ? normalizeSupportingFileDetails(value.supportingFileDetails, supportingFiles) : [];
+    // How each criterion must be verified, from the plan's own contracts table [E2G-013].
+    const verificationContracts = kind === 'planned' ? normalizeVerificationContracts(value.verificationContracts) : [];
+    const result = {
+        schemaVersion: SPECIFICATION_CLAIM_MAP_SCHEMA.currentVersion, kind, recordedAt: (yield SPECIFICATION_CLAIM_TIMESTAMP_REQUEST), claims,
+        ...(supportingFiles.length ? { supportingFiles } : {}),
+        ...(supportingFileDetails.length ? { supportingFileDetails } : {}),
+        ...(verificationContracts.length ? { verificationContracts } : {})
+    };
+    const bytes = byteLengthUtf8(canonicalJson(result));
+    if (bytes > normalized.limits.maxClaimBytes)
+        throw new SingularityFlowError(`${kind} claim map exceeds ${normalized.limits.maxClaimBytes} bytes.`);
+    return result;
+}
+function evidencePaths(delivery, names, label, limits) {
+    const candidates = [];
+    const sources = [delivery, delivery?.changeSet].filter(Boolean);
+    for (const source of sources) {
+        for (const name of names) {
+            if (source[name] != null)
+                candidates.push(...normalizePaths(source[name], `${label}.${name}`, limits));
+        }
+    }
+    return [...new Set(candidates.map((candidate) => exactStructuredPath(candidate, label)))].sort();
+}
+/**
+ * Project exact code-delivery evidence onto an already reviewed planned claim
+ * map. The projection never attributes a changed path by directory proximity
+ * or a test by name similarity. Completely unevidenced clauses remain absent.
+ */
+function* deriveObservedClaimMapReplay(plannedMap, delivery = {}, { clauseIds = [], policy = {}, generationCommit = null, requireSourceBindings = false } = {}) {
+    const normalizedPolicy = normalizeSpecPolicy(policy);
+    const rawPlanned = plannedMap?.claims ?? plannedMap ?? {};
+    const knownIds = clauseIds.length
+        ? clauseIds.map((id) => String(id).toUpperCase())
+        : Object.keys(rawPlanned).map((id) => id.toUpperCase());
+    const planned = yield* normalizeClaimMapReplay({ claims: rawPlanned }, {
+        kind: 'planned', clauseIds: knownIds, policy: normalizedPolicy
+    });
+    const changedPaths = new Set(evidencePaths(delivery, ['sourcePaths', 'deletedSourcePaths'], 'delivery source evidence', normalizedPolicy.limits));
+    // Older receipts put configuration in sourcePaths. Project its role without rewriting the
+    // reviewed record; new receipts use configurationPaths. In neither case is a source tag owed.
+    const configurationPaths = new Set([
+        ...evidencePaths(delivery, ['configurationPaths'], 'delivery configuration evidence', normalizedPolicy.limits),
+        ...[...changedPaths].filter(isConfigurationPath)
+    ].filter(isConfigurationPath));
+    const testPaths = new Set(evidencePaths(delivery, ['testPaths', 'executableTestPaths', 'supportingTestPaths'], 'delivery test evidence', normalizedPolicy.limits));
+    const bindings = new Map();
+    for (const binding of delivery?.traceability?.bindings ?? []) {
+        const id = String(binding?.clauseId ?? '').toUpperCase();
+        if (!knownIds.includes(id) || typeof binding?.testSource !== 'string')
+            continue;
+        const testSource = exactStructuredPath(binding.testSource, `${id}.traceability.testSource`);
+        if (!testPaths.has(testSource))
+            continue;
+        const ids = bindings.get(testSource) ?? new Set();
+        ids.add(id);
+        bindings.set(testSource, ids);
+    }
+    const sourceBindings = new Map();
+    if (requireSourceBindings) {
+        for (const binding of delivery?.traceability?.sourceBindings ?? []) {
+            const id = String(binding?.clauseId ?? '').toUpperCase();
+            if (!knownIds.includes(id) || typeof binding?.sourcePath !== 'string')
+                continue;
+            const sourcePath = exactStructuredPath(binding.sourcePath, `${id}.traceability.sourcePath`);
+            if (!changedPaths.has(sourcePath))
+                continue;
+            const ids = sourceBindings.get(sourcePath) ?? new Set();
+            ids.add(id);
+            sourceBindings.set(sourcePath, ids);
+        }
+    }
+    const commits = generationCommit == null ? [] : [generationCommit];
+    // What the delivery recorded for obligations that are not new or modified source [E2G-010].
+    const fulfilled = new Map((delivery?.fulfillment?.obligations ?? [])
+        .map((entry) => [String(entry?.clauseId ?? '').toUpperCase(), entry]));
+    const fulfilledState = { existing: 'present', removed: 'absent', document: 'changed', configuration: 'changed', evidence: 'present' };
+    const claims = {};
+    for (const id of knownIds) {
+        const plan = planned.claims[id];
+        if (plan && plan.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
+            const testResults = plan.tests.filter((candidate) => testPaths.has(candidate));
+            if (plan.fulfillment === 'test-only') {
+                if (!testResults.length)
+                    continue;
+                claims[id] = { observedPaths: [], testResults, commits, verdict: testResults.length === plan.tests.length ? 'matched' : 'partial', deviation: null };
+                continue;
+            }
+            const entry = fulfilled.get(id);
+            if (!entry)
+                continue;
+            const observedPaths = (entry.paths ?? [])
+                .filter((item) => entry.fulfillment === plan.fulfillment && item.state === fulfilledState[plan.fulfillment]
+                && (plan.fulfillment !== 'evidence' || /^[a-f0-9]{64}$/u.test(item.sha256 ?? ''))
+                && plan.expectedPaths.includes(item.path))
+                .map((item) => item.path).sort();
+            if (!observedPaths.length)
+                continue;
+            claims[id] = {
+                observedPaths, testResults, commits,
+                verdict: observedPaths.length === plan.expectedPaths.length ? 'matched' : 'partial',
+                deviation: null
+            };
+            continue;
+        }
+        // A reviewed not-applicable disposition excuses only a test, never the implementation.
+        // Source-only clauses must still observe their planned changed paths and remain incomplete
+        // when those paths are absent.
+        if (!plan)
+            continue;
+        // A not-applicable row is exempt from clause-comment bindings (`plannedSourceClauseBindings`
+        // never requires one: it is the reviewed route for files that cannot carry a comment), so it is
+        // observed by its exact planned path changing. Requiring a binding here as well left such a row
+        // unobservable, so its clause could never be implemented.
+        const bindingRequired = requireSourceBindings && plan.testDisposition !== 'not-applicable';
+        const expectedPaths = plannedImplementationPaths(plan);
+        const observedPaths = expectedPaths.filter((candidate) => isConfigurationPath(candidate)
+            ? configurationPaths.has(candidate)
+            : changedPaths.has(candidate) && (!bindingRequired || sourceBindings.get(candidate)?.has(id)));
+        const testResults = plan.tests.filter((candidate) => {
+            if (!testPaths.has(candidate))
+                return false;
+            const boundIds = bindings.get(candidate);
+            if (requireSourceBindings && /:AC-\d{3}$/.test(id))
+                return boundIds?.has(id) ?? false;
+            // Non-AC planned tests carry module/path assurance; @ac annotations identify only ACs.
+            if (requireSourceBindings)
+                return true;
+            return !boundIds?.size || boundIds.has(id);
+        });
+        if (!observedPaths.length && !testResults.length)
+            continue;
+        const sourceComplete = expectedPaths.length > 0
+            && observedPaths.length === expectedPaths.length;
+        const testsComplete = plan.tests.length === 0 || testResults.length === plan.tests.length;
+        const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
+        claims[id] = {
+            observedPaths,
+            testResults,
+            commits,
+            verdict: observedPaths.length
+                ? (sourceComplete && testsComplete ? 'matched' : 'partial')
+                : acceptanceTestOnly
+                    ? (plan.expectedPaths.length === 0 && testsComplete ? 'matched' : 'partial')
+                    : 'missing',
+            deviation: null
+        };
+    }
+    return yield* normalizeClaimMapReplay({ claims }, { kind: 'observed', clauseIds: knownIds, policy: normalizedPolicy,
+        plannedClaims: planned.claims });
+}
+
+return Object.freeze({normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay,validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence});
 }

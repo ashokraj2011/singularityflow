@@ -5,6 +5,7 @@ import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 import {isAgentOutputPath} from '../foundation/agent-output-paths.mjs';
 import {configurationPathSyntax} from './configuration-path-policies.mjs';
 import {normalizeSourceBoundary} from './configuration-declarations.mjs';
+import {SOURCE_CHANGING_FULFILLMENT,sortedUnique} from './specification-policy.mjs';
 
 export function configurationFilePolicies(port) {
   const {path}=configurationPathSyntax(port);
@@ -888,4 +889,28 @@ function evaluateStoryProtectedPaths(changeSet, guards, workflowOrConfigurationS
 }
 
   return Object.freeze({approvedConfigurationMaterializations,evaluateStoryProtectedPaths});
+}
+
+/** Exact planned source/test/supporting roles shared by native delivery and portable claim projection. */
+export function plannedClaimPathPolicies(pathSyntax) {
+const {isTestAutomationPath}=sourceBoundaryPolicies(pathSyntax);
+const {isConfigurationPath}=configurationFilePolicies(pathSyntax);
+const {classifySupportingChange}=supportingChangePolicies(pathSyntax);
+function plannedImplementationPaths(claim = {}) {
+  const tests = new Set(claim.tests ?? []);
+  return (claim.expectedPaths ?? []).filter(candidate =>
+    !(tests.has(candidate) && isTestAutomationPath(candidate)));
+}
+function plannedProductSourcePaths(claim = {}) {
+  return plannedImplementationPaths(claim).filter(candidate => !isConfigurationPath(candidate));
+}
+function plannedSupportingFiles(maps = []) {
+  return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []))
+    .filter((candidate) => !classifySupportingChange(candidate).refused);
+}
+function changesProductSource(claim) {
+  return (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment))
+    && plannedProductSourcePaths(claim).length > 0;
+}
+return Object.freeze({plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles,changesProductSource});
 }

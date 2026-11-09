@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared specification claim values](ENGINE-SDK-SPECIFICATION-CLAIMS.md) extract planned parsing,
+native-v2 normalization and observed projection, including explicit late-clock checkpoints and
+shared source/test/supporting-file roles. Native adapters retain their synchronous API, real clock
+and accepted-record/file/authority owners. Candidate maps do not replace approved namespace proofs
+or any application-publication policy owner. Migration Phases 5, 7, 8 and 9 remain open.
+
+Mac qualification passed 351 distinct affected regression, architecture and installed-package cases
+without failures, cancellations or skips. It includes opt-in native fulfillment/continuation journeys
+and explicit POSIX/Win32 value syntax, without running Windows. Source validation passed 3,958
+checks across 191 skills; VS Code typechecking, the unchanged Git ownership audit and all 13 existing
+bundle budgets passed. The gateway remains at 852 modules against its unchanged 852-module limit.
+The SDK retains 57 operations across 190 owned modules. Approved namespace specification/claim proof
+integration and complete application publication remain open.
+
 The [shared specification and verification values](ENGINE-SDK-SPECIFICATION-VALUES.md) give clause
 parsing, native index identity, verification intent/contracts and bounded diagnostics one pure
 owner. Native adapters retain safe file reads and optional writes; the SDK exposes explicit-value

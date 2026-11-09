@@ -208,6 +208,9 @@ export const NAMESPACE_SOURCE_BASELINE_SCHEMAS = /* @__PURE__ */ Object.freeze({
   index: /* @__PURE__ */ frozenFamily('namespace-source-baseline-index')
 });
 export const SOURCE_CONTROL_OBSERVATION_SCHEMA=/* @__PURE__ */ frozenFamily('source-control-observation');
+// Native claim-map v2 retains its v1 reader/migration path; the actual conversion stays in SDA.
+export const SPECIFICATION_CLAIM_MAP_SCHEMA=/* @__PURE__ */ Object.freeze({id:'specification-claim-map',currentVersion:2,
+  minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'migrate-on-read'});
 // Native specification-index v1 keeps its existing read range and migration classification.
 export const SPECIFICATION_INDEX_SCHEMA=/* @__PURE__ */ Object.freeze({id:'specification-index',currentVersion:1,
   minimumReadableVersion:1,maximumReadableVersion:1,unversionedAs:null,immutable:true,migrationPolicy:'migrate-on-read'});

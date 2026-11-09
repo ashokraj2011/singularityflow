@@ -1,4 +1,4 @@
-import type {SpecificationValues,VerificationContracts} from '../specifications.mjs';
+import type {SpecificationValues,SpecificationClaimValues,VerificationContracts} from '../specifications.mjs';
 export declare const extractClauses:SpecificationValues['extractClauses'];
 export declare const specificationIndexRecord:SpecificationValues['specificationIndexRecord'];
 export declare const proseVerificationDeclarations:VerificationContracts['proseVerificationDeclarations'];
@@ -12,3 +12,10 @@ export declare const testSlotFor:VerificationContracts['testSlotFor'];
 export declare const contractSha256:VerificationContracts['contractSha256'];
 export declare const witnessMappingCore:VerificationContracts['witnessMappingCore'];
 export declare const witnessMappingSha256:VerificationContracts['witnessMappingSha256'];
+export declare const normalizeClaimMapReplay:SpecificationClaimValues['normalizeClaimMapReplay'];
+export declare const inspectPlannedClaimMapReplay:SpecificationClaimValues['inspectPlannedClaimMapReplay'];
+export declare const derivePlannedClaimMapReplay:SpecificationClaimValues['derivePlannedClaimMapReplay'];
+export declare const deriveObservedClaimMapReplay:SpecificationClaimValues['deriveObservedClaimMapReplay'];
+export declare const validatePlannedEvidenceTypes:SpecificationClaimValues['validatePlannedEvidenceTypes'];
+export declare const planSupportingFiles:SpecificationClaimValues['planSupportingFiles'];
+export declare const testOnlyClaimEvidence:SpecificationClaimValues['testOnlyClaimEvidence'];

@@ -6,7 +6,7 @@ import {configurationPathSyntax,externalCommandConfigurationPolicies} from './co
 import {phaseRequiresCodeDelivery,nextPhaseGeneration,storyTestScope,reviewMayReturnToCode,reworkReturnRequest,earlierReturnRequest,codeCandidateScopeRequired} from './phase-policy.mjs';
 import {specificationCriteria,namespaceOf,tagKey,withoutTags,unknownCriterionTagsReplay,recordOrder,sortedUnique,mergePlannedClaimRecords,accountedAmendmentPaths,SOURCE_CHANGING_FULFILLMENT} from './specification-policy.mjs';
 import {applicationPathPolicies,changeScopePolicies,configurationFilePolicies,configurationMaterializationPolicies,
-  testDeliveryPolicies,createRepositoryChangeSetCodec,sourceBoundaryPolicies,supportingChangePolicies,deliveryClassificationPolicies} from './source-path-policies.mjs';
+  testDeliveryPolicies,createRepositoryChangeSetCodec,sourceBoundaryPolicies,supportingChangePolicies,deliveryClassificationPolicies,plannedClaimPathPolicies} from './source-path-policies.mjs';
 import {createTestReportCodec} from './test-report-codec.mjs';
 
 export const EXPLANATION_LIMITS = Object.freeze({ minimum: 10, maximum: 300 });
@@ -34,6 +34,7 @@ export function clauseTagExplanation(line, clauseId) {
 /** Only captured string/byte primitives; policy and every verdict remain in this owner. */
 export function codeDeliveryEvidencePolicies(pathSyntax,roots,testFacts,changeValues,byteSyntax) {
   const {path}=configurationPathSyntax(pathSyntax);
+  const {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles,changesProductSource}=plannedClaimPathPolicies(pathSyntax);
   const {applicationPathContext,isApplicationPath,isApplicationChangeEntry}=applicationPathPolicies(roots);
   const {evaluateSourceBoundary}=changeScopePolicies(pathSyntax);
   const {isConfigurationPath}=configurationFilePolicies(pathSyntax);
@@ -488,25 +489,6 @@ function* codeDeliveryReceiptReplay(receipt, {
     fail('model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding');
   }
   return { valid: errors.length === 0, errors, changeSet, executions: [...executions.values()] };
-}
-
-
-function plannedImplementationPaths(claim = {}) {
-  const tests = new Set(claim.tests ?? []);
-  return (claim.expectedPaths ?? []).filter(candidate =>
-    !(tests.has(candidate) && isTestAutomationPath(candidate)));
-}
-function plannedProductSourcePaths(claim = {}) {
-  return plannedImplementationPaths(claim).filter(candidate => !isConfigurationPath(candidate));
-}
-function plannedSupportingFiles(maps = []) {
-  return sortedUnique(maps.flatMap((map) => map?.supportingFiles ?? []))
-    .filter((candidate) => !classifySupportingChange(candidate).refused);
-}
-/** Whether delivering a planned obligation changes the product source that carries its clause. */
-function changesProductSource(claim) {
-  return (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment))
-    && plannedProductSourcePaths(claim).length > 0;
 }
 function canonicalFinding({ code, path = null, value = null } = {}) {
   const identity = { code: String(code), path: path ?? null,

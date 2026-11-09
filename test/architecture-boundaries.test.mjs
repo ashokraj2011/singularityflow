@@ -420,6 +420,28 @@ test('specification and verification compatibility facades share kernel values a
   }
 });
 
+test('claim normalization has a shared value owner and native code only services its late clock',async()=>{
+  const file='src/specifications.mjs',text=await readFile(path.join(packageRoot,file),'utf8');
+  const ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);
+  const functions=new Map(ast.statements.filter(ts.isFunctionDeclaration).map(node=>[node.name.text,node]));
+  for(const name of ['normalizeClaimMap','inspectPlannedClaimMap','derivePlannedClaimMap','deriveObservedClaimMap']) {
+    const body=functions.get(name).body.getText(ast);
+    assert.equal((body.match(new RegExp(name+'Replay\\(','gu'))??[]).length,1,name);
+    assert.doesNotMatch(body,/normalizeSpecPolicy\(|Date|nowIso|byteLength|fulfillment|testDisposition/u);
+  }
+  const clock=functions.get('nativeSpecificationClaimValue').body.getText(ast);
+  assert.equal((clock.match(/nowIso\(/gu)??[]).length,1);
+  assert.match(clock,/replay\.throw\(error\)/u,'clock errors return to the exact rule checkpoint');
+  assert.doesNotMatch(clock,/normalizeClaimMap|normalizeSpecPolicy|readFile|writeFile|sourcePaths|testDisposition/u);
+  for(const name of ['normalizePaths','plannedObligationFields','supportingFilesFromPlan','validatePlannedEvidenceTypes','testOnlyClaimEvidence'])assert.equal(functions.has(name),false,name);
+  const kernel=await readFile(path.join(packageRoot,'src/kernel/specification-values.mjs'),'utf8');
+  assert.doesNotMatch(kernel,/\b(?:Date|Buffer|nowIso|readFile|spawn|currentSchemaVersion)\b/u);
+  const delivery=ts.createSourceFile('delivery',await readFile(path.join(packageRoot,'src/kernel/code-delivery-evidence.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  let duplicate=false;const names=new Set(['plannedImplementationPaths','plannedProductSourcePaths','plannedSupportingFiles','changesProductSource']);
+  const visit=node=>{if(ts.isFunctionDeclaration(node)&&names.has(node.name?.text))duplicate=true;ts.forEachChild(node,visit);};visit(delivery);
+  assert.equal(duplicate,false,'delivery must use the same planned path-role rules as claim projection');
+});
+
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',

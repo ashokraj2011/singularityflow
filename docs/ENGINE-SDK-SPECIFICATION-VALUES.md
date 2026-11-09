@@ -55,8 +55,8 @@ must still verify approved specification/claim records against their accepted re
 every required code-delivery, coverage, exception, constitution and artifact-set policy owner.
 Those publication requirements remain enforced.
 
-Claim-map normalization is not moved by this change. Its native clock call occurs after validation
-and contributes to the serialized byte limit; changing that order would change its behavior.
+The later [shared claim-value extraction](ENGINE-SDK-SPECIFICATION-CLAIMS.md) now moves claim-map
+normalization and parsing while preserving the native clock and serialized byte-limit order.
 The remaining Phase 5, 7, 8 and 9 milestones stay open. Qualification is Mac-only; this change does
 not merge, push, install, invoke a model or modify any real user Story.
 

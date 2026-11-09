@@ -2,3 +2,5 @@
 export {extractClauses,specificationIndexRecord,parseVerificationContracts,normalizeVerificationContracts,
   mergedVerificationContracts,effectiveContract,contractRequiresTestTag,testSlotFor,contractSha256,
   witnessMappingCore,witnessMappingSha256,proseVerificationDeclarations,validateRetainedEvidenceDeclarations} from '../../../../src/engine-compatibility/node-specification-policy.mjs';
+export {normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay,
+  validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence} from '../../../../src/engine-compatibility/node-specification-policy.mjs';

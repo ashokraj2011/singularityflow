@@ -72,3 +72,48 @@ export declare function collectDraftDiagnostic(diagnostics:DraftDiagnostic[],err
 export declare function inspectDraftValue<T>(diagnostics:DraftDiagnostic[],read:()=>T,location?:object):{valid:true;value:T}|{valid:false;value:null};
 export declare function shown(value:unknown):string;
 export declare function pathDefect(value:unknown):string|null;
+
+/** Candidate native-v2 claim values. The clock checkpoint does not grant retention/approval. */
+export declare const TEXT_VALUE_SYNTAX_PROFILE:'sflow-text-values/utf8-sha256-v1';
+export interface SpecificationTextValues {readonly profile:typeof TEXT_VALUE_SYNTAX_PROFILE;
+  readonly byteLengthUtf8:(text:string)=>number;readonly sha256Utf8:(text:string)=>string}
+export declare const SPECIFICATION_CLAIM_TIMESTAMP_REQUEST:Readonly<{kind:'specification-claim-timestamp';version:1}>;
+export type ClaimTimestampRequest=typeof SPECIFICATION_CLAIM_TIMESTAMP_REQUEST;
+export type Fulfillment='new'|'modified'|'existing'|'removed'|'test-only'|'document'|'configuration'|'evidence';
+export declare const FULFILLMENT_TYPES:readonly Fulfillment[];
+export interface PlannedSpecificationClaim {readonly expectedPaths:readonly string[];readonly tests:readonly string[];
+  readonly testDisposition:'applicable'|'not-applicable'|'non-test'|'unspecified';readonly testReason:string|null;
+  readonly verificationCriterion?:string;readonly deviation:string|null;readonly fulfillment?:Fulfillment;
+  readonly steps?:readonly string[];readonly observableResult?:string}
+export interface ObservedSpecificationClaim {readonly observedPaths:readonly string[];readonly testResults:readonly string[];
+  readonly commits:readonly string[];readonly verdict:'matched'|'partial'|'missing'|'deviated'|'unplanned';readonly deviation:string|null}
+export interface SpecificationSupportingFile {readonly path:string;readonly class:string;readonly reason:string}
+export interface PlannedSpecificationClaimMap {readonly schemaVersion:2;readonly kind:'planned';readonly recordedAt:string;
+  readonly claims:Readonly<Record<string,PlannedSpecificationClaim>>;readonly supportingFiles?:readonly string[];
+  readonly supportingFileDetails?:readonly SpecificationSupportingFile[];readonly verificationContracts?:readonly VerificationContract[]}
+export interface ObservedSpecificationClaimMap {readonly schemaVersion:2;readonly kind:'observed';readonly recordedAt:string;
+  readonly claims:Readonly<Record<string,ObservedSpecificationClaim>>}
+export type SpecificationClaimMap=PlannedSpecificationClaimMap|ObservedSpecificationClaimMap;
+export interface ClaimNormalizationOptions {readonly kind:'planned'|'observed';readonly clauseIds?:readonly string[];
+  readonly policy?:Readonly<Record<string,unknown>>;readonly plannedClaims?:Readonly<Record<string,VerificationClaim>>}
+export interface PlannedClaimOptions {readonly clauseIds?:readonly string[];readonly clauses?:readonly {readonly id:string;readonly verification?:ClauseVerification}[];
+  readonly policy?:Readonly<Record<string,unknown>>;readonly evidenceRoot?:string|null;readonly requireComplete?:boolean}
+export interface PlannedClaimDerivation {readonly claimMap:PlannedSpecificationClaimMap;readonly supportingFiles:readonly string[];
+  readonly supportingFileDetails:readonly SpecificationSupportingFile[];readonly missingClauseIds:readonly string[];readonly missingTestClauseIds:readonly string[]}
+export interface PlannedClaimInspection extends Omit<PlannedClaimDerivation,'claimMap'> {readonly valid:boolean;readonly diagnostics:readonly DraftDiagnostic[];
+  readonly diagnosticSummary:{readonly maximum:256;readonly omitted:number;readonly complete:boolean};readonly claimMap:PlannedSpecificationClaimMap|null}
+export interface SpecificationClaimValues {
+  normalizeClaimMapReplay(value:unknown,options:ClaimNormalizationOptions):Generator<ClaimTimestampRequest,SpecificationClaimMap,string>;
+  inspectPlannedClaimMapReplay(markdown:string,options?:PlannedClaimOptions):Generator<ClaimTimestampRequest,PlannedClaimInspection,string>;
+  derivePlannedClaimMapReplay(markdown:string,options?:PlannedClaimOptions):Generator<ClaimTimestampRequest,PlannedClaimDerivation,string>;
+  /** commits retain their native full-Git-SHA meaning; this is not a generic source-revision codec. */
+  deriveObservedClaimMapReplay(planned:unknown,delivery?:unknown,options?:{readonly clauseIds?:readonly string[];readonly policy?:Readonly<Record<string,unknown>>;
+    readonly generationCommit?:string|null;readonly requireSourceBindings?:boolean}):Generator<ClaimTimestampRequest,ObservedSpecificationClaimMap,string>;
+  validatePlannedEvidenceTypes(claims:Readonly<Record<string,VerificationClaim>>,options?:{readonly evidenceRoot?:string|null}):void;
+  planSupportingFiles(markdown:string):SpecificationSupportingFile[];
+  testOnlyClaimEvidence(id:string,plan:VerificationClaim|null,claim:{readonly observedPaths?:readonly string[];readonly testResults?:readonly string[]}|null,
+    options?:{readonly complete?:boolean}):boolean;
+}
+export declare function specificationClaimPolicies(paths:VerificationPathSyntax,values:SpecificationTextValues):Readonly<SpecificationClaimValues>;
+export declare const SPECIFICATION_CLAIM_MAP_SCHEMA:Readonly<{id:'specification-claim-map';currentVersion:2;minimumReadableVersion:1;
+  maximumReadableVersion:2;unversionedAs:null;immutable:true;migrationPolicy:'migrate-on-read'}>;

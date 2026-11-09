@@ -121,18 +121,24 @@ export async function prepareCodeDeliveryDispute(root, config, workflow, phase, 
  * dispute's status for display. Reads nothing when the Story records no dispute.
  */
 export async function codeDeliveryDisputeStatus(root, config, workflow, phase, { problems, findings = [], candidateSha256, at = nowIso() } = {}) {
+  return disputeStatus(root, config, workflow, phase, { gate: 'CODE_DELIVERY_EVIDENCE_REQUIRED', at,
+    binding: findingDisputeBinding(workflow, phase, candidateSha256),
+    covers: (record) => disputeCovers(record.problems, problems.map((problem, index) => ({ id: findings[index]?.id ?? null, problem }))) });
+}
+
+/** Every recorded dispute of `gate` on this step with its status, and the first active one; `covers` says whether it still covers what the gate reports. */
+async function disputeStatus(root, config, workflow, phase, { gate, binding, covers, at = nowIso() }) {
   const recorded = (workflow.qualityRiskDecisions ?? []).filter((record) => isFindingDispute(record)
-    && record.gate === 'CODE_DELIVERY_EVIDENCE_REQUIRED' && record.binding?.phaseId === phase.id);
+    && record.gate === gate && record.binding?.phaseId === phase.id);
   if (!recorded.length) return { active: null, items: [] };
   const { retainedQualityRiskRecords } = await import('./phase-quality-risk.mjs');
   const retained = await retainedQualityRiskRecords(root, config, workflow);
   // SF Guard: on a Story it requires, only a signed revocation or decision counts [SPEC-PSS-v1 §10.7].
   const revoked = new Set(countedRecords(workflow, retained.filter((record) => record.revokes)).map((record) => record.revokes));
   const counted = new Set(countedRecords(workflow, retained));
-  const binding = findingDisputeBinding(workflow, phase, candidateSha256);
   let active = null; const items = [];
-  for (const record of retained.filter((entry) => isFindingDispute(entry) && entry.binding.phaseId === phase.id)) {
-    const covered = disputeCovers(record.problems, problems.map((problem, index) => ({ id: findings[index]?.id ?? null, problem })));
+  for (const record of retained.filter((entry) => isFindingDispute(entry) && entry.gate === gate && entry.binding.phaseId === phase.id)) {
+    const covered = covers(record);
     const status = revoked.has(record.id) ? 'revoked'
       : !counted.has(record) ? 'unsigned'
       : Date.parse(record.expiresAt) <= Date.parse(at) ? 'expired'
@@ -159,4 +165,119 @@ export async function inspectCodeDeliveryDisputes(root, config, workflow, phase)
 
 export function isDisputableFinding(code) {
   return DISPUTABLE_GATES.includes(String(code ?? ''));
+}
+
+/**
+ * The plan falls short of the approved verification intent, and its approvers may uphold it [PHR:REQ-003,
+ * finding 2]: a dispute before them, tied to the exact plan draft (any change to it voids the dispute),
+ * honoured only by the verification-intent check and only for the rows it names. The plan's own row
+ * errors are never disputable here: they are the planner's to correct.
+ */
+export const PLAN_INTENT_GATE = 'SPEC_VERIFICATION_INTENT_INVALID';
+
+/**
+ * The exact plan draft (its authored text: the status block publication writes is not the plan) and
+ * the approved intent of every clause, as one digest.
+ */
+export async function planDraftSha256(text, clauses) {
+  const { authoredArtifactText } = await import('./publication-preflight.mjs');
+  return digest({ plan: createHash('sha256').update(authoredArtifactText(text)).digest('hex'),
+    intents: clauses.map((clause) => [clause.id, clause.verification ?? null]).sort(([left], [right]) => String(left).localeCompare(String(right))) });
+}
+
+/** The plan step's draft, the clauses it plans (an earlier step defines them) and its draft generation, or null. */
+async function planDraft(root, config, workflow, phase) {
+  const { loadActiveSpecRecords } = await import('./specifications.mjs');
+  const { requiredRepoPath } = await import('./story-state-validation.mjs');
+  const { workDir } = await import('./story-paths.mjs');
+  const { nextPhaseGeneration } = await import('./phase-generation.mjs');
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const indexes = (records.indexes ?? []).filter((index) => index.phase !== phase.id);
+  const clauses = indexes.flatMap((index) => index.clauses ?? []);
+  if (!clauses.length) return null;
+  const artifactPath = requiredRepoPath(config, workflow, phase);
+  const secured = await secureRepositoryPath(root, artifactPath, { mustExist: true, type: 'file', label: 'Plan draft' }).catch(() => null);
+  if (!secured) return null;
+  const text = await readFile(secured.absolute, 'utf8');
+  const policy = workflow.resolution?.spec ?? config.spec ?? {};
+  const generation = Number(phase.status === 'in_progress' ? nextPhaseGeneration(phase) : phase.generation);
+  return { text, clauses, indexes, policy, artifactPath, generation,
+    evidenceRoot: `${String(workflow.resolution?.workItemRoot ?? config.workItemRoot ?? 'singularity/work-items')}/${workflow.workItem.id}/evidence` };
+}
+
+/** Each row of the plan that falls short of the approved intent, one at a time (the check stops at the first). */
+export async function intentNotMet(draft, upheld = new Set()) {
+  const { inspectPlannedClaimMap } = await import('./specifications.mjs');
+  const { authoredArtifactText } = await import('./publication-preflight.mjs');
+  const authored = authoredArtifactText(draft.text);
+  const kept = new Set(upheld);
+  const rows = [];
+  for (let index = 0; index <= draft.clauses.length; index += 1) {
+    const inspected = inspectPlannedClaimMap(authored, { clauseIds: draft.clauses.map((clause) => clause.id), clauses: draft.clauses,
+      policy: draft.policy, evidenceRoot: draft.evidenceRoot, upheldIntent: kept });
+    const next = inspected.diagnostics.find((entry) => entry.details?.cause === 'intent-not-met' && entry.clauseId && !kept.has(entry.clauseId));
+    if (!next) break;
+    kept.add(next.clauseId);
+    rows.push({ clauseId: next.clauseId, message: next.message });
+  }
+  return rows;
+}
+
+async function planIntentBinding(workflow, phase, draft) {
+  return { workId: workflow.workItem.id, phaseId: phase.id, generation: draft.generation,
+    candidateSha256: await planDraftSha256(draft.text, draft.clauses), policySha256: digest(workflow.resolution ?? null) };
+}
+
+/** The clause a dispute entry names: each entry starts with it. */
+const entryClause = (entry) => String(entry).split(' ')[0];
+
+/** Prepare a dispute of the rows that fall short of the approved intent, for the plan's approvers to review. */
+export async function preparePlanIntentDispute(root, config, workflow, phase, { evidence = [], expires, reason } = {}) {
+  if (workflow.status !== 'in_progress' || workflow.currentPhase !== phase?.id || phase.status !== 'in_progress') {
+    fail('A plan dispute needs the current plan step with its open draft.', 'PHASE_FINDING_DISPUTE_LIFECYCLE');
+  }
+  const paths = [...new Set((Array.isArray(evidence) ? evidence : [evidence]).filter(Boolean).map(String))];
+  if (!paths.length || paths.length > DISPUTE_EVIDENCE_LIMITS.items) {
+    fail(`Attach 1 to ${DISPUTE_EVIDENCE_LIMITS.items} --evidence-file paths that show the plan is right (the plan, a design note, a log).`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(expires ?? '')) fail('Give an expiry as YYYY-MM-DD within the next 90 days.');
+  const expiresAt = `${expires}T23:59:59.999Z`; const time = Date.parse(expiresAt);
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== expires
+      || time <= Date.now() || time - Date.now() > 90 * 86400000) fail('Expiry must be a valid future date within 90 days.');
+  const draft = await planDraft(root, config, workflow, phase);
+  const rows = draft ? await intentNotMet(draft) : [];
+  if (!rows.length) fail('The plan meets the approved verification intent; there is nothing to dispute.', 'PHASE_FINDING_DISPUTE_NOT_ELIGIBLE');
+  const problems = rows.map((row) => `${row.clauseId} ${row.message}`.slice(0, 2000));
+  const core = { schemaVersion: 3, kind: 'phase-quality-risk', binding: await planIntentBinding(workflow, phase, draft),
+    gateMode: 'dispute', enablesPilotForPhase: false, gate: PLAN_INTENT_GATE, clauses: [],
+    problems, evidence: await Promise.all(paths.map((candidate) => evidenceItem(root, candidate))),
+    transitions: ['publish'], expiresAt, reason: typeof reason === 'string' ? reason.trim() : reason,
+    observationSha256: digest(problems) };
+  const parsed = FindingDisputePacketSchema.safeParse({ ...core, packetSha256: digest(core) });
+  if (!parsed.success) fail(`The dispute is incomplete: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'packet'} ${issue.message}`).join('; ')}. Give a reason of at least 20 characters.`);
+  return parsed.data;
+}
+
+/** Every plan dispute on this step with its status for the current draft, for re-attestation and display. */
+export async function inspectPlanIntentDisputes(root, config, workflow, phase) {
+  const draft = await planDraft(root, config, workflow, phase).catch(() => null);
+  if (!draft) return { risks: { items: [] } };
+  return { risks: await disputeStatus(root, config, workflow, phase, { gate: PLAN_INTENT_GATE,
+    binding: await planIntentBinding(workflow, phase, draft), covers: () => true }) };
+}
+
+/**
+ * The rows the plan's approvers upheld against the approved intent, for this exact draft: those an
+ * active dispute names. `text` and `clauses` are the draft and the clauses the caller judges it with.
+ */
+export async function upheldIntentRows(root, config, workflow, phase, { text, clauses }) {
+  const upheld = new Set();
+  if ((workflow.qualityRiskDecisions ?? []).some((record) => record?.gate === PLAN_INTENT_GATE && record.binding?.phaseId === phase.id)) {
+    const { nextPhaseGeneration } = await import('./phase-generation.mjs');
+    const generation = Number(phase.status === 'in_progress' ? nextPhaseGeneration(phase) : phase.generation);
+    const { active } = await disputeStatus(root, config, workflow, phase, { gate: PLAN_INTENT_GATE, covers: () => true,
+      binding: await planIntentBinding(workflow, phase, { text, clauses, generation }) });
+    for (const entry of active?.problems ?? []) upheld.add(entryClause(entry).toUpperCase());
+  }
+  return upheld;
 }

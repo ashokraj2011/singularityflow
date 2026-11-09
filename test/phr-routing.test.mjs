@@ -332,3 +332,41 @@ test('[PHR:REQ-001] a plan that falls short of the approved intent names the cla
   workflow.upstreamIssues = [{ id: 'UPI-001', phase: 'specification', about: req, problem: 'The intent asks for a test of a static page.' }];
   assert.deepEqual(clauseIntentOwner(workflow, 'planning', indexes, req).openIssues, ['UPI-001']);
 });
+
+test('[PHR:REQ-003] finding 2: the plan\'s approvers may uphold a plan against the approved intent, for the exact draft and only the rows it names', async () => {
+  const { DISPUTABLE_GATES } = await import('../src/phase-finding-dispute-schema.mjs');
+  const { intentNotMet, planDraftSha256, upheldIntentRows } = await import('../src/phase-finding-dispute.mjs');
+  const [req1, req2] = ['W-2:REQ-001', 'W-2:REQ-002'];
+  const clauses = [{ id: req1, verification: { methods: ['test'], criterionId: null } }, { id: req2, verification: { methods: ['test'], criterionId: null } }];
+  const plan = ['# Plan', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    `| \`${req1}\` | \`src/a.mjs\` | not-applicable: a reviewer reads the rendered page | modified |`,
+    `| \`${req2}\` | \`src/b.mjs\` | not-applicable: the value is a constant | modified |`, ''].join('\n');
+  const draft = { text: plan, clauses, policy: {}, evidenceRoot: 'singularity/work-items/W-2/evidence' };
+  // Every row that falls short is found, not only the first the check stops at: the dispute names them all.
+  assert.deepEqual((await intentNotMet(draft)).map((row) => row.clauseId), [req1, req2]);
+  // Upheld rows are skipped by the verification-intent check only; the others still fall short.
+  assert.deepEqual((await intentNotMet(draft, new Set([req1]))).map((row) => row.clauseId), [req2]);
+  assert.throws(() => validatePlannedVerification({ [req2]: { tests: [], testDisposition: 'not-applicable' } }, [], clauses, { upheld: new Set([req1]) }),
+    (error) => error.details.cause === 'intent-not-met' && error.details.clauseId === req2);
+  assert.equal(validatePlannedVerification({ [req1]: { tests: [], testDisposition: 'not-applicable' } }, [], clauses, { upheld: new Set([req1]) }), undefined);
+  // A plan's own row error is never upheld: a non-test claim without its contract is still refused.
+  assert.throws(() => validatePlannedVerification({ 'W-2:AC-001': { tests: [], testDisposition: 'non-test', verificationCriterion: 'W-2:AC-001' } }, [],
+    [{ id: 'W-2:AC-001', verification: { methods: ['visual'], criterionId: 'W-2:AC-001' } }], { upheld: new Set(['W-2:AC-001']) }),
+  (error) => error.details.cause === 'plan-row');
+  // Tied to the exact draft: any change to the plan, or to the approved intent, is a different binding.
+  const bound = await planDraftSha256(plan, clauses);
+  assert.notEqual(await planDraftSha256(plan.replace('src/b.mjs', 'src/c.mjs'), clauses), bound);
+  assert.notEqual(await planDraftSha256(plan, [clauses[0], { ...clauses[1], verification: { methods: ['inspection'], criterionId: null } }]), bound);
+  assert.equal(await planDraftSha256(plan, [...clauses].reverse()), bound);
+
+  // Disputable before the plan's approvers, through the existing dispute route, only for intent-not-met.
+  assert.ok(DISPUTABLE_GATES.includes('SPEC_VERIFICATION_INTENT_INVALID'));
+  const workflow = planningStory();
+  const finding = (cause) => ({ code: 'specification.planned-test-invalid', category: 'planning-table', path: 'plan.md', message: 'x',
+    details: { clauseId: req1, cause, sourceCode: 'SPEC_VERIFICATION_INTENT_INVALID', ownerPhase: 'specification', upstreamPhase: 'specification', repairScope: 'current-draft' } });
+  const dispute = phaseResolutionChoices(workflow, workflow.phases.planning, finding('intent-not-met')).choices.find((entry) => entry.kind === 'dispute');
+  assert.equal(dispute.owner, 'phase-approval-authority');
+  assert.equal(dispute.argv[dispute.argv.indexOf('--finding') + 1], 'SPEC_VERIFICATION_INTENT_INVALID');
+  assert.ok(!phaseResolutionChoices(workflow, workflow.phases.planning, finding('plan-row')).choices.some((entry) => entry.kind === 'dispute'));
+
+});

@@ -189,9 +189,13 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         const sourceSnapshot = await snapshot(source.absolute);
         plannedSource = await readFile(source.absolute, 'utf8');
         const authored = authoredArtifactText(plannedSource);
+        // Rows the plan's approvers upheld against the approved intent: an accepted dispute of this exact
+        // draft, or a decided upstream issue's accepted risk [PHR:REQ-003, finding 2].
+        const upheldIntent = await (await import('./phase-finding-dispute.mjs')).upheldIntentRows(root, config, workflow, phase,
+          { text: plannedSource, clauses: indexes.filter((index) => index.phase !== phase.id).flatMap((index) => index.clauses ?? []) });
         const derived = derivePlannedClaimMap(authored, { clauseIds, clauses: indexes.flatMap(index => index.clauses ?? []), policy: specPolicy,
           evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence`,
-          requireComplete: plannedClaimsEnforced(workflow, specPolicy) });
+          requireComplete: plannedClaimsEnforced(workflow, specPolicy), upheldIntent });
         // Derivation already validates contracts through the author-owned visibility boundary.
         // Re-parsing raw authored comments/examples would disagree with publication [E2G-013].
         const contracts = derived.claimMap.verificationContracts ?? [];

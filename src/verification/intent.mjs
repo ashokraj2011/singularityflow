@@ -109,7 +109,7 @@ export function nonTestVerification(clauseId, claim, contracts, intent = null) {
  * contract, its author's to correct; `intent-not-met` is the plan falling short of the approved intent,
  * which the plan may correct, or the step that defined the clause may, when the intent is what is wrong.
  */
-export function validatePlannedVerification(claims, contracts = [], clauses = []) {
+export function validatePlannedVerification(claims, contracts = [], clauses = [], { upheld = new Set() } = {}) {
   const byCriterion = new Map(contracts.map(contract => [contract.clauseId, contract]));
   const byClause = new Map(clauses.map(clause => [clause.id, clause]));
   for (const [id, claim] of Object.entries(claims)) {
@@ -129,7 +129,9 @@ export function validatePlannedVerification(claims, contracts = [], clauses = []
         throw invalid(`${id} non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test. Missing: ${missing}.`, { clauseId: id, cause: 'plan-row' });
       }
     }
-    if (!intent) continue;
+    // The plan's approvers upheld this row against the approved intent (an accepted dispute of this exact
+    // plan, or a decided upstream issue's accepted risk); its own row errors above still stand [PHR:REQ-003].
+    if (!intent || upheld.has(id)) continue;
     const contract = byCriterion.get(intent.criterionId);
     const primary = contract?.slots?.filter(slot => slot.role === 'primary')
       ?? (claims[intent.criterionId]?.tests?.length ? [{ method: 'test', role: 'primary' }] : []);

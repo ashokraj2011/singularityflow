@@ -9,6 +9,9 @@ import { recordSha256 } from '../records.mjs';
 import { loadBoundActiveSpecRecords, normalizeClaimMap } from '../specifications.mjs';
 import { validatePlannedVerification } from '../verification/intent.mjs';
 import { planCorrectionAuthorities, recordPlanRowCorrection } from '../plan-row-corrections.mjs';
+import { upheldIntentRows } from '../phase-finding-dispute.mjs';
+import { requiredRepoPath } from '../story-state-validation.mjs';
+import { readFile } from 'node:fs/promises';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { captureTerminalActionAuthorization, consumeActionAuthorization } from '../action-authorization.mjs';
 import { assertNoPendingPublication, actorKey, transactStory } from '../state-stores.mjs';
@@ -115,15 +118,19 @@ async function preview(root, config, workflow, options) {
   const normalizeRow = (clauseId, raw) => normalizeClaimMap({ claims: { [clauseId]: raw } },
     { kind: 'planned', clauseIds, policy }).claims[clauseId];
   const operations = planCorrectionOperations(options);
+  // Rows the plan's approvers upheld against the approved intent stay upheld through a correction [PHR:REQ-003].
+  const ownerText = await readFile(path.join(root, requiredRepoPath(config, workflow, owner)), 'utf8').catch(() => null);
+  const upheld = ownerText == null ? new Set() : await upheldIntentRows(root, config, workflow, owner,
+    { text: ownerText, clauses: records.indexes.filter((index) => index.phase !== owner.id).flatMap((index) => index.clauses ?? []) });
   const scratch = structuredClone(workflow);
   const correction = recordPlanRowCorrection(scratch, {
     ownerRecord, ownerMapSha256: owner.claimMaps.planned.sha256, operations, activeClauseIds: clauseIds, normalizeRow,
-    validate: (plan) => validatePlannedVerification(plan.claims, plan.verificationContracts ?? [], clauses),
+    validate: (plan) => validatePlannedVerification(plan.claims, plan.verificationContracts ?? [], clauses, { upheld }),
     reason: optionString(options, 'reason') ?? '', actor: 'preview', authorityGroup: 'preview',
     authorizationId: '00000000-0000-4000-8000-000000000000', at: nowIso(),
     upstreamIssue: optionString(options, 'upstream-issue') ?? null
   });
-  return { owner, ownerRecord, operations, correction, normalizeRow, clauses, clauseIds,
+  return { owner, ownerRecord, operations, correction, normalizeRow, clauses, clauseIds, upheld,
     previewSha256: recordSha256({ owner: owner.id, generation: owner.generation, map: owner.claimMaps.planned.sha256,
       operations: correction.operations, reason: correction.reason, upstreamIssue: correction.upstreamIssue }) };
 }
@@ -181,7 +188,7 @@ export async function runPlanCorrection({ root, config, workflow, options }, {
     const record = recordPlanRowCorrection(aggregate, {
       ownerRecord: fresh.ownerRecord, ownerMapSha256: owner.claimMaps.planned.sha256, operations: fresh.operations,
       activeClauseIds: fresh.clauseIds, normalizeRow: fresh.normalizeRow,
-      validate: (plan) => validatePlannedVerification(plan.claims, plan.verificationContracts ?? [], fresh.clauses),
+      validate: (plan) => validatePlannedVerification(plan.claims, plan.verificationContracts ?? [], fresh.clauses, { upheld: fresh.upheld }),
       reason: correction.reason, actor: actorKey(actor), authorityGroup: authority.authorityGroup,
       identityAssurance: authority.identityAssurance ?? null, authorizationId: authorization.authorizationId,
       at: nowIso(), upstreamIssue: correction.upstreamIssue

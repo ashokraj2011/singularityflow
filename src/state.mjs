@@ -1620,11 +1620,11 @@ function plannedClaimsTarget(config, workflow, phase) {
  * `subject`, `where` and `again` name the act being refused, so an intent amendment is told to propose again.
  */
 function plannedClaimContract(phase, authored, {
-  clauseIds, clauses = [], policy, enforce, artifactPath, codeSteps = [],
+  clauseIds, clauses = [], policy, enforce, artifactPath, codeSteps = [], upheldIntent = new Set(),
   subject = `Phase ${phase.id} cannot publish`, where = `in ${artifactPath}`, again = 'publish again'
 }) {
   const evidenceRoot = artifactPath?.split('/artifacts/')[0];
-  const derived = derivePlannedClaimMap(authored, { clauseIds, clauses, policy,
+  const derived = derivePlannedClaimMap(authored, { clauseIds, clauses, policy, upheldIntent,
     evidenceRoot: evidenceRoot ? `${evidenceRoot}/evidence` : null });
   if (evidenceRoot) validatePlannedEvidenceTypes(derived.claimMap.claims, { evidenceRoot: `${evidenceRoot}/evidence` });
   const placeholderReasons = Object.entries(derived.claimMap.claims)
@@ -1734,11 +1734,15 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const relative = claimMapRelativePath(config, workflow, phase, 'planned');
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
-  const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
+  const text = await readRepositoryArtifactText(root, artifactPath);
+  const authored = authoredArtifactText(text);
+  // Rows the plan's approvers upheld against the approved intent [PHR:REQ-003, finding 2].
+  const upheldIntent = await (await import('./phase-finding-dispute.mjs')).upheldIntentRows(root, config, workflow, phase,
+    { text, clauses: records.indexes.filter((index) => index.phase !== phase.id).flatMap((index) => index.clauses ?? []) });
   let contract;
   try {
     contract = plannedClaimContract(phase, authored, {
-      clauseIds, clauses: records.indexes.flatMap(index => index.clauses ?? []), policy, enforce, artifactPath, codeSteps
+      clauseIds, clauses: records.indexes.flatMap(index => index.clauses ?? []), policy, enforce, artifactPath, codeSteps, upheldIntent
     });
   } catch (error) {
     throw withClauseIntentOwner(error, workflow, phase.id, records.indexes);

@@ -505,7 +505,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,664,350 (measured 9,664,301, commands/phase-lifecycle.mjs): a supplemental document's risk accepted at its step's
     // approval also covers the later steps that read it, in the same decision, and a later step's refusal names the step
     // that owns the document (story-test-risk.mjs +1248; the refusal stays lazy, trp-document-runtime.mjs) [PHR:REQ-002]. No new eager file.
-    assert.ok(closure.bytes <= 9_664_350, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,666,850 (measured 9,666,843, commands/phase-lifecycle.mjs): the plan's approvers may uphold a plan against the
+    // approved intent through the existing dispute, for the exact draft and only the rows it names (phase-quality-risk.mjs +725,
+    // phase-prepublish.mjs +476, state.mjs +415, phase-resolution.mjs +365, verification/intent.mjs +265,
+    // phase-finding-dispute-schema.mjs +244, specifications.mjs +52); the dispute itself stays lazy (phase-finding-dispute.mjs)
+    // [PHR:REQ-003]. No new eager file.
+    assert.ok(closure.bytes <= 9_666_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -737,7 +742,9 @@ test('the common session projection does not import attach, state stores or publ
   // (delivery-evidence.mjs +1950) [PHR:REQ-003].
   // 4,189,950 (measured 4,189,942): a plan row removed for a clause an amendment removed, read where every plan is read
   // (plan-row-corrections.mjs +1050, specifications.mjs +389) [PHR:REQ-002].
-  assert.ok(current.bytes <= 4_189_950, `session current loads ${current.bytes} source bytes`);
+  // 4,190,300 (measured 4,190,259): a plan row upheld against the approved intent (verification/intent.mjs +265,
+  // specifications.mjs +52) [PHR:REQ-003].
+  assert.ok(current.bytes <= 4_190_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

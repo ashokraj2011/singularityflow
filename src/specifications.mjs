@@ -804,7 +804,7 @@ export function planSupportingFiles(markdown) {
  * deliberately ignored/refused rather than interpreted.
  */
 export function inspectPlannedClaimMap(markdown, { clauseIds = [], clauses = [], policy = {}, evidenceRoot = null,
-  requireComplete = false } = {}) {
+  requireComplete = false, upheldIntent = new Set() } = {}) {
   if (typeof markdown !== 'string') throw new SingularityFlowError('Planned claim source must be UTF-8 Markdown.');
   const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
   const claims = {};
@@ -903,7 +903,7 @@ export function inspectPlannedClaimMap(markdown, { clauseIds = [], clauses = [],
   const contracts = parseVerificationContracts(plannedClaimSource(markdown), {
     clauseIds: [...known], plannedClaims: claims, diagnostics });
   if (contracts.length && claimMap) claimMap.verificationContracts = contracts;
-  inspectDraftValue(diagnostics, () => validatePlannedVerification(claims, contracts, clauses), { field: 'verification' });
+  inspectDraftValue(diagnostics, () => validatePlannedVerification(claims, contracts, clauses, { upheld: upheldIntent }), { field: 'verification' });
   const missingClauseIds = [...known].filter((id) => !claims[id]).sort();
   const missingTestClauseIds = [...known].filter((id) => !claims[id]
     || (!claims[id].tests.length && !['not-applicable', 'non-test'].includes(claims[id].testDisposition))).sort();

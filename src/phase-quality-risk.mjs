@@ -282,8 +282,10 @@ export async function prepareQualityRisk(root, config, workflow, { phaseId = wor
     if (findings.length !== 1 || clauses.length || transitions?.some(value => value !== 'publish')) {
       fail('A dispute names one --finding, attaches --evidence-file paths, and covers the open candidate\'s publication only.', 'PHASE_FINDING_DISPUTE_INVALID');
     }
-    const { prepareCodeDeliveryDispute } = await import('./phase-finding-dispute.mjs');
-    return validateQualityRiskPacket(await prepareCodeDeliveryDispute(root, config, workflow, phase, { evidence, expires, reason }));
+    // A plan short of the approved intent is disputed before the plan's approvers [PHR:REQ-003]; a code delivery before its step's.
+    const { PLAN_INTENT_GATE, prepareCodeDeliveryDispute, preparePlanIntentDispute } = await import('./phase-finding-dispute.mjs');
+    const prepare = findings[0] === PLAN_INTENT_GATE ? preparePlanIntentDispute : prepareCodeDeliveryDispute;
+    return validateQualityRiskPacket(await prepare(root, config, workflow, phase, { evidence, expires, reason }));
   }
   if (evidence.length) fail('--evidence-file belongs to a disputed finding; name one with --finding.', 'PHASE_FINDING_DISPUTE_INVALID');
   const mode = normalizeQualityGateMode(gateMode ?? workflow.resolution?.qualityGateMode);
@@ -340,7 +342,9 @@ export async function acceptQualityRisk(root, config, workflow, options) {
   if (entries.filter(entry => !entry.revokes).length >= MAX_DECISIONS) fail('This Story reached its pilot-risk decision limit. Preserve the audit history and ask its workflow maintainer; existing decisions can still be revoked.', 'PHASE_QUALITY_RISK_INVALID');
   const card = { plan: { planId: id, planHash: digest({ packet, actor, authority }),
     subject: { workId: workflow.workItem.id, phaseId: phase.id }, revision: head(root), packet,
-    consequence: isFindingDispute(packet)
+    consequence: isFindingDispute(packet) && packet.gate === 'SPEC_VERIFICATION_INTENT_INVALID'
+      ? 'Publish this exact plan with the rows it names upheld against the approved verification intent, recorded as an accepted exception on the attached evidence. Any change to the plan voids it; its own row errors, tests and phase approval are not waived.'
+      : isFindingDispute(packet)
       ? 'Publish this exact candidate with the disputed gate result recorded as an accepted exception on the attached evidence, not as passing evidence. Required tests and phase approval are not waived.'
       : 'Advance with the exact recorded quality shortfall, not a passing proof. Required tests and phase approval are not waived.' },
   action: { actionId: id, confirmation: { required: true } } };
@@ -375,8 +379,8 @@ export async function attestQualityRisk(root, config, workflow, { id, confirm } 
   const phase = workflow.phases[record.binding.phaseId];
   const inspect = async () => {
     if (isFindingDispute(record)) {
-      const { inspectCodeDeliveryDisputes } = await import('./phase-finding-dispute.mjs');
-      return inspectCodeDeliveryDisputes(root, config, workflow, phase);
+      const { PLAN_INTENT_GATE, inspectCodeDeliveryDisputes, inspectPlanIntentDisputes } = await import('./phase-finding-dispute.mjs');
+      return (record.gate === PLAN_INTENT_GATE ? inspectPlanIntentDisputes : inspectCodeDeliveryDisputes)(root, config, workflow, phase);
     }
     if (!isArtifactRisk(record)) return inspectPhaseQualityGate(root, config, workflow, phase);
     const { inspectPhaseAuthoredReviewContent } = await import('./publication-preflight.mjs');

@@ -310,7 +310,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   }
   // When the author has delivered everything and the check still misreads it, the step's approvers
   // can accept the exact finding as an exception on evidence [recoverable-findings M2].
-  const disputedGate = DISPUTABLE_GATES.find((gate) => gate === phaseFindingCode(finding).toUpperCase()) ?? null;
+  // A plan short of the approved intent is disputed by its own refusal or prepublish finding; its own row errors never are [PHR:REQ-003].
+  const intentNotMet = finding.details?.cause === 'intent-not-met';
+  const disputedGate = DISPUTABLE_GATES.find((gate) => gate === 'SPEC_VERIFICATION_INTENT_INVALID'
+    ? intentNotMet && [phaseFindingCode(finding).toUpperCase(), finding.details?.sourceCode].includes(gate)
+    : gate === phaseFindingCode(finding).toUpperCase()) ?? null;
   const dispute = disputedGate ? route('dispute', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', disputedGate,
       '--evidence-file', '<PATH>', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],

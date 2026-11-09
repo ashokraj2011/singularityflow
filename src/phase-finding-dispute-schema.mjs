@@ -16,8 +16,12 @@ const portablePath = z.string().min(1).max(512).refine((value) => value === valu
   && !value.startsWith('/') && !/\\|^[A-Za-z]:|[\x00-\x1f\x7f]/u.test(value)
   && value.split('/').every((segment) => segment && segment !== '.' && segment !== '..'));
 
-/** The gates that honour an accepted dispute. Every other finding keeps its documented routes. */
-export const DISPUTABLE_GATES = Object.freeze(['CODE_DELIVERY_EVIDENCE_REQUIRED']);
+/**
+ * The gates that honour an accepted dispute. Every other finding keeps its documented routes. A plan
+ * that falls short of the approved verification intent is disputed before the plan's approvers, bound
+ * to the exact plan draft, and honoured only for the rows it names [PHR:REQ-003, finding 2].
+ */
+export const DISPUTABLE_GATES = Object.freeze(['CODE_DELIVERY_EVIDENCE_REQUIRED', 'SPEC_VERIFICATION_INTENT_INVALID']);
 export const DISPUTE_EVIDENCE_LIMITS = Object.freeze({ items: 5, fileBytes: 4 * 1024 * 1024, excerptChars: 4096 });
 
 export const FindingDisputePacketSchema = z.object({

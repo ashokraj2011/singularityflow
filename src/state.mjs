@@ -124,7 +124,7 @@ import {
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps, decidesConformanceDifferences } from './conformance-verdicts.mjs';
 import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
-import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, settledUpstreamClauses, upstreamIssueStates } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, settledUpstreamClauses, upstreamIssueStates, withClauseIntentOwner } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
@@ -1733,9 +1733,15 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
   const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
-  const { derived, gaps, contracts } = plannedClaimContract(phase, authored, {
-    clauseIds, clauses: records.indexes.flatMap(index => index.clauses ?? []), policy, enforce, artifactPath, codeSteps
-  });
+  let contract;
+  try {
+    contract = plannedClaimContract(phase, authored, {
+      clauseIds, clauses: records.indexes.flatMap(index => index.clauses ?? []), policy, enforce, artifactPath, codeSteps
+    });
+  } catch (error) {
+    throw withClauseIntentOwner(error, workflow, phase.id, records.indexes);
+  }
+  const { derived, gaps, contracts } = contract;
   // A planned test that could never run here is named now, not first at publication [§12 #18].
   try {
     await assertPlannedTestsRunnable(root, workflow, {

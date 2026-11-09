@@ -34,7 +34,15 @@ import { exists, posix, secureRepositoryPath, snapshot, SingularityFlowError } f
 import { phaseFindingCode, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
-import { upstreamChangeRoutes } from './upstream-routes.mjs';
+import { clauseIntentOwner, upstreamChangeRoutes } from './upstream-routes.mjs';
+
+/** What a plan's unmet intent says of its two owners: the step that approved the intent, and this plan. */
+function intentOwnerWords(workflow, phase, intent) {
+  const how = intent.openIssues.length ? `${intent.openIssues.join(', ')} already names it, so ${intent.owner}'s approvers decide it in the decision list`
+    : intent.route?.command.includes(' intent-amendment ') ? `${intent.owner}'s approvers decide a reviewed intent amendment`
+      : `raise it to ${intent.owner}'s approvers as an upstream issue`;
+  return `${intent.owner} approved that intent: if the plan is right and the intent is not, ${how}; if the plan is wrong, correct its row in this draft.`;
+}
 
 function findingKey(finding) {
   // Distinct underlying failures share a surface code (code.delivery.incomplete); keep each one.
@@ -237,11 +245,21 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       } catch (error) {
         const diagnostics = error.details?.diagnostics ?? [{ code: error.code, message: error.message, details: error.details }];
         planningContract.diagnosticSummary = error.details?.diagnosticSummary ?? { complete: true, omitted: 0 };
-        for (const diagnostic of diagnostics) add(
-          diagnostic.code === 'SPEC_PLANNED_ROW_REQUIRED' ? 'specification.planned-test-missing' : 'specification.planned-test-invalid',
-          'planning-table', diagnostic.message, { line: diagnostic.line ?? diagnostic.details?.line ?? null,
-            details: { ...diagnostic.details, sourceCode: diagnostic.code ?? null,
-              ownerPhase: phase.id, repairScope: 'current-draft' } });
+        for (const diagnostic of diagnostics) {
+          // The plan falls short of an intent the clause's defining step approved: that step owns the
+          // intent, the planner its plan. Either may be what is wrong [PHR:REQ-001, finding 2].
+          const intent = diagnostic.details?.cause === 'intent-not-met'
+            ? clauseIntentOwner(workflow, phase.id, indexes, diagnostic.details?.clauseId ?? diagnostic.clauseId) : null;
+          add(diagnostic.code === 'SPEC_PLANNED_ROW_REQUIRED' ? 'specification.planned-test-missing' : 'specification.planned-test-invalid',
+            'planning-table', intent ? `${diagnostic.message} ${intentOwnerWords(workflow, phase, intent)}` : diagnostic.message,
+            { line: diagnostic.line ?? diagnostic.details?.line ?? null,
+              details: { ...diagnostic.details, sourceCode: diagnostic.code ?? null, ownerPhase: intent?.owner ?? phase.id,
+                ...(intent ? { upstreamPhase: intent.owner, ...(intent.openIssues.length
+                  ? { upstreamIssues: intent.openIssues, nextAction: { command: `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide',
+                    label: `${intent.owner}'s approvers decide ${intent.openIssues.join(', ')} in the decision list.` } }
+                  : intent.route ? { upstreamRoute: intent.route } : {}) } : {}),
+                repairScope: 'current-draft' } });
+        }
         if (planningContract.diagnosticSummary.omitted) add('specification.planned-diagnostics-bounded', 'planning-table',
           `${planningContract.diagnosticSummary.omitted} further draft diagnostics were omitted from this bounded packet. Repair the listed fields, then recheck; this is not a complete or passing plan.`,
           { details: { ownerPhase: phase.id, repairScope: 'current-draft' } });
@@ -258,13 +276,20 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
     detail: 'Get a reviewed answer for each unresolved marker, record it as a clarification, then update the specification and recheck.'
   });
-  // What an earlier step owns goes to that step's correction, never to this draft [PHR:REQ-003].
+  // What an earlier step owns goes to that step's correction, never to this draft [PHR:REQ-003]: the
+  // decision list when an open issue already names it, else that step's own correction for it.
   const upstream = (blocker) => blocker.details?.upstreamPhase && blocker.details.upstreamPhase !== phase.id;
   for (const owner of new Set(blockers.filter(upstream).map((blocker) => blocker.details.upstreamPhase))) {
-    const legal = upstreamChangeRoutes(workflow, owner, { currentPhaseId: phase.id }).routes[0];
-    if (legal) actions.push({ command: legal.command, skill: legal.skill, detail: `${legal.label} ${phase.id} cannot correct ${owner}'s output in its own draft.` });
+    const owned = blockers.filter((blocker) => upstream(blocker) && blocker.details.upstreamPhase === owner);
+    const waiting = owned.find((blocker) => blocker.details.nextAction)?.details.nextAction;
+    const named = owned.find((blocker) => blocker.details.upstreamRoute)?.details.upstreamRoute;
+    const legal = waiting || named ? null : upstreamChangeRoutes(workflow, owner, { currentPhaseId: phase.id }).routes[0];
+    if (waiting) actions.push({ command: waiting.command, skill: waiting.skill, detail: waiting.label });
+    else if (named ?? legal) actions.push({ command: (named ?? legal).command, skill: (named ?? legal).skill,
+      detail: `${(named ?? legal).label} ${phase.id} cannot correct ${owner}'s output in its own draft.` });
   }
-  if (blockers.some((blocker) => blocker.category !== 'clarification' && !upstream(blocker))) actions.push(repair);
+  // A plan that may itself be what is wrong keeps its own correction beside the earlier step's.
+  if (blockers.some((blocker) => blocker.category !== 'clarification' && (!upstream(blocker) || blocker.details?.repairScope === 'current-draft'))) actions.push(repair);
   return { blockers, actions, evidenceRepair, planningContract };
 }
 

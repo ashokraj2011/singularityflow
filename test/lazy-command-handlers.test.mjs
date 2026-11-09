@@ -474,7 +474,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,638,400 (measured 9,638,359, commands/phase-lifecycle.mjs): a planning review finding about the approved
     // specification names that step and is raised there (source-grounded-review.mjs +1649, source-review-continuation.mjs
     // +1575, source-review-lifecycle.mjs +652, state.mjs +508, source-review-contract.mjs +256) [PHR:REQ-003]. No new eager file.
-    assert.ok(closure.bytes <= 9_638_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,645,250 (measured 9,645,218, commands/phase-lifecycle.mjs): a plan that falls short of the approved intent names the
+    // clause's defining step and its correction (upstream-routes.mjs +2692, phase-prepublish.mjs +2402, phase-resolution.mjs
+    // +910, verification/intent.mjs +411, specifications.mjs +267, state.mjs +177) [PHR:REQ-001]. No new eager file.
+    assert.ok(closure.bytes <= 9_645_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -697,7 +700,9 @@ test('the common session projection does not import attach, state stores or publ
   // command's route to /sf-prompt-log (command-skills.mjs +30) [PCR:REQ-002].
   // 4,183,650 (measured 4,183,615): the same flag (util.mjs +60) and init's hook files (config.mjs +251) [PCR:REQ-030].
   // 4,184,500 (measured 4,184,467): the same borrowed visual proof (verification/intent.mjs +852).
-  assert.ok(current.bytes <= 4_184_500, `session current loads ${current.bytes} source bytes`);
+  // 4,185,150 (measured 4,185,145): a plan's unmet intent and its own row errors say whose they are (verification/intent.mjs
+  // +411, specifications.mjs +267) [PHR:REQ-001].
+  assert.ok(current.bytes <= 4_185_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

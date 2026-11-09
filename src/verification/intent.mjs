@@ -103,7 +103,12 @@ export function nonTestVerification(clauseId, claim, contracts, intent = null) {
   return contract;
 }
 
-/** Plans must implement approved methods, never downgrade them to supporting proof or an exemption. */
+/**
+ * Plans must implement approved methods, never downgrade them to supporting proof or an exemption.
+ * A refusal's `cause` says whose output it judges [PHR:REQ-001]: `plan-row` is the plan's own row or
+ * contract, its author's to correct; `intent-not-met` is the plan falling short of the approved intent,
+ * which the plan may correct, or the step that defined the clause may, when the intent is what is wrong.
+ */
 export function validatePlannedVerification(claims, contracts = [], clauses = []) {
   const byCriterion = new Map(contracts.map(contract => [contract.clauseId, contract]));
   const byClause = new Map(clauses.map(clause => [clause.id, clause]));
@@ -121,7 +126,7 @@ export function validatePlannedVerification(claims, contracts = [], clauses = []
               // Its own contract has a primary test slot: plan that test for it rather than call it non-test.
               : tested ? `${criterion}'s own contract has a primary test slot, so plan its test paths instead of verification: ${criterion}`
                 : `${criterion}'s contract rows have no primary visual or inspection slot${intent ? ` for every method ${id} lists (${intent.methods.join(', ')})` : ''}`;
-        throw invalid(`${id} non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test. Missing: ${missing}.`, { clauseId: id });
+        throw invalid(`${id} non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test. Missing: ${missing}.`, { clauseId: id, cause: 'plan-row' });
       }
     }
     if (!intent) continue;
@@ -129,18 +134,18 @@ export function validatePlannedVerification(claims, contracts = [], clauses = []
     const primary = contract?.slots?.filter(slot => slot.role === 'primary')
       ?? (claims[intent.criterionId]?.tests?.length ? [{ method: 'test', role: 'primary' }] : []);
     if (intent.methods.includes('test') && (!claim.tests.length || claim.testDisposition !== 'applicable')) {
-      throw invalid(`${id} requires automated tests in the approved Specification; plan exact test paths instead of an exemption.`, { clauseId: id });
+      throw invalid(`${id} requires automated tests in the approved Specification; plan exact test paths instead of an exemption.`, { clauseId: id, cause: 'intent-not-met' });
     }
     for (const method of intent.methods) {
       // Exact planned test paths implement the historical default test contract. Other methods
       // always need a typed primary slot, including when a requirement shares an AC's proof.
       if (method === 'test' && !contract && (!intent.criterionId || intent.criterionId === id)) continue;
       if (!primary.some(slot => slot.method === method)) {
-        throw invalid(`${id} requires primary ${method} proof under ${intent.criterionId}; a supporting slot does not satisfy approved intent.`, { clauseId: id });
+        throw invalid(`${id} requires primary ${method} proof under ${intent.criterionId}; a supporting slot does not satisfy approved intent.`, { clauseId: id, cause: 'intent-not-met' });
       }
     }
     if (contract?.combination === 'any' && primary.some(slot => intent.methods.some(method => slot.method !== method))) {
-      throw invalid(`${id} requires all approved verification methods; Combination any would weaken the Specification.`, { clauseId: id });
+      throw invalid(`${id} requires all approved verification methods; Combination any would weaken the Specification.`, { clauseId: id, cause: 'intent-not-met' });
     }
   }
 }

@@ -136,10 +136,17 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (foreignApproved && basePolicy.repairableByProducer) {
     const upstream = upstreamChangeRoutes(workflow, affectedPhase.id, { currentPhaseId: phase.id });
     const legal = upstream.routes.find(choice => choice.kind === 'upstream-issue') ?? upstream.routes[0];
-    resolution = legal ? route('upstream-owner', `${affectedPhase.id}-approval-authority`,
-      legal.command.split(' ').slice(1), legal.label, legal.skill)
+    const waiting = finding.details?.nextAction?.command?.startsWith('singularity-flow decisions ') ? finding.details.nextAction : null;
+    // An open issue already names it: its approvers decide it in the decision list [PHR:REQ-003].
+    resolution = waiting ? route('upstream-decision', `${affectedPhase.id}-approval-authority`, ['decisions', workId, '--json'],
+      String(waiting.label ?? `${affectedPhase.id}'s approvers decide it in the decision list.`), '/sf-decide')
+      : legal ? route('upstream-owner', `${affectedPhase.id}-approval-authority`,
+        legal.command.split(' ').slice(1), legal.label, legal.skill)
       : route('owner-escalation', `${affectedPhase.id}-approval-authority`,
         ['recover', workId, '--phase', phase.id, '--json'], 'Preserve the current phase. The approved input owner must provide an authenticated correction or reviewed amendment.');
+    // What this draft may itself have wrong stays its author's to correct, beside the earlier step's route.
+    if (finding.details?.repairScope === 'current-draft') gapRoutes = [route('author-correction', phase.id, ['phase', 'show', phase.id, '--show-artifact'],
+      `If ${phase.id}'s own draft is what is wrong, correct it there and recheck; ${affectedPhase.id} keeps its approved output.`, generationSkillForPhase(phase, workflow))];
   } else if (code === 'conformance.verdict-incomplete') {
     // Keep the honest verdict. Resolve the issue's actual owner, including evidence/plan/scope
     // defects, rather than assigning every partial clause to its code-producing step.

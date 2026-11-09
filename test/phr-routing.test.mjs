@@ -20,7 +20,8 @@ import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceRev
 import { checkSourceReviewReport } from '../src/source-review-lifecycle.mjs';
 import { compactSourceReviewContext } from '../src/source-review-agent-context.mjs';
 import { planCorrectionRoutes, upstreamWaiting, withoutSettledClauses } from '../src/spec-coverage-preview.mjs';
-import { settledUpstreamClauses } from '../src/upstream-routes.mjs';
+import { clauseIntentOwner, settledUpstreamClauses, withClauseIntentOwner } from '../src/upstream-routes.mjs';
+import { validatePlannedVerification } from '../src/verification/intent.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 
 /** Code is approved, verification awaits approval and may return to code. */
@@ -286,4 +287,47 @@ test('[PHR:REQ-003] a planning review finding about the approved specification i
   assert.equal(reviewUpstreamRoute(workflow, workflow.phases.planning, own), null);
   assert.equal(checkSourceReviewReport(report([{ ...aboutSpec, ownerPhase: 'intake' }]), planningReview()).evaluation
     .findings.find((entry) => entry.code === 'reviewer-blocker').upstreamPhase, undefined);
+});
+
+test('[PHR:REQ-001] a plan that falls short of the approved intent names the clause\'s defining step; the plan\'s own row errors stay the planner\'s', () => {
+  const req = 'W-2:REQ-001';
+  const ac = 'W-2:AC-001';
+  const clauses = [{ id: req, verification: { methods: ['test'], criterionId: null } }, { id: ac, verification: { methods: ['visual'], criterionId: ac } }];
+  const cause = (claims, contracts = []) => { try { validatePlannedVerification(claims, contracts, clauses); return null; } catch (error) { return [error.code, error.details.cause, error.details.clauseId]; } };
+  // The approved intent asks for a test the plan does not plan: intent-not-met, the planner may correct it or the intent's step may.
+  assert.deepEqual(cause({ [req]: { tests: [], testDisposition: 'not-applicable' } }), ['SPEC_VERIFICATION_INTENT_INVALID', 'intent-not-met', req]);
+  assert.deepEqual(cause({ [ac]: { tests: ['test/a.test.mjs'], testDisposition: 'applicable' } },
+    [{ clauseId: ac, slots: [{ method: 'visual', role: 'supporting' }] }]), ['SPEC_VERIFICATION_INTENT_INVALID', 'intent-not-met', ac]);
+  // Calling a clause non-test without its contract is the plan's own row: plan-row.
+  assert.deepEqual(cause({ [ac]: { tests: [], testDisposition: 'non-test', verificationCriterion: ac } }), ['SPEC_VERIFICATION_INTENT_INVALID', 'plan-row', ac]);
+
+  const workflow = planningStory();
+  const indexes = [{ phase: 'specification', clauses: [{ id: req }, { id: ac }] }];
+  const owner = clauseIntentOwner(workflow, 'planning', indexes, req);
+  assert.equal(owner.owner, 'specification');
+  assert.deepEqual(owner.openIssues, []);
+  assert.equal(owner.route.command, `singularity-flow upstream-issue raise --work-id W-2 --phase specification --about ${req} --problem <what-is-wrong>`);
+  assert.equal(clauseIntentOwner(workflow, 'specification', indexes, req), null, 'the defining step owns its own intent');
+
+  // Plan publication's refusal names the owner and its correction; a plan-row refusal is untouched.
+  const refusal = (details) => new SingularityFlowError(`${req} requires automated tests in the approved Specification; plan exact test paths instead of an exemption.`,
+    { code: 'SPEC_VERIFICATION_INTENT_INVALID', details });
+  const routed = withClauseIntentOwner(refusal({ clauseId: req, cause: 'intent-not-met', repairScope: 'current-draft' }), workflow, 'planning', indexes);
+  assert.deepEqual([routed.details.ownerPhase, routed.details.upstreamPhase, routed.details.recoveryCommands[0].command], ['specification', 'specification', owner.route.command]);
+  assert.match(routed.message, /specification approved that intent: if the plan is right and the intent is not, specification's approvers correct it; if the plan is wrong, correct its row/u);
+  const plan = refusalRemediationPlan(routed, ['phase', 'publish', 'planning', '--work-id', 'W-2']);
+  assert.ok(plan.steps.some((entry) => entry.command === owner.route.command), JSON.stringify(plan.steps.map((entry) => entry.command)));
+  assert.ok(plan.steps.some((entry) => entry.id === 'correct-draft'), 'the planner\'s own correction stays');
+  assert.equal(withClauseIntentOwner(refusal({ clauseId: ac, cause: 'plan-row' }), workflow, 'planning', indexes).details.upstreamPhase, undefined);
+
+  // At prepublish: routed to the specification's correction, the draft repair beside it, and the decision list once an issue names it.
+  const finding = { code: 'specification.planned-test-invalid', category: 'planning-table', path: 'plan.md', message: 'unmet',
+    details: { clauseId: req, cause: 'intent-not-met', sourceCode: 'SPEC_VERIFICATION_INTENT_INVALID', ownerPhase: 'specification', upstreamPhase: 'specification', repairScope: 'current-draft' } };
+  const choices = phaseResolutionChoices(workflow, workflow.phases.planning, finding).choices;
+  assert.deepEqual(choices.slice(0, 2).map((entry) => [entry.kind, entry.owner]), [['upstream-owner', 'specification-approval-authority'], ['author-correction', 'planning']]);
+  const waiting = phaseResolutionChoices(workflow, workflow.phases.planning, { ...finding, details: { ...finding.details, upstreamIssues: ['UPI-001'],
+    nextAction: { command: 'singularity-flow decisions W-2 --json', skill: '/sf-decide', label: "specification's approvers decide UPI-001 in the decision list." } } }).choices[0];
+  assert.deepEqual([waiting.kind, waiting.command], ['upstream-decision', 'singularity-flow decisions W-2 --json']);
+  workflow.upstreamIssues = [{ id: 'UPI-001', phase: 'specification', about: req, problem: 'The intent asks for a test of a static page.' }];
+  assert.deepEqual(clauseIntentOwner(workflow, 'planning', indexes, req).openIssues, ['UPI-001']);
 });

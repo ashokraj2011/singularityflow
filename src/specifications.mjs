@@ -1006,10 +1006,13 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
       const verificationCriterion = claim.verificationCriterion == null ? null : String(claim.verificationCriterion).toUpperCase();
       if (testDisposition === 'non-test' && (tests.length || !/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(verificationCriterion ?? '')
           || (known.size && !known.has(verificationCriterion)) || (/:AC-\d{3}$/u.test(id) && verificationCriterion !== id))) {
-        throw new SingularityFlowError(`${id} non-test proof requires no executable tests and an exact approved AC verificationCriterion.`, { code: 'SPEC_VERIFICATION_INTENT_INVALID' });
+        // The plan's own row: its author's to correct, never the intent's step [PHR:REQ-001].
+        throw new SingularityFlowError(`${id} non-test proof requires no executable tests and an exact approved AC verificationCriterion.`,
+          { code: 'SPEC_VERIFICATION_INTENT_INVALID', details: { clauseId: id, cause: 'plan-row', repairScope: 'current-draft' } });
       }
       if (testDisposition !== 'non-test' && verificationCriterion != null) {
-        throw new SingularityFlowError(`${id}.verificationCriterion is only allowed for non-test proof.`, { code: 'SPEC_VERIFICATION_INTENT_INVALID' });
+        throw new SingularityFlowError(`${id}.verificationCriterion is only allowed for non-test proof.`,
+          { code: 'SPEC_VERIFICATION_INTENT_INVALID', details: { clauseId: id, cause: 'plan-row', repairScope: 'current-draft' } });
       }
       claims[id] = {
         expectedPaths,

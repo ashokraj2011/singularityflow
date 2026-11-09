@@ -382,6 +382,41 @@ export function settledUpstreamClauses(workflow, phaseId, clauseIds, { now = new
   });
 }
 
+/**
+ * Who owns a plan's "does not meet the approved intent" for a clause [PHR:REQ-001]: the step whose
+ * index defines the clause, when that is not `phaseId`, with its first legal correction from here (an
+ * intent amendment, or an upstream issue naming the clause), and the open issues that already name it.
+ * Null when `phaseId` defines the clause itself.
+ */
+export function clauseIntentOwner(workflow, phaseId, indexes, clauseId) {
+  const id = String(clauseId ?? '').toUpperCase();
+  const owner = (indexes ?? []).find((index) => (index.clauses ?? []).some((clause) => String(clause.id).toUpperCase() === id))?.phase ?? null;
+  if (!id || !owner || owner === phaseId || !workflow?.phases?.[owner]) return null;
+  const legal = upstreamChangeRoutes(workflow, owner, { currentPhaseId: phaseId }).routes[0] ?? null;
+  const openIssues = upstreamIssueStates(workflow).filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status) && !state.supersededBy
+    && issueNamesClause(`${state.issue.about ?? ''} ${state.issue.problem ?? ''}`, id)).map((state) => state.issue.id);
+  return { owner, openIssues,
+    route: legal ? { command: legal.command.replace('<clause-or-section>', id), skill: legal.skill ?? null, label: legal.label } : null };
+}
+
+/**
+ * A plan that falls short of an intent the clause's defining step approved names that step as the
+ * owner and its correction, as planning prepublish does [PHR:REQ-001, finding 2]. The refusal stands;
+ * the plan's own row errors stay its author's.
+ */
+export function withClauseIntentOwner(error, workflow, phaseId, indexes) {
+  if (error?.code !== 'SPEC_VERIFICATION_INTENT_INVALID' || error.details?.cause !== 'intent-not-met') return error;
+  const intent = clauseIntentOwner(workflow, phaseId, indexes, error.details.clauseId);
+  if (!intent) return error;
+  const decide = intent.openIssues.length ? { command: `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide',
+    label: `${intent.owner}'s approvers decide ${intent.openIssues.join(', ')} in the decision list.` } : null;
+  error.message = `${error.message} ${intent.owner} approved that intent: if the plan is right and the intent is not, `
+    + `${decide ? `${intent.openIssues.join(', ')} already names it, so ${intent.owner}'s approvers decide it in the decision list` : `${intent.owner}'s approvers correct it`}; if the plan is wrong, correct its row and publish again.`;
+  error.details = { ...error.details, ownerPhase: intent.owner, upstreamPhase: intent.owner,
+    ...(decide ? { nextAction: decide } : intent.route ? { recoveryCommands: [{ command: intent.route.command, label: intent.route.label }] } : {}) };
+  return error;
+}
+
 /** One line for an undecided gap: its verdict and who decides it next. */
 export function conformanceGapLine(gap) {
   const owner = gap.owner ?? 'the owning step';

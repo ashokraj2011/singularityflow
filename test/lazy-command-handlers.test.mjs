@@ -451,7 +451,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +147, command-skills.mjs +30) and the redactor's token shapes are exported for a prompt's secret check
     // (git-remote-diagnostics.mjs +7) [PCR:REQ-002, REQ-003]. The plain-chat
     // guard, the prompt log and the command stay lazy (copilot-plain-chat.mjs, plain-chat-prompts.mjs, commands/prompts.mjs).
-    assert.ok(closure.bytes <= 9_620_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,628,000 (measured 9,627,987, commands/phase-lifecycle.mjs): the repository's test commands are checked and given to the steps
+    // that run tests at resolution, which is synchronous (external-command-policy.mjs repository tests, level and URL
+    // credential check +5,927, config.mjs +1,339) [RTC:REQ-001, REQ-002, REQ-011]; no new eager file.
+    assert.ok(closure.bytes <= 9_628_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -671,7 +674,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,183,150 (measured 4,183,120): both of the above together, each one's growth as measured.
   // 4,183,350 (measured 4,183,304): the same prompts command and exported token shapes as root dispatch (+154), and the
   // command's route to /sf-prompt-log (command-skills.mjs +30) [PCR:REQ-002].
-  assert.ok(current.bytes <= 4_183_350, `session current loads ${current.bytes} source bytes`);
+  // 4,190,600 (measured 4,190,570): the same repository test commands as start (external-command-policy.mjs, config.mjs)
+  // [RTC:REQ-001, REQ-002, REQ-011].
+  assert.ok(current.bytes <= 4_190_600, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -45,7 +45,9 @@ import { normalizeMarketplaces } from './marketplace.mjs';
 import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-import-policy.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import {
+  assertRepositoryTestSelection, hasOwnTestCommand, normalizeExternalCommand, repositoryTestCommands, selectedRepositoryTests
+} from './external-command-policy.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
 import { normalizeDecisions } from './workflow-decisions.mjs';
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
@@ -946,8 +948,11 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   dropRemovedSettings(definition);
   // Integration targets first: every step's after-step actions are checked against them.
   definition.integrations = normalizeIntegrations(definition.integrations);
+  // The repository's test commands, before any step's choice among them is checked [RTC:REQ-001].
+  const repositoryTests = repositoryTestCommands(definition.tests);
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
     assertConfiguredPhaseProducer(phase, `Phase '${phaseId}'`, phaseId, definition.version);
+    assertRepositoryTestSelection(phase, repositoryTests, `Phase '${phaseId}'`);
     if (phase && typeof phase === 'object') assertStepAuthoringSkill({ ...phase, id: phaseId }, `Phase '${phaseId}'`);
     else assertAuthoringSkillValue(phase?.authoringSkill, `Phase '${phaseId}'`);
     normalizeStepActions(phase?.afterStep, definition.integrations, `Phase '${phaseId}'`);
@@ -955,6 +960,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
       assertAuthoringSkillValue(override?.authoringSkill, `Work type '${workTypeId}' phase '${phaseId}' override`);
+      assertRepositoryTestSelection(override, repositoryTests, `Work type '${workTypeId}' phase '${phaseId}' override`);
       normalizeStepActions(override?.afterStep, definition.integrations, `Work type '${workTypeId}' phase '${phaseId}' override`);
       if (definition.version === 3 && definition.phases[phaseId]?.kind === 'skill') {
         assertNoSkillPhaseOverride(override, `Work type '${workTypeId}' phase '${phaseId}' override`);
@@ -1897,6 +1903,7 @@ export function resolveWorkType(definition, workTypeId) {
   const reworkLoops = normalizeReworkLoops(workType.reworkLoops, {
     workTypeId, phases: workType.phases
   });
+  const repositoryTests = repositoryTestCommands(definition.tests);
   let phases = workType.phases.map((id, order) => {
     const phase = structuredClone(declaredCatalogValue(definition.phases, id));
     const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
@@ -1966,6 +1973,16 @@ export function resolveWorkType(definition, workTypeId) {
     // Off resolves to the shape a step always had, so workflows that ask for nothing hash as before.
     if (repositoryTestsPolicy(merged.repositoryTests, `Work type '${workTypeId}' phase '${id}'`) === 'run') resolvedPhase.repositoryTests = 'run';
     else delete resolvedPhase.repositoryTests;
+    // A step that runs tests gets the repository's tests it chose, unless it has test commands of its
+    // own [RTC:REQ-002]. They enter the Story's pin like any configured command [RTC:REQ-003]; the
+    // choice itself is configuration, not Story contract, so a step without one keeps its shape.
+    assertRepositoryTestSelection(merged, repositoryTests, `Work type '${workTypeId}' phase '${id}'`);
+    if (repositoryTests.length && !hasOwnTestCommand(resolvedPhase)
+        && (phaseRequiresCodeDelivery(resolvedPhase) || resolvedPhase.repositoryTests === 'run')) {
+      resolvedPhase.qualityCommands = [...(resolvedPhase.qualityCommands ?? []), ...structuredClone(selectedRepositoryTests(merged, repositoryTests))];
+    }
+    delete resolvedPhase.testLevels;
+    delete resolvedPhase.testIds;
     return resolvedPhase;
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));

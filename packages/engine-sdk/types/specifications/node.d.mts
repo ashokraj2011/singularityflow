@@ -1,0 +1,14 @@
+import type {SpecificationValues,VerificationContracts} from '../specifications.mjs';
+export declare const extractClauses:SpecificationValues['extractClauses'];
+export declare const specificationIndexRecord:SpecificationValues['specificationIndexRecord'];
+export declare const proseVerificationDeclarations:VerificationContracts['proseVerificationDeclarations'];
+export declare const validateRetainedEvidenceDeclarations:VerificationContracts['validateRetainedEvidenceDeclarations'];
+export declare const parseVerificationContracts:VerificationContracts['parseVerificationContracts'];
+export declare const normalizeVerificationContracts:VerificationContracts['normalizeVerificationContracts'];
+export declare const mergedVerificationContracts:VerificationContracts['mergedVerificationContracts'];
+export declare const effectiveContract:VerificationContracts['effectiveContract'];
+export declare const contractRequiresTestTag:VerificationContracts['contractRequiresTestTag'];
+export declare const testSlotFor:VerificationContracts['testSlotFor'];
+export declare const contractSha256:VerificationContracts['contractSha256'];
+export declare const witnessMappingCore:VerificationContracts['witnessMappingCore'];
+export declare const witnessMappingSha256:VerificationContracts['witnessMappingSha256'];

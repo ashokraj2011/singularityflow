@@ -17,7 +17,7 @@ import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { applyPlanEvidenceAmendments, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
 import { fallbackAuthorities } from './kernel/approval-fallback.mjs';
-import { normalizeVerificationContracts } from './verification/contracts.mjs';
+import {normalizeVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
 const MAX_OPERATIONS = 20;

@@ -5,7 +5,7 @@ import { branch, head, identity, exactFileAtObject } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { loadActiveSpecRecords, readBoundSpecificationClaimMap } from './specifications.mjs';
-import { validatePlannedVerification } from './verification/intent.mjs';
+import {validatePlannedVerification} from './kernel/verification-policy.mjs';
 import { EvidenceAmendmentSchema, evidenceCorrectionProjection, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
 import { requiresProspectivePhaseInspection, phaseInspectionGeneration } from './code-submission-evidence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';

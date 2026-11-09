@@ -3,7 +3,7 @@ import path from 'node:path';
 import {head,identity} from '../git.mjs';
 import {recordSha256} from '../records.mjs';
 import {loadBoundActiveSpecRecords,normalizeClaimMap} from '../specifications.mjs';
-import {validatePlannedVerification} from '../verification/intent.mjs';
+import {validatePlannedVerification} from '../kernel/verification-policy.mjs';
 import {planCorrectionAuthorities,recordPlanRowCorrection} from '../plan-row-corrections.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {planCorrectionOwner} from '../kernel/decision-plan.mjs';

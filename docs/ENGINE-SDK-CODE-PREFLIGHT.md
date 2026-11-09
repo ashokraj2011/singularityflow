@@ -54,6 +54,8 @@ Source-clause/declaration analysis, authenticated disputes, reviewed baseline te
 and final specification coverage still have their existing native compatibility owners. They are
 explicit required dependencies of this native composition; a new namespace host must supply
 equivalent verified owners. Moving the coordinator does not prove those integrations complete.
+Clause/index and verification values now have [shared kernel owners](ENGINE-SDK-SPECIFICATION-VALUES.md);
+their actual approved-record reads and acceptance proofs remain separate requirements.
 
 ## Compatibility evidence
 

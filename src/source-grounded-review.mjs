@@ -11,7 +11,7 @@ import { recordSha256 } from './records.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
-import { nonTestVerification } from './verification/intent.mjs';
+import {nonTestVerification} from './kernel/verification-policy.mjs';
 import { extractNormativeStatements, normalizeStatement } from './scope/extract.mjs';
 import { SingularityFlowError } from './util.mjs';
 

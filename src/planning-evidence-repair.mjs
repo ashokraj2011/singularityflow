@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { derivePlannedClaimMap, plannedClaimSource } from './specifications.mjs';
-import { proseVerificationDeclarations } from './verification/contracts.mjs';
+import {proseVerificationDeclarations} from './engine-compatibility/node-specification-policy.mjs';
 
 const MAX_BYTES = 512 * 1024;
 const MAX_DECLARATIONS = 64;

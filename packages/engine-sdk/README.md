@@ -82,6 +82,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `content`: draft immutable byte/reference contract, separate from metadata transaction limits.
 - `artifacts`: pure artifact token validation, template rendering, UTF-8/binary classification
   and required-content observations with explicit host-computed fingerprints.
+- `specifications`: pure clause/index value rules, verification intent/contracts and bounded draft
+  diagnostics. Path/hash primitives are explicit; `specifications/node` supplies the optional Node
+  value binding. Candidate values do not authenticate source bytes, retain evidence or admit publication.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-engine`: one explicit composition of the implemented namespace operations,

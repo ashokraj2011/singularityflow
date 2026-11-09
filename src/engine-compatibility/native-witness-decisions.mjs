@@ -25,7 +25,7 @@ export async function commitWitnessDecision(context,input) {
   if (!row || row.type !== 'AC') {
     throw new SingularityFlowError(`The evidence matrix of ${id} has no acceptance criterion ${clauseId || '(none given)'}; see singularity-flow evidence matrix.`, { code: 'WITNESS_CRITERION_UNKNOWN' });
   }
-  const { mergedVerificationContracts } = await import('../verification/contracts.mjs');
+  const { mergedVerificationContracts } = await import('./node-specification-policy.mjs');
   const plans = graph.records.planned ?? [];
   const contract = mergedVerificationContracts(plans).get(clauseId) ?? null;
   const slot = contract?.slots.find((entry) => entry.slot === slotName) ?? null;

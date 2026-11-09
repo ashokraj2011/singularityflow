@@ -125,7 +125,7 @@ export async function applicationReviewPlan(root, config, workflow, { phaseId = 
   // A backend change in a mixed repository is not a UI change merely because an unchanged
   // frontend exists. New, deleted and unplanned UI paths still strengthen the adopted profile.
   const applicability = reviewApplicability(policy, changedSurfaces);
-  const [{ evidenceGraphFromAggregate }, { mergedVerificationContracts }] = await Promise.all([import('./evidence/graph.mjs'), import('./verification/contracts.mjs')]);
+  const [{ evidenceGraphFromAggregate }, { mergedVerificationContracts }] = await Promise.all([import('./evidence/graph.mjs'), import('./engine-compatibility/node-specification-policy.mjs')]);
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
   const clauses = (graph.records?.indexes ?? []).flatMap(item => item.clauses ?? []).filter(item => item.kind === 'AC' || item.type === 'AC' || /:AC-\d{3}$/u.test(item.id ?? ''));
   const contracts = mergedVerificationContracts(graph.records?.planned ?? []);

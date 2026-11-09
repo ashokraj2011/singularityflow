@@ -388,7 +388,7 @@ export async function evidenceConfirmations(root, config, workflow, actor) {
   const [{ createHash }, { readFile }, { evidenceGraphFromAggregate }, { evaluateEvidence }, { mergedVerificationContracts },
     { mergePlannedClaimRecords }, { riskAuthorities }, { requireApprovalAuthority }, { plannedEvidenceFiles }, { secureRepositoryPath }] = await Promise.all([
     import('node:crypto'), import('node:fs/promises'), import('../evidence/graph.mjs'), import('../evidence/evaluate.mjs'),
-    import('./contracts.mjs'), import('../specifications.mjs'), import('../evidence/risk-decisions.mjs'),
+    import('../engine-compatibility/node-specification-policy.mjs'), import('../specifications.mjs'), import('../evidence/risk-decisions.mjs'),
     import('../kernel/approval-policy.mjs'), import('../evidence/terminal.mjs'), import('../util.mjs')]);
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
   const plans = graph.records.planned ?? [];

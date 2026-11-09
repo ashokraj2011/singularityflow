@@ -26,7 +26,7 @@ function shortText(value) {
 export async function outcomeReview(root, { workId = null, capabilityId = null } = {}) {
   const { definition, workflow } = await loadAcceptedStoryExecution(root, workId);
   const [{ evidenceGraphFromAggregate }, { evaluateEvidence }, { mergedVerificationContracts }] = await Promise.all([
-    import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./verification/contracts.mjs')
+    import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./engine-compatibility/node-specification-policy.mjs')
   ]);
   const graph = await evidenceGraphFromAggregate(root, definition, workflow);
   const evaluation = evaluateEvidence(graph);

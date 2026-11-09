@@ -49,7 +49,7 @@ import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
 import { codeCandidateScope, outsideEveryCandidate, unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
-import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
+import {contractRequiresTestTag,effectiveContract,mergedVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';

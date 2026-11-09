@@ -8,7 +8,7 @@ import { loadActiveSpecRecords } from './specifications.mjs';
 import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
 import { conformanceGapDecisions } from './upstream-routes.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import { shown } from './draft-diagnostics.mjs';
+import {shown} from './kernel/draft-diagnostics.mjs';
 
 const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
 const ANY_VERDICT = /\b(matched|partial|missing|deviated|unplanned)\b/;

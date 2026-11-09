@@ -20,7 +20,7 @@ const MAX_TEXT = 160;
 // the terminal lines below pay nothing for them.
 async function evidenceReader() {
   const [{ evidenceGraphFromAggregate, previewScopeInventory }, { evaluateEvidence }, { mergedVerificationContracts }, { plannedClaimsForObservedPhase }] = await Promise.all([
-    import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./verification/contracts.mjs'), import('./specifications.mjs')
+    import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./engine-compatibility/node-specification-policy.mjs'), import('./specifications.mjs')
   ]);
   return { evidenceGraphFromAggregate, previewScopeInventory, evaluateEvidence, mergedVerificationContracts, plannedClaimsForObservedPhase };
 }

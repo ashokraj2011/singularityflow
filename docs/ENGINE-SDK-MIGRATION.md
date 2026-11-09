@@ -67,6 +67,21 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared specification and verification values](ENGINE-SDK-SPECIFICATION-VALUES.md) give clause
+parsing, native index identity, verification intent/contracts and bounded diagnostics one pure
+owner. Native adapters retain safe file reads and optional writes; the SDK exposes explicit-value
+utilities without a second lifecycle route. Independent pre-extraction outcomes protect native
+records and refusals. Accepted namespace specification/claim proofs and full application publication
+remain required; migration Phases 5, 7, 8 and 9 remain open.
+
+Mac qualification passed 337 distinct affected regression, review/decision, architecture and
+installed-package tests, without failures, cancellations or skips. Both opt-in specification/
+continuation cases ran, and the final witness rerun passed. Source validation passed 3,956 checks
+across 191 skills; VS Code typechecking, the unchanged Git ownership audit and all 13 unchanged
+bundle budgets passed. The gateway has 852 modules under the existing 852-module ceiling. The SDK
+retains 57 operations across 190 owned modules. Native claim-map normalization and accepted
+namespace specification/claim proofs remain required application-publication integration work.
+
 The [shared application-code preflight](ENGINE-SDK-CODE-PREFLIGHT.md) moves candidate and fulfillment
 coordination, scope/claim interpretation and stable finding identity into kernel owners. Native
 adapters retain actual source/plan reads and required analysis/coverage/exception owners; command

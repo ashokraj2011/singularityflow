@@ -49,7 +49,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'source-control', 'changes', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'source', 'source-control', 'changes', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries, 'src/sgos/operational-contract.mjs'] });
   assert.deepEqual(report.problems, []);
@@ -382,6 +382,42 @@ test('code preflight uses shared policy and refusal formatting cannot authorize 
       assert.equal(ts.isThrowStatement(node.parent.parent.parent),true);refusals++;
     }ts.forEachChild(node,visit);
   };visit(kernel);assert.equal(refusals,4);
+});
+
+test('specification and verification compatibility facades share kernel values and retain native observation ordering',async()=>{
+  for(const file of ['src/verification/contracts.mjs','src/verification/intent.mjs','src/draft-diagnostics.mjs']) {
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    assert.ok(ast.statements.every(node=>ts.isExportDeclaration(node)),file+' must remain a facade');
+  }
+  const file='src/engine-compatibility/node-specification-policy.mjs';
+  const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+  const allowed=new Set(['../records.mjs','./node-configuration-path.mjs','../kernel/verification-policy.mjs','../kernel/specification-values.mjs']);
+  for(const node of ast.statements) {
+    if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isFunctionDeclaration(node),false,'bindings may not grow feature rules');
+  }
+  const native=ts.createSourceFile('native',await readFile(path.join(packageRoot,'src/specifications.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  for(const name of ['extractClauses','ignoredRanges','plannedClaimSource','canonicalJson'])assert.equal(native.statements.some(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name),false,name);
+  const body=native.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='buildSpecIndex').body.getText(native);
+  let previous=-1;
+  for(const step of ['normalizeSpecPolicy(','secureRepositoryPath(','readFile(','snapshot(','extractClauses(','specificationIndexRecord(','writeJson(']) {
+    const current=body.indexOf(step);assert.ok(current>previous,'preserve native observation order: '+step);previous=current;
+  }
+  assert.doesNotMatch(body,/indexSha256:|createHash\(|currentSchemaVersion\(/u,'identity belongs to the shared index owner');
+  const legacy=new Set(['src/verification/contracts.mjs','src/verification/intent.mjs','src/draft-diagnostics.mjs']);
+  for(const file of await sourceFiles('src')) {
+    if(legacy.has(file))continue;
+    const source=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      const dependency=ts.isImportDeclaration(node)||ts.isExportDeclaration(node)?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(dependency&&ts.isStringLiteralLike(dependency)&&dependency.text.startsWith('.')) {
+        const target=path.posix.normalize(path.posix.join(path.posix.dirname(file),dependency.text));
+        assert.equal(legacy.has(target),false,file+' must import the explicit owner rather than its compatibility facade');
+      }
+      ts.forEachChild(node,visit);
+    };visit(source);
+  }
 });
 
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
@@ -1315,7 +1351,7 @@ test('configuration policy rules have one pure owner while native runtime and re
   }
   for(const [file,rule,native]of [['context-policy','normalizeContextPolicy','contextBoundaryHandoff'],
     ['test-runtime','normalizeTestRuntime','testRuntimeEnvironment'],['token-economy','normalizeTokenEconomy','tokenEconomyDigest'],
-    ['specifications','normalizeSpecPolicy','extractClauses'],['code-delivery-policy','normalizeCodeDeliveryPolicy','codeOutcomeReviewOffer'],
+    ['specifications','normalizeSpecPolicy','buildSpecIndex'],['code-delivery-policy','normalizeCodeDeliveryPolicy','codeOutcomeReviewOffer'],
     ['repair-budget','normalizeReworkLoops','consumeRepairAttempt']]) {
     const source=await readFile(path.join(packageRoot,'src',file+'.mjs'),'utf8');
     assert.equal(source.includes('function '+rule+'('),false,file);

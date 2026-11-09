@@ -1,0 +1,3463 @@
+{
+  "schemaVersion": 1,
+  "capturedAtCommit": "60002eefe",
+  "owners": {
+    "src/specifications.mjs": {
+      "extractClauses": "17e38b853563d61c568538c39ed32af7a7d4e78ceac0bc6f3ce96b31dc1191aa",
+      "buildSpecIndex": "a56ae7af14763ea94d333f043edad7a2717070c524fbb1628b199bd7578042f0",
+      "ignoredRanges": "2c507a51d0075043e67d7bb685702bc60a6e85370b22ed15ff61f1ca69fef8f9",
+      "plannedClaimSource": "e41bd56fba7ae8bd0bf3b7e5698fc307daa223d07d8dbe2a4e3cfc552f4dccbd"
+    },
+    "src/verification/contracts.mjs": {
+      "parseVerificationContracts": "d77d985b1459ea454987a29cce7e51b2aa2c7f93402a0f1de6b9eb4b266a8518",
+      "normalizeVerificationContracts": "643667904f0e930eaf42e785d8c88e5794283ce27bdbad2510eac3c21d8b2b05",
+      "contractSha256": "9e09019523c6dd38d5ab9ebb14d682719abbeec65fae7a3d58bb882b62d7ebdf",
+      "witnessMappingCore": "744b21e2e2c106c14c52578ba632ff68b97239b90dcc1d87cea2a1a896ab15b2"
+    },
+    "src/verification/intent.mjs": {
+      "parseVerificationIntent": "91e93dfba5f1d57cd29e5a2b3415a3ed9c10fcd460c24db889f6b74f14e1af94",
+      "validatePlannedVerification": "ea2fc7295a9b4d92e6ef393bd0d14745b4176bd68267b880ed2c20f169ddf0ff"
+    }
+  },
+  "cases": [
+    {
+      "name": "empty",
+      "operation": "extractClauses",
+      "args": [
+        "",
+        {}
+      ],
+      "outcome": {
+        "result": []
+      }
+    },
+    {
+      "name": "own-lines",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001]\nAccept café 😀.\n\n[VALUE:AC-001]\nDepends on VALUE:REQ-001. Returns FF.\n",
+        {
+          "sourcePath": "docs/spec.md",
+          "namespace": "VALUE"
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": "docs/spec.md",
+              "line": 1
+            },
+            "body": "Accept café 😀.",
+            "bodySha256": "68ba86fdead7710e61f34fcd6148e88ec318ed082a672a4775369a60528f659e",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": "docs/spec.md",
+              "line": 4
+            },
+            "body": "Depends on VALUE:REQ-001. Returns FF.",
+            "bodySha256": "e1a09aec07ae4d15d025fbb8d8d3b03350a9bdcdf7b434ff6a850df713baa7a0",
+            "dependsOn": [
+              "VALUE:REQ-001"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "trailing-list",
+      "operation": "extractClauses",
+      "args": [
+        "- Accept a value. [VALUE:REQ-001]\n- Returns FF. [VALUE:AC-001]\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Accept a value.",
+            "bodySha256": "d93724cc559552be2f1209a030e67630bec78dc771bc52f7499a6f4ad38c7ecb",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 2
+            },
+            "body": "Returns FF.",
+            "bodySha256": "2266c00ce0f4240969890a5b7b14fe8a3d951c420db53433f0e6c45c0ee15045",
+            "dependsOn": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "leading-table",
+      "operation": "extractClauses",
+      "args": [
+        "| ID | Outcome |\n| --- | --- |\n| [VALUE:REQ-001] | Accept a value |\n| [VALUE:AC-001] | Return FF |\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 3
+            },
+            "body": "Accept a value",
+            "bodySha256": "4f66f1d708769462ed7b0581b23f2ee0c4bf431277b6b8b5a5a2dbb58bb74928",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 4
+            },
+            "body": "Return FF",
+            "bodySha256": "728155b436cfc79fca309fd7b2d2c9e12c69c93237e857120891fbc24e71f6e5",
+            "dependsOn": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "heading",
+      "operation": "extractClauses",
+      "args": [
+        "## [VALUE:REQ-001] Conversion\n\nAccept a positive integer.\n\n## Next\nIgnored section.\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Conversion\nAccept a positive integer.",
+            "bodySha256": "2db3ad8b2dfb3f76c92ee50f37a9e8d4ba76355f7fbd279dfe20da0291ca298d",
+            "dependsOn": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "two-in-paragraph",
+      "operation": "extractClauses",
+      "args": [
+        "Accept input [VALUE:REQ-001]. Return FF [VALUE:AC-001].\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Accept input",
+            "bodySha256": "510691e34b4d07186884d1fdfd00810443e621188416390b6194d4f5fbb80e2a",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Return FF",
+            "bodySha256": "728155b436cfc79fca309fd7b2d2c9e12c69c93237e857120891fbc24e71f6e5",
+            "dependsOn": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "leading-siblings",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] Accept input. [VALUE:AC-001] Return FF.\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Accept input.",
+            "bodySha256": "2b8a470a5cf79d99cb3ff1f1f3362ba52c99356d0f8359cd2d10abdaac496533",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Return FF.",
+            "bodySha256": "dff3de76ac68a26993234d5d9b80b6efa2b264578bc3c716f9f391e8bfcb1107",
+            "dependsOn": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed-case",
+      "operation": "extractClauses",
+      "args": [
+        "[value:req-001]\nAccept input.\n\n[value:ac-001]\nDepends on VaLuE:rEq-001.",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[value:req-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Accept input.",
+            "bodySha256": "2b8a470a5cf79d99cb3ff1f1f3362ba52c99356d0f8359cd2d10abdaac496533",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[value:ac-001]",
+            "source": {
+              "path": null,
+              "line": 4
+            },
+            "body": "Depends on VaLuE:rEq-001.",
+            "bodySha256": "328d26c8110fa17d55b178d3ea6167c3809e3c6cdc68c3deda02655dde9a4b50",
+            "dependsOn": [
+              "VALUE:REQ-001"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "masked",
+      "operation": "extractClauses",
+      "args": [
+        "`[VALUE:REQ-099]`\n\n```md\n[VALUE:REQ-098]\n```\n<!-- [VALUE:REQ-097] -->\n<!-- singularity-flow:inputs:start -->\n[VALUE:REQ-096]\n<!-- singularity-flow:inputs:end -->\n[VALUE:REQ-001]\nReal statement.\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 10
+            },
+            "body": "Real statement.",
+            "bodySha256": "b077994a839f263b4fff21b19e257a34430b1f32f54d534a05b6d39f32dcfe99",
+            "dependsOn": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicates",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] First.\n\n[VALUE:req-001] Second.",
+        {}
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "Clause VALUE:REQ-001 is duplicated at lines 1 and 3. Brackets define a clause, once; cite it elsewhere as `VALUE:REQ-001` in backticks, without brackets.",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "namespace-mismatch",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] Statement.",
+        {
+          "namespace": "OTHER"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "Clause VALUE:REQ-001 does not use configured namespace OTHER.",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "missing-dependency",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:AC-001] Depends on VALUE:REQ-009.",
+        {}
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_CLAUSE_DEPENDENCY_MISSING",
+          "message": "Clause VALUE:AC-001 references missing dependency VALUE:REQ-009. A clause may depend only on a clause this Story defines.",
+          "details": {
+            "clause": "VALUE:AC-001",
+            "dependency": "VALUE:REQ-009",
+            "line": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "external-id",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:AC-001] Depends on VALUE:REQ-009.",
+        {
+          "externalClauseIds": [
+            "value:req-009"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Depends on VALUE:REQ-009.",
+            "bodySha256": "8cdaa175f4cf6cfedfdd3f6b55eba9ca14d3681dd670ea8338e02e8d4b7af17c",
+            "dependsOn": [
+              "VALUE:REQ-009"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "external-record",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:AC-001] Depends on VALUE:REQ-001.",
+        {
+          "externalClauses": [
+            {
+              "id": "VALUE:REQ-001",
+              "source": {
+                "path": "previous.md",
+                "line": 7
+              },
+              "dependsOn": []
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Depends on VALUE:REQ-001.",
+            "bodySha256": "bb43dcc2cc8fd2c59285fa48797747eb7996b66ea4cccde61b92d1d05629e470",
+            "dependsOn": [
+              "VALUE:REQ-001"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "redefinition",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] Changed.",
+        {
+          "externalClauses": [
+            {
+              "id": "VALUE:REQ-001",
+              "source": {
+                "path": "previous.md",
+                "line": 7
+              },
+              "dependsOn": []
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_CLAUSE_REDEFINED",
+          "message": "Clause VALUE:REQ-001 at line 1 is already defined by an earlier phase in previous.md line 7. A clause is defined once per Story: cite it as VALUE:REQ-001 without brackets, or give the new clause its own number.",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "cycle",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] Depends on VALUE:AC-001.\n\n[VALUE:AC-001] Depends on VALUE:REQ-001.",
+        {}
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_CLAUSE_DEPENDENCY_CYCLE",
+          "message": "Specification clause dependency cycle: VALUE:REQ-001 -> VALUE:AC-001 -> VALUE:REQ-001.",
+          "details": {
+            "cycle": [
+              "VALUE:REQ-001",
+              "VALUE:AC-001",
+              "VALUE:REQ-001"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "external-cycle",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:AC-001] Depends on VALUE:REQ-001.",
+        {
+          "externalClauses": [
+            {
+              "id": "VALUE:REQ-001",
+              "dependsOn": [
+                "VALUE:AC-001"
+              ]
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_CLAUSE_DEPENDENCY_CYCLE",
+          "message": "Specification clause dependency cycle: VALUE:REQ-001 -> VALUE:AC-001 -> VALUE:REQ-001.",
+          "details": {
+            "cycle": [
+              "VALUE:REQ-001",
+              "VALUE:AC-001",
+              "VALUE:REQ-001"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "clause-limit",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] One.\n\n[VALUE:AC-001] Two.",
+        {
+          "limits": {
+            "maxClausesPerArtifact": 1,
+            "maxDependenciesPerClause": 8
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "Specification contains 2 clauses; configured maximum is 1.",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "dependency-limit",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:AC-001] VALUE:REQ-001 and VALUE:REQ-002.",
+        {
+          "limits": {
+            "maxClausesPerArtifact": 10,
+            "maxDependenciesPerClause": 1
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "Clause VALUE:AC-001 references more than 1 dependencies.",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "invalid-input",
+      "operation": "extractClauses",
+      "args": [
+        null,
+        {}
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": null,
+          "message": "Specification artifact must be UTF-8 Markdown.",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "intent-index",
+      "operation": "extractClauses",
+      "args": [
+        "[VALUE:REQ-001] Accept.\n\n[VALUE:AC-001] Observe.\n\n## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | visual | VALUE:AC-001 |\n| VALUE:AC-001 | visual | - |\n",
+        {}
+      ],
+      "outcome": {
+        "result": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": null,
+              "line": 1
+            },
+            "body": "Accept.",
+            "bodySha256": "f02ae116e4c5a651e903479246e04215856a31a4e7f43d7f657140fc15cc49a3",
+            "dependsOn": [],
+            "verification": {
+              "methods": [
+                "visual"
+              ],
+              "criterionId": "VALUE:AC-001"
+            }
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": null,
+              "line": 3
+            },
+            "body": "Observe.",
+            "bodySha256": "4947bac3d7c2470deddbb16d5ef7f165f67202562d7458b3a202b019eace0973",
+            "dependsOn": [],
+            "verification": {
+              "methods": [
+                "visual"
+              ],
+              "criterionId": "VALUE:AC-001"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "references-boundaries",
+      "operation": "clauseReferences",
+      "args": [
+        "VALUE:REQ-001 XVALUE:REQ-001 VALUE:REQ-0010 value:ac-001 OTHER:REQ-001-extra"
+      ],
+      "outcome": {
+        "result": [
+          "VALUE:AC-001",
+          "VALUE:REQ-001",
+          "XVALUE:REQ-001"
+        ]
+      }
+    },
+    {
+      "name": "ignored-regions",
+      "operation": "ignoredRanges",
+      "args": [
+        "Visible\n<!-- singularity-flow:metadata:start -->\n[VALUE:REQ-099]\n<!-- singularity-flow:metadata:end -->\n```md\n[VALUE:REQ-098]\n```\n`inline`\n<!-- note -->\n"
+      ],
+      "outcome": {
+        "result": [
+          [
+            104,
+            129
+          ],
+          [
+            104,
+            106
+          ],
+          [
+            126,
+            128
+          ],
+          [
+            130,
+            138
+          ],
+          [
+            8,
+            103
+          ],
+          [
+            8,
+            48
+          ],
+          [
+            65,
+            103
+          ],
+          [
+            139,
+            152
+          ]
+        ]
+      }
+    },
+    {
+      "name": "author-visible",
+      "operation": "plannedClaimSource",
+      "args": [
+        "Visible\n<!-- singularity-flow:metadata:start -->\n[VALUE:REQ-099]\n<!-- singularity-flow:metadata:end -->\n```md\n[VALUE:REQ-098]\n```\n`inline`\n<!-- note -->\n"
+      ],
+      "outcome": {
+        "result": "Visible\n                                        \n               \n                                      \n     \n               \n   \n`inline`\n             \n"
+      }
+    },
+    {
+      "name": "canonical-nested",
+      "operation": "canonicalJson",
+      "args": [
+        {
+          "z": [
+            {
+              "b": 2,
+              "a": 1
+            }
+          ],
+          "a": "café 😀"
+        }
+      ],
+      "outcome": {
+        "result": "{\n  \"a\": \"café 😀\",\n  \"z\": [\n    {\n      \"a\": 1,\n      \"b\": 2\n    }\n  ]\n}\n"
+      }
+    },
+    {
+      "name": "contract-default",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contract-inspection",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | inspection | `docs/runbook.md` |  | source-bound |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "inspection",
+                "role": "primary",
+                "witness": {
+                  "path": "docs/runbook.md"
+                },
+                "requiredAssurance": "source-bound"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contract-visual",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | visual | `Value screen` |  | declared |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "visual",
+                "role": "primary",
+                "witness": {
+                  "target": "Value screen"
+                },
+                "requiredAssurance": "declared"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contract-unknown-criterion",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-999 | unit | test | `test/value.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4 names VALUE:AC-999, which is not a criterion of this Story. It holds 'VALUE:AC-999'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-999",
+            "field": "criterion",
+            "actual": "VALUE:AC-999",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4 names VALUE:AC-999, which is not a criterion of this Story. It holds 'VALUE:AC-999'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-999",
+                "field": "criterion",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-999",
+                  "field": "criterion",
+                  "actual": "VALUE:AC-999"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-bad-slot",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | Not A Slot | test | `test/value.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4 needs a slot name of lowercase letters, digits and hyphens, such as unit or review. It holds 'Not A Slot'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "slot",
+            "actual": "Not A Slot",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4 needs a slot name of lowercase letters, digits and hyphens, such as unit or review. It holds 'Not A Slot'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "slot",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "slot",
+                  "actual": "Not A Slot"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-unsupported-method",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | measurement | `test/value.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4 uses measurement, which this repository cannot verify yet; use test, inspection, visual, or record a risk decision when the Story ends. It holds 'measurement'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "method",
+            "actual": "measurement",
+            "method": "measurement",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4 uses measurement, which this repository cannot verify yet; use test, inspection, visual, or record a risk decision when the Story ends. It holds 'measurement'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "method",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "method",
+                  "actual": "measurement",
+                  "method": "measurement"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-supporting-only",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` | supporting |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 has only supporting witnesses; a supporting witness never verifies a criterion, so name at least one primary witness.",
+          "details": {
+            "clauseId": "VALUE:AC-001",
+            "field": "contract",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 has only supporting witnesses; a supporting witness never verifies a criterion, so name at least one primary witness.",
+                "line": null,
+                "clauseId": "VALUE:AC-001",
+                "field": "contract",
+                "details": {
+                  "clauseId": "VALUE:AC-001",
+                  "field": "contract"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-any-no-reason",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  | any |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 accepts any of its witnesses; say why one alternative is enough with a Reason, so the plan's reviewer decides it.",
+          "details": {
+            "clauseId": "VALUE:AC-001",
+            "field": "contract",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 accepts any of its witnesses; say why one alternative is enough with a Reason, so the plan's reviewer decides it.",
+                "line": null,
+                "clauseId": "VALUE:AC-001",
+                "field": "contract",
+                "details": {
+                  "clauseId": "VALUE:AC-001",
+                  "field": "contract"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-any-reviewed",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  | any | Either independent suite fully proves the outcome. |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "result": [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "any",
+            "reason": "Either independent suite fully proves the outcome.",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "contract-wrong-assurance",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  | source-bound |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4 may require only module-observed or exact-local-observed for a test witness; its Required assurance holds 'source-bound'. Write one of those words alone in that column, or leave it empty for the default; the Witness column holds only one planned test file, such as `test/orders.test.js`.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "required assurance",
+            "actual": "source-bound",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4 may require only module-observed or exact-local-observed for a test witness; its Required assurance holds 'source-bound'. Write one of those words alone in that column, or leave it empty for the default; the Witness column holds only one planned test file, such as `test/orders.test.js`.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "required assurance",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "required assurance",
+                  "actual": "source-bound"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-unqualified-assurance",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  | exact-authenticated |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4 requires exact-authenticated, which needs qualified execution this repository does not have; require exact-local-observed or less. It holds 'exact-authenticated'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "required assurance",
+            "actual": "exact-authenticated",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4 requires exact-authenticated, which needs qualified execution this repository does not have; require exact-local-observed or less. It holds 'exact-authenticated'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "required assurance",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "required assurance",
+                  "actual": "exact-authenticated"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-witness-prose",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` (exact-local-observed) |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must name exactly one witness in backticks and nothing else; it holds '`test/value.test.js` (exact-local-observed)'. A test witness is one planned test file, such as `test/orders.test.js`; an assurance level goes in the Required assurance column, and why in Reason.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`test/value.test.js` (exact-local-observed)",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must name exactly one witness in backticks and nothing else; it holds '`test/value.test.js` (exact-local-observed)'. A test witness is one planned test file, such as `test/orders.test.js`; an assurance level goes in the Required assurance column, and why in Reason.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`test/value.test.js` (exact-local-observed)"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-bad-visual",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | visual | `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must name the screen or scenario its visual evidence shows, in at most 200 characters. It holds '`xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must name the screen or scenario its visual evidence shows, in at most 200 characters. It holds '`xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-short-reason",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  |  | why |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4 needs a reason of 10 to 500 characters. It holds 'why'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "reason",
+            "actual": "why",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4 needs a reason of 10 to 500 characters. It holds 'why'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "reason",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "reason",
+                  "actual": "why"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-missing-planned-test",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/other.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:REQ-001",
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "tests": [
+                "test/value.test.js"
+              ],
+              "testDisposition": "applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001's test slot unit names test/other.test.js, which is not among its planned tests (test/value.test.js).",
+          "details": {
+            "clauseId": "VALUE:AC-001",
+            "field": "contract",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001's test slot unit names test/other.test.js, which is not among its planned tests (test/value.test.js).",
+                "line": null,
+                "clauseId": "VALUE:AC-001",
+                "field": "contract",
+                "details": {
+                  "clauseId": "VALUE:AC-001",
+                  "field": "contract"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"../escape.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `../escape.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; '../escape.js' is not: it climbs out with ..; write the path from the repository root. It holds '`../escape.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`../escape.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; '../escape.js' is not: it climbs out with ..; write the path from the repository root. It holds '`../escape.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`../escape.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"./test/a.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `./test/a.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; './test/a.js' is not: it has ./ or // in it; write the plain path from the repository root. It holds '`./test/a.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`./test/a.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; './test/a.js' is not: it has ./ or // in it; write the plain path from the repository root. It holds '`./test/a.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`./test/a.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"test//a.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test//a.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test//a.js' is not: it has ./ or // in it; write the plain path from the repository root. It holds '`test//a.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`test//a.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test//a.js' is not: it has ./ or // in it; write the plain path from the repository root. It holds '`test//a.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`test//a.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"/tmp/a.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `/tmp/a.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; '/tmp/a.js' is not: it is an absolute or Windows path; write it relative to the repository root with /. It holds '`/tmp/a.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`/tmp/a.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; '/tmp/a.js' is not: it is an absolute or Windows path; write it relative to the repository root with /. It holds '`/tmp/a.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`/tmp/a.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"C:/a.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `C:/a.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'C:/a.js' is not: it is an absolute or Windows path; write it relative to the repository root with /. It holds '`C:/a.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`C:/a.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'C:/a.js' is not: it is an absolute or Windows path; write it relative to the repository root with /. It holds '`C:/a.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`C:/a.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"test\\\\a.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test\\a.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test\\a.js' is not: it is an absolute or Windows path; write it relative to the repository root with /. It holds '`test\\a.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`test\\a.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test\\a.js' is not: it is an absolute or Windows path; write it relative to the repository root with /. It holds '`test\\a.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`test\\a.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"https://host/a\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `https://host/a` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'https://host/a' is not: it has ./ or // in it; write the plain path from the repository root. It holds '`https://host/a`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`https://host/a`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'https://host/a' is not: it has ./ or // in it; write the plain path from the repository root. It holds '`https://host/a`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`https://host/a`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"test/*.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/*.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test/*.js' is not: it is a pattern (* ? [ ] { }); name one exact file. It holds '`test/*.js`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`test/*.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test/*.js' is not: it is a pattern (* ? [ ] { }); name one exact file. It holds '`test/*.js`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`test/*.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"<file>.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `<file>.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; '<file>.js' is not: it holds a placeholder (< > $ ...); name the real file.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`<file>.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; '<file>.js' is not: it holds a placeholder (< > $ ...); name the real file.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`<file>.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"test/a.js/\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/a.js/` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test/a.js/' is not: it names a folder (ends with /); name a file. It holds '`test/a.js/`'.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`test/a.js/`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test/a.js/' is not: it names a folder (ends with /); name a file. It holds '`test/a.js/`'.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`test/a.js/`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "contract-path-\"test/a\\u0000.js\"",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/a\u0000.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test/a\u0000.js' is not: it holds a control character.",
+          "details": {
+            "line": 4,
+            "clauseId": "VALUE:AC-001",
+            "field": "witness",
+            "actual": "`test/a\u0000.js`",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "Verification contract row at line 4's witness must be one exact repository-relative path in backticks; 'test/a\u0000.js' is not: it holds a control character.",
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "witness",
+                "details": {
+                  "line": 4,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "witness",
+                  "actual": "`test/a\u0000.js`"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate-slot",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  |  |  |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 names slot unit more than once.",
+          "details": {
+            "line": 5,
+            "clauseId": "VALUE:AC-001",
+            "field": "slot",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 names slot unit more than once.",
+                "line": 5,
+                "clauseId": "VALUE:AC-001",
+                "field": "slot",
+                "details": {
+                  "line": 5,
+                  "clauseId": "VALUE:AC-001",
+                  "field": "slot"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "all-and-any",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  | all |  |\n| VALUE:AC-001 | other | test | `test/value.test.js` |  |  | any | Each witness independently proves the outcome. |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 combines its witnesses with both all and any; choose one.",
+          "details": {
+            "clauseId": "VALUE:AC-001",
+            "field": "contract",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 combines its witnesses with both all and any; choose one.",
+                "line": null,
+                "clauseId": "VALUE:AC-001",
+                "field": "contract",
+                "details": {
+                  "clauseId": "VALUE:AC-001",
+                  "field": "contract"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fenced-contract",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "```md\n## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  |  |  |\n```\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": []
+      }
+    },
+    {
+      "name": "prose-needs-slot",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "Primary visual verification contract for VALUE:AC-001.",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 declares a primary visual contract in prose, but has no matching primary slot in the Verification contracts table. Prose never replaces the structured verification contract.",
+          "details": {
+            "field": "primaryWitness",
+            "clauseId": "VALUE:AC-001",
+            "line": 1,
+            "correction": "register-verification-contract",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 declares a primary visual contract in prose, but has no matching primary slot in the Verification contracts table. Prose never replaces the structured verification contract.",
+                "line": 1,
+                "clauseId": "VALUE:AC-001",
+                "field": "primaryWitness",
+                "details": {
+                  "field": "primaryWitness",
+                  "clauseId": "VALUE:AC-001",
+                  "line": 1,
+                  "correction": "register-verification-contract"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "evidence-needs-primary",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "fulfillment": "evidence",
+              "expectedPaths": [
+                "evidence/screen.png"
+              ]
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 delivers retained evidence: name a primary visual or inspection contract; file presence alone cannot verify the criterion.",
+          "details": {
+            "clauseId": "VALUE:AC-001",
+            "field": "primaryWitness",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 delivers retained evidence: name a primary visual or inspection contract; file presence alone cannot verify the criterion.",
+                "line": null,
+                "clauseId": "VALUE:AC-001",
+                "field": "primaryWitness",
+                "details": {
+                  "clauseId": "VALUE:AC-001",
+                  "field": "primaryWitness"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "not-applicable-test-slot",
+      "operation": "parseVerificationContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | unit | test | `test/value.test.js` |  |  |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ],
+          "plannedClaims": {
+            "VALUE:AC-001": {
+              "testDisposition": "not-applicable"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001 plans no tests (not-applicable), so its slot unit cannot be a test.",
+          "details": {
+            "clauseId": "VALUE:AC-001",
+            "field": "contract",
+            "diagnostics": [
+              {
+                "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+                "message": "VALUE:AC-001 plans no tests (not-applicable), so its slot unit cannot be a test.",
+                "line": null,
+                "clauseId": "VALUE:AC-001",
+                "field": "contract",
+                "details": {
+                  "clauseId": "VALUE:AC-001",
+                  "field": "contract"
+                }
+              }
+            ],
+            "diagnosticSummary": {
+              "maximum": 256,
+              "omitted": 0,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "collected-diagnostics",
+      "operation": "inspectContracts",
+      "args": [
+        "## Verification contracts\n| Criterion | Slot | Method | Witness | Role | Required assurance | Combination | Reason |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| VALUE:AC-001 | Bad | manual | `test/value.test.js` | other | unknown |  |  |\n",
+        {
+          "clauseIds": [
+            "VALUE:AC-001"
+          ]
+        }
+      ],
+      "outcome": {
+        "result": {
+          "contracts": [],
+          "diagnostics": [
+            {
+              "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+              "message": "Verification contract row at line 4 uses manual, which this repository cannot verify yet; use test, inspection, visual, or record a risk decision when the Story ends. It holds 'manual'.",
+              "line": 4,
+              "clauseId": "VALUE:AC-001",
+              "field": "method",
+              "details": {
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "method",
+                "actual": "manual",
+                "method": "manual"
+              }
+            },
+            {
+              "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+              "message": "Verification contract row at line 4 must be primary or supporting. It holds 'other'.",
+              "line": 4,
+              "clauseId": "VALUE:AC-001",
+              "field": "role",
+              "details": {
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "role",
+                "actual": "other"
+              }
+            },
+            {
+              "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+              "message": "Verification contract row at line 4 requires a known assurance value, not scenario or reviewer prose: write module-observed or exact-local-observed or declared or source-bound or declared or source-bound alone, or leave the column empty. It holds 'unknown'.",
+              "line": 4,
+              "clauseId": "VALUE:AC-001",
+              "field": "required assurance",
+              "details": {
+                "line": 4,
+                "clauseId": "VALUE:AC-001",
+                "field": "required assurance",
+                "actual": "unknown"
+              }
+            }
+          ],
+          "summary": {
+            "maximum": 256,
+            "omitted": 0,
+            "complete": true
+          }
+        }
+      }
+    },
+    {
+      "name": "normalized-contracts",
+      "operation": "normalizeVerificationContracts",
+      "args": [
+        [
+          {
+            "clauseId": "value:ac-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        ]
+      ],
+      "outcome": {
+        "result": [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate-normalized",
+      "operation": "normalizeVerificationContracts",
+      "args": [
+        [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          },
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "verificationContracts names VALUE:AC-001 invalidly or twice.",
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "no-primary-normalized",
+      "operation": "normalizeVerificationContracts",
+      "args": [
+        [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": []
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "The contract of VALUE:AC-001 has no primary witness.",
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "invalid-record-path",
+      "operation": "normalizeVerificationContracts",
+      "args": [
+        [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "../escape"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "VALUE:AC-001.unit must be one exact repository-relative path in backticks; '../escape' is not: it climbs out with ..; write the path from the repository root.",
+          "details": {}
+        }
+      }
+    },
+    {
+      "name": "merged-contracts",
+      "operation": "mergedVerificationContracts",
+      "args": [
+        [
+          {
+            "verificationContracts": [
+              {
+                "clauseId": "VALUE:AC-001",
+                "combination": "all",
+                "slots": [
+                  {
+                    "slot": "unit",
+                    "method": "test",
+                    "role": "primary",
+                    "witness": {
+                      "path": "test/value.test.js"
+                    },
+                    "requiredAssurance": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "verificationContracts": [
+              {
+                "clauseId": "VALUE:AC-001",
+                "combination": "all",
+                "slots": [
+                  {
+                    "slot": "screen",
+                    "method": "visual",
+                    "role": "primary",
+                    "witness": {
+                      "target": "Value screen"
+                    },
+                    "requiredAssurance": "source-bound"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      ],
+      "outcome": {
+        "result": [
+          [
+            "VALUE:AC-001",
+            {
+              "clauseId": "VALUE:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "screen",
+                  "method": "visual",
+                  "role": "primary",
+                  "witness": {
+                    "target": "Value screen"
+                  },
+                  "requiredAssurance": "source-bound"
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "name": "default-contract",
+      "operation": "effectiveContract",
+      "args": [
+        "VALUE:AC-001",
+        [],
+        {
+          "tests": [
+            "test/value.test.js"
+          ],
+          "testDisposition": "applicable"
+        }
+      ],
+      "outcome": {
+        "result": {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "stated": false,
+          "slots": [
+            {
+              "slot": "tests",
+              "method": "test",
+              "role": "primary",
+              "witness": {
+                "paths": [
+                  "test/value.test.js"
+                ]
+              },
+              "requiredAssurance": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "stated-contract",
+      "operation": "effectiveContract",
+      "args": [
+        "VALUE:AC-001",
+        [
+          [
+            "VALUE:AC-001",
+            {
+              "clauseId": "VALUE:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "screen",
+                  "method": "visual",
+                  "role": "primary",
+                  "witness": {
+                    "target": "Value screen"
+                  },
+                  "requiredAssurance": "source-bound"
+                }
+              ]
+            }
+          ]
+        ],
+        {
+          "tests": [
+            "test/value.test.js"
+          ],
+          "testDisposition": "applicable"
+        }
+      ],
+      "outcome": {
+        "result": {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "slots": [
+            {
+              "slot": "screen",
+              "method": "visual",
+              "role": "primary",
+              "witness": {
+                "target": "Value screen"
+              },
+              "requiredAssurance": "source-bound"
+            }
+          ],
+          "stated": true
+        }
+      }
+    },
+    {
+      "name": "not-applicable-contract",
+      "operation": "effectiveContract",
+      "args": [
+        "VALUE:AC-001",
+        [],
+        {
+          "testDisposition": "not-applicable"
+        }
+      ],
+      "outcome": {
+        "result": null
+      }
+    },
+    {
+      "name": "contract-test-tag",
+      "operation": "contractRequiresTestTag",
+      "args": [
+        {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "slots": [
+            {
+              "slot": "unit",
+              "method": "test",
+              "role": "primary",
+              "witness": {
+                "path": "test/value.test.js"
+              },
+              "requiredAssurance": null
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "result": true
+      }
+    },
+    {
+      "name": "visual-no-tag",
+      "operation": "contractRequiresTestTag",
+      "args": [
+        {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "slots": [
+            {
+              "slot": "screen",
+              "method": "visual",
+              "role": "primary",
+              "witness": {
+                "target": "Value screen"
+              },
+              "requiredAssurance": "source-bound"
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "result": false
+      }
+    },
+    {
+      "name": "test-slot",
+      "operation": "testSlotFor",
+      "args": [
+        {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "slots": [
+            {
+              "slot": "unit",
+              "method": "test",
+              "role": "primary",
+              "witness": {
+                "path": "test/value.test.js"
+              },
+              "requiredAssurance": null
+            }
+          ]
+        },
+        {
+          "testSource": "test/value.test.js"
+        }
+      ],
+      "outcome": {
+        "result": {
+          "slot": "unit",
+          "method": "test",
+          "role": "primary",
+          "witness": {
+            "path": "test/value.test.js"
+          },
+          "requiredAssurance": null
+        }
+      }
+    },
+    {
+      "name": "contract-digest",
+      "operation": "contractSha256",
+      "args": [
+        {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "slots": [
+            {
+              "slot": "unit",
+              "method": "test",
+              "role": "primary",
+              "witness": {
+                "path": "test/value.test.js"
+              },
+              "requiredAssurance": null
+            }
+          ],
+          "stated": true
+        }
+      ],
+      "outcome": {
+        "result": "sha256:2c5327da6abdaa51a003b0e2a901fb9cacbf72f88771f7e679d8443cbc138d69"
+      }
+    },
+    {
+      "name": "contract-null-digest",
+      "operation": "contractSha256",
+      "args": [
+        null
+      ],
+      "outcome": {
+        "result": null
+      }
+    },
+    {
+      "name": "witness-mapping",
+      "operation": "witnessMappingCore",
+      "args": [
+        {
+          "clauseId": "VALUE:AC-001",
+          "profile": "jest-static-v2",
+          "logicalTestId": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "testSource": "test/value.test.js",
+          "declarationSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "supportSha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        {
+          "clauseBodySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+          "contract": {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "unit",
+                "method": "test",
+                "role": "primary",
+                "witness": {
+                  "path": "test/value.test.js"
+                },
+                "requiredAssurance": null
+              }
+            ]
+          }
+        }
+      ],
+      "outcome": {
+        "result": {
+          "clauseId": "VALUE:AC-001",
+          "witnessType": "test",
+          "executionProfile": "jest-static-v2",
+          "logicalTestId": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "sourcePath": "test/value.test.js",
+          "sourceDeclarationSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "supportSha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "clauseBodySha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "contractSha256": "sha256:6be7ec702f3069a74d3aad793ff43683d5d8bc7f587c0a94651cdb0137f85b16",
+          "slot": "unit"
+        }
+      }
+    },
+    {
+      "name": "witness-digest",
+      "operation": "witnessMappingSha256",
+      "args": [
+        {
+          "clauseId": "VALUE:AC-001",
+          "slot": "unit",
+          "nested": {
+            "b": 2,
+            "a": 1
+          }
+        }
+      ],
+      "outcome": {
+        "result": "sha256:cb25ca7f6dcd03c3692f8e109008ecedb3613d48389ab1b40e9284c2653606b5"
+      }
+    },
+    {
+      "name": "prose-declarations",
+      "operation": "proseVerificationDeclarations",
+      "args": [
+        "Primary visual verification contract for VALUE:AC-001.\n\nPrimary inspection verification contract for value:ac-002.\n"
+      ],
+      "outcome": {
+        "result": [
+          {
+            "method": "visual",
+            "clauseIds": [
+              "VALUE:AC-001"
+            ],
+            "line": 1
+          },
+          {
+            "method": "inspection",
+            "clauseIds": [
+              "VALUE:AC-002"
+            ],
+            "line": 3
+          }
+        ]
+      }
+    },
+    {
+      "name": "retained-evidence-typed",
+      "operation": "validateRetainedEvidenceDeclarations",
+      "args": [
+        "Inspect `evidence/screen.png`.",
+        {
+          "VALUE:AC-001": {
+            "fulfillment": "evidence",
+            "expectedPaths": [
+              "evidence/screen.png"
+            ]
+          }
+        },
+        {
+          "evidenceRoot": "evidence"
+        }
+      ],
+      "outcome": {
+        "result": null
+      }
+    },
+    {
+      "name": "retained-evidence-untyped",
+      "operation": "validateRetainedEvidenceDeclarations",
+      "args": [
+        "Inspect `evidence/screen.png`.",
+        {},
+        {
+          "evidenceRoot": "evidence"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_CONTRACT_INVALID",
+          "message": "Retained file evidence/screen.png is named outside a typed evidence row. Put its exact path in Expected paths with Fulfillment evidence, and define a primary visual/inspection slot in the Verification contracts table.",
+          "details": {
+            "path": "evidence/screen.png",
+            "correction": "type-retained-evidence"
+          }
+        }
+      }
+    },
+    {
+      "name": "historical-intent",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "No table.",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "result": []
+      }
+    },
+    {
+      "name": "visual-intent",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | visual | VALUE:AC-001 |\n| VALUE:AC-001 | visual | - |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "result": [
+          [
+            "VALUE:REQ-001",
+            {
+              "methods": [
+                "visual"
+              ],
+              "criterionId": "VALUE:AC-001"
+            }
+          ],
+          [
+            "VALUE:AC-001",
+            {
+              "methods": [
+                "visual"
+              ],
+              "criterionId": "VALUE:AC-001"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "name": "intent-wrong-header",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Item | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | visual | VALUE:AC-001 |\n| VALUE:AC-001 | visual | - |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "Verification intent needs one table whose header is exactly Clause | Methods | Criterion; the table at line 2 has 'Item | Methods | Criterion'. Keep any legend or notes outside the table.",
+          "details": {
+            "repairScope": "current-draft",
+            "line": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "intent-missing-row",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | visual | VALUE:AC-001 |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "Verification intent is missing clauses: VALUE:AC-001.",
+          "details": {
+            "repairScope": "current-draft",
+            "clauses": [
+              "VALUE:AC-001"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "intent-duplicate",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | visual | VALUE:AC-001 |\n| VALUE:AC-001 | visual | - |\n| VALUE:REQ-001 | visual | VALUE:AC-001 |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "Verification intent lists VALUE:REQ-001 twice (line 6); give each clause one row.",
+          "details": {
+            "repairScope": "current-draft",
+            "clauseId": "VALUE:REQ-001",
+            "line": 6
+          }
+        }
+      }
+    },
+    {
+      "name": "intent-method-weakened",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | test, visual | VALUE:AC-001 |\n| VALUE:AC-001 | visual | - |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "VALUE:REQ-001 is proven by test, visual, but its criterion VALUE:AC-001 lists only visual in Verification intent: add test to VALUE:AC-001's Methods, or remove it from VALUE:REQ-001's.",
+          "details": {
+            "repairScope": "current-draft",
+            "clauseId": "VALUE:REQ-001",
+            "uncovered": [
+              "test"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "intent-undeclared",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| REQ-001 | test | - |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "Verification intent row at line 4 names 'REQ-001', which is not a clause this draft declares; write it in full, as `VALUE:REQ-001`.",
+          "details": {
+            "repairScope": "current-draft",
+            "clauseId": "REQ-001",
+            "line": 4
+          }
+        }
+      }
+    },
+    {
+      "name": "intent-non-test-missing-criterion",
+      "operation": "parseVerificationIntent",
+      "args": [
+        "## Verification intent\n| Clause | Methods | Criterion |\n| --- | --- | --- |\n| VALUE:REQ-001 | visual | - |\n| VALUE:AC-001 | visual | - |\n",
+        [
+          {
+            "id": "VALUE:REQ-001"
+          },
+          {
+            "id": "VALUE:AC-001"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "VALUE:REQ-001 needs an AC Criterion for its visual/inspection proof.",
+          "details": {
+            "repairScope": "current-draft",
+            "clauseId": "VALUE:REQ-001",
+            "line": 4
+          }
+        }
+      }
+    },
+    {
+      "name": "non-test-proof",
+      "operation": "nonTestVerification",
+      "args": [
+        "VALUE:AC-001",
+        {
+          "verificationCriterion": "VALUE:AC-001"
+        },
+        [
+          [
+            "VALUE:AC-001",
+            {
+              "clauseId": "VALUE:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "screen",
+                  "method": "visual",
+                  "role": "primary",
+                  "witness": {
+                    "target": "Value screen"
+                  },
+                  "requiredAssurance": "source-bound"
+                }
+              ]
+            }
+          ]
+        ],
+        {
+          "methods": [
+            "visual"
+          ],
+          "criterionId": "VALUE:AC-001"
+        }
+      ],
+      "outcome": {
+        "result": {
+          "clauseId": "VALUE:AC-001",
+          "combination": "all",
+          "slots": [
+            {
+              "slot": "screen",
+              "method": "visual",
+              "role": "primary",
+              "witness": {
+                "target": "Value screen"
+              },
+              "requiredAssurance": "source-bound"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "non-test-not-waiver",
+      "operation": "nonTestVerification",
+      "args": [
+        "VALUE:AC-001",
+        {
+          "verificationCriterion": "VALUE:AC-001"
+        },
+        [
+          [
+            "VALUE:AC-001",
+            {
+              "clauseId": "VALUE:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "screen",
+                  "method": "visual",
+                  "role": "primary",
+                  "witness": {
+                    "target": "Value screen"
+                  },
+                  "requiredAssurance": "source-bound"
+                }
+              ]
+            }
+          ]
+        ],
+        {
+          "methods": [
+            "test",
+            "visual"
+          ],
+          "criterionId": "VALUE:AC-001"
+        }
+      ],
+      "outcome": {
+        "result": null
+      }
+    },
+    {
+      "name": "planned-test-required",
+      "operation": "validatePlannedVerification",
+      "args": [
+        {
+          "VALUE:AC-001": {
+            "tests": [],
+            "testDisposition": "non-test",
+            "verificationCriterion": "VALUE:AC-001"
+          }
+        },
+        [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "screen",
+                "method": "visual",
+                "role": "primary",
+                "witness": {
+                  "target": "Value screen"
+                },
+                "requiredAssurance": "source-bound"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "id": "VALUE:AC-001",
+            "verification": {
+              "methods": [
+                "test"
+              ],
+              "criterionId": "VALUE:AC-001"
+            }
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "SPEC_VERIFICATION_INTENT_INVALID",
+          "message": "VALUE:AC-001 non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test. Missing: VALUE:AC-001's contract rows have no primary visual or inspection slot for every method VALUE:AC-001 lists (test).",
+          "details": {
+            "repairScope": "current-draft",
+            "clauseId": "VALUE:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "planned-visual-valid",
+      "operation": "validatePlannedVerification",
+      "args": [
+        {
+          "VALUE:AC-001": {
+            "tests": [],
+            "testDisposition": "non-test",
+            "verificationCriterion": "VALUE:AC-001"
+          }
+        },
+        [
+          {
+            "clauseId": "VALUE:AC-001",
+            "combination": "all",
+            "slots": [
+              {
+                "slot": "screen",
+                "method": "visual",
+                "role": "primary",
+                "witness": {
+                  "target": "Value screen"
+                },
+                "requiredAssurance": "source-bound"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "id": "VALUE:AC-001",
+            "verification": {
+              "methods": [
+                "visual"
+              ],
+              "criterionId": "VALUE:AC-001"
+            }
+          }
+        ]
+      ],
+      "outcome": {
+        "result": null
+      }
+    },
+    {
+      "name": "diagnostic-bound",
+      "operation": "diagnostics",
+      "args": [
+        260
+      ],
+      "outcome": {
+        "result": {
+          "count": 256,
+          "first": {
+            "code": "VALUE_INVALID",
+            "message": "Exact path required. It holds '<file>'.",
+            "line": 1,
+            "clauseId": null,
+            "field": null,
+            "details": {
+              "line": 1,
+              "actual": "<file>"
+            }
+          },
+          "last": {
+            "code": "VALUE_INVALID",
+            "message": "Exact path required. It holds '<file>'.",
+            "line": 256,
+            "clauseId": null,
+            "field": null,
+            "details": {
+              "line": 256,
+              "actual": "<file>"
+            }
+          },
+          "summary": {
+            "maximum": 256,
+            "omitted": 4,
+            "complete": false
+          }
+        }
+      }
+    }
+  ],
+  "indexes": [
+    {
+      "name": "ordinary",
+      "text": "[VALUE:REQ-001] Accept an integer.\n\n[VALUE:AC-001] Depends on VALUE:REQ-001. Return FF.\n",
+      "options": {
+        "workId": "value",
+        "phase": "specification",
+        "generation": 1,
+        "policy": {
+          "namespace": "VALUE"
+        }
+      },
+      "index": {
+        "schemaVersion": 1,
+        "workId": "value",
+        "phase": "specification",
+        "generation": 1,
+        "source": {
+          "path": "spec.md",
+          "sha256": "dd0a427418954120cb69c00cfd2acd4f44b445532e87ffee08c613c40a6ee7ab",
+          "bytes": 88
+        },
+        "clauses": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": "spec.md",
+              "line": 1
+            },
+            "body": "Accept an integer.",
+            "bodySha256": "827c97b833e74af8eaa94ff86be76b2153b0b6cd082b2400962d9b2468aa9152",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": "spec.md",
+              "line": 3
+            },
+            "body": "Depends on VALUE:REQ-001. Return FF.",
+            "bodySha256": "24ce037e1c80ba32c768a2a2d26376c0ef64af1c4918734b8d240fc64ebd3530",
+            "dependsOn": [
+              "VALUE:REQ-001"
+            ]
+          }
+        ],
+        "indexSha256": "6c66c7ea2ef41c368b6b448bf5d0f26ad70162912bbe5786caacd000646709a8"
+      }
+    },
+    {
+      "name": "unicode-crlf",
+      "text": "[VALUE:REQ-001] Café 😀.\r\n\r\n[VALUE:AC-001] Return π.\r\n",
+      "options": {
+        "workId": "value",
+        "phase": "custom",
+        "generation": "2"
+      },
+      "index": {
+        "schemaVersion": 1,
+        "workId": "value",
+        "phase": "custom",
+        "generation": 2,
+        "source": {
+          "path": "spec.md",
+          "sha256": "f03a4d0f1f75d9b2e040a8110a75fe95b522cce4b88cfe6e29a059420d5081e0",
+          "bytes": 58
+        },
+        "clauses": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": "spec.md",
+              "line": 1
+            },
+            "body": "Café 😀.",
+            "bodySha256": "04e7ce0da18be471dc1d0b1e2410e972493b50d637f775bd8380029916934f54",
+            "dependsOn": []
+          },
+          {
+            "id": "VALUE:AC-001",
+            "namespace": "VALUE",
+            "type": "AC",
+            "number": 1,
+            "anchor": "[VALUE:AC-001]",
+            "source": {
+              "path": "spec.md",
+              "line": 3
+            },
+            "body": "Return π.",
+            "bodySha256": "f8c431de37c483ee4fe10fa9129c598dacbc2e494090eb331de70e598e2d0a34",
+            "dependsOn": []
+          }
+        ],
+        "indexSha256": "a799e658d0f9aaa95e57e8872951330b8768d1f5a773366e2ab8a3087aca4b8d"
+      }
+    },
+    {
+      "name": "empty",
+      "text": "No clauses.\n",
+      "options": {},
+      "index": {
+        "schemaVersion": 1,
+        "workId": null,
+        "phase": null,
+        "generation": 0,
+        "source": {
+          "path": "spec.md",
+          "sha256": "07375ebc0cc725c00b01d1527bc38fbab6878009f027a5b904eb2e24a15ab136",
+          "bytes": 12
+        },
+        "clauses": [],
+        "indexSha256": "c2abf9025e0267eeed16fbef34a2bb7c5b0212efa89a2b259f13656f5f1070b5"
+      }
+    },
+    {
+      "name": "lossy-native-utf8",
+      "bytes": [
+        91,
+        86,
+        65,
+        76,
+        85,
+        69,
+        58,
+        82,
+        69,
+        81,
+        45,
+        48,
+        48,
+        49,
+        93,
+        32,
+        255,
+        10
+      ],
+      "options": {
+        "workId": "value",
+        "phase": "specification",
+        "generation": 1
+      },
+      "index": {
+        "schemaVersion": 1,
+        "workId": "value",
+        "phase": "specification",
+        "generation": 1,
+        "source": {
+          "path": "spec.md",
+          "sha256": "15d394c90befcdf71b9d0e94330caf5601824df4b79c371c16d566409ba0cedd",
+          "bytes": 18
+        },
+        "clauses": [
+          {
+            "id": "VALUE:REQ-001",
+            "namespace": "VALUE",
+            "type": "REQ",
+            "number": 1,
+            "anchor": "[VALUE:REQ-001]",
+            "source": {
+              "path": "spec.md",
+              "line": 1
+            },
+            "body": "�",
+            "bodySha256": "83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097",
+            "dependsOn": []
+          }
+        ],
+        "indexSha256": "5565351d35ef8a6e6182cf4a93696fdb7137e1e1c6b056516d2d62da181a32c6"
+      }
+    }
+  ]
+}

@@ -9,7 +9,7 @@ import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
   WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, EXECUTION_UNIT_ABI_SCHEMA, recordJsonSyntax,
-  recordReadTargetVersion,assertRecordRestampAllowed,REPOSITORY_CHANGE_SET_SCHEMA } from './foundation/record-schema.mjs';
+  recordReadTargetVersion,assertRecordRestampAllowed,REPOSITORY_CHANGE_SET_SCHEMA,SPECIFICATION_INDEX_SCHEMA } from './foundation/record-schema.mjs';
 
 const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
 
@@ -2955,7 +2955,7 @@ const families = [
     paths: [/^\$git\/model-invocations\/[^/]+\.json$/]
   }),
   family({ id: 'planning-session', currentVersion: 1, paths: [/^\$git\/planning\/[^/]+\/manifest\.json$/] }),
-  family({ id: 'specification-index', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/], immutable: true }),
+  family({ ...SPECIFICATION_INDEX_SCHEMA, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/] }),
   family({
     id: 'specification-claim-map', currentVersion: 2,
     steps: [migration(1, 2, specificationClaimMapV1ToV2)],

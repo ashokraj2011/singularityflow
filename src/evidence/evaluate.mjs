@@ -25,7 +25,7 @@ import {
   DEFAULT_REQUIRED_ASSURANCE, ROW_RESULTS, obligationId, weakestAssurance
 } from './vocabulary.mjs';
 import { contractResult } from '../verification/contract-results.mjs';
-import { effectiveContract, mergedVerificationContracts, witnessMappingCore, witnessMappingSha256 } from '../verification/contracts.mjs';
+import {effectiveContract,mergedVerificationContracts,witnessMappingCore,witnessMappingSha256} from '../engine-compatibility/node-specification-policy.mjs';
 
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
 const STORY_RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);

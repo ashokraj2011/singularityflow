@@ -208,6 +208,9 @@ export const NAMESPACE_SOURCE_BASELINE_SCHEMAS = /* @__PURE__ */ Object.freeze({
   index: /* @__PURE__ */ frozenFamily('namespace-source-baseline-index')
 });
 export const SOURCE_CONTROL_OBSERVATION_SCHEMA=/* @__PURE__ */ frozenFamily('source-control-observation');
+// Native specification-index v1 keeps its existing read range and migration classification.
+export const SPECIFICATION_INDEX_SCHEMA=/* @__PURE__ */ Object.freeze({id:'specification-index',currentVersion:1,
+  minimumReadableVersion:1,maximumReadableVersion:1,unversionedAs:null,immutable:true,migrationPolicy:'migrate-on-read'});
 // Shared native/portable v1 read metadata; preserve the installed family's migration classification.
 export const REPOSITORY_CHANGE_SET_SCHEMA=/* @__PURE__ */ Object.freeze({id:'repository-change-set',currentVersion:1,
   minimumReadableVersion:1,maximumReadableVersion:1,unversionedAs:null,immutable:true,migrationPolicy:'migrate-on-read'});
@@ -328,7 +331,7 @@ export function admitRecordSchemaVersion(entry, input) {
 
 
 
-function canonicalize(value) {
+export function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
   return value;

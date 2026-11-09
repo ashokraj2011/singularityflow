@@ -41,7 +41,7 @@ import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { inReadScope, scopedRead } from './read-scope.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
-import { effectiveContract, mergedVerificationContracts, witnessMappingCore, witnessMappingSha256 } from './verification/contracts.mjs';
+import {effectiveContract,mergedVerificationContracts,witnessMappingCore,witnessMappingSha256} from './engine-compatibility/node-specification-policy.mjs';
 import { witnessLabel } from './verification/witness-results.mjs';
 import { verifySkillPhasePublication, verifyStoredSkillEvidence } from './skp-phase-evidence.mjs';
 

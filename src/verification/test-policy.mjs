@@ -24,7 +24,7 @@ import { ASSURANCE } from '../evidence/vocabulary.mjs';
 import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { commandCovering } from './adapters.mjs';
 import { capabilityLines, launcherPresent, repositoryTestCapability } from './capability.mjs';
-import { effectiveContract } from './contracts.mjs';
+import {effectiveContract} from '../engine-compatibility/node-specification-policy.mjs';
 import { profileCeiling, profileForCommand } from './profiles.mjs';
 
 export const BASELINE_FAILURE_DISPOSITIONS = Object.freeze(['repair-in-story', 'accept-pre-existing', 'resolve-outside']);

@@ -5,7 +5,7 @@ import { canonicalJson } from './foundation/record-schema.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { exactFileAtObject, head } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
-import { normalizeVerificationContracts } from './verification/contracts.mjs';
+import {normalizeVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const sha = z.string().regex(/^[a-f0-9]{64}$/u);

@@ -154,7 +154,7 @@ import { referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyR
 import { normalizeRequiredTestCommand, parseTestResult, runEnvironmentSha256, structuredTestCommandRequiredError, testReceiptPassing } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt, unchangedTestRun } from './verification/attempts.mjs';
 
-import { parseVerificationContracts } from './verification/contracts.mjs';
+import {parseVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
 import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from './verification/test-policy.mjs';
 
 import { buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths, repositoryCaseInsensitivePaths } from './repository-change-set.mjs';

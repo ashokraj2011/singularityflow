@@ -1,7 +1,7 @@
 /** Structural scenario coverage, not a judgment that prose implements the requested behavior. */
 import { parseMarkdownStructure } from './kernel/artifact-content.mjs';
 import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
-import { shown } from './draft-diagnostics.mjs';
+import {shown} from './kernel/draft-diagnostics.mjs';
 
 const OUTCOMES = new Set(['success', 'failure', 'boundary', 'empty']);
 const FAILURE_HINT = /\b(?:reject(?:s|ed|ing)?|(?:return|show|display|report|raise|produce)s?\b[^.\n]{0,60}\b(?:error|failure)|(?:error|failure)\s+(?:for|when|if|on))\b/iu;

@@ -8,7 +8,7 @@
  * removes it from its slot; an adequacy exception keeps it, visibly excepted.
  */
 import { ASSURANCE, EXECUTION_ASSURANCE } from '../evidence/vocabulary.mjs';
-import { testSlotFor } from './contracts.mjs';
+import {testSlotFor} from '../engine-compatibility/node-specification-policy.mjs';
 import { aggregateWitnesses, witnessResult } from './witness-results.mjs';
 
 const BLOCKERS = Object.freeze(['failed', 'inconclusive', 'missing', 'pending']);

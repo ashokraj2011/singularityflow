@@ -1057,12 +1057,47 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(result.record,original.record);assert.equal(result.recordedAt,original.recordedAt);assert.equal(result.status,'retained');
     assert.deepEqual(await f.head(),before);
   });
+  await t.test('installed specification values reproduce native indexes without a checkout or implicit infrastructure',async()=>{
+    const oracle=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-values/native-v1.json'),'utf8'));
+    await run('specification-values.mjs',`
+      import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import path from 'node:path';import {registerHooks} from 'node:module';
+      const blocked=[],hooks=registerHooks({resolve(specifier,context,next){if(specifier.startsWith('node:')){blocked.push(specifier);throw Error('Unexpected infrastructure import: '+specifier);}return next(specifier,context);}});
+      const pure=await import('${packageName}/specifications');
+      const digest=Object.freeze({profile:pure.TEXT_DIGEST_PROFILE,sha256Utf8:text=>createHash('sha256').update(text).digest('hex')});
+      const rules=pure.specificationValuePolicies(digest),captured=JSON.parse(process.argv[2]);
+      for(const entry of captured.indexes){const bytes=entry.bytes?Buffer.from(entry.bytes):Buffer.from(entry.text);
+        const clauses=rules.extractClauses(bytes.toString('utf8'),{sourcePath:'spec.md',namespace:entry.options.policy?.namespace??null});
+        const source={path:'spec.md',sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length};
+        assert.deepEqual(rules.specificationIndexRecord({...entry.options,source,clauses}),entry.index);}
+      assert.deepEqual(blocked,[]);hooks.deregister();
+      const native=await import('${packageName}/specifications/node');
+      const entry=captured.cases.find(entry=>entry.name==='contract-default');
+      const contracts=native.parseVerificationContracts(...entry.args);assert.deepEqual(contracts,entry.outcome.result);
+      assert.equal(native.contractSha256(contracts[0]).length,71);
+      assert.throws(()=>native.extractClauses('[VALUE:AC-001] Depends on VALUE:REQ-999.'),{code:'SPEC_CLAUSE_DEPENDENCY_MISSING'});
+      const findings=[];for(let index=0;index<260;index++)pure.collectDraftDiagnostic(findings,{message:'Actual input required.'},{line:index});
+      assert.deepEqual(pure.draftDiagnosticSummary(findings),{maximum:256,omitted:4,complete:false});
+      assert.equal(Object.hasOwn(rules,'buildSpecIndex'),false,'value rules must not discover or write files');
+    `,[JSON.stringify(oracle)]);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
       import type { EngineInputs, EngineOperation, EngineResult } from '${packageName}';
       import {createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '${packageName}/changes';
       import type {RepositoryChangeSetCodec} from '${packageName}/changes';
+      import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
+      import type {SpecificationClause,SpecificationIndex,VerificationContract} from '${packageName}/specifications';
+      import {extractClauses,parseVerificationContracts} from '${packageName}/specifications/node';
+      const specValues=specificationValuePolicies(Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
+      const specClauses:SpecificationClause[]=extractClauses('[VALUE:REQ-001] Exact.');
+      const specIndex:SpecificationIndex=specValues.specificationIndexRecord({source:{path:'spec.md',sha256:'a'.repeat(64),bytes:32},clauses:specClauses});
+      const specContracts:VerificationContract[]=parseVerificationContracts('');
+      parseVerificationIntent('',specClauses);
+      // @ts-expect-error An index value cannot accept or claim approval authority.
+      specValues.specificationIndexRecord({source:{path:'spec.md',sha256:'a'.repeat(64),bytes:32},clauses:specClauses,approved:true});
+      // @ts-expect-error The digest capability is an explicit versioned value binding.
+      specificationValuePolicies({profile:'arbitrary',sha256Utf8:()=> 'a'.repeat(64)});
       import { ARTIFACT_TEMPLATE_TOKENS, renderArtifactTemplateText, validateArtifactTemplateText,
         artifactBytesAreText, artifactContentObservation, inspectRequiredArtifactObservation, inspectBinaryArtifactSize } from '${packageName}/artifacts';
       import type { ArtifactContentPhase, ArtifactContentFinding } from '${packageName}/artifacts';

@@ -8,7 +8,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution','hosts/namespace-checks','hosts/namespace-source-inspection','hosts/namespace-source-retention','hosts/namespace-source-baseline','hosts/namespace-delivery-inspection','hosts/namespace-source-control']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:sqlite', 'node:net', 'node:child_process']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
@@ -23,7 +23,7 @@ function allowedSource(relative) {
       'src/sgos/node-check-execution-unit.mjs','src/sgos/node-git-source-control-reader.mjs','src/git-status-detail.mjs',
       'src/verification/test-report-reader.mjs','src/test-runners.mjs',
       'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
-      'src/engine-compatibility/node-source-policy.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
+      'src/engine-compatibility/node-source-policy.mjs','src/engine-compatibility/node-specification-policy.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
       'src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
     || /^src\/sda\/([^/]+)\.mjs$/u.test(relative) && adapterNames.has(path.posix.basename(relative, '.mjs'));
 }

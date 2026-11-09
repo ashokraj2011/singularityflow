@@ -84,6 +84,8 @@ const FAMILIES = Object.freeze([
     'workflow-task-store.mjs', 'workflow-task.mjs',
     'verification/witness-decisions.mjs', 'evidence/terminal.mjs', 'evidence/graph.mjs',
     'evidence/evaluate.mjs', 'verification/contracts.mjs',
+    // What the ending judges of a code step's own criteria, read at that step's approval [PHR:REQ-002].
+    'owner-step-evidence.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',

@@ -578,7 +578,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       }
       // Only what the issue's step owns and a dated risk could carry: never stale evidence, a review or untrusted records.
       const decided = !graph.untrusted && UPSTREAM_SETTLED.has(obligation.responsibility)
-        && ['missing', 'partial', 'failed'].includes(obligation.status) && obligation.facets?.freshness !== 'stale'
+        && ['missing', 'partial', 'failed', 'inconclusive'].includes(obligation.status) && obligation.facets?.freshness !== 'stale'
         ? settledByIssue.get(String(id).toUpperCase()) : null;
       if (decided) {
         obligations[index] = { ...obligation, status: 'excepted',

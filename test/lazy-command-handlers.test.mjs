@@ -486,7 +486,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // that defines the scope last holds its approval for each statement nobody dispositioned (phase-roles.mjs +860,
     // owed-decisions.mjs +548, state.mjs +492, approval-check.mjs +235); the check itself stays lazy (scope/authoring.mjs)
     // [PHR:REQ-002]. No new eager file.
-    assert.ok(closure.bytes <= 9_649_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,650,600 (measured 9,650,558, commands/phase-lifecycle.mjs): a code step's approval holds a criterion its own tests did
+    // not verify (state.mjs +635); the judgment stays lazy (owner-step-evidence.mjs) [PHR:REQ-002].
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_650_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

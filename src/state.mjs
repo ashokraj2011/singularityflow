@@ -6082,11 +6082,13 @@ async function submitPhaseTransition(root, config, workflow, {
       : phase.deliveryEvidence.receiptPath;
     await writeJson(path.join(root, validatedReceiptPath), readyReceipt);
     phase.deliveryEvidence.receiptPath = validatedReceiptPath;
-    // Exposed now, judged at the end: a criterion whose own test did not pass keeps the Story from
-    // completing until it passes or its risk is accepted [E2G-016, E2G-028].
+    // Exposed now, judged at this step's approval for a Story that pinned the owner-step checks [PHR:REQ-002],
+    // else at the end: a criterion whose own test did not pass keeps the step, or the Story, until it
+    // passes or its risk is accepted [E2G-016, E2G-028].
+    const judgedAt = ownerStepChecks(workflow) ? `approving ${phase.id} waits for it` : 'the Story\'s ending waits for it';
     for (const witness of witnesses) {
       const result = witnessResult(witness, submittedAttempts.get(witness.commandId) ?? null);
-      if (result.status !== 'met') console.warn(`Acceptance evidence: ${witness.clauseId}: ${describeWitnessResult(result)}; it does not verify the criterion.`);
+      if (result.status !== 'met') console.warn(`Acceptance evidence: ${witness.clauseId}: ${describeWitnessResult(result)}; it does not verify the criterion, and ${judgedAt}.`);
     }
     phase.deliveryEvidence.receiptSha256 = createHash('sha256').update(canonicalJson(readyReceipt)).digest('hex');
     await recordTestCommandEpochValidation(root, config, workflow, phase, testCommandEpochRun);
@@ -7026,6 +7028,12 @@ export async function evaluateApproval(root, config, workflow, {
         approvalQualityRisk = coverage?.acceptedRisk ?? null;
       }
     }, { needs: ['source-binding', 'test-risk', 'validation'] });
+    await stage('criteria', async () => {
+      // A code step's own criteria, judged as the ending judges them, while its author can correct them [PHR:REQ-002].
+      if (phaseRequiresCodeDelivery(phase) && ownerStepChecks(workflow)) {
+        await (await import('./owner-step-evidence.mjs')).assertOwnCriteriaVerified(root, config, workflow, phase);
+      }
+    }, { needs: ['code-delivery'] });
     await stage('dependency-vulnerabilities', async () => {
       // A critical or high vulnerability in a package the Story added waits for a fix or a person's acceptance;
       // publish and submit went ahead with it recorded [CQF:REQ-052].

@@ -720,6 +720,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs',
   // The scope step's approvers disposition each statement of the Story's sources [PHR:REQ-002].
   SCOPE_ITEMS_UNRESOLVED: 'someone-decides',
+  // A code step's own criteria its tests did not verify: its author corrects them, or a person accepts the risk [PHR:REQ-002].
+  CRITERION_TESTS_UNVERIFIED: 'author-repairs',
   // The door's own refusals, before any stage runs; approvalAdvisories adds them to the preview.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 'this-checkout',
   WORKTREE_HIDDEN_CHANGE: 'this-checkout',

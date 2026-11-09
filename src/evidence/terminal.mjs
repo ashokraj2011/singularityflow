@@ -131,7 +131,8 @@ export function visualWitnessCommands(workId, evaluation) {
 }
 
 const UPSTREAM_OWNED = new Set(['plan', 'implement', 'verify']);
-const UPSTREAM_STATUSES = new Set(['missing', 'partial', 'failed']);
+// An inconclusive verification is routed back too: its test could not be tied to its criterion [PHR:REQ-003], finding 11.
+const UPSTREAM_STATUSES = new Set(['missing', 'partial', 'failed', 'inconclusive']);
 
 /**
  * Whether a person may accept the risk of what holds the ending, as `decision risk` judges each

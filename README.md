@@ -1828,13 +1828,19 @@ session:
   requireBeforeTools: false
 ```
 
-The bundled Copilot plugin registers only a nonblocking `subagentStart` command
-hook. It maps an exact Copilot custom-agent name to the same Singularity Flow
-agent ID for the local session. It never injects a startup model prompt and never
-denies Bash, edit, search, or view tools; deterministic CLI lifecycle checks remain
-the enforcement boundary. The retained `session-start` and `agent-guard` CLI hook
-handlers are available only for teams that deliberately install a custom
-command-hook policy.
+The bundled Copilot plugin registers seven command hooks (prompt, before and after a
+tool, a tool's failure, a custom agent's start, the agent's stop, and the session's end)
+and never injects a startup model prompt. During an `/sf-` turn it holds the turn to its
+step's contract and refuses what the contract does not allow. In a repository that uses
+SFlow it also keeps each prompt with secrets taken out, refuses a prompt that holds what
+looks like a secret, refuses a file that holds secrets, and refuses or records a plain
+chat's edits and writing commands as the repository's `policy.plainChatEdits` says; a
+person's own steps are refused in any chat. Elsewhere a plain chat is untouched. The
+repository carries the same guard in `.github/hooks/` for a machine without the plugin.
+See `singularity-flow explain plain-chat-routing`. Deterministic CLI lifecycle checks remain
+the enforcement boundary where hooks are off. The retained `session-start` and
+`agent-guard` CLI hook handlers are available only for teams that deliberately install a
+custom command-hook policy.
 
 The skill catalog is held to [`plugin/skills/registry.yml`](plugin/skills/registry.yml):
 all bundled skills are explicit `/sf-*` operations, so installation never takes over native Copilot

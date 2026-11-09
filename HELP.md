@@ -2119,10 +2119,11 @@ Across laptops, only Story commits pushed to the configured remote can be discov
 
 Ahead, diverged, missing, malformed, or unverifiable state stops without history rewriting or data loss. A dirty tree also stops when attachment would require a checkout or fast-forward. When the requested Story branch is already current and its HEAD exactly matches the freshly fetched remote HEAD, Singularity Flow may bind the Copilot session in place while preserving unpublished phase edits. If a pre-existing local work branch is ahead or diverged, it remains untouched so the contributor can preserve or publish it. Singularity Flow never merges, rebases, resets, stashes, force-checks out, or deletes work during session attachment. An opened clone or an exact selected workspace/repository supplies the Git remote; the user's current directory alone never justifies choosing another repository.
 
-The phase contract selects its agent automatically. The bundled plugin's startup hook is advisory: it reminds the
-contributor about `/sf-session` or `/sf-start`, never invokes a skill
-automatically, and never denies Bash, edit, search, view, or other tools.
-`requireBeforeTools` therefore defaults to `false`. The setting and the
+The phase contract selects its agent automatically. The bundled plugin never invokes a skill automatically and never
+injects a startup prompt. Its hooks refuse what an `/sf-` turn's contract does not allow, a person's own steps in any
+chat, and, in a repository that uses SFlow, a prompt that holds what looks like a secret, a file that holds secrets,
+and a plain chat's edits or writing commands where `policy.plainChatEdits` is `refuse`
+(`singularity-flow explain plain-chat-routing`). Session selection itself is not enforced before tools: `requireBeforeTools` defaults to `false`. The setting and the
 `agent-guard` CLI handler remain available only for repositories that
 deliberately install a custom command hook. Deterministic lifecycle validation
 continues to run inside every CLI mutation regardless of hook configuration.

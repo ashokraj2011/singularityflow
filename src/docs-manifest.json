@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2f904a13f77f37d830b63b3c63e62ce3ce081939",
-  "topicCount": 91,
-  "contentSha256": "a4831a31892afb4bacf51597c6653a934c2e27dba77fa70419f4f855fd3c283e",
+  "sourceCommit": "2e3e74c8cd265bf48323c32c1e1d50fc54ce1806",
+  "topicCount": 92,
+  "contentSha256": "1f77ab39bfacbd2a7a779a4e2ff0e82f253779c263a147634222aa46c79497b0",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -428,6 +428,14 @@
       "sha256": "13e2685c52272414779cb8c6f40b01716ae686e2a180273f898643753323c4f1",
       "routingSha256": "e2eb5df112b3f0a4b950c06eaa79cdea9fc9fee8031fcf11f4254a37751d9684",
       "file": "pins.md"
+    },
+    {
+      "id": "plain-chat-routing",
+      "title": "Plain chats in a repository that uses SFlow",
+      "version": 1,
+      "sha256": "ee98cbd42bf6cce6fc99555702edc8671d8d782edafcc6067c72677b1a99ea6f",
+      "routingSha256": "2216ec82c46ba1de4270b9576bdbc0237d8cc73f5cfb83a9bae47f65e7861deb",
+      "file": "plain-chat-routing.md"
     },
     {
       "id": "project-binding",

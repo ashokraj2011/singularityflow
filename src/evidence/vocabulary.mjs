@@ -18,18 +18,14 @@ export {ASSURANCE} from '../kernel/verification-policy.mjs';
  * `module-observed` (the covering module command passed), `exact-local-observed` (its own
  * occurrence was observed locally) or `exact-authenticated` (unreachable before qualified execution).
  */
-export const IDENTITY_ASSURANCE = Object.freeze(['declared', 'source-bound']);
-export const EXECUTION_ASSURANCE = Object.freeze(['none', 'module-observed', 'exact-local-observed', 'exact-authenticated']);
+export {IDENTITY_ASSURANCE,EXECUTION_ASSURANCE,combinedAssurance} from '../kernel/verification-witnesses.mjs';
+
 
 /**
  * The ladder rung a witness proved: its execution facet when it passed, otherwise only its identity.
  * An exact execution rung needs a source-bound identity; a declared identity caps at module-observed.
  */
-export function combinedAssurance({ identity, execution, passed }) {
-  if (!passed || execution === 'none') return IDENTITY_ASSURANCE.includes(identity) ? identity : 'none';
-  if (identity !== 'source-bound' && ['exact-local-observed', 'exact-authenticated'].includes(execution)) return 'module-observed';
-  return execution;
-}
+
 
 /** The six facets of one obligation, kept apart so no single word hides the others [E2G-029]. */
 export const FACETS = Object.freeze(['coverage', 'execution', 'assurance', 'review', 'freshness', 'exception']);

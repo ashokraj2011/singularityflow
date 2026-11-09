@@ -94,7 +94,8 @@ export function createNamespaceSourceOriginReader(options,sourceReader){
     return {verify:async()=>{for(const tag of ['clause','ac'])await drive(sourceOriginLineDeltasReplay({patch:observation.origin.patch,tag,pathContext:context}));},
       carried:occurrences=>drive(carriedTagIdsReplay({baseline:observation.baseline.revision,
       changes:observation.control.entries.map(row=>({oldPath:row.oldPath,newPath:row.newPath,previousRegular:/^100/u.test(row.oldMode)})),occurrences,tag:'clause'})),
-      added:(occurrences,pathContext)=>{context=pathContext;return drive(storyTagLinesReplay({baseline:observation.origin.revision,occurrences,tag:'clause',pathContext}));}};
+      added:(occurrences,pathContext,tag='clause')=>{if(!['clause','ac'].includes(tag))throw error('Select one supported source tag vocabulary.','ENGINE_INPUT_INVALID');
+        context=pathContext;return drive(storyTagLinesReplay({baseline:observation.origin.revision,occurrences,tag,pathContext}));}};
   }
   return Object.freeze({select,verify,replayFacts});
 }

@@ -11,3 +11,4 @@ export {implementationBindingsReplay,bindingsDigest,reviewBindings,BINDING_DECIS
   publicDeclarations,changedDeclarations,POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports,resolvePolyglotLocal} from '../../../../src/engine-compatibility/node-source-analysis.mjs';
 export {carriedTagIdsReplay,storyTagLinesReplay,SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '../../../../src/engine-compatibility/node-source-policy.mjs';
 export {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanProjection,assertRepositoryPlanSources,repositoryPlanTestLocation} from '../../../../src/engine-compatibility/node-repository-plan.mjs';
+export {discoverAcceptanceWitnessesReplay,commandForTestFileReplay} from '../../../../src/engine-compatibility/node-source-policy.mjs';

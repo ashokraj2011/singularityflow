@@ -1,3 +1,4 @@
+import {describeWitnessResult} from '../verification/witness-results.mjs';
 /** Native submission transition extracted intact from the aggregate; not an SDK port contract. */
 import { assertStoryNotArchived } from '../governance-archive.mjs';
 import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
@@ -40,7 +41,7 @@ import { canonicalJson } from '../foundation/record-schema.mjs';
 import { assertVisualCoverage } from '../visual-coverage.mjs';
 import { qualityValidationVerdict } from '../kernel/phase-checks.mjs';
 import path from 'node:path';
-import { witnessResult, describeWitnessResult } from '../verification/witness-results.mjs';
+import { witnessResult } from "../kernel/verification-witnesses.mjs";
 import { decisionOutcome } from '../workflow-decisions.mjs';
 import { completionPhaseOf, beginPhaseSubmission, applyPhaseSubmissionDisposition } from '../kernel/lifecycle-transitions.mjs';
 import { supportedWaiverPolicy, evaluateQuickFixWaiver, waiverNotAppliedMessage } from '../quick-fix-policy.mjs';

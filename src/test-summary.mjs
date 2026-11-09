@@ -70,7 +70,7 @@ export async function occurrenceClauses(root, { occurrences = [], profile = null
     const files = [...new Set(occurrences.map((entry) => safeRelative(entry.file)).filter(Boolean))].slice(0, MAX_TAG_FILES);
     if (files.length) {
       const [{ discoverDeclarations }, { joinDeclaration }] = await Promise.all([
-        import('./verification/adapters.mjs'), import('./verification/join.mjs')]);
+        import('./verification/adapters.mjs'), import("./kernel/verification-witnesses.mjs")]);
       const { declarations } = await discoverDeclarations(root, profileId, files).catch(() => ({ declarations: [] }));
       for (const declaration of declarations) {
         if (declaration.suiteTag || !declaration.clauseIds?.length) continue;

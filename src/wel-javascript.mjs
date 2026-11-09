@@ -14,7 +14,7 @@ import { assertCredentialFreeRemote, remoteFingerprint } from './git-remote-diag
 import { recordSha256 } from './records.mjs';
 import { posix, run, secureRepositoryPath } from './util.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
-import { joinDeclaration } from './verification/join.mjs';
+import { joinDeclaration } from "./kernel/verification-witnesses.mjs";
 
 const PROFILES = Object.freeze({
   'jest-static-v1': 'jest-json',

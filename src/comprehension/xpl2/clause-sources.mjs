@@ -179,7 +179,7 @@ export async function readStoryRecordSources(root, workflow, { phaseId = null } 
   const declared = Array.isArray(delivery?.acceptanceCriteria?.witnesses) ? delivery.acceptanceCriteria.witnesses : [];
   let witnesses = [];
   if (declared.length) {
-    const { witnessResult } = await import('../../verification/witness-results.mjs');
+    const { witnessResult } = await import("../../kernel/verification-witnesses.mjs");
     const byCommand = new Map(attempts.filter((entry) => entry.record).map((entry) => [entry.binding.commandId, entry.record]));
     const unusable = new Set(attempts.filter((entry) => !entry.record).map((entry) => entry.binding.commandId));
     // The same choice the phase review makes: the witness's own command, else the bound command

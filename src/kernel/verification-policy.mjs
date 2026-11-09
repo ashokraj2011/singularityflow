@@ -556,10 +556,6 @@ function profileIsExact(id) {
 }
 
 
-/** The strongest assurance a profile can produce; unknown profiles only count tests. */
-function profileCeiling(id) {
-  return TEST_ADAPTER_PROFILES[id]?.ceiling ?? 'module-observed';
-}
 return Object.freeze({profileForCommand,testAdapterProfile,profileIsExact,profileCeiling});
 }
 
@@ -646,4 +642,9 @@ export function acceptanceTagLines(source) {
     for (const clauseId of acceptanceTagsInComment(line)) found.push({ clauseId, line: index + 1 });
   }
   return found;
+}
+
+/** The strongest assurance a profile can produce; unknown profiles only count tests. */
+export function profileCeiling(id) {
+  return TEST_ADAPTER_PROFILES[id]?.ceiling ?? 'module-observed';
 }

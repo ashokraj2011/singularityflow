@@ -9,7 +9,7 @@
  */
 import { ASSURANCE, EXECUTION_ASSURANCE } from '../evidence/vocabulary.mjs';
 import {testSlotFor} from '../engine-compatibility/node-specification-policy.mjs';
-import { aggregateWitnesses, witnessResult } from './witness-results.mjs';
+import { aggregateWitnesses, witnessResult } from "../kernel/verification-witnesses.mjs";
 
 const BLOCKERS = Object.freeze(['failed', 'inconclusive', 'missing', 'pending']);
 

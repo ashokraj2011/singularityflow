@@ -217,6 +217,61 @@ export interface RepositoryPlanValues {readonly profile:typeof REPOSITORY_PLAN_V
   assertRepositoryPlanSources(value:RepositoryPlan|null,phaseId:string,repositories:readonly string[]):void;
   repositoryPlanTestLocation(value:RepositoryPlan,path:string,context?:RepositoryPlanContext):{repositoryId:string;path:string}|null}
 export declare function repositoryPlanPolicies(paths:VerificationPathSyntax,roots:readonly string[]):Readonly<RepositoryPlanValues>;
+/** Actual declaration/run values; these functions confer no lifecycle or human authority. */
+export type TestWitnessOutcome='inconclusive'|'missing'|'ambiguous'|'failed'|'unverified-skipped'|'flaky'|'passed';
+export interface TestOccurrence {readonly name?:string|null;readonly outcome:'passed'|'failed'|'skipped';readonly flaky?:boolean;
+  readonly suitePath?:readonly string[];readonly ancestorTitles?:readonly string[];readonly className?:string|null;readonly file?:string;
+  readonly line?:number;readonly project?:string|null;readonly durationMs?:number|null}
+export interface JoinableTestDeclaration {readonly sourcePath?:string;readonly framework?:string;readonly name?:string;
+  readonly suitePath?:readonly string[];readonly line?:number;readonly className?:string;readonly packageName?:string;
+  readonly classPath?:readonly string[];readonly methodName?:string;readonly gaps?:readonly {readonly code:string}[];
+  readonly parameters?:{readonly count:number|null;readonly titlePattern?:string}|null}
+export interface JoinedTestDeclaration {readonly outcome:TestWitnessOutcome;readonly reasons:readonly string[];
+  readonly occurrences:readonly {readonly name:string|null;readonly outcome:string;readonly flaky:boolean}[];readonly expected?:number|null}
+export declare const WITNESS_OUTCOMES:readonly TestWitnessOutcome[];
+export declare const IDENTITY_ASSURANCE:readonly ('declared'|'source-bound')[];
+export declare const EXECUTION_ASSURANCE:readonly ('none'|'module-observed'|'exact-local-observed'|'exact-authenticated')[];
+export declare function combinedAssurance(input:{readonly identity:string;readonly execution:string;readonly passed:boolean}):string;
+export declare function joinDeclaration(declaration:JoinableTestDeclaration,occurrences:readonly TestOccurrence[],options?:{
+  readonly language?:string;readonly runner?:string|null;readonly run?:{readonly completed:boolean;readonly succeeded:boolean}}):JoinedTestDeclaration;
+export interface AcceptanceTestWitness {readonly clauseId:string;readonly testSource:string;readonly profile?:string;readonly commandId?:string|null;
+  readonly identity?:{readonly className?:string;readonly methodName?:string;readonly signature?:string;readonly framework?:string;
+    readonly suitePath?:readonly string[];readonly name?:string}|null;readonly logicalTestId?:string|null;readonly declarationSha256?:string|null;
+  readonly supportSha256?:string|null;readonly line?:number|null;readonly parameters?:JoinableTestDeclaration['parameters'];
+  readonly skipped?:boolean;readonly exact?:boolean;readonly gaps?:readonly string[];readonly resultAdapter?:string|null;
+  readonly assertions?:Readonly<Record<string,unknown>>;readonly enforceAssertionAdequacy?:boolean}
+export interface WitnessAttempt {readonly attemptId?:string|null;readonly terminal?:boolean;readonly timedOut?:boolean;readonly status:string;
+  readonly exitCode?:number|null;readonly tests?:Readonly<Record<string,number>>|null;readonly adapter?:string;readonly occurrences?:readonly TestOccurrence[]}
+export interface TestWitnessResult {readonly label:string;readonly clauseId:string;readonly testSource:string;readonly profile:string;
+  readonly commandId:string|null;readonly identityKey:string|null;readonly requiredAssurance:string;readonly attemptId:string|null;
+  readonly outcome:TestWitnessOutcome|'not-run'|'unavailable'|'passed-with-skips';readonly status:'met'|'failed'|'missing'|'pending'|'inconclusive';
+  readonly identity:'declared'|'source-bound';readonly execution:string;readonly assurance:string;readonly shortfall:boolean;readonly reasons:readonly string[];
+  readonly occurrences?:JoinedTestDeclaration['occurrences'];readonly assertions?:Readonly<Record<string,unknown>>;readonly skipped?:number;readonly expected?:number|null}
+export declare function witnessLabel(witness:AcceptanceTestWitness):string;
+export declare function witnessResult(witness:AcceptanceTestWitness,attempt:WitnessAttempt|null,options?:{
+  readonly submitted?:boolean;readonly enforceAssertionAdequacy?:boolean}):TestWitnessResult;
+export interface AggregateTestWitnesses {readonly status:string;readonly assurance:string;readonly identity:string;readonly execution:string}
+export declare function aggregateWitnesses(results:readonly TestWitnessResult[]):AggregateTestWitnesses;
+export declare function criterionResults(results:readonly TestWitnessResult[]):(AggregateTestWitnesses&{clauseId:string;witnesses:TestWitnessResult[]})[];
+export interface WitnessDiscoveryOptions {readonly testPaths:readonly string[];readonly sourcePaths?:readonly string[];readonly requiredAcIds?:readonly string[];
+  readonly bindings?:readonly {readonly clauseId:string;readonly testSource:string}[];readonly othersTag?:(value:{testSource:string;clauseId:string;line:number|null})=>boolean;
+  readonly executionMode?:string}
+export interface WitnessDiscoveryResult {readonly witnesses:readonly AcceptanceTestWitness[];readonly unattachedTags:readonly Readonly<Record<string,unknown>>[];
+  readonly profiles:readonly {readonly testSource:string;readonly profile:string;readonly commandId:string|null;readonly resultAdapter:string|null;readonly ceiling:string}[];
+  readonly errors:readonly string[];readonly errorFindings:readonly {readonly code:string;readonly value:string}[]}
+export type WitnessCommand=Readonly<Record<string,unknown>>;
+export interface WitnessDeclarationObservation {readonly declarations:readonly (JoinableTestDeclaration&{readonly clauseIds:readonly string[];readonly logicalTestId:string;readonly declarationSha256:string})[];
+  readonly unattachedTags:readonly Readonly<Record<string,unknown>>[];readonly fileGaps:Readonly<Record<string,readonly {readonly code:string;readonly message:string}[]>>}
+export type WitnessDiscoveryRequest={readonly kind:'witness-test-commands';readonly phase:Readonly<Record<string,unknown>>;readonly executionMode:string}
+  |{readonly kind:'witness-command-for-file';readonly commands:readonly WitnessCommand[];readonly file:string}
+  |{readonly kind:'witness-declarations';readonly profile:string;readonly files:readonly string[]};
+export interface WitnessRunnerFacts {readonly profile:'sflow-test-delivery-policy-facts/v1';readonly ecosystems:readonly string[];
+  posixExtname(value:string):string;ecosystemOfAdapter(value:unknown):string|null;ecosystemOfProgram(value:unknown):string|null}
+export interface AcceptanceWitnessValues {
+  discoverAcceptanceWitnessesReplay(phase:Readonly<Record<string,unknown>>,options:WitnessDiscoveryOptions):Generator<WitnessDiscoveryRequest,WitnessDiscoveryResult,readonly WitnessCommand[]|WitnessCommand|null|WitnessDeclarationObservation>;
+  commandForTestFileReplay(commands:readonly WitnessCommand[],file:string):Generator<{readonly kind:'witness-command-source';readonly file:string},WitnessCommand|null,string>;
+}
+export declare function acceptanceWitnessPolicies(paths:VerificationPathSyntax,facts:WitnessRunnerFacts):Readonly<AcceptanceWitnessValues>;
 export declare const SPECIFICATION_CLAIM_MAP_SCHEMA:Readonly<{id:'specification-claim-map';currentVersion:2;minimumReadableVersion:1;
   maximumReadableVersion:2;unversionedAs:null;immutable:true;migrationPolicy:'migrate-on-read'}>;
 

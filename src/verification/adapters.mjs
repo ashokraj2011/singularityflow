@@ -18,7 +18,7 @@ import { posix, secureRepositoryPath } from '../util.mjs';
 import { classifyJavascriptTestCommandScope } from '../wel-javascript.mjs';
 import { classifyJunit5SurefireCommandScope, parseJunitTestSources } from '../wel-junit5.mjs';
 import { scanJavaScriptDeclarations } from './javascript-declarations.mjs';
-import { joinDeclaration } from './join.mjs';
+import { joinDeclaration } from "../kernel/verification-witnesses.mjs";
 import { profileIsExact, testAdapterProfile } from '../engine-compatibility/node-specification-policy.mjs';
 
 export { TEST_ADAPTER_PROFILES } from '../kernel/verification-policy.mjs';

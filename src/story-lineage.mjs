@@ -42,7 +42,7 @@ import { inReadScope, scopedRead } from './read-scope.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
 import {effectiveContract,mergedVerificationContracts,witnessMappingCore,witnessMappingSha256} from './engine-compatibility/node-specification-policy.mjs';
-import { witnessLabel } from './verification/witness-results.mjs';
+import { witnessLabel } from "./kernel/verification-witnesses.mjs";
 import { verifySkillPhasePublication, verifyStoredSkillEvidence } from './skp-phase-evidence.mjs';
 
 const REVIEW_ARTIFACT_READ_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'story-review-artifact-read.mjs')).href;

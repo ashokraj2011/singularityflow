@@ -1,3 +1,4 @@
+import {acceptanceWitnessPolicies} from '../kernel/verification-witnesses.mjs';
 /** Native syntax and packaged-root binding for shared source policies. No source/Git/file access. */
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -102,3 +103,7 @@ export const carriedTagIdsReplay=/* @__PURE__ */ (()=>originValuesBinding.carrie
 export const storyTagLinesReplay=/* @__PURE__ */ (()=>originValuesBinding.storyTagLinesReplay)();
 
 export const commandCovering=/* @__PURE__ */ (()=>testDeliveryBinding.commandCovering)();
+
+const acceptanceWitnessBinding=/* @__PURE__ */ acceptanceWitnessPolicies(NODE_CONFIGURATION_PATH_SYNTAX,testDeliveryFacts);
+export const discoverAcceptanceWitnessesReplay=/* @__PURE__ */ (()=>acceptanceWitnessBinding.discoverAcceptanceWitnessesReplay)();
+export const commandForTestFileReplay=/* @__PURE__ */ (()=>acceptanceWitnessBinding.commandForTestFileReplay)();

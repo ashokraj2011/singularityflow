@@ -1,3 +1,4 @@
+import {commandForTestFileReplay} from './engine-compatibility/node-source-policy.mjs';
 export {jsonTestReport} from './kernel/test-report-codec.mjs';
 /**
  * Test inference beyond the core manifest table, loaded only where a code-delivery gate, its recovery
@@ -860,15 +861,10 @@ export async function pythonProjectLauncher(root, moduleRoot) {
  * end-to-end and component commands all cover its root, the file's imports (or Cypress's file names)
  * say which runner runs it; otherwise the most specific root, then configuration order.
  */
-export async function commandForTestFile(root, commands, file) {
-  const depth = (command) => Math.max(...(command.affectedRoots ?? ['.']).map((entry) => (entry === '.' ? 0 : entry.split('/').length)));
-  const covering = commands.filter((command) => testCommandCoversPath(command, file)).sort((left, right) => depth(right) - depth(left));
-  if (covering.length < 2) return covering[0] ?? null;
-  const text = await packageText(root, file);
-  const browser = /(?:^|-)(?:playwright(?:-ct)?|cypress(?:-component)?)-tests$/u;
-  const runner = /@playwright\/experimental-ct-/u.test(text) ? /(?:^|-)playwright-ct-tests$/u : /['"]@playwright\/test['"]/u.test(text) ? /(?:^|-)playwright-tests$/u
-    : /(?:^|\/)cypress\/|\.cy\.[cm]?[jt]sx?$/u.test(file) ? (/component/u.test(file) ? /cypress-component-tests$/u : /(?:^|-)cypress-tests$/u) : null;
-  return covering.find((command) => (runner ? runner.test(command.id) : !browser.test(command.id))) ?? covering[0];
+export async function commandForTestFile(root,commands,file){
+ const replay=commandForTestFileReplay(commands,file);let step=replay.next();
+ while(!step.done){if(step.value.kind!=='witness-command-source')throw new SingularityFlowError('Unknown test command selection observation.',{code:'ENGINE_PORT_UNAVAILABLE'});step=replay.next(await packageText(root,step.value.file));}
+ return step.value;
 }
 
 /** The names a Gradle DSL block declares at its own level (`free { }`, `create("pixel6") { }`, `pixel6(ManagedVirtualDevice) { }`). */

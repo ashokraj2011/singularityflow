@@ -21,6 +21,7 @@ import {createNamespaceSourceInspectionPort} from './namespace-source-inspection
 import {createNamespaceSourceRetentionPort} from './namespace-source-retention.mjs';
 import {createNamespaceSourceBaselinePort} from './namespace-source-baseline.mjs';
 import {createNamespaceDeliveryInspectionPort} from './namespace-delivery-inspection.mjs';
+import {createNamespaceTestWitnessInspectionPort} from './namespace-test-witnesses.mjs';
 import {createNamespaceSourceControlPort} from './namespace-source-control.mjs';
 import {createNamespaceClarificationPorts} from './namespace-clarifications.mjs';
 import {createNamespacePhaseEntryPorts} from './namespace-phase-entry.mjs';
@@ -70,6 +71,7 @@ export function createNamespaceEngine(options={}) {
     phaseSourceControlRetention:createNamespaceSourceControlPort(common,runtime),
     sourceBaselineRetention:createNamespaceSourceBaselinePort(common),
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),
+    phaseTestWitnessInspection:createNamespaceTestWitnessInspectionPort(common,runtime),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};

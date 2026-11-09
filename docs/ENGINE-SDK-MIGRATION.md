@@ -363,6 +363,12 @@ binding, preparation and inspection. It keeps legacy claim records and native Gi
 unchanged. Application publication/execution, installed migration and final qualification remain
 open; this slice does not complete Phases 5, 7, 8 or 9.
 
+The [exact test-witness owner](ENGINE-SDK-TEST-WITNESSES.md) shares native declaration/run rules
+and exposes a namespace read operation over accepted source and execution records. Individual
+test evidence does not combine global verification contracts or discharge publication policy.
+The full application-delivery, cross-agent execution, installed cutover and final qualification
+requirements remain open.
+
 The [immutable routing-input delivery](ENGINE-SDK-NAMESPACE-ROUTING-INPUTS.md) adds versioned
 submission records for pinned own/reused decision inputs while preserving decision-free v1 bytes.
 Shared proof readers verify source packets and actual human approval thresholds. This establishes

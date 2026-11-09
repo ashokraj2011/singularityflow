@@ -10,7 +10,8 @@ import {createNodeGitSourceControlReader} from '../../src/sgos/node-git-source-c
 export const converterSource='// @clause:STORY-1:REQ-001 Converts the selected integer into hexadecimal.\n'
   +'// @clause:STORY-1:AC-001 Returns FF for the approved 255 example.\nexport const convert=value=>value.toString(16).toUpperCase();\n';
 export async function namespaceSourceClauseFixture(t,{backend='filesystem',configure=()=>{},source=converterSource,baselineSource='export const convert=value=>String(value);\n',
-  retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true,plan=planText}={}) {
+  retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true,plan=planText,
+  baselineTestSource='// Original test source.\n'}={}) {
   const f=await namespaceSpecificationFixture(t,{backend,configure:definition=>{
     definition.definition.spec.namespace=namespace;
     definition.definition.codeDelivery={traceability:{sourceBindings:'enforce'}};configure(definition);
@@ -22,7 +23,7 @@ export async function namespaceSourceClauseFixture(t,{backend='filesystem',confi
   for(let index=0;index<repositories;index++) {
     const root=path.join(f.directory,'source-clauses-'+index);await mkdir(path.join(root,'src'),{recursive:true});await mkdir(path.join(root,'test'));
     await writeFile(path.join(root,'src/converter.js'),replace(lineOrigins?originalSource:baselineSource));
-    await writeFile(path.join(root,'test/converter.test.js'),'// Original test source.\n');
+    await writeFile(path.join(root,'test/converter.test.js'),replace(baselineTestSource));
     if(lineOrigins){const git=(...args)=>execFileSync(binary.executable,args,{cwd:root,encoding:'utf8',env:process.env,timeout:15000}).trim();
       git('init','-q','-b','main');git('config','user.name','Example fixture');git('config','user.email','fixture@example.test');
       git('config','core.ignorecase','false');git('add','src','test');git('commit','-qm','Original Story source');

@@ -50,6 +50,8 @@
     "./storage/sqlite-content": { "types": "./dist/storage/sqlite-content.d.mts", "import": "./dist/storage/sqlite-content.mjs" },
     "./storage/application": { "types": "./dist/storage/application.d.mts", "import": "./dist/storage/application.mjs" },
     "./storage/journal": { "types": "./dist/storage/journal.d.mts", "import": "./dist/storage/journal.mjs" },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./testing/node-test-reporter": { "types": "./dist/testing/node-test-reporter.d.mts", "import": "./dist/testing/node-test-reporter.mjs" },
+    "./hosts/namespace-test-witnesses": { "types": "./dist/hosts/namespace-test-witnesses.d.mts", "import": "./dist/hosts/namespace-test-witnesses.mjs" }
   }
 }

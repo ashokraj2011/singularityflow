@@ -19,7 +19,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { posix, run, secureRepositoryPath } from './util.mjs';
 import { junitDeclarationsFromParser } from './verification/junit-declarations.mjs';
-import { joinDeclaration } from './verification/join.mjs';
+import { joinDeclaration } from "./kernel/verification-witnesses.mjs";
 
 const HELPER = path.join(PACKAGE_ROOT, 'src', 'wel', 'WelJunitCatalog.java');
 const QUALIFIED_CLAUSE = /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/;

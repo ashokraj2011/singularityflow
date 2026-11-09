@@ -1212,6 +1212,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations} from '${packageName}/specifications';
       import {sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '${packageName}/specifications';
       import {repositoryPlanPolicies,REPOSITORY_PLAN_PROFILE} from '${packageName}/specifications';
+      import {joinDeclaration,witnessResult,acceptanceWitnessPolicies} from '${packageName}/specifications';
+      import type {JoinedTestDeclaration,TestWitnessResult,WitnessRunnerFacts} from '${packageName}/specifications';
       import type {RepositoryPlan,RepositoryPlanValues} from '${packageName}/specifications';
       import {deriveRepositoryPlan} from '${packageName}/specifications/node';
       import type {SourceTagOriginValues,CarriedTagRequest,StoryTagRequest,SourceOriginLineDelta} from '${packageName}/specifications';
@@ -1224,6 +1226,19 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const implementationChoice=reviewBindings({bindings:[],bindingsSha256:'sha256:'+'a'.repeat(64)},[bindingDecision]);
       const publicSymbols:PublicDeclaration[]=publicDeclarations('export function actual(){}','javascript');
       declare const bindingPaths:VerificationPathSyntax;
+      declare const witnessFacts:WitnessRunnerFacts;
+      const joinedWitness:JoinedTestDeclaration=joinDeclaration({sourcePath:'test/value.test.js',framework:'node:test',suitePath:[],name:'works',line:3,gaps:[]},
+        [{name:'works',outcome:'passed',suitePath:[],file:'test/value.test.js',line:3}],{language:'javascript'});
+      const observedWitness:TestWitnessResult=witnessResult({clauseId:'VALUE:AC-001',testSource:'test/value.test.js',profile:'node-test-v1'},null);
+      const witnessReplay=acceptanceWitnessPolicies(bindingPaths,witnessFacts).discoverAcceptanceWitnessesReplay({id:'code'},{testPaths:['test/value.test.js']});
+      // @ts-expect-error Actual command/declaration observations are required, not a readiness flag.
+      witnessReplay.next(true);
+      // @ts-expect-error Pure witness discovery never discovers a checkout or approval authority.
+      acceptanceWitnessPolicies(bindingPaths,witnessFacts).discoverAcceptanceWitnessesReplay({id:'code'},{testPaths:[],root:'/checkout',approved:true});
+      declare const witnessEngine:import('${packageName}').Engine;
+      witnessEngine.run('phase.test-witnesses.inspect',{phaseId:'code',maximumEntries:1});
+      // @ts-expect-error Witness reads cannot be supplied a successful verdict by a model.
+      witnessEngine.run('phase.test-witnesses.inspect',{phaseId:'code',ready:true});
       declare const reviewedRepositoryPlan:import('${packageName}/specifications').PlannedSpecificationClaimMap;
       const repositoryValues:Readonly<RepositoryPlanValues>=repositoryPlanPolicies(bindingPaths,[]);
       const repositoryResult:RepositoryPlan|null=repositoryValues.deriveRepositoryPlan('# Legacy',reviewedRepositoryPlan);

@@ -139,6 +139,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `testing/reports`: pure structured test-report interpretation with explicit byte/hash capabilities.
 - `testing/node`: the same report rules with Node bytes and hashing. Supply actual report contents;
   it reads no files and launches no command. Parsed counts do not certify phase acceptance.
+- `testing/node-test-reporter`: the native Node event reporter as a standalone export. A host
+  explicitly selects its resolved URL and root in the pinned test environment. Plain TAP counts
+  cannot substitute for exact passing file, line, suite and test identities.
 - `testing/execution`: explicitly authorized fixed-command local checks with actual process output,
   raw reports and source observations retained in shared runtime content. Compose it with durable
   execution for at-most-once attempts and takeover. It does not accept phase evidence or approvals.
@@ -153,6 +156,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   `phase.source.retain`. Supply explicit `sourceReaders` for a new collection. Chunked immutable
   evidence and verified receipts remain readable without the original checkout; baseline file
   contents, publication readiness and human approval remain separate requirements.
+- `hosts/namespace-test-witnesses`: join accepted source declarations to their own retained test
+  occurrences through `phase.test-witnesses.inspect`. The main Engine binds the same read operation.
+  It preserves original approved plan, repository and shared-line provenance. Rows show individual
+  test evidence; they do not combine full verification contracts or grant publication or human
+  acceptance. See `docs/ENGINE-SDK-TEST-WITNESSES.md` in the source repository.
 - `hosts/namespace-source-control`: accept actual source-control observations for the exact
   retained generation through `phase.source-control.retain`. Supply explicit `sourceControlReaders`
   for new collection. Conditional receipts and source/generation proofs support checkout-free

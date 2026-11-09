@@ -1,4 +1,4 @@
-import {codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,carriedTagIdsReplay,storyTagLinesReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
+import {discoverAcceptanceWitnessesReplay,codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,carriedTagIdsReplay,storyTagLinesReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
 import {gitTagLineDeltas} from './git-status-detail.mjs';
 import {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 export {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
@@ -404,12 +404,6 @@ async function storyAddedTagLines(root,workflow,occurrences,tag,pathContext) {
   }
 }
 
-function witnessIdentity(declaration) {
-  return declaration.schema === 'junit5-method-v2' || declaration.framework === 'pytest'
-    ? { className: declaration.className, methodName: declaration.methodName, signature: declaration.signature }
-    : { framework: declaration.framework, suitePath: declaration.suitePath, name: declaration.name };
-}
-
 /**
  * Which exact test each criterion tag sits on [E2G-015]. Every tagged test file is read by the
  * adapter of the command that runs its module: an exact profile (Jest, Vitest, JUnit 5) returns
@@ -419,88 +413,15 @@ function witnessIdentity(declaration) {
  * `othersTag({ testSource, clauseId, line })` is true where the tag a test or comment at that line
  * carries is an earlier Story's, which witnesses nothing here.
  */
-export async function discoverAcceptanceWitnesses(root, phase, {
-  testPaths, sourcePaths = [], requiredAcIds = [], bindings = [], othersTag = () => false,
-  executionMode = 'changed-and-affected'
-} = {}) {
-  const commands = [];
-  for (const [index, command] of (await resolveDeliveryQualityCommands(root, {
-    ...phase, deliveryEvidence: { ...(phase.deliveryEvidence ?? {}), sourcePaths, testPaths }
-  }, { executionMode }).catch(() => [])).entries()) {
-    if (!command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test') continue;
-    try { commands.push({ ...normalizeExternalCommand(command, index), provenance: testCommandProvenance(phase, command) }); }
-    catch { /* the test preflight reports it */ }
-  }
-  const taggedFiles = [...new Set(bindings.map((binding) => binding.testSource))].sort();
-  const groups = new Map();
-  const fileProfile = new Map();
-  const { commandForTestFile } = await import('./test-module-markers.mjs');
-  for (const file of taggedFiles) {
-    const command = await commandForTestFile(root, commands, file);
-    const profile = command ? profileForCommand(command) : 'module-counts-v1';
-    fileProfile.set(file, { profile, commandId: command?.id ?? null, resultAdapter: command?.result?.adapter ?? null });
-    const key = `${profile}\u0000${command?.id ?? ''}`;
-    groups.set(key, [...(groups.get(key) ?? []), file]);
-  }
-  const witnesses = [];
-  const unattachedTags = [];
-  for (const [key, files] of [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const [profile, commandId] = key.split('\u0000');
-    if (!profileIsExact(profile)) {
-      for (const binding of bindings.filter((entry) => files.includes(entry.testSource))) {
-        witnesses.push({
-          clauseId: binding.clauseId, testSource: binding.testSource, profile, commandId: commandId || null,
-          resultAdapter: fileProfile.get(binding.testSource).resultAdapter, identity: null, logicalTestId: null,
-          declarationSha256: null, supportSha256: null, line: null, parameters: null, skipped: false,
-          exact: false, gaps: ['ADAPTER_COUNTS_ONLY']
-        });
-      }
-      continue;
-    }
-    const discovered = await discoverDeclarations(root, profile, files);
-    for (const declaration of discovered.declarations) {
-      for (const clauseId of declaration.clauseIds) {
-        if (othersTag({ testSource: declaration.sourcePath, clauseId, line: declaration.line })) continue;
-        witnesses.push({
-          clauseId, testSource: declaration.sourcePath, profile, commandId: commandId || null,
-          resultAdapter: testAdapterProfile(profile).resultAdapter,
-          identity: witnessIdentity(declaration), logicalTestId: declaration.logicalTestId,
-          declarationSha256: declaration.declarationSha256, supportSha256: declaration.supportSha256 ?? null,
-          ...(declaration.assertions ? { assertions: declaration.assertions } : {}),
-          line: declaration.line, parameters: declaration.parameters ?? null, skipped: declaration.skipped === true,
-          exact: declaration.gaps.length === 0, gaps: declaration.gaps.map((entry) => entry.code)
-        });
-      }
-    }
-    for (const tag of discovered.unattachedTags) {
-      const clauseIds = tag.clauseIds.filter((clauseId) => !othersTag({ testSource: tag.sourcePath, clauseId, line: tag.line }));
-      if (clauseIds.length) unattachedTags.push({ testSource: tag.sourcePath, line: tag.line, clauseIds, code: tag.code, message: tag.message });
-    }
-    for (const [file, gaps] of Object.entries(discovered.fileGaps)) {
-      if (!discovered.unattachedTags.some((tag) => tag.sourcePath === file)) {
-        unattachedTags.push({ testSource: file, line: null, clauseIds: bindings.filter((entry) => entry.testSource === file).map((entry) => entry.clauseId), code: gaps[0].code, message: gaps[0].message });
-      }
-    }
-  }
-  const errors = [];
-  const errorFindings = [];
-  for (const clauseId of requiredAcIds) {
-    const sources = bindings.filter((binding) => binding.clauseId === clauseId).map((binding) => binding.testSource);
-    if (!sources.length || !sources.every((file) => profileIsExact(fileProfile.get(file)?.profile ?? 'module-counts-v1'))) continue;
-    if (witnesses.some((witness) => witness.clauseId === clauseId && witness.identity)) continue;
-    const where = unattachedTags.filter((tag) => tag.clauseIds.includes(clauseId))
-      .map((tag) => `${tag.testSource}${tag.line ? `:${tag.line}` : ''} (${tag.message})`);
-    errors.push(`@ac:${clauseId} is not on a test: ${where.join('; ') || sources.join(', ')}. Put the tag in a comment on the line directly above the test that verifies ${clauseId}.`);
-    errorFindings.push({ code: 'code.delivery.acceptance-tag-unattached', value: clauseId });
-  }
-  return {
-    witnesses: witnesses.sort((left, right) => left.clauseId.localeCompare(right.clauseId)
-      || left.testSource.localeCompare(right.testSource) || (left.line ?? 0) - (right.line ?? 0)),
-    unattachedTags,
-    profiles: [...fileProfile.entries()].map(([testSource, entry]) => ({ testSource, ...entry,
-      ceiling: testAdapterProfile(entry.profile).ceiling })),
-    errors, errorFindings
-  };
+export async function discoverAcceptanceWitnesses(root,phase,input={}) {
+  const replay=discoverAcceptanceWitnessesReplay(phase,input);let step=replay.next();
+  while(!step.done){let value;try{const request=step.value;switch(request.kind){
+    case 'witness-test-commands':value=await resolveDeliveryQualityCommands(root,request.phase,{executionMode:request.executionMode}).catch(()=>[]);break;
+    case 'witness-command-for-file':value=await (await import('./test-module-markers.mjs')).commandForTestFile(root,request.commands,request.file);break;
+    case 'witness-declarations':value=await discoverDeclarations(root,request.profile,request.files);break;
+    default:throw new SingularityFlowError('Unknown witness discovery observation.',{code:'ENGINE_PORT_UNAVAILABLE'});
+  }}catch(error){step=replay.throw(error);continue;}step=replay.next(value);}
+  return step.value;
 }
 
 /**
@@ -936,9 +857,7 @@ export function isTestQualityCommand(command) {
 }
 
 /** Where a step's test command came from: a person's Story-only decision, approved configuration, or inference. */
-export function testCommandProvenance(phase, command) {
-  return command?.storyDecision ? 'story-decision' : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred';
-}
+export {testCommandProvenance} from './kernel/verification-witnesses.mjs';
 
 const configuredStepTests = (phase) => [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])].filter((command) =>
   command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test');

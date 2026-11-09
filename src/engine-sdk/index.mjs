@@ -29,6 +29,7 @@ import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phase
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
 import {phaseSourceInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseDeliveryInspectionManifest} from '../kernel/source-changes.mjs';
 import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceControlRetentionResult} from '../kernel/source-changes.mjs';
+import {testWitnessInspectionManifest} from '../kernel/verification-witnesses.mjs';
 import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
@@ -181,6 +182,9 @@ const definitions = [
   {id:'phase.delivery.inspect',version:1,effect:'read',humanDecision:false,authority:'phase.source.inspect',
     inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseDeliveryInspection',
     stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
+  {id:'phase.test-witnesses.inspect',version:1,effect:'read',humanDecision:false,authority:'phase.source.inspect',
+    inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseTestWitnessInspection',
+    stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
   {id:'phase.source.retain',version:1,effect:'source-retention',humanDecision:false,authority:'phase.source.retain',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceRetention',
     stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
@@ -258,7 +262,7 @@ async function inspectPhaseSources(port,input,signal,operation) {
     throw new SingularityFlowError('The source inspector returned another Story or phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
   const facts=data(await port.inspect(context,input,{signal}));notCancelled(signal);
-  const manifest=operation.id==='phase.delivery.inspect'?phaseDeliveryInspectionManifest:phaseSourceInspectionManifest;
+  const manifest=operation.id==='phase.delivery.inspect'?phaseDeliveryInspectionManifest:operation.id==='phase.test-witnesses.inspect'?testWitnessInspectionManifest:phaseSourceInspectionManifest;
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,subject:context.subject,phase:context.phase,
     manifest:manifest(context.subject.id,context.phase,facts,input.maximumEntries),
     effects:{committed:false,pushed:false,localDraftSaved:false,sourceFilesChanged:false,testsRun:false,approvalRecorded:false}});

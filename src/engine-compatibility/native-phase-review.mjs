@@ -1,3 +1,4 @@
+import {describeWitnessResult} from '../verification/witness-results.mjs';
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { storyTestScope } from '../code-delivery-policy.mjs';
 import { createDocumentReadSession } from '../documents-read.mjs';
@@ -7,7 +8,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { criterionResults, witnessResult, describeWitnessResult } from '../verification/witness-results.mjs';
+import { criterionResults, witnessResult } from "../kernel/verification-witnesses.mjs";
 import { withReadScope } from '../read-scope.mjs';
 import { witnessMappingReview } from '../witness-review-read.mjs';
 import { owedDecisions, stepsThrough } from '../owed-decisions.mjs';

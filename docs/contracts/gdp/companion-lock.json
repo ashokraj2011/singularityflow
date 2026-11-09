@@ -4,10 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "09b814e44c31f345c1e52b277701b109547fcd59",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-09-REVALIDATION-NAME.md",
+    "reviewedAtCommit": "d7c61de356c4597872430e980b23ebc61c3b37e4",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-09-STOPPED-GROUPS.md",
     "companionIds": [
-      "migration-registry"
+      "candidate-custody",
+      "sgos-execution-unit-v1"
     ]
   },
   "companions": [
@@ -74,12 +75,12 @@
     {
       "id": "sgos-execution-unit-v1",
       "path": "src/sgos/execution-units.mjs",
-      "sha256": "sha256:a6f3db4ed2278c183d7d50fd792036234bd1032e83f62fc0a2fdc4b5fc38d12f"
+      "sha256": "sha256:9d054bfc43a3cb556a4adc1adeea7bc3cd4f0783c5f7ba3bb3b52917d2e328c0"
     },
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:206b5cf73df93351a844d9d7c1c461ad928755092a1480cffd8a04ff28e47a51"
+      "sha256": "sha256:df22395c4509c76d75b63e480f0fcf3c5955e9b2aa59323208aac663901769c4"
     },
     {
       "id": "publication-unit-of-work",

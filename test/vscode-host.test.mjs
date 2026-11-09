@@ -12259,9 +12259,11 @@ test('Edit Run Configurations: grouped typed list, Command line per environment 
   assert.equal(preview.directoryMode, 0o700);
   assert.ok(path.basename(path.dirname(file)).startsWith('sflow-application-'));
   assert.deepEqual(YAML.parse(preview.previewApplication), { start: [RUN_EXISTING, RUN_API_TYPED], tests: [{ use: 'module-tests' }] });
-  await until(() => !existsSync(file));
-  assert.equal(existsSync(path.dirname(file)), false, 'the private file and its folder are removed after the call');
+  // The answer reaches the page only after the call returns, and the call removes the file and then its
+  // folder before returning. Waiting for the file alone raced that second step under load (2026-11-09).
   const shown = await until(() => region(lastPatch(page), 'preview').includes('cf-command-line') ? region(lastPatch(page), 'preview') : null);
+  assert.equal(existsSync(file), false, 'the private file is removed after the call');
+  assert.equal(existsSync(path.dirname(file)), false, 'the private file and its folder are removed after the call');
   assert.match(shown, /<tr data-cf-preview-env="dev" class="current"><th>dev <small class="muted">default<\/small><\/th>\s*<td><code class="cf-command-line">\.\/mvnw -q spring-boot:run -Dspring-boot\.run\.main-class=com\.example\.api\.ApiApplication -Dspring-boot\.run\.jvmArguments=-Xmx1g -Dspring-boot\.run\.profiles=dev<\/code>/);
   assert.match(shown, /data-cf-preview-env="qa"><th>qa<\/th>[^]*-Dspring-boot\.run\.jvmArguments=-Xmx2g -Dspring-boot\.run\.profiles=qa/);
 

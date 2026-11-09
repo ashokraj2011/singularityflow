@@ -33,6 +33,16 @@ configurations (decision 4).
    - By default, a step that runs tests runs every one that covers the change.
    - A step may name the levels or IDs it runs: for example, Code runs `unit` and `component`, and a later
      Verify step runs `e2e`.
+5. **A test setup can target a URL** (added 2026-11-09: "sometimes it uses relay urls ..playwright"). Running one
+   suite against different targets is several setups with their own IDs, for example `e2e-local` and `e2e-relay`.
+   Each carries what it needs, through the existing fields only:
+   - `env` with literal values, for a URL that is the same for everyone and holds no credential (e.g.
+     `PLAYWRIGHT_BASE_URL`);
+   - `environment: <id>`, for a URL that differs per machine or carries a credential. It is declared in
+     `singularity/environments.yml` (endpoint or secret kind, docs/ENVIRONMENT-BINDINGS.md) and bound on each
+     machine, never written into `tests:`.
+   - Running an environment-bound setup on a developer machine still needs the capability policy
+     `localIntegrationEvidence: allowed`. That rule is unchanged, and the result says so as it does today.
 
 ## What happens today (main 2e3e74c8c)
 
@@ -116,6 +126,18 @@ configurations (decision 4).
   - the person activates a saved command, and where to do it.
 
   The skill still never activates for the person.
+- `[RTC:REQ-011]` **A setup can target a URL** (decision 5).
+  - Repository tests accept `env` and `environment` exactly as a step's test command does.
+  - Test setup (CLI `--env NAME=VALUE`, which exists, plus `--environment <ID>`; and the VS Code form) lets the
+    person set them per setup.
+  - The preview shows them.
+  - A literal `env` value that holds a credential is refused with the line to declare it in
+    `singularity/environments.yml` instead. That means userinfo (`user:pass@`) in a URL, or a query parameter whose
+    name looks secret. It follows the existing rule that the repository never holds a secret, so this is the one
+    new refusal, and it applies to step commands too.
+  - Test setup's suggestion for a Playwright suite whose config reads its base URL or connect endpoint from
+    `process.env.<NAME>` names that variable in the preview, so the person can set it per setup. Only the config
+    text is read; it is never run.
 
 ## Not in scope
 
@@ -137,3 +159,7 @@ configurations (decision 4).
 - VS Code: Test setup → Save and activate activates it. Workflow Studio's Changes count is not 0 while a proposal
   waits.
 - `story test-policy amend` on an earlier Story offers the repository's command.
+- `tests:` with `e2e-local` (env `PLAYWRIGHT_BASE_URL=http://localhost:3000`) and `e2e-relay` (`environment:
+  relay`) both resolve.
+- A step with `testIds: [e2e-local]` runs only the local one.
+- An `env` value `https://user:pw@host` is refused with the environments.yml line.

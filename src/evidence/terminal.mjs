@@ -20,6 +20,8 @@ import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
 import { decidableUpstreamStep, raiseUpstreamIssueRoute } from '../upstream-routes.mjs';
 import { forwardAmendmentTerminalBlockers, pendingAmendmentRevalidations, revalidateCommand } from '../forward-amendments.mjs';
 import { markSyntheticApproval } from '../presence/counted.mjs';
+import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { stepResponsibilities, visualVerificationPhaseOf } from '../phase-roles.mjs';
 
 const MAX_LISTED = 20;
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
@@ -96,6 +98,15 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
     }
   }
   for (const finding of gate?.findings ?? []) add(decisions, finding.recovery?.command);
+  // What the ending's own gate judges of an earlier step's output goes back to that step: the upstream
+  // issue to its approvers [PHR:REQ-005]. Acceptance runs and visual evidence were refused here with no
+  // way back (gate-parity gaps G6 to G8).
+  if (workflow) for (const finding of gate?.findings ?? []) {
+    const owner = gateFindingOwner(workflow, finding.code);
+    const step = owner ? decidableUpstreamStep(workflow, owner) : null;
+    const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
+    if (route) add(upstream, route.command.replace('<clause-or-section>', /clause (\S+)/u.exec(finding.message ?? '')?.[1] ?? '<clause-or-section>'));
+  }
   if ((evaluation?.decision?.gate === 'block')) add(diagnostics, `singularity-flow evidence matrix ${workId} --json`);
   // Both callers judge a Story still open on disk, where `gate --terminal` always adds "not closed".
   // The decision list shows this same as-if-closed evaluation, and runs in any turn.
@@ -128,6 +139,23 @@ function staleEvidenceReturn(workflow, owner, clauseId) {
 export function visualWitnessCommands(workId, evaluation) {
   return new Set((evaluation?.rows ?? []).flatMap((row) => (row.verification?.contract?.slots ?? [])
     .filter((slot) => slot.method === 'visual').map((slot) => witnessAction(workId, row, slot))));
+}
+
+/**
+ * The step whose output an ending gate finding judges, or null for one that judges the ending itself:
+ * a planned test the plan lacks is the plan's, an acceptance run the last code step's, visual evidence
+ * the visual verification step's (else the last code step's).
+ */
+export function gateFindingOwner(workflow, code) {
+  const order = workflow?.phaseOrder ?? [];
+  const codeStep = [...order].reverse().find((id) => phaseRequiresCodeDelivery(workflow.phases?.[id])) ?? null;
+  if (code === 'gate.acceptance.planned-test-missing') {
+    return (codeStep && workflow.resolution?.plannedClaims?.owners?.[codeStep])
+      ?? [...order].reverse().find((id) => stepResponsibilities(workflow, id).includes('plan')) ?? null;
+  }
+  if (String(code).startsWith('gate.acceptance.')) return codeStep;
+  if (String(code).startsWith('gate.visual.')) return visualVerificationPhaseOf(workflow, null)?.id ?? codeStep;
+  return null;
 }
 
 const UPSTREAM_OWNED = new Set(['plan', 'implement', 'verify']);

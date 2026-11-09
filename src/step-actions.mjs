@@ -626,3 +626,13 @@ export function stepActionText(event) {
   for (const criterion of (event?.summary?.acceptanceCriteria ?? []).slice(0, 5)) lines.push(`• ${criterion}`);
   return lines.join('\n');
 }
+
+/**
+ * Whether submitting `phase` ends the Story: its last step that is not skipped, which no person
+ * approves. Only the ending waits for a missing receipt [PHR:REQ-003]: a later step's prepare,
+ * publication and submission are told, never held.
+ */
+export function submissionEndsStory(workflow, phase) {
+  const last = [...(workflow?.phaseOrder ?? [])].reverse().find((id) => workflow.phases?.[id]?.status !== 'skipped');
+  return Boolean(phase) && last === phase.id && ['none', 'policy'].includes(phase.approvalPolicy?.mode);
+}

@@ -183,7 +183,7 @@ import { assertNoInteractiveRevisionPublication } from './revision/publication-a
 import {
   deliverStepActions, releaseWaitingStepActions, runStepActionsAfterTransition, stepActionWarning, storyUsesStepActions
 } from './step-action-delivery.mjs';
-import { assertRequiredStepActionsRecorded, storyRequiresStepActions } from './step-action-receipts.mjs';
+import { requiredStepActionHold, stepActionNoticeSentence, storyRequiresStepActions } from './step-action-receipts.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import {
@@ -2217,6 +2217,13 @@ export async function beginPhaseGeneration(root, config, workflow, {
   });
 }
 
+/** Tell, never refuse: a required delivery of an earlier step without a receipt waits for the ending. */
+async function warnRequiredStepActions(root, config, workflow) {
+  if (!storyRequiresStepActions(workflow)) return;
+  const hold = await requiredStepActionHold(root, config, workflow);
+  if (hold) console.warn(`Warning: ${stepActionNoticeSentence(hold)}`);
+}
+
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, {
   dryRun = false
 } = {}) {
@@ -2230,9 +2237,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
   await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
-  // A required after-step action holds every later step (prepare, publish, submit) until its
-  // approved delivery has a receipt.
-  if (!dryRun) await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be prepared`);
+  // A required after-step action of an earlier step without a receipt holds only the Story's ending;
+  // this step is told [PHR:REQ-003].
+  if (!dryRun) await warnRequiredStepActions(root, config, workflow);
   await assertDocumentInputs(root, config, workflow, phase);
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
@@ -5459,7 +5466,8 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertPhaseRepairSettled(root, workflow, phase);
   const { assertPhaseAppealsResolved } = await import('./phase-appeals.mjs');
   await assertPhaseAppealsResolved(root, config, workflow, phase);
-  await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be submitted`);
+  // A missing receipt holds only the Story's ending: the closing transition refuses it, this submission is told [PHR:REQ-003].
+  await warnRequiredStepActions(root, config, workflow);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'submit');
   const testCommandEpochRun = beginTestCommandEpochValidation(workflow, phase);

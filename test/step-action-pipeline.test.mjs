@@ -92,7 +92,7 @@ test('the machine that moves the Story leaves a pipeline target to the pipeline,
   assert.deepEqual(sent.at(-1), 'https://audit.example.com/sflow', 'someone can still deliver it from here by naming it');
 });
 
-test('a pipeline delivers a pushed approval to a trusted target, records it, and releases the next step [after-step actions]', async (t) => {
+test('a pipeline delivers a pushed approval to a trusted target and records it; the next step is told, never held [after-step actions, PHR:REQ-003]', async (t) => {
   const local = await receiver(t);
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-step-action-pipeline-story-'));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -155,9 +155,10 @@ test('a pipeline delivers a pushed approval to a trusted target, records it, and
     'this machine does not need a pipeline target\'s secret, so doctor does not ask for it');
   const listed = JSON.parse((await cli(dev, 'integrations', 'list', '--json')).stdout);
   assert.equal(listed.data.targets[0].deliverFrom, 'pipeline');
-  const held = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], dev, {}, { allowFailure: true });
-  assert.notEqual(held.status, 0);
-  assert.match(held.stdout + held.stderr, /A pipeline delivers it and records its receipt; once it has, bring that receipt here: singularity-flow refresh-branch/);
+  // Only the Story's ending waits for the receipt [PHR:REQ-003]: the next step prepares, and is told how it arrives.
+  const told = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], dev, {}, { allowFailure: true });
+  assert.equal(told.status, 0, told.stdout + told.stderr);
+  assert.match(told.stdout + told.stderr, /Warning: The Story's ending waits for[\s\S]*A pipeline delivers it and records its receipt; once it has, bring that receipt here: singularity-flow refresh-branch\. This step is not held\./);
 
   // The pipeline: a clone of the pushed branch, with its own identity and the target's secret.
   run('git', ['clone', '-q', remote, ci], base);
@@ -208,9 +209,11 @@ test('a pipeline delivers a pushed approval to a trusted target, records it, and
   assert.equal(local.requests.length, 1, 'a second run sends nothing new');
   assert.equal(JSON.parse(again.stdout).data.receipts.recorded, false);
 
-  // Back on the developer's machine: bring the receipt in, and the next step starts.
+  // Back on the developer's machine: bring the receipt in. implement's draft is set aside meanwhile, as
+  // refresh-branch says: it only fast-forwards a clean checkout.
+  run('git', ['stash', '--include-untracked'], dev);
   await cli(dev, 'refresh-branch');
-  await cli(dev, 'prepare', 'implement');
+  run('git', ['stash', 'pop'], dev);
   const recorded = JSON.parse((await cli(dev, 'integrations', 'status', '--all', '--json')).stdout);
   assert.deepEqual(recorded.data.deliveries.map((entry) => [entry.status, entry.recorded]), [['pipeline', true]]);
 });

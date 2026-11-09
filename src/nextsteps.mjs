@@ -17,6 +17,7 @@ import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, upstreamIssueStates } from './upstream-routes.mjs';
 import { sheetRoute } from './step-sheet-route.mjs';
+import { submissionEndsStory } from './step-actions.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -263,9 +264,9 @@ export function workflowNextSteps(workflow, {
     return held ? withDecisionList(workflow, phase, actions, held) : withApprovalHolds(workflow, phase, actions, approvalCheck);
   }
 
-  // A required after-step action of an earlier step holds this one until its approved delivery has
-  // a receipt, so that delivery comes first and the step's own work follows it.
-  if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
+  // A required after-step action of an earlier step without a receipt holds only the Story's ending
+  // [PHR:REQ-003], so that delivery comes first only where this step's submission ends the Story.
+  if (stepActionHold?.missing?.length && phase.status === 'in_progress' && submissionEndsStory(workflow, phase)) {
     const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
     const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [

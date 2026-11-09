@@ -266,7 +266,8 @@ test('a hold whose receipt comes from a pipeline offers to bring it in, with its
   const { submissionReadinessSnapshot } = await import('../src/submission-readiness.mjs');
   const workflow = story();
   workflow.resolution.phases[0].afterStep[0].required = true;
-  workflow.phases.design = { id: 'design', label: 'Design', status: 'in_progress', generation: 0, artifacts: [], approvals: [] };
+  // Design is the last step and nobody approves it: its submission ends the Story, which waits for the receipt [PHR:REQ-003].
+  workflow.phases.design = { id: 'design', label: 'Design', status: 'in_progress', generation: 0, artifacts: [], approvals: [], approvalPolicy: { mode: 'none' } };
   workflow.workItem.branch = 'STORY-7';
   const readiness = submissionReadinessSnapshot(workflow, { phaseId: 'design', stepActionHold: {
     nextAction: 'singularity-flow refresh-branch', reason: 'The next step waits: a pipeline delivers it.',

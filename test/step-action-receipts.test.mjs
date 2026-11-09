@@ -19,10 +19,10 @@ import { deliverStepActions, enqueueStepActions } from '../src/step-action-deliv
 import { sharedPublicationStorageDirectory } from '../src/publication-storage.mjs';
 import {
   assertReceiptsMayBeRecorded, assertRequiredStepActionsRecorded, planStepActionReceipts, stepActionReceipt, stepActionReceiptDirectory,
-  stepActionReceiptProblem, stepAwaitingApproval, writeStepActionReceipts
+  stepActionReceiptProblem, stepActionTerminalBlockers, stepAwaitingApproval, writeStepActionReceipts
 } from '../src/step-action-receipts.mjs';
 import {
-  normalizeIntegrations, normalizeStepActions, pinStepActions, stepActionDeliveryKey, storyRequiresStepActions
+  normalizeIntegrations, normalizeStepActions, pinStepActions, stepActionDeliveryKey, storyRequiresStepActions, submissionEndsStory
 } from '../src/step-actions.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -263,6 +263,28 @@ function requiredFixture({ status = 'approved', generation = 1 } = {}) {
   };
 }
 
+test('[PHR:REQ-003] only the Story\'s ending waits for an earlier step\'s required receipt; the closing step\'s own waits for finalization', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-step-action-ending-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => run('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.test', ...args], root);
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'base');
+  const workflow = requiredFixture();
+  const key = stepActionDeliveryKey({ workId: 'STORY-9', phaseId: 'intake', generation: 1, trigger: 'approved', actionId: 'audit' });
+  // implement closes the Story: intake's missing receipt holds its ending, with the command to run.
+  assert.deepEqual((await stepActionTerminalBlockers(root, {}, workflow)).map((entry) => [entry.code, entry.command]),
+    [['STEP_ACTION_REQUIRED_UNRECORDED', `singularity-flow integrations retry ${key}`]]);
+  assert.match((await stepActionTerminalBlockers(root, {}, workflow))[0].message, /audit → team-events \(intake generation 1, approved\) has no receipt/u);
+  // The closing step's own delivery happens after its approval: finalization holds that one, not the ending.
+  const closingOwn = { ...workflow, phaseOrder: ['implement', 'intake'] };
+  assert.deepEqual(await stepActionTerminalBlockers(root, {}, closingOwn), []);
+  // Only a submission that ends the Story (its last step, which no person approves) is held by it.
+  const implement = { id: 'implement', approvalPolicy: { mode: 'none' } };
+  assert.equal(submissionEndsStory(workflow, implement), true);
+  assert.equal(submissionEndsStory(workflow, { ...implement, approvalPolicy: { mode: 'required' } }), false);
+  assert.equal(submissionEndsStory(workflow, { id: 'intake', approvalPolicy: { mode: 'none' } }), false);
+});
+
 test('a required delivery holds the next step until its receipt is committed, and says what to run', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-step-action-required-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -364,15 +386,16 @@ test('a required delivery that went out at approval is recorded at once, so the 
   assert.deepEqual(status.data.deliveries.map((entry) => [entry.status, entry.required, entry.recorded]), [['delivered', true, true]]);
 });
 
-test('a required delivery that failed holds the next step until a retry delivers and records it [after-step actions]', async (t) => {
+test('a required delivery that failed is named to the next step, which is not held, until a retry delivers and records it [after-step actions, PHR:REQ-003]', async (t) => {
   const local = await receiver(t, [401]);
   const { root, cli } = await requiredStory(t, local);
   const approved = await cli('approve', 'intake', '--yes');
   assert.doesNotMatch(approved.stdout, /Recorded \d+ after-step receipt/);
-  const refused = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], root, {}, { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  const output = `${refused.stdout}${refused.stderr}`;
-  assert.match(output, /implement cannot be prepared yet: the required after-step action audit → audit-log \(intake generation 1, approved\) has no receipt in the Story/);
+  // Only the Story's ending waits for it: implement prepares, and is told what to run.
+  const prepared = await runAsync(process.execPath, [CLI, '--no-model', 'prepare', 'implement'], root, {}, { allowFailure: true });
+  const output = `${prepared.stdout}${prepared.stderr}`;
+  assert.equal(prepared.status, 0, output);
+  assert.match(output, /Warning: The Story's ending waits for the required after-step action audit → audit-log \(intake generation 1, approved\) has no receipt in the Story[\s\S]*This step is not held\./);
   const key = /integrations retry (sad_[0-9a-f]{40})/.exec(output)?.[1];
   assert.ok(key, output);
   const headBefore = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
@@ -380,7 +403,6 @@ test('a required delivery that failed holds the next step until a retry delivers
   assert.equal(retried.data.report.delivered.length, 1);
   assert.equal(retried.data.receipts.count, 1, 'the retry that delivered it also recorded it');
   assert.equal(run('git', ['rev-list', '--count', `${headBefore}..HEAD`], root).stdout.trim(), '1');
-  await cli('prepare', 'implement');
   assert.equal(local.requests.length, 2);
 });
 

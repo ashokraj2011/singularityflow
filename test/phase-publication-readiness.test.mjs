@@ -274,7 +274,7 @@ test('approved inputs require both the file and its exact approved hash; optiona
   assert.equal((await phasePrepublish(f.root, f.config, f.workflow, f.phase)).status, 'ready');
 });
 
-test('required integration receipt is reported before publication without creating or sending a delivery', async t => {
+test('a required integration receipt is told before publication, never holding it, and nothing is created or sent [PHR:REQ-003]', async t => {
   const f = await fixture(t);
   f.workflow.phases.intake = { id: 'intake', status: 'approved', generation: 1, artifacts: [] };
   f.workflow.phaseOrder = ['intake', 'planning'];
@@ -282,9 +282,12 @@ test('required integration receipt is reported before publication without creati
     id: 'audit', required: true, on: ['approved'], send: 'event', target: 'hook',
     targetSpec: { kind: 'webhook', url: 'https://hooks.example.test/audit' }
   }] }];
-  const preview = await expectBlocked(f, 'integration', 'STEP_ACTION_REQUIRED_UNRECORDED');
-  assert.match(preview.commands.next, /^singularity-flow integrations retry sad_/);
-  assert.match(preview.correction.guidance, /unknown prior outcome/);
+  const before = await tree(f.root);
+  const preview = await phasePrepublish(f.root, f.config, f.workflow, f.phase, { session: f.session });
+  assert.equal(preview.status, 'ready', JSON.stringify(preview.findings));
+  assert.ok(preview.warnings.some((line) => /^The Story's ending waits for the required after-step action audit → hook .*integrations retry sad_[0-9a-f]{40}\. This step is not held\.$/u.test(line)), JSON.stringify(preview.warnings));
+  await assertPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase);
+  assert.deepEqual(await tree(f.root), before, 'nothing was created or sent');
 });
 
 test('no-model fallback keeps human authorship in the publication command and recovery retry', async t => {

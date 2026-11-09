@@ -477,7 +477,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,645,250 (measured 9,645,218, commands/phase-lifecycle.mjs): a plan that falls short of the approved intent names the
     // clause's defining step and its correction (upstream-routes.mjs +2692, phase-prepublish.mjs +2402, phase-resolution.mjs
     // +910, verification/intent.mjs +411, specifications.mjs +267, state.mjs +177) [PHR:REQ-001]. No new eager file.
-    assert.ok(closure.bytes <= 9_645_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,647,900 (measured 9,647,872, commands/phase-lifecycle.mjs): a required after-step delivery holds only the Story's
+    // ending; later steps are told (step-action-receipts.mjs +1424, step-actions.mjs +534, state.mjs +428,
+    // phase-publication-readiness.mjs +210, submission-readiness.mjs +58) [PHR:REQ-003]. No new eager file.
+    assert.ok(closure.bytes <= 9_647_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -702,7 +705,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,184,500 (measured 4,184,467): the same borrowed visual proof (verification/intent.mjs +852).
   // 4,185,150 (measured 4,185,145): a plan's unmet intent and its own row errors say whose they are (verification/intent.mjs
   // +411, specifications.mjs +267) [PHR:REQ-001].
-  assert.ok(current.bytes <= 4_185_150, `session current loads ${current.bytes} source bytes`);
+  // 4,185,700 (measured 4,185,679): whether a submission ends the Story, for a missing receipt (step-actions.mjs +534) [PHR:REQ-003].
+  assert.ok(current.bytes <= 4_185_700, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

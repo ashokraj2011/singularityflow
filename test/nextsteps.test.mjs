@@ -9,6 +9,14 @@ import YAML from 'yaml';
 import { nextStepsSnapshot, nextStepsText, workflowNextSteps } from '../src/nextsteps.mjs';
 import { agentNextSteps, storyPrerequisites, snapshotContinuation } from '../src/commands/nextsteps.mjs';
 
+/** Intake as the Story's last step, which nobody approves: submitting it ends the Story. */
+function endingWorkflow(options) {
+  const state = workflow(options);
+  state.phaseOrder = ['intake'];
+  state.phases.intake.approvalPolicy = { mode: 'none' };
+  return state;
+}
+
 function workflow({ status = 'in_progress', phaseStatus = 'in_progress', generation = 0, currentPhase = 'intake', history = [] } = {}) {
   return {
     workItem: { id: 'NEXT-1', branch: 'NEXT-1', workType: 'feature', workTypeLabel: 'Feature', source: { type: 'manual' } },
@@ -215,7 +223,8 @@ test('compact routing folds composition only into entry-capable authoring; other
   const invalid = { ...snapshot, actions: [{ ...snapshot.actions[0],
     command: 'singularity-flow wm compose --phase intake; echo injected' }, ...snapshot.actions.slice(1)] };
   assert.equal(agentNextSteps(invalid), invalid, 'unsafe presentation cannot become inline preparation');
-  const held = nextStepsSnapshot({ workflow: state, prerequisites: [compose],
+  // Only where this step's submission ends the Story does the delivery lead, and authoring follow it [PHR:REQ-003].
+  const held = nextStepsSnapshot({ workflow: endingWorkflow(), prerequisites: [compose],
     stepActionHold: { missing: [{ action: 'audit' }], nextAction: 'singularity-flow integrations status --all' } });
   assert.equal(agentNextSteps(held), held, 'a held THEN authoring action cannot swallow a prerequisite');
 });
@@ -295,7 +304,7 @@ test('a step reopened by rework or a skill amendment gets the grounding prerequi
   assert.match(withoutModel.reason, /recording a clarification answer needs it first/);
 });
 
-test('a required after-step delivery comes before the held step\'s own work', () => {
+test('a required after-step delivery comes first only where the next submission ends the Story [PHR:REQ-003]', () => {
   const key = `sad_${'2'.repeat(40)}`;
   const hold = {
     missing: [{ key, phaseId: 'intake', generation: 1, action: 'audit', target: 'audit-log', here: 'failed' }],
@@ -304,15 +313,17 @@ test('a required after-step delivery comes before the held step\'s own work', ()
   };
   const plain = workflowNextSteps(workflow());
   assert.equal(plain.find((entry) => entry.command === 'singularity-flow prepare intake')?.timing, 'now');
-  const held = workflowNextSteps(workflow(), { stepActionHold: hold });
+  // A step a person approves is not held: its own work stays first, and only the ending waits for the receipt.
+  assert.deepEqual(workflowNextSteps(workflow(), { stepActionHold: hold }), plain);
+  const held = workflowNextSteps(endingWorkflow(), { stepActionHold: hold });
   assert.deepEqual([held[0].timing, held[0].command, held[0].skill, held[0].reason], ['now', hold.nextAction, '/sf-integrations', hold.reason]);
   assert.equal(held.find((entry) => entry.command === 'singularity-flow prepare intake')?.timing, 'then', 'the step\'s own work follows the delivery');
   assert.equal(held.filter((entry) => entry.timing === 'now').length, 1);
-  const snapshot = nextStepsSnapshot({ workflow: workflow(), stepActionHold: hold });
+  const snapshot = nextStepsSnapshot({ workflow: endingWorkflow(), stepActionHold: hold });
   assert.equal(snapshot.stepActionHold, hold);
   assert.equal(snapshot.actions[0].command, hold.nextAction);
   assert.match(nextStepsText(snapshot), /integrations retry sad_2{40}/);
-  assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { stepActionHold: hold })[0].command.includes('integrations'), false, 'a step in review is not held');
+  assert.equal(workflowNextSteps(endingWorkflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { stepActionHold: hold })[0].command.includes('integrations'), false, 'a step in review is not held');
 });
 
 test('unmet MCP readiness names its setup, in order, as NOW instead of a prepare that would refuse', () => {

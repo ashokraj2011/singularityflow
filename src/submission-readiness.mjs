@@ -6,7 +6,7 @@ import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
-import { storyRequiresStepActions } from './step-actions.mjs';
+import { storyRequiresStepActions, submissionEndsStory } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
@@ -344,9 +344,9 @@ export function submissionReadinessSnapshot(workflow, {
     reasonCode: 'PHASE_NOT_IN_PROGRESS'
   });
 
-  // A required after-step action of an earlier step holds this one until its approved delivery has
-  // a receipt; prepare, publish and submit refuse until then, so the hold is the next action.
-  if (stepActionHold?.missing?.length) return result(workflow, phase, {
+  // A required after-step action of an earlier step without a receipt holds only the Story's ending
+  // [PHR:REQ-003]: the hold is the next action only where this submission ends the Story.
+  if (stepActionHold?.missing?.length && submissionEndsStory(workflow, phase)) return result(workflow, phase, {
     ...draft,
     classification: 'step-action-required',
     // The Copilot route follows the command: retry and record are /sf-integrations, a pipeline's

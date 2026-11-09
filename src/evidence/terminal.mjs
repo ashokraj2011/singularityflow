@@ -205,8 +205,12 @@ export async function evaluateTerminalTransition(root, definition, workflow, { o
   const evaluation = evaluateEvidence(graph, { boundary: 'terminal', mode: 'decision' });
   const gate = await runGovernanceGate(root, definition, workflow, { terminal: true, pendingTransition: true, openStory });
   const evidenceBlockers = evidenceBlockersOf(evaluation);
-  // An earlier step's owners decide every upstream issue before the Story ends [UIF-M2].
-  const upstream = [...upstreamIssueTerminalBlockers(workflow), ...forwardAmendmentTerminalBlockers(workflow)];
+  // An earlier step's owners decide every upstream issue before the Story ends [UIF-M2], and a
+  // required after-step delivery of an earlier step has its receipt by then: the ending is the one
+  // place that waits for it [PHR:REQ-003].
+  const { stepActionTerminalBlockers } = await import('../step-action-receipts.mjs');
+  const upstream = [...upstreamIssueTerminalBlockers(workflow), ...forwardAmendmentTerminalBlockers(workflow),
+    ...await stepActionTerminalBlockers(root, definition, workflow)];
   const blockers = [...new Set([...evidenceBlockers, ...gate.errors, ...upstream.map((entry) => entry.message)])];
   const decisions = await pendingDecisionLead(workflow, gate, upstream, openStory);
   const recovery = [...new Set([...(decisions ? [decisions.nextAction.command] : []), ...upstream.map((entry) => entry.command),

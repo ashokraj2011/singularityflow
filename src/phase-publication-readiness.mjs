@@ -7,7 +7,7 @@ import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
 import { isVisualVerificationPhase } from './phase-roles.mjs';
-import { requiredStepActionHold } from './step-action-receipts.mjs';
+import { requiredStepActionHold, stepActionNoticeSentence } from './step-action-receipts.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
@@ -88,12 +88,15 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     }, { code: appeals.sourceCode ?? 'PHASE_APPEAL_REVIEW_REQUIRED' });
   }
 
+  // A required delivery of an earlier step without a receipt holds only the Story's ending; this
+  // step's publication is told, never held [PHR:REQ-003]. A record that cannot be read still holds.
   const integration = await capture(async () => {
     const hold = await requiredStepActionHold(root, config, workflow);
-    return { hold, errors: hold ? [`${hold.what}. ${hold.because}.`] : [] };
+    if (hold) warnings.push(stepActionNoticeSentence(hold));
+    return { hold, errors: [] };
   });
   add('integration', 'integration', integration.errors, {
-    command: integration.hold?.nextAction ?? 'singularity-flow integrations status --json',
+    command: 'singularity-flow integrations status --json',
     detail: 'Inspect the required delivery and record its verified receipt. Review an unknown prior outcome before retrying; do not send or acknowledge it automatically.'
   }, { code: integration.sourceCode ?? 'STEP_ACTION_REQUIRED_UNRECORDED' });
 

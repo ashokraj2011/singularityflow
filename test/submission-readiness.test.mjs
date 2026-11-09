@@ -357,21 +357,29 @@ test('completed raw code at generation zero resumes its missing summary or autho
   }
 });
 
-test('a required after-step delivery of an earlier step holds the current one until it is recorded', () => {
+test('a required after-step delivery of an earlier step holds only the submission that ends the Story [PHR:REQ-003]', () => {
   const key = `sad_${'1'.repeat(40)}`;
   const hold = {
     missing: [{ key, phaseId: 'intake', generation: 1, action: 'audit', target: 'audit-log', here: 'failed' }],
     nextAction: `singularity-flow integrations retry ${key}`,
     reason: 'The next step waits: the required after-step action audit → audit-log (intake generation 1, approved) has no receipt in the Story.'
   };
-  const held = submissionReadinessSnapshot(workflow({ generation: 0, publication: false }), { stepActionHold: hold });
+  // A step a person approves is not held: its own work comes first, and the ending waits for the receipt.
+  assert.equal(submissionReadinessSnapshot(workflow({ generation: 0, publication: false }), { stepActionHold: hold }).classification, 'generation-required');
+  // The last step, which nobody approves, ends the Story when it is submitted: there the receipt comes first.
+  const ending = (options) => {
+    const source = workflow(options);
+    source.phases[source.currentPhase].approvalPolicy = { mode: 'none' };
+    return source;
+  };
+  const held = submissionReadinessSnapshot(ending({ generation: 0, publication: false }), { stepActionHold: hold });
   assert.deepEqual([held.classification, held.lifecycleReady, held.nextCommand, held.nextSkill, held.reasonCode],
     ['step-action-required', false, hold.nextAction, '/sf-integrations', 'STEP_ACTION_REQUIRED_UNRECORDED']);
   assert.deepEqual(held.stepActionHold, { reason: hold.reason, runnableHere: true, missing: hold.missing });
-  const elsewhere = submissionReadinessSnapshot(workflow({ generation: 0, publication: false }), { stepActionHold: { ...hold, nextAction: null } });
+  const elsewhere = submissionReadinessSnapshot(ending({ generation: 0, publication: false }), { stepActionHold: { ...hold, nextAction: null } });
   assert.equal(elsewhere.nextCommand, 'singularity-flow integrations status --work-id READY-1 --all', 'when this machine cannot deliver it, the host can still look');
   assert.equal(elsewhere.stepActionHold.runnableHere, false);
-  assert.equal(submissionReadinessSnapshot(workflow({ status: 'awaiting_approval' }), { stepActionHold: hold }).classification, 'already-submitted', 'a step in review is not held');
+  assert.equal(submissionReadinessSnapshot(ending({ status: 'awaiting_approval' }), { stepActionHold: hold }).classification, 'already-submitted', 'a step in review is not held');
   assert.equal(submissionReadinessSnapshot(workflow({ generation: 0, publication: false })).classification, 'generation-required');
   assert.match(submissionReadinessText(held), /Classification: step-action-required\nPhase status: in_progress[\s\S]*The next step waits: the required after-step action audit → audit-log[\s\S]*Copilot: \/sf-integrations\nShell: singularity-flow integrations retry sad_1{40}\nVS Code \(model-free\): not available for this action$/);
 });

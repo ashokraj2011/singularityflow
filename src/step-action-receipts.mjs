@@ -240,6 +240,27 @@ export function stepActionHoldSentence(hold) {
   return hold ? `The next step waits: ${hold.what}. ${hold.because}.` : null;
 }
 
+/** What a step that is not held is told about a missing receipt: the ending waits for it. */
+export function stepActionNoticeSentence(hold) {
+  return hold ? `The Story's ending waits for ${hold.what}. ${hold.because}${hold.nextAction ? `: ${hold.nextAction}` : ''}. This step is not held.` : null;
+}
+
+/**
+ * The ending's blockers for required deliveries of the steps before the closing one, which have no
+ * committed receipt [PHR:REQ-003]. The closing step's own delivery happens after its approval, so
+ * finalization holds that one, as before.
+ */
+export async function stepActionTerminalBlockers(root, config, workflow) {
+  if (!storyRequiresStepActions(workflow)) return [];
+  const closing = [...(workflow.phaseOrder ?? [])].reverse().find((id) => workflow.phases?.[id]?.status !== 'skipped') ?? null;
+  const hold = await requiredStepActionHold(root, config, workflow);
+  const missing = (hold?.missing ?? []).filter((entry) => entry.phaseId !== closing);
+  if (!missing.length) return [];
+  return missing.map((entry) => ({ code: 'STEP_ACTION_REQUIRED_UNRECORDED',
+    message: `The required after-step action ${entry.action} → ${entry.target} (${entry.phaseId} generation ${entry.generation}, approved) has no receipt in the Story. ${HELD_BECAUSE[entry.here] ?? HELD_BECAUSE.absent}.`,
+    command: nextForMissing(entry) ?? `singularity-flow integrations status --work-id ${workflow.workItem.id} --all` }));
+}
+
 /**
  * Refuse while a required delivery of an approved step has no committed receipt. `held` names what
  * waits, such as "implement cannot be prepared" or "the Story cannot be finalized".

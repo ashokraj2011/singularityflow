@@ -95,6 +95,33 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
     const previous=await prior(snapshot,publication.phase,signal,traversal().token),data=await observer.bytes(publication.artifact.content,publication.artifact.content.bytes,signal);
     return {values:derive(publication,snapshot.workflow,previous.indices,data),inputs:previous.inputs};
   }
+  /** Resolve the original human-approved plan and definitions, never caller-supplied claim maps. */
+  async function sourcePlan(snapshot,phaseId,{signal}={}) {
+    const ownerId=snapshot.workflow.resolution?.plannedClaims?.owners?.[phaseId];
+    if(!snapshot.workflow.phases?.[ownerId])throw error(`Code phase '${phaseId}' has no reviewed planning owner for source clause bindings.`,
+      'SPEC_PLANNED_CLAIM_MAP_REQUIRED');
+    const definitions=specificationPublicationSources(snapshot.workflow,phaseId),ids=[...new Set([...definitions,ownerId])],
+      packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),proofs=await packets.inspectApprovedMany(snapshot,ids,{signal,specificationTraversal:traversal().token});
+    const indexes=[],indices=[];let planned=null,planProof=null;
+    for(const [position,id]of ids.entries()) {
+      const proof=proofs[position];
+      if(!proof?.published.specifications)throw error('The planning input needs its retained specification evidence and human approval.',
+        'ENGINE_PORT_UNAVAILABLE',{phase:id,required:['approved-specification-evidence']});
+      const manifest=namespaceSpecificationManifest(await json(proof.published.specifications.record,signal),{scope,workId,phaseId:id});
+      if(definitions.includes(id)) {
+        if(!manifest.index)throw error('The approved definition has no retained clause index.','ENGINE_STORAGE_CORRUPT');
+        indexes.push(await retainedValue(manifest.index,'index',signal));indices.push({phase:id,record:manifest.index});
+      }
+      if(id===ownerId) {
+        if(!manifest.planned)throw error('The approved planning owner has no retained planned claims.','SPEC_PLANNED_CLAIM_MAP_REQUIRED');
+        planned=await retainedValue(manifest.planned,'planned',signal);
+        planProof={phase:id,generation:proof.value.generation,publication:proof.value.publication.record,reviewPacket:proof.binding.record,
+          planned:manifest.planned,indices};
+      }
+    }
+    // Copy the completed input list: the owner can precede another definition in custom workflows.
+    return {active:{indexes},planned,proof:{...planProof,indices:[...indices]}};
+  }
   async function verifyOne(publication,signal,specificationTraversal) {
     const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:publication.phase});
     if(!same(identity(publication),Object.fromEntries(Object.keys(identity(publication)).map(key=>[key,manifest[key]])))
@@ -133,5 +160,5 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
       ||!evidence(publication).every(ref=>plan.evidence.some(item=>same(item,ref))))throw error(
       'Specification evidence was not accepted against its original lifecycle basis.','ENGINE_STORAGE_CORRUPT');
   }
-  return Object.freeze({derive:derivePublication,verify,owners,evidence,verifyPlan});
+  return Object.freeze({derive:derivePublication,sourcePlan,verify,owners,evidence,verifyPlan});
 }

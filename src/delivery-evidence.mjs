@@ -1,4 +1,4 @@
-import {codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
+import {codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
 import {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 export {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 import {pathInside,isDocumentationPath,classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
@@ -17,7 +17,7 @@ const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verificati
 import { phaseRequiresCodeDelivery, storyTestScope } from './code-delivery-policy.mjs';
 import {pinnedTestEvidenceSource, reviewCodeSource, reviewMayReturnToCode, reviewRepairTarget, reviewOwnRepairBoundary,codeDeliveryRepairRoute} from './kernel/phase-policy.mjs';
 export {reviewCodeSource,reviewMayReturnToCode,reviewRepairTarget,reviewOwnRepairBoundary} from './kernel/phase-policy.mjs';
-import {specificationCriteria, namespaceOf, storyOwnsTag, tagKey,unknownCriterionTags} from './kernel/specification-policy.mjs';
+import {specificationCriteria, namespaceOf, tagKey,unknownCriterionTags,plannedClaimAllocatedTo as allocatedTo} from './kernel/specification-policy.mjs';
 export {specificationCriteria,unknownCriterionTags} from './kernel/specification-policy.mjs';
 import {unchangedClauseTagsNote,otherStoryTagsNote} from './kernel/code-delivery-evidence.mjs';
 export {unchangedClauseTagsNote,otherStoryTagsNote} from './kernel/code-delivery-evidence.mjs';
@@ -568,10 +568,6 @@ export async function discoverAcceptanceWitnesses(root, phase, {
  * product-source paths. The reviewed plan pointer, rather than an arbitrary claims file in the
  * directory, is authority. Test-only and reviewed not-applicable rows have no source-tag duty.
  */
-/** Whether this code step delivers a planned obligation: the plan allocates it here, or allocates it nowhere. */
-function allocatedTo(claim, phaseId) {
-  return !(claim?.steps ?? []).length || claim.steps.includes(phaseId);
-}
 
 /**
  * The planned obligations this code step delivers, read from its planning owner's reviewed plan
@@ -607,120 +603,29 @@ export async function plannedEvidencePaths(root, config, workflow, phase) {
     .filter((candidate) => candidate.startsWith(prefix) && !candidate.split('/').includes('..')))].sort();
 }
 
-export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
-  deletedSourcePaths = [], changeSet = null
-} = {}) {
-  if (workflow.resolution?.codeDelivery?.traceability?.sourceBindings !== 'enforce'
-      || phase.sourceBoundary === 'test-automation'
-      || workflow.resolution?.plannedClaims?.mode !== 'required') {
-    return { mode: 'off', required: [], bindings: [], missing: [] };
-  }
-  const ownerId = workflow.resolution.plannedClaims.owners?.[phase.id];
-  const owner = workflow.phases?.[ownerId];
-  if (!owner) {
-    throw new SingularityFlowError(
-      `Code phase '${phase.id}' has no reviewed planning owner for source clause bindings.`,
-      { code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED' }
-    );
-  }
-  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
-  const active = await loadActiveSpecRecords(itemDirectory, workflow);
-  const clauseIds = predecessorSpecClauses(active, workflow, phase.id).map((clause) => clause.id);
-  const plan = await readBoundSpecificationClaimMap(root, itemDirectory, workflow, owner, 'planned', {
-    clauseIds, policy: workflow.resolution?.spec ?? config.spec ?? {}
-  });
-  const available = new Set(sourcePaths);
-  // Only obligations this step delivers by new or modified source carry their clause in that source.
-  const required = Object.entries(plan.claims ?? {})
-    .filter(([, claim]) => allocatedTo(claim, phase.id) && changesProductSource(claim)
-      && claim.testDisposition !== 'not-applicable')
-    .map(([rawClauseId, claim]) => {
-      const clauseId = normalizeQualifiedClauseId(rawClauseId);
-      if (!clauseId) {
-        throw new SingularityFlowError(`Planned source clause '${rawClauseId}' is not a qualified ID.`, {
-          code: 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID'
-        });
+export async function plannedSourceClauseBindings(root,config,workflow,phase,sourcePaths,options={}) {
+  const replay=plannedSourceClauseBindingsReplay(config,workflow,phase,sourcePaths,options),secured=new Map();let value;
+  const directory=()=>path.join(root,config.workItemRoot??'singularity/work-items',workflow.workItem.id);
+  for(;;) {
+    const step=replay.next(value);if(step.done)return step.value;const request=step.value;
+    switch(request.kind) {
+      case 'source-binding-records':value=await loadActiveSpecRecords(directory(),workflow);break;
+      case 'source-binding-plan':value=await readBoundSpecificationClaimMap(root,directory(),workflow,request.owner,'planned',{clauseIds:request.clauseIds,policy:request.policy});break;
+      case 'source-binding-path':{
+        const found=await secureRepositoryPath(root,request.path,{label:'Planned product source'});secured.set(request.path,found);
+        value={exists:found.exists,regular:Boolean(found.entry?.isFile()),size:found.entry?.size??0};break;
       }
-      return { clauseId, expectedPaths: plannedProductSourcePaths(claim).sort() };
-    })
-    .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
-  const candidates = [...new Set(sourcePaths)]
-    .filter((candidate) => !isAllowedTestAutomationPath(candidate) && !isConfigurationPath(candidate))
-    .sort();
-  const tagsByPath = new Map();
-  for (const relative of candidates) {
-    const secured = await secureRepositoryPath(root, relative, {
-      label: 'Planned product source'
-    });
-    if (!secured.exists || !secured.entry?.isFile()) continue;
-    if (secured.entry.size >= MAX_BOUND_SOURCE_BYTES) {
-      throw new SingularityFlowError(
-        `Planned source '${relative}' is too large for exact clause-comment replay (maximum below 16 MiB). Split the source or use a reviewed test-only/not-applicable plan disposition before publication.`,
-        { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
-      );
-    }
-    const sourceBytes = await readFile(secured.absolute);
-    if (sourceBytes.length >= MAX_BOUND_SOURCE_BYTES) {
-      throw new SingularityFlowError(
-        `Planned source '${relative}' grew beyond the exact clause-comment replay limit before publication.`,
-        { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
-      );
-    }
-    tagsByPath.set(relative, scanSourceClauseTags(sourceBytes.toString('utf8'), { sourcePath: relative })
-      .filter((tag) => tag.tag === 'clause' && normalizeQualifiedClauseId(tag.clauseId)));
-  }
-  const approved = new Set(clauseIds.map(normalizeQualifiedClauseId));
-  // A tag in one of the Story's own namespaces, the ones its test tags are held to, must name a
-  // clause it approved [E2G-011]. In a namespace other Stories share, a changed file may carry an
-  // earlier Story's tag, which stays. Without an index only the Work ID is the Story's, as before.
-  const criteria = specificationCriteria(active, workflow, config)
-    ?? { namespaces: new Set([workflow.workItem.id.toUpperCase()]), sharedNamespaces: new Set() };
-  const named = [...tagsByPath].flatMap(([sourcePath, tags]) => tags.map((tag) => ({ ...tag, path: sourcePath })));
-  let carried = null;
-  const carriedNow = () => (carried ??= carriedTags(root, changeSet, named, 'clause', (candidate) =>
-    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)));
-  const unapproved = named.filter((tag) => !approved.has(tag.clauseId) && storyOwnsTag(criteria, tag.clauseId, carriedNow))
-    .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath: tag.path, line: tag.line,
-      message: `@clause:${tag.clauseId} at ${tag.path}:${tag.line} names a clause this Story has not approved.` }));
-  if (unapproved.length) throw new SingularityFlowError(
-    `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the specification before publishing.`,
-    { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
-  );
-  const tagged = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
-    (tagsByPath.get(sourcePath) ?? [])
-      .filter((tag) => tag.clauseId === clauseId)
-      .map(({ line, tag }) => ({ clauseId, sourcePath, line, tag }))));
-  // Each Story numbers its own clauses in a namespace other Stories share, so there a tag binds this
-  // Story's clause only where this Story added it; an earlier Story's tag with the same ID names
-  // that Story's clause.
-  const shared = tagged.filter((binding) => criteria.sharedNamespaces.has(namespaceOf(binding.clauseId)));
-  const pathContext = applicationPathContext(config, workflow);
-  const own = shared.length ? await storyAddedTagLines(root, workflow, shared.map((binding) => ({
-    path: binding.sourcePath, line: binding.line
-  })), 'clause', (candidate) => isApplicationPath(candidate, pathContext)
-    && !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)) : null;
-  const othersTags = own ? shared.filter((binding) => !own.has(tagKey(binding.sourcePath, binding.line))) : [];
-  const bindings = tagged.filter((binding) => !othersTags.includes(binding));
-  const deleted = new Set(deletedSourcePaths);
-  for (const { clauseId, expectedPaths } of required) {
-    for (const sourcePath of expectedPaths) {
-      if (deleted.has(sourcePath) && available.has(sourcePath) && !tagsByPath.has(sourcePath)) {
-        bindings.push({ clauseId, sourcePath, line: null, tag: 'deletion' });
-      }
+      case 'source-binding-bytes':value=await readFile(secured.get(request.path).absolute);break;
+      case 'source-binding-tags':value=scanSourceClauseTags(request.source,{sourcePath:request.path});break;
+      case 'carried-source-tags':value=carriedTags(root,request.changeSet,request.occurrences,'clause',candidate=>
+        !isAllowedTestAutomationPath(candidate)&&!isDocumentationPath(candidate)&&!isConfigurationPath(candidate));break;
+      case 'story-added-source-tags':value=await storyAddedTagLines(root,workflow,request.occurrences,'clause',candidate=>
+        isApplicationPath(candidate,request.pathContext)&&!isAllowedTestAutomationPath(candidate)&&!isDocumentationPath(candidate)&&!isConfigurationPath(candidate));break;
+      case 'source-binding-unchanged-tags':value=await unchangedClauseTags(root,request.entry,new Set(request.available));break;
+      default:throw new SingularityFlowError('Unknown source-clause evidence request.',{code:'ENGINE_PORT_UNAVAILABLE'});
     }
   }
-  const missing = [];
-  for (const entry of required.filter(({ clauseId }) => !bindings.some((binding) => binding.clauseId === clauseId))) {
-    const others = othersTags.filter((binding) => binding.clauseId === entry.clauseId)
-      .map((binding) => ({ path: binding.sourcePath, line: binding.line }));
-    const unchanged = await unchangedClauseTags(root, entry, available);
-    missing.push(others.length || unchanged.length ? {
-      ...entry, ...(others.length ? { otherStoryTags: others } : {}), ...(unchanged.length ? { unchangedTags: unchanged } : {})
-    } : entry);
-  }
-  return { mode: 'enforce', required, bindings, missing };
 }
-
 /**
  * The tags for a missing clause in its planned files that this generation neither changes nor
  * carries. A tag binds only in source the generation delivers, so these bind nothing; naming them

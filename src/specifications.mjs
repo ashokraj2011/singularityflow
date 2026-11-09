@@ -10,7 +10,7 @@ import {extractClauses,specificationIndexRecord} from './engine-compatibility/no
 export {extractClauses} from './engine-compatibility/node-specification-policy.mjs';
 import {plannedImplementationPaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
 export {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
-import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole,phaseDefinesSpecificationClaims } from './kernel/specification-policy.mjs';
+import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole,phaseDefinesSpecificationClaims,predecessorSpecClauses } from './kernel/specification-policy.mjs';
 export { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole, SPECIFICATION_DEFINITION_KINDS } from './kernel/specification-policy.mjs';
 import { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
 export { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
@@ -519,22 +519,7 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
   }, workflow, { evidenceApplied: true });
 }
 
-export function predecessorSpecClauses(records, workflow, phaseId) {
-  // Current records carry phaseOrder. Legacy/ad-hoc fixtures may only carry the pinned resolution
-  // or phase map; they still need a deterministic, non-throwing continuity projection. When no
-  // predecessor order can be proven, treating no phase as a predecessor is safer than importing a
-  // current/later clause.
-  const phaseOrder = Array.isArray(workflow?.phaseOrder)
-    ? workflow.phaseOrder
-    : Array.isArray(workflow?.resolution?.phases)
-      ? workflow.resolution.phases.map((phase) => phase.id).filter(Boolean)
-      : Object.keys(workflow?.phases ?? {});
-  const position = phaseOrder.indexOf(phaseId);
-  const allowed = new Set(position < 0 ? [] : phaseOrder.slice(0, position));
-  return (records.indexes ?? [])
-    .filter((index) => allowed.has(index.phase))
-    .flatMap((index) => index.clauses ?? []);
-}
+export {predecessorSpecClauses} from './kernel/specification-policy.mjs';
 
 function pathExcluded(candidate, excludes) {
   return excludes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix.replace(/\/$/, '')}/`));

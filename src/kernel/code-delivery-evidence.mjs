@@ -5,7 +5,7 @@ import {codeDocumentationPolicies,publicDeclarations,changedDeclarations} from '
 import {normalizeQualifiedClauseId} from '../foundation/traceability-ids.mjs';
 import {configurationPathSyntax,externalCommandConfigurationPolicies} from './configuration-path-policies.mjs';
 import {phaseRequiresCodeDelivery,nextPhaseGeneration,storyTestScope,reviewMayReturnToCode,reworkReturnRequest,earlierReturnRequest,codeCandidateScopeRequired} from './phase-policy.mjs';
-import {specificationCriteria,namespaceOf,tagKey,withoutTags,unknownCriterionTagsReplay,recordOrder,sortedUnique,mergePlannedClaimRecords,accountedAmendmentPaths,SOURCE_CHANGING_FULFILLMENT} from './specification-policy.mjs';
+import {specificationCriteria,namespaceOf,storyOwnsTag,tagKey,withoutTags,unknownCriterionTagsReplay,recordOrder,sortedUnique,mergePlannedClaimRecords,accountedAmendmentPaths,SOURCE_CHANGING_FULFILLMENT,plannedClaimAllocatedTo,predecessorSpecClauses} from './specification-policy.mjs';
 import {applicationPathPolicies,changeScopePolicies,configurationFilePolicies,configurationMaterializationPolicies,
   testDeliveryPolicies,createRepositoryChangeSetCodec,sourceBoundaryPolicies,supportingChangePolicies,deliveryClassificationPolicies,plannedClaimPathPolicies} from './source-path-policies.mjs';
 import {createTestReportCodec} from './test-report-codec.mjs';
@@ -698,6 +698,117 @@ function* fulfillmentEvidenceReplay( obligations, changedPaths, deletedPaths) {
     return step.value;
   }
 
+function* plannedSourceClauseBindingsReplay(config, workflow, phase, sourcePaths, {
+  deletedSourcePaths = [], changeSet = null
+} = {}) {
+  if (workflow.resolution?.codeDelivery?.traceability?.sourceBindings !== 'enforce'
+      || phase.sourceBoundary === 'test-automation'
+      || workflow.resolution?.plannedClaims?.mode !== 'required') {
+    return { mode: 'off', required: [], bindings: [], missing: [] };
+  }
+  const ownerId = workflow.resolution.plannedClaims.owners?.[phase.id];
+  const owner = workflow.phases?.[ownerId];
+  if (!owner) {
+    throw new SingularityFlowError(
+      `Code phase '${phase.id}' has no reviewed planning owner for source clause bindings.`,
+      { code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED' }
+    );
+  }
+  const active = yield request('source-binding-records',{});
+  const clauseIds = predecessorSpecClauses(active,workflow,phase.id).map(clause=>clause.id);
+  const plan = yield request('source-binding-plan',{ownerId,owner,clauseIds,policy:workflow.resolution?.spec??config.spec??{}});
+  const available = new Set(sourcePaths);
+  // Only obligations this step delivers by new or modified source carry their clause in that source.
+  const required = Object.entries(plan.claims ?? {})
+    .filter(([, claim]) => plannedClaimAllocatedTo(claim, phase.id) && changesProductSource(claim)
+      && claim.testDisposition !== 'not-applicable')
+    .map(([rawClauseId, claim]) => {
+      const clauseId = normalizeQualifiedClauseId(rawClauseId);
+      if (!clauseId) {
+        throw new SingularityFlowError(`Planned source clause '${rawClauseId}' is not a qualified ID.`, {
+          code: 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID'
+        });
+      }
+      return { clauseId, expectedPaths: plannedProductSourcePaths(claim).sort() };
+    })
+    .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
+  const candidates = [...new Set(sourcePaths)]
+    .filter((candidate) => !isAllowedTestAutomationPath(candidate) && !isConfigurationPath(candidate))
+    .sort();
+  const tagsByPath = new Map();
+  for (const relative of candidates) {
+    const secured = yield request('source-binding-path',{path:relative});
+    if (!secured.exists || !secured.regular) continue;
+    if (secured.size >= MAX_BOUND_SOURCE_BYTES) {
+      throw new SingularityFlowError(
+        `Planned source '${relative}' is too large for exact clause-comment replay (maximum below 16 MiB). Split the source or use a reviewed test-only/not-applicable plan disposition before publication.`,
+        { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
+      );
+    }
+    const sourceBytes = yield request('source-binding-bytes',{path:relative});
+    if (sourceBytes.length >= MAX_BOUND_SOURCE_BYTES) {
+      throw new SingularityFlowError(
+        `Planned source '${relative}' grew beyond the exact clause-comment replay limit before publication.`,
+        { code: 'CODE_DELIVERY_SOURCE_BINDING_TOO_LARGE', details: { path: relative } }
+      );
+    }
+    tagsByPath.set(relative,(yield request('source-binding-tags',{source:utf8(sourceBytes),path:relative}))
+      .filter(tag=>tag.tag==='clause'&&normalizeQualifiedClauseId(tag.clauseId)));
+  }
+  const approved = new Set(clauseIds.map(normalizeQualifiedClauseId));
+  // A tag in one of the Story's own namespaces, the ones its test tags are held to, must name a
+  // clause it approved [E2G-011]. In a namespace other Stories share, a changed file may carry an
+  // earlier Story's tag, which stays. Without an index only the Work ID is the Story's, as before.
+  const criteria = specificationCriteria(active, workflow, config)
+    ?? { namespaces: new Set([workflow.workItem.id.toUpperCase()]), sharedNamespaces: new Set() };
+  const named = [...tagsByPath].flatMap(([sourcePath, tags]) => tags.map((tag) => ({ ...tag, path: sourcePath })));
+  let carried = null;
+  const unapproved=[];
+  for(const tag of named) {
+    if(approved.has(tag.clauseId))continue;
+    if(criteria.namespaces.has(namespaceOf(tag.clauseId))&&criteria.sharedNamespaces.has(namespaceOf(tag.clauseId))) {
+      carried??=yield request('carried-source-tags',{changeSet,occurrences:named});
+    }
+    if(storyOwnsTag(criteria,tag.clauseId,()=>carried))unapproved.push({code:'EVIDENCE_CLAUSE_UNAPPROVED',clauseId:tag.clauseId,sourcePath:tag.path,line:tag.line,
+      message:`@clause:${tag.clauseId} at ${tag.path}:${tag.line} names a clause this Story has not approved.`});
+  }
+  if (unapproved.length) throw new SingularityFlowError(
+    `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the specification before publishing.`,
+    { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
+  );
+  const tagged = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
+    (tagsByPath.get(sourcePath) ?? [])
+      .filter((tag) => tag.clauseId === clauseId)
+      .map(({ line, tag }) => ({ clauseId, sourcePath, line, tag }))));
+  // Each Story numbers its own clauses in a namespace other Stories share, so there a tag binds this
+  // Story's clause only where this Story added it; an earlier Story's tag with the same ID names
+  // that Story's clause.
+  const shared = tagged.filter((binding) => criteria.sharedNamespaces.has(namespaceOf(binding.clauseId)));
+  const pathContext = applicationPathContext(config, workflow);
+  const own = shared.length ? yield request('story-added-source-tags',{occurrences:shared.map(binding=>({path:binding.sourcePath,line:binding.line})),pathContext}) : null;
+  const othersTags = own ? shared.filter((binding) => !own.has(tagKey(binding.sourcePath, binding.line))) : [];
+  const bindings = tagged.filter((binding) => !othersTags.includes(binding));
+  const deleted = new Set(deletedSourcePaths);
+  for (const { clauseId, expectedPaths } of required) {
+    for (const sourcePath of expectedPaths) {
+      if (deleted.has(sourcePath) && available.has(sourcePath) && !tagsByPath.has(sourcePath)) {
+        bindings.push({ clauseId, sourcePath, line: null, tag: 'deletion' });
+      }
+    }
+  }
+  const missing = [];
+  for (const entry of required.filter(({ clauseId }) => !bindings.some((binding) => binding.clauseId === clauseId))) {
+    const others = othersTags.filter((binding) => binding.clauseId === entry.clauseId)
+      .map((binding) => ({ path: binding.sourcePath, line: binding.line }));
+    const unchanged = yield request('source-binding-unchanged-tags',{entry,available:[...available]});
+    missing.push(others.length || unchanged.length ? {
+      ...entry, ...(others.length ? { otherStoryTags: others } : {}), ...(unchanged.length ? { unchangedTags: unchanged } : {})
+    } : entry);
+  }
+  return { mode: 'enforce', required, bindings, missing };
+}
+
+
 function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage = false, ignoreDisputes = false, requireReconciled = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
   yield request('prepare-local-exclusions', {});
@@ -1040,7 +1151,7 @@ function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage 
   }
   return delivery;
 }
-  return Object.freeze({codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,safeEvidencePath,bindingsDigest,cornerCaseMatrixDigest,prepareTestReportReader,plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles,changesProductSource,codeDeliveryCandidateScope,plannedCodeStepPaths,canonicalFinding,canonicalFindingId,codeDeliveryCandidateSha256});
+  return Object.freeze({codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,safeEvidencePath,bindingsDigest,cornerCaseMatrixDigest,prepareTestReportReader,plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles,changesProductSource,codeDeliveryCandidateScope,plannedCodeStepPaths,canonicalFinding,canonicalFindingId,codeDeliveryCandidateSha256});
 }
 
 /** Where a missing clause's tag already is, in a planned file this generation does not change. */

@@ -67,6 +67,22 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared source-clause delivery](ENGINE-SDK-SOURCE-CLAUSES.md) moves reviewed-plan allocation,
+clause ownership and binding/missing rules into the kernel while preserving native path, plan-pin
+and work-interval observations. Namespace delivery inspection has an explicit v3 profile that
+connects actual independently approved plan records to verified retained source bytes. Existing
+v1/v2 read profiles keep their original contracts. Shared tag-origin and repository-qualified
+claim owners remain explicit gaps; complete application-publication proofs, cross-agent delivery,
+migration/cutover and final qualification keep Phases 5, 7, 8 and 9 open.
+
+The passing source-clause qualification covers 313 distinct core/namespace, native and installed
+Mac cases; repeated checks are not added to that total. Source validation passed 4,000 checks
+across 191 skills. VS Code types, the unchanged Git ownership audit and all 13 original runtime
+budgets passed; gateway remains 852/852. The optional SDK retains 60 operations across 212 owned
+modules and 2,275,158 JavaScript bytes. The installed fixture reopens original plan/source proofs
+from a different checkout, without Git or CLI imports. Complete application execution and the
+remaining query/owner bindings are still required.
+
 The [shared implementation-binding and reviewer-choice](ENGINE-SDK-IMPLEMENTATION-BINDINGS.md)
 extraction moves exact-region/explanation assembly, public declaration observations and batch
 review selection into pure owners. Native adapters retain the same Git diff and legacy file-read

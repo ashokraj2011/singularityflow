@@ -84,6 +84,7 @@ export const cornerCaseMatrixDigest=/* @__PURE__ */ (()=>deliveryEvidenceBinding
 export const prepareCodeDeliveryReportReader=/* @__PURE__ */ (()=>deliveryEvidenceBinding.prepareTestReportReader)();
 
 export const codeDeliveryPreflightReplay=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryPreflightReplay)();
+export const plannedSourceClauseBindingsReplay=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedSourceClauseBindingsReplay)();
 export const plannedImplementationPaths=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedImplementationPaths)();
 export const plannedProductSourcePaths=/* @__PURE__ */ (()=>deliveryEvidenceBinding.plannedProductSourcePaths)();
 export const changesProductSource=/* @__PURE__ */ (()=>deliveryEvidenceBinding.changesProductSource)();

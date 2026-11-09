@@ -159,8 +159,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   acknowledgement; publication readiness and human acceptance remain separate requirements.
 - `hosts/namespace-delivery-inspection`: inspect accepted original/current source archives and
   real phase-check receipts through `phase.delivery.inspect`, with bounded affected-path previews.
-  Its explicit v2 manifest adds source tags, declaration identities and syntax gaps from exact
-  retained bytes; source/execution observations remain separate from requirement acceptance.
+  Its v3 manifest adds independently approved plan references and source-clause bindings from
+  original retained bytes. It keeps v2 source tags, declaration identities and syntax gaps;
+  existing v1/v2 port results remain readable. Pending origin or repository-ownership evaluation
+  has explicit required owners and null counts. Source/execution observations remain separate
+  from requirement acceptance. See `docs/ENGINE-SDK-SOURCE-CLAUSES.md` in the source repository.
   It checks current file matches, reports missing or stale evidence and gives registered recovery
   actions. Reading starts no test or application process and records no approval. Native code,
   claims, constitution and artifact-set publication policies retain their separate owners.

@@ -518,7 +518,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(delivery.manifest.status,'observed');assert.equal(delivery.manifest.evidence.baseline.operationId,'retain-baseline-bytes');
         assert.equal(delivery.manifest.evidence.changes===null,fresh);assert.equal(delivery.manifest.repositories[0].sourceMatched,fresh?null:true);
         assert.equal(delivery.manifest.publicationReadinessInspected,false);assert.equal(delivery.manifest.applicationAcceptanceEstablished,false);
-        assert.equal(delivery.manifest.schemaVersion,2);assert.equal(delivery.manifest.analysis===null,fresh);
+        assert.equal(delivery.manifest.schemaVersion,3);assert.equal(delivery.manifest.analysis===null,fresh);assert.equal(delivery.manifest.clauses.status,'off');
         if(!fresh)assert.deepEqual(delivery.manifest.analysis.files.find(file=>file.path==='app.js').tags.map(tag=>tag.clauseId),['CODE-STORY:REQ-001']);
         const sourceReaders=fresh?[await createFilesystemSourceContentReader({root,id:'installed-source-reader',source:unit.descriptor,maximumChunkBytes:4})]:[];
         if(!fresh)await rm(root,{recursive:true});

@@ -8,7 +8,7 @@ import {namespaceDeliveryInspectionFixture} from './helpers/namespace-delivery-i
 import {createNamespaceSourceRetentionReader} from '../src/engine-storage/namespace-source-retention-reader.mjs';
 import {createNamespaceSourceAnalysisReader} from '../src/engine-storage/namespace-source-analysis.mjs';
 import {createEngine} from '../src/engine-sdk/index.mjs';
-import {DELIVERY_INSPECTION_PROFILE_V2,SOURCE_ANALYSIS_PROFILE} from '../src/kernel/source-changes.mjs';
+import {DELIVERY_INSPECTION_PROFILE_V2,DELIVERY_INSPECTION_PROFILE_V3,SOURCE_ANALYSIS_PROFILE} from '../src/kernel/source-changes.mjs';
 const app="// @clause:STORY-1:REQ-001 Computes the approved result from the selected value.\nexport const answer=42;\n";
 const tests="import test from 'node:test';import assert from 'node:assert/strict';import {answer} from './app.mjs';\n// @ac:STORY-1:AC-001\ntest('retained behavior',()=>assert.equal(answer,42));\n";
 async function source(t,backend='filesystem') {
@@ -18,7 +18,7 @@ async function source(t,backend='filesystem') {
 for(const backend of ['filesystem','sqlite','application'])test(backend+': registry inspection reports actual retained source tags and exact test declarations without executing again',async t=>{
   const f=await source(t,backend);await f.run();const before=await f.head(),starts=f.control.starts,clocks=f.accessControl.clockCalls;
   const result=await f.inspect(),m=result.manifest,analysis=m.analysis;
-  assert.equal(m.schemaVersion,2);assert.equal(m.contract,DELIVERY_INSPECTION_PROFILE_V2);assert.equal(analysis.profile,SOURCE_ANALYSIS_PROFILE);
+  assert.equal(m.schemaVersion,3);assert.equal(m.contract,DELIVERY_INSPECTION_PROFILE_V3);assert.equal(analysis.profile,SOURCE_ANALYSIS_PROFILE);
   assert.deepEqual(analysis.retentionRecord,m.evidence.changes.record.content);assert.equal(analysis.totals.files,2);
   assert.equal(analysis.totals.tags,2);assert.equal(analysis.totals.declarations,1);assert.equal(analysis.totals.gaps,0);
   const product=analysis.files.find(file=>file.path==='app.mjs'),testFile=analysis.files.find(file=>file.path==='case.test.mjs');
@@ -75,9 +75,11 @@ test('v1 inspection facts remain readable, and unknown or forged v2 analysis can
   const f=await source(t),m=(await f.inspect()).manifest;
   const {schemaVersion,contract,actions,observationsOnly,publicationReadinessInspected,applicationAcceptanceEstablished,...facts}=m;
   const engine=value=>createEngine({ports:{phaseDeliveryInspection:{load:()=>({subject:{kind:'story',id:f.inputs.workId},phase:'intake'}),inspect:()=>value}}});
-  const {profile,analysis,...old}=facts;const legacy=await engine(old).run('phase.delivery.inspect',{phaseId:'intake'});
+  const {profile,analysis,clauses,...old}=facts;const legacy=await engine(old).run('phase.delivery.inspect',{phaseId:'intake'});
   assert.equal(legacy.manifest.schemaVersion,1);assert.equal(legacy.manifest.contract,'sflow-delivery-evidence-inspection/v1');
   assert.deepEqual(legacy.manifest.actions,m.actions);
+  const v2=await engine({...old,profile:DELIVERY_INSPECTION_PROFILE_V2,analysis}).run('phase.delivery.inspect',{phaseId:'intake'});
+  assert.equal(v2.manifest.schemaVersion,2);assert.deepEqual(v2.manifest.analysis,analysis);assert.deepEqual(v2.manifest.actions,m.actions);
   await assert.rejects(engine({...facts,profile:'sflow-delivery-evidence-inspection/v99'}).run('phase.delivery.inspect'),{code:'ENGINE_STORAGE_UNSUPPORTED'});
   for(const change of [value=>{value.analysis.totals.tags=0;},value=>{value.analysis.retentionRecord.sha256='a'.repeat(64);},
     value=>{value.analysis.files[0].kind='removed';},value=>{value.analysis.ready=true;},value=>{value.analysis.files[0].tags[0].clauseId='UNQUALIFIED';}]){

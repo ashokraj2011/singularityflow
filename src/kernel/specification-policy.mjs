@@ -261,6 +261,26 @@ export function tagKey(relative, line) {
   return JSON.stringify([relative, line]);
 }
 
+/** A claim belongs to the selected code step when explicitly allocated or left unallocated. */
+export function plannedClaimAllocatedTo(claim,phaseId) {return !(claim?.steps??[]).length||claim.steps.includes(phaseId);}
+
+export function predecessorSpecClauses(records, workflow, phaseId) {
+  // Current records carry phaseOrder. Legacy/ad-hoc fixtures may only carry the pinned resolution
+  // or phase map; they still need a deterministic, non-throwing continuity projection. When no
+  // predecessor order can be proven, treating no phase as a predecessor is safer than importing a
+  // current/later clause.
+  const phaseOrder = Array.isArray(workflow?.phaseOrder)
+    ? workflow.phaseOrder
+    : Array.isArray(workflow?.resolution?.phases)
+      ? workflow.resolution.phases.map((phase) => phase.id).filter(Boolean)
+      : Object.keys(workflow?.phases ?? {});
+  const position = phaseOrder.indexOf(phaseId);
+  const allowed = new Set(position < 0 ? [] : phaseOrder.slice(0, position));
+  return (records.indexes ?? [])
+    .filter((index) => allowed.has(index.phase))
+    .flatMap((index) => index.clauses ?? []);
+}
+
 /**
  * Test tags naming a criterion the specification does not hold, each with the file and line to
  * correct [E2G-015]. Submission refuses such a tag once it sits on an exactly identified test

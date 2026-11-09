@@ -398,6 +398,16 @@ test('code preflight uses shared policy and refusal formatting cannot authorize 
   };visit(kernel);assert.equal(refusals,4);
 });
 
+test('source-clause rules have one pure owner and the native function only supplies exact observations',async()=>{
+  const text=await readFile(path.join(packageRoot,'src/delivery-evidence.mjs'),'utf8'),ast=ts.createSourceFile('source-clauses',text,ts.ScriptTarget.Latest,true),
+    entry=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='plannedSourceClauseBindings');assert.ok(entry);
+  const body=entry.body.getText(ast);assert.equal((body.match(/plannedSourceClauseBindingsReplay\(/gu)??[]).length,1);
+  for(const decision of ['changesProductSource','plannedProductSourcePaths','storyOwnsTag','namespaceOf','predecessorSpecClauses'])assert.equal(body.includes(decision+'('),false,decision);
+  assert.match(body,/readFile\(secured\.get\(request\.path\)\.absolute\)/u,'read the exact canonical path issued by the native security owner');
+  const specification=ts.createSourceFile('specifications',await readFile(path.join(packageRoot,'src/specifications.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  assert.equal(specification.statements.some(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='predecessorSpecClauses'),false);
+});
+
 test('specification and verification compatibility facades share kernel values and retain native observation ordering',async()=>{
   for(const file of ['src/verification/contracts.mjs','src/verification/intent.mjs','src/draft-diagnostics.mjs','src/specification-quality.mjs','src/clarification-markers.mjs','src/specification-scenarios.mjs']) {
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
@@ -840,7 +850,10 @@ test('retained source proof and shared observations cannot execute or write',asy
     ['src/engine-storage/namespace-delivery-inspection.mjs',new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/source-changes.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs','../engine-compatibility/node-source-policy.mjs',
       '../sda/namespace/values.mjs','./namespace-story-reader.mjs','./namespace-preparation.mjs','./namespace-source-observations.mjs',
-      './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-source-analysis.mjs'])],
+      './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-source-analysis.mjs','./namespace-source-clauses.mjs'])],
+    ['src/engine-storage/namespace-source-clauses.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs',
+      '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-source-analysis.mjs','../kernel/source-changes.mjs',
+      './namespace-specifications.mjs','./namespace-source-content-reader.mjs'])],
     ['src/engine-storage/namespace-source-analysis.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs',
       '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-analysis.mjs',
       './namespace-source-content-reader.mjs','../kernel/source-changes.mjs'])],

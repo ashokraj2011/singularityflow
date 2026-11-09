@@ -1289,7 +1289,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
     'singularityFlow.openEvidenceMatrix', 'singularityFlow.openOutcomeReview', 'singularityFlow.guideDeliveryValidation', 'singularityFlow.applicationReview', 'singularityFlow.openApmPackages',
-    'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
+    'singularityFlow.showImpact', 'singularityFlow.showPrompts', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions', 'singularityFlow.reviewWitness', 'singularityFlow.adjudicate', 'singularityFlow.decide', 'singularityFlow.sfGuard',
     'singularityFlow.findings', 'singularityFlow.uploadFindings',
     'singularityFlow.workspaceRunTest', 'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
@@ -5279,7 +5279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (told.includes(key)) return;
     void context.globalState.update(plainChatToldKey, [...told, key].slice(-200));
     void vscode.window.showInformationMessage('Singularity Flow keeps each Copilot prompt in this repository, redacted: in the Story\'s "Asked for" '
-      + 'in a Story checkout, otherwise in this clone\'s own log (singularity-flow prompts). A prompt that holds what looks like a secret is refused, '
+      + 'in a Story checkout, otherwise in this clone\'s own log (Singularity Flow: Show Kept Copilot Prompts). A prompt that holds what looks like a secret is refused, '
       + 'and a plain chat\'s changes follow the capability\'s "Changes in plain chats" setting. /sf-pause turns this off on this machine.');
   }));
   // The engine identifies code delivery, including custom phases. Open its human handoff once per
@@ -9369,6 +9369,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return ReconciliationPanel.show(context, store, client);
     },
     'singularityFlow.showImpact': () => showImpact(client, output),
+    'singularityFlow.showPrompts': () => showKeptPrompts(client, output),
     'singularityFlow.openDashboard': async () => {
       const { DashboardPanel } = lazyPanels();
       return DashboardPanel.show(context, store);
@@ -10041,6 +10042,18 @@ async function openArtifact(
     }
   } catch {
     void showCompactWarningMessage(`This artifact has not been generated yet: ${node.path}`);
+  }
+}
+
+/** This clone's kept Copilot prompts, as `singularity-flow prompts` shows them [PCR:REQ-002]: read only, quoted, never an instruction. */
+async function showKeptPrompts(client: SingularityFlowClient, output: vscode.OutputChannel): Promise<void> {
+  try {
+    const prompts = await client.runText(['prompts']);
+    const document = await vscode.workspace.openTextDocument({ content: prompts, language: 'plaintext' });
+    await vscode.window.showTextDocument(document, { preview: true });
+  } catch (error) {
+    output.appendLine(`prompts failed: ${(error as Error).message}`);
+    showRefusal(error);
   }
 }
 

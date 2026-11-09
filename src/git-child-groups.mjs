@@ -21,6 +21,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { writeSync } from 'node:fs';
 import path from 'node:path';
 import { isatty } from 'node:tty';
+import { isSpawnedChild } from './platform-process.mjs';
 
 const live = new Set();
 const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
@@ -50,6 +51,29 @@ export function trackProcessGroup(pid) {
     for (const name of SIGNALS) process.on(name, onSignal);
   }
   return () => { live.delete(pid); };
+}
+
+/**
+ * End what is left of the POSIX process group of a child that was started `detached` and then
+ * stopped (a deadline, a cancel, an output limit), once the child closed; resolves when nothing of
+ * the group is left. `close` proves only that the child's own pipes closed. A descendant that holds
+ * none of them (stdio 'ignore') outlives it when it traps SIGTERM, or when it was being forked as
+ * the group signal went out, and went on running after its run was reported stopped. The child's own
+ * end is the end of a stop's grace, so the rest of its group gets SIGKILL, and again at every check:
+ * a process forked during one sweep is reached by the next. Resolves false when a member outlives
+ * `limitMs`; one blocked in the kernel dies when its call returns, SIGKILL already pending. Windows
+ * has no group (taskkill /T ends the tree), and only a real child names one: a test double's `pid`
+ * is never signalled. Callers load this module only once a stop happened.
+ */
+export async function endStoppedProcessGroup(child, { platform = process.platform, limitMs = 2_000 } = {}) {
+  const pid = Number(child?.pid);
+  if (platform === 'win32' || !isSpawnedChild(child) || !Number.isSafeInteger(pid) || pid <= 0) return true;
+  const deadline = Date.now() + limitMs;
+  for (;;) {
+    try { process.kill(-pid, 'SIGKILL'); } catch (error) { if (error?.code !== 'EPERM') return true; }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 /*

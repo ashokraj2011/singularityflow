@@ -878,6 +878,8 @@ export function verifyPlaywrightOfflineStart(resolvedExecutable, hostArguments, 
         }).catch(() => false);
         closed = await waitForClose(Math.ceil(grace / 2));
       }
+      // The package's own close is not quiescence: what is left of its group is ended first.
+      if (closed) closed = await (await import('./git-child-groups.mjs')).endStoppedProcessGroup(child, { platform });
       settled = true;
       finishing = false;
       if (!closed && !error) {
@@ -1406,8 +1408,10 @@ export async function serveMcpHost(root, definition, serverId, {
         code: 'MCP_SERVE_FAILED', cause: error
       }));
     });
-    child.once('close', (code, signal) => {
+    child.once('close', async (code, signal) => {
       cleanup();
+      // A stopped server is reported once nothing of its group is left, not when its pipes close.
+      if (stopSignal) await (await import('./git-child-groups.mjs')).endStoppedProcessGroup(child, { platform });
       if (stopSignal) resolve({ status: 'stopped', serverId, signal: stopSignal });
       else if (code === 0) resolve({ status: 'closed', serverId });
       else reject(new SingularityFlowError(
@@ -1533,6 +1537,8 @@ export function rpcSmoke(runtime, options = {}) {
         }).catch(() => false);
         closed = await waitForClose(Math.ceil(grace / 2));
       }
+      // The package's own close is not quiescence: what is left of its group is ended first.
+      if (closed) closed = await (await import('./git-child-groups.mjs')).endStoppedProcessGroup(child, { platform });
       settled = true;
       finishing = false;
       if (!closed && !error) {

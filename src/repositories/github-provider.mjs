@@ -174,7 +174,7 @@ export async function executeGitHubGraphql({ host, query, operationName, variabl
       return;
     }
     let stdout = ''; let stderr = ''; let stdoutBytes = 0; let stderrBytes = 0;
-    let timedOut = false; let cancelled = false; let outputOverflow = false; let settled = false;
+    let timedOut = false; let cancelled = false; let outputOverflow = false; let settled = false; let unproven = false;
     let timer; let forceTimer;
     const cleanup = () => {
       if (timer) clearTimeout(timer);
@@ -185,7 +185,7 @@ export async function executeGitHubGraphql({ host, query, operationName, variabl
       if (settled) return;
       settled = true; cleanup();
       resolve({ status, stdout, stderr, timedOut, cancelled, outputOverflow,
-        cleanup: timedOut || cancelled || outputOverflow ? (platform === 'win32' ? 'requested' : 'verified') : 'not-needed',
+        cleanup: timedOut || cancelled || outputOverflow ? (platform === 'win32' || unproven ? 'requested' : 'verified') : 'not-needed',
         ...extra });
     };
     const terminate = async (reason) => {
@@ -213,7 +213,15 @@ export async function executeGitHubGraphql({ host, query, operationName, variabl
       stderrBytes += Buffer.byteLength(chunk);
     });
     child.once('error', (error) => finish(1, { spawnError: error }));
-    child.once('close', (code) => finish(Number.isInteger(code) ? code : 1));
+    child.once('close', async (code) => {
+      // A stopped read's cleanup is verified once nothing of its group is left, not when its pipes
+      // close; until then, and when a member outlives the wait, it was only requested.
+      if (timedOut || cancelled || outputOverflow) {
+        unproven = true;
+        unproven = !await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child, { platform });
+      }
+      finish(Number.isInteger(code) ? code : 1);
+    });
     child.stdin?.end(request);
     timer = setTimeout(() => { void terminate('timeout'); }, Math.max(1, Math.min(30_000, timeoutMs)));
   });

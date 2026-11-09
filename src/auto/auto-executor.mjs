@@ -253,7 +253,8 @@ async function stop(root, id, status, reason, nextAction, extra = {}, {
   });
 }
 
-function childLifecycle(root, args, {
+/** One CLI lifecycle step in its own process group. Exported for the process-tree test. */
+export function childLifecycle(root, args, {
   signal = null, timeoutMs = 30 * 60 * 1000, env = null
 } = {}) {
   return new Promise((resolve, reject) => {
@@ -261,10 +262,11 @@ function childLifecycle(root, args, {
       cwd: root, env: { ...process.env, ...(env ?? {}) },
       detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe']
     });
-    let stdout = ''; let stderr = ''; let bytes = 0; let finished = false; let hardKillTimer = null;
+    let stdout = ''; let stderr = ''; let bytes = 0; let finished = false; let hardKillTimer = null; let stopped = false;
     const limit = 8 * 1024 * 1024;
     const terminate = () => {
       if (!child.pid) return;
+      stopped = true;
       if (process.platform === 'win32') {
         if (!tryWindowsTaskkill(child.pid, {
           environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
@@ -274,8 +276,11 @@ function childLifecycle(root, args, {
         catch { child.kill('SIGTERM'); }
       }
       hardKillTimer ??= setTimeout(() => {
-        if (child.exitCode != null || child.signalCode != null || !child.pid) return;
+        if (!child.pid) return;
         if (process.platform === 'win32') {
+          // An exited ID may name another process here; a POSIX group outlives its leader while a
+          // descendant holds the pipes, so what trapped the SIGTERM still gets SIGKILL [TCE:REQ-034].
+          if (child.exitCode != null || child.signalCode != null) return;
           if (!tryWindowsTaskkill(child.pid, {
             force: true, environment: process.env, spawnSyncCommand: spawnSync,
             timeoutMs: 5_000
@@ -302,9 +307,12 @@ function childLifecycle(root, args, {
         code: 'AUTO_LIFECYCLE_STEP_FAILED', cause: error
       }));
     });
-    child.once('close', (status, childSignal) => {
+    child.once('close', async (status, childSignal) => {
       if (finished) return;
-      finished = true; clearTimeout(timeout); if (hardKillTimer) clearTimeout(hardKillTimer); signal?.removeEventListener('abort', onAbort);
+      finished = true; clearTimeout(timeout); signal?.removeEventListener('abort', onAbort);
+      // A stopped step is reported once nothing of its group is left, not when its pipes close.
+      if (stopped) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child);
+      if (hardKillTimer) clearTimeout(hardKillTimer);
       if (signal?.aborted) return reject(new SingularityFlowError('Auto lifecycle step was cancelled.', { code: 'AUTO_STOP_REQUESTED' }));
       if (bytes > limit) return reject(new SingularityFlowError('Auto lifecycle output exceeded 8388608 bytes.', { code: 'AUTO_LIFECYCLE_STEP_FAILED' }));
       if (status !== 0) return reject(new SingularityFlowError(

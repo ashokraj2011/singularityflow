@@ -108,6 +108,9 @@ const OVERRIDES = {
   'presence/signer.mjs': 'local-operational',
   // A Story's departures (CQF M2): each written in its own Story commit beside the Story's other records.
   'departure-records.mjs': 'shared-state',
+  // What a person typed after /sf-code or /sf-phase (SCS M4), kept under the Git directory until prepublish copies it
+  // into the Story: until then it is the only copy.
+  'asked-for.mjs': 'local-authored',
   // Shared helpers every class uses.
   'util.mjs': 'source-control',
   'atomic-write.mjs': 'projection'

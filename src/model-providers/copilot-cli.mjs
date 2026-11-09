@@ -617,8 +617,11 @@ async function verifiedStagedPrompt(request, transport) {
 
 function terminateAcpProcess(child, force = false, runtimeOverrides = {}) {
   const runtime = providerRuntime(runtimeOverrides);
-  if (!child.pid || child.exitCode != null || child.signalCode != null) return true;
+  if (!child.pid) return true;
   if (runtime.platform === 'win32') {
+    // An exited ID may name another process; a POSIX group outlives its leader while a descendant
+    // holds the pipes, so it is still signalled [TCE:REQ-034].
+    if (child.exitCode != null || child.signalCode != null) return true;
     return tryWindowsTaskkill(child.pid, {
       force, environment: runtime.environment, spawnSyncCommand: runtime.spawnSyncImpl,
       timeoutMs: 5_000
@@ -1113,10 +1116,14 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
     expectedExit = true;
     child.stdin?.end();
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
-    const softSignalled = terminateAcpProcess(child, false, runtime);
+    // A process whose output is still open once its input ended is stopped, and what is left of its
+    // group with it: that includes a leader that exited while a descendant holds its pipes.
+    const stopped = !closeObserved;
+    const softSignalled = closeObserved || terminateAcpProcess(child, false, runtime);
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
-    const forceSignalled = terminateAcpProcess(child, true, runtime);
+    const forceSignalled = closeObserved || terminateAcpProcess(child, true, runtime);
     const ended = await Promise.race([exit, new Promise((resolve) => setTimeout(() => resolve({ status: null, signal: 'SIGKILL' }), 1000))]);
+    if (stopped) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child, { platform: runtime.platform });
     // Flush a trailing split UTF-8 diagnostic in the ordinary successful-exit path too. The
     // unexpected-exit handler already does this; StringDecoder.end() is safe to call again.
     stderr += stderrDecoder.end();
@@ -1382,7 +1389,9 @@ async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
         return;
       }
       terminationTimer = setTimeout(() => {
-        if (child.exitCode != null || child.signalCode != null) return;
+        // An exited ID may name another process on Windows; a POSIX group outlives its leader while a
+        // descendant holds the pipes, so what trapped the SIGTERM still gets SIGKILL [TCE:REQ-034].
+        if (runtime.platform === 'win32' && (child.exitCode != null || child.signalCode != null)) return;
         if (child.pid && runtime.platform === 'win32') {
           if (!tryWindowsTaskkill(child.pid, {
             force: true, environment: runtime.environment,
@@ -1426,6 +1435,8 @@ async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
       if (finished) return;
       finished = true;
       cleanup();
+      // A stopped invocation is reported once nothing of its group is left, not when its pipes close.
+      if (failure) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child, { platform: runtime.platform });
       if (terminationTimer) clearTimeout(terminationTimer);
       stdout += stdoutDecoder.end();
       stderr += stderrDecoder.end();

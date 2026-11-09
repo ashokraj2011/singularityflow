@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -45,6 +46,18 @@ if (process.argv.includes('--fixture-1-0-103')) {
     process.stderr.write('error: --no-remote was removed. Use /remote off in a session; manage incoming connections in /environments.\\n');
     process.exit(1);
   }
+}
+// --fixture-linger <file>: a descendant that traps SIGTERM holds this server's stdout and stderr and
+// writes its PID to <file>, so the server's own exit when its input ends does not close its output.
+const lingerIndex = process.argv.indexOf('--fixture-linger');
+if (lingerIndex >= 0 && !process.argv.includes('--help')) {
+  const ready = JSON.stringify(process.argv[lingerIndex + 1]);
+  const { spawn } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
+  spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); const fs = require('node:fs');"
+    + ' fs.writeFileSync(' + ready + " + '.tmp', String(process.pid)); fs.renameSync(" + ready + " + '.tmp', " + ready + ');'
+    + ' setTimeout(() => {}, 30000);'], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
+  while (!existsSync(process.argv[lingerIndex + 1])) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
@@ -882,6 +895,29 @@ test('ACP refuses operation substitution after permission in both event ordering
       tools: { mode: 'allowlist', names: ['edit_file'], scope }
     }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED');
     await assert.rejects(readFile(missing), (error) => error.code === 'ENOENT');
+  }
+});
+
+test('ACP close stops a server that exited while a descendant still holds its output', {
+  skip: process.platform === 'win32'
+}, async () => {
+  // The server ends with its input; the descendant it left on its stdout traps SIGTERM. The close
+  // still reaches that descendant through the server's group, so the invocation completes with
+  // nothing of the group left, instead of a termination failure with the descendant running on.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-linger-'));
+  const ready = path.join(root, 'descendant.pid');
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; } };
+  let pid = null;
+  try {
+    const result = await invokeAcp(root, { fixtureArguments: ['--fixture-linger', ready] }).then(
+      (value) => { pid = Number(readFileSync(ready, 'utf8')); return { value, running: alive(pid) }; },
+      (error) => { pid = Number(readFileSync(ready, 'utf8')); return { error, running: alive(pid) }; });
+    assert.equal(result.error?.code, undefined, `the close reported ${result.error?.code}: it skipped the group once the server exited`);
+    assert.equal(result.running, false, 'a descendant of the closed ACP server was still running when the invocation returned');
+    assert.equal(JSON.parse(result.value.output).sha256, createHash('sha256').update('ACP prompt').digest('hex'));
+  } finally {
+    if (pid && alive(pid)) process.kill(pid, 'SIGKILL');
+    await rm(root, { recursive: true, force: true });
   }
 });
 

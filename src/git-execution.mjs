@@ -698,6 +698,9 @@ async function runRemoteGitAsyncImpl(args, {
       // quiescence after any boundary-triggered termination.
       if (terminationReason) {
         force();
+        // One SIGKILL misses a process forked as it went out: sweep the group until it is gone.
+        const ended = childWatch?.endStoppedProcessGroup(child, { platform });
+        if (ended) { cleanupAttempts.add(ended); ended.then(() => cleanupAttempts.delete(ended)); }
         settleAfterCleanup(code, terminationSignal);
       } else settle(code, terminationSignal);
     };

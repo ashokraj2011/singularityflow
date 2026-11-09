@@ -11,7 +11,7 @@
  * Deliberately free of any `vscode` or heavyweight engine import, so it can be unit-tested in a
  * plain Node process against a fake spawn. The shared read descriptor has no process imports.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { ChildProcess, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -668,6 +668,8 @@ export type RemoteGitRunner = (
 const PROCESS_TERMINATION_DEADLINE_MS = 2_000;
 const PROCESS_TERMINATION_GRACE_MS = 250;
 const TASKKILL_ATTEMPT_MS = 750;
+const PROCESS_GROUP_SWEEP_MS = 2_000;
+const PROCESS_GROUP_CHECK_MS = 10;
 
 // A detached process or destroyed pipe can still emit a queued error. These non-capturing guards
 // retain no invocation/output state and keep that late event from crashing the extension host.
@@ -766,31 +768,64 @@ async function signalProcessTree(
     // weaker than `/T`, but is the last bounded fallback available to the extension host.
     try { return child.kill(signal); } catch { return false; }
   }
-  if (child.pid) {
+  // Only a real child names a group: a test double's `pid` may be another live process's.
+  if (child.pid && child instanceof ChildProcess) {
     try { process.kill(-child.pid, signal); return true; } catch { /* fall through */ }
   }
   try { return child.kill(signal); } catch { return false; }
 }
 
 /**
+ * End what is left of a stopped child's POSIX process group once the child closed; true when
+ * nothing of the group is left. `close` proves only that the leader's own pipes closed. A
+ * descendant holding none of them (stdio 'ignore') outlives it when it traps SIGTERM, or when it
+ * was being forked as the group signal went out. The leader's end is the end of the stop's grace,
+ * so the rest of the group gets SIGKILL, and again at every check: a process forked during one
+ * sweep is reached by the next. EPERM is a member still there. False when a member outlives the
+ * sweep. Windows has no group (taskkill /T ends the tree). The CLI's rule: endStoppedProcessGroup.
+ */
+async function endStoppedProcessGroup(child: ChildProcess): Promise<boolean> {
+  const pid = child.pid;
+  if (process.platform === 'win32' || !(child instanceof ChildProcess) || !pid) return true;
+  const deadline = Date.now() + PROCESS_GROUP_SWEEP_MS;
+  for (;;) {
+    try { process.kill(-pid, 'SIGKILL'); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') return true;
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, PROCESS_GROUP_CHECK_MS));
+  }
+}
+
+/**
  * Attempt to quiesce a child tree before reporting timeout/cancellation, but settle independently
- * of `close`. An unknown result is not proof that an escaped descendant or native process died.
+ * of `close`. A stopped tree is `closed` only once its leader closed and nothing of its group is
+ * left; callers report this verdict. An unknown result is not proof that an escaped descendant or
+ * native process died.
  */
 async function terminateProcessTree(child: ChildProcess): Promise<'closed' | 'unknown'> {
   const deadline = Date.now() + PROCESS_TERMINATION_DEADLINE_MS;
   const remaining = () => Math.max(0, deadline - Date.now());
+  // A close between the two waits (a taskkill attempt outlasting the grace) still counts.
+  let observedClose = false;
+  const observeClose = () => { observedClose = true; };
+  child.once('close', observeClose);
+  const quiesced = async () => (await endStoppedProcessGroup(child) ? 'closed' : 'unknown');
+  try {
+    const gracefulClose = waitForChildClose(child, Math.min(PROCESS_TERMINATION_GRACE_MS, remaining()));
+    await signalProcessTree(child, 'SIGTERM', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
+    if (await gracefulClose) return await quiesced();
 
-  const gracefulClose = waitForChildClose(child, Math.min(PROCESS_TERMINATION_GRACE_MS, remaining()));
-  await signalProcessTree(child, 'SIGTERM', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
-  if (await gracefulClose) return 'closed';
+    const forcedClose = waitForChildClose(child, remaining());
+    await signalProcessTree(child, 'SIGKILL', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
+    if (await forcedClose || observedClose) return await quiesced();
 
-  const forcedClose = waitForChildClose(child, remaining());
-  await signalProcessTree(child, 'SIGKILL', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
-  if (await forcedClose) return 'closed';
-
-  // Do not let an uncooperative close event defeat the independent settlement deadline.
-  try { child.kill('SIGKILL'); } catch { /* already gone or inaccessible */ }
-  return 'unknown';
+    // Do not let an uncooperative close event defeat the independent settlement deadline.
+    try { child.kill('SIGKILL'); } catch { /* already gone or inaccessible */ }
+    return 'unknown';
+  } finally {
+    child.removeListener('close', observeClose);
+  }
 }
 
 /** A bounded, cancellable, non-interactive remote Git boundary for the extension host. */
@@ -825,7 +860,7 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
     stoppingFailure = failure;
     if (!child) return finish({ status: null, stdout: '', failure });
     const settle = (status: 'closed' | 'unknown') => {
-      if (cleanupStatus !== 'closed') cleanupStatus = status;
+      cleanupStatus = status;
       finish({ status: null, stdout: '', failure });
     };
     void terminateProcessTree(child).then(settle, () => settle('unknown'));
@@ -944,7 +979,7 @@ export const localGit: LocalGitRunner = async (args, options) => new Promise((re
     stoppingFailure = failure;
     if (!child) return finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure });
     const settle = (status: 'closed' | 'unknown') => {
-      if (cleanupStatus !== 'closed') cleanupStatus = status;
+      cleanupStatus = status;
       finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure });
     };
     void terminateProcessTree(child).then(settle, () => settle('unknown'));
@@ -2029,7 +2064,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       // Do not reject while taskkill/process-group cleanup is still in progress. The supervisor has
       // its own hard deadline, so a child that never emits `close` cannot strand this Promise.
       const settle = (status: 'closed' | 'unknown') => {
-        if (cleanupStatus !== 'closed') cleanupStatus = status;
+        cleanupStatus = status;
         const failure = pendingFailure;
         if (failure) fail(failure.error, failure.outcome, failure.cancelled);
       };

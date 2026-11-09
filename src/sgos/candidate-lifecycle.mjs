@@ -1232,26 +1232,26 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
     let overflow = false;
     let timedOut = false;
     let forceTimer = null;
-    const terminate = () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
+    let stopped = false;
+    // An exited leader's group still holds what keeps its pipes open, so a stop reaches it on POSIX;
+    // on Windows an exited ID may name another process [TCE:REQ-034].
+    const exited = () => process.platform === 'win32' && (child.exitCode !== null || child.signalCode !== null);
+    const send = (force) => {
+      if (exited()) return;
+      const name = force ? 'SIGKILL' : 'SIGTERM';
       if (process.platform === 'win32' && child.pid) {
         if (!tryWindowsTaskkill(child.pid, {
-          environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
-        })) child.kill('SIGTERM');
+          force, environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
+        })) child.kill(name);
       } else {
-        try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+        try { process.kill(-child.pid, name); } catch { child.kill(name); }
       }
-      forceTimer ??= setTimeout(() => {
-        if (child.exitCode !== null || child.signalCode !== null) return;
-        if (process.platform === 'win32' && child.pid) {
-          if (!tryWindowsTaskkill(child.pid, {
-            force: true, environment: process.env, spawnSyncCommand: spawnSync,
-            timeoutMs: 5_000
-          })) child.kill('SIGKILL');
-        } else {
-          try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-        }
-      }, 2_000);
+    };
+    const terminate = () => {
+      if (exited()) return;
+      stopped = true;
+      send(false);
+      forceTimer ??= setTimeout(send, 2_000, true);
       forceTimer.unref?.();
     };
     const append = (chunk) => {
@@ -1269,10 +1269,12 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
     const abort = () => terminate();
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) terminate();
-    child.on('close', (code, terminationSignal) => {
+    child.on('close', async (code, terminationSignal) => {
       clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
       signal?.removeEventListener('abort', abort);
+      // A stopped command is reported once nothing of its group is left, not when its pipes close.
+      if (stopped) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child);
+      if (forceTimer) clearTimeout(forceTimer);
       const output = Buffer.concat(chunks);
       resolve({
         status: code ?? 1, signal: terminationSignal ?? null, timedOut,

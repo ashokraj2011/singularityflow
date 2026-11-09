@@ -1,0 +1,112 @@
+# Phase responsibility (PHR) — v1: a step is never blocked by an earlier step's output
+
+Status: owner rule and decisions recorded 2026-11-09 ("go with your recommendations"). Being built.
+
+The owner, 2026-11-09: "no phase should be blocked due to prior ones .. It should be caught in the phase responsible
+and rectify there."
+
+The case behind the rule: planning prepublish refused a correct plan with `SPEC_VERIFICATION_INTENT_INVALID`. It was
+a checker bug (fixed in 04db2ae90), but the planning author had no way forward, and nothing told the Specification's
+owners.
+
+## The rule
+
+- `[PHR:REQ-001]` **Every check names the step whose output it judges.**
+  - That step owns the check. Its output is its artifact, clause index, verification intent, plan rows and
+    verification contracts, delivered code and test evidence, witnesses, and decisions.
+  - For Story start, the owner is the policy pinned at start.
+  - A refusal's details carry `ownerPhase`. Where it is not the current step, they also carry `upstreamPhase`.
+- `[PHR:REQ-002]` **The owner checks it first.** A check that a later step applies to an earlier step's output also
+  runs in the owning step, before that step can be approved. It runs at prepublish where it can, and at approval at
+  the latest.
+- `[PHR:REQ-003]` **Later, it routes back; it never strands the current author.**
+  - **What the later step does.** If a later step still finds a fault in an earlier step's output (a checker bug,
+    configuration that moved, or anything the owner's check missed), it does not refuse its own author with a fix
+    they cannot make.
+  - **Where it goes.** The finding becomes, or offers, an upstream issue against the owning step. Its route names that
+    step's correction: `decision plan`, an intent amendment, `reject --to <owner> --repair`, or a revalidation.
+  - **While an issue is open.** While an open upstream issue names every row behind a refusal, the hold is
+    "someone decides", and the decision list leads. This is the `SPEC_COVERAGE_INCOMPLETE` pattern from 1f68d7b6c.
+  - **Once it is decided.** An upstream issue decided `accept-risk` or `dismiss` settles the later obligation it names.
+    It is never re-raised against the current author.
+- `[PHR:REQ-004]` **Holds point the right way.** An approval hold's route uses the refusal's own `repairCommand`,
+  `upstreamPhase` or `gate.actions` before it falls back to rejecting the current step to itself.
+- `[PHR:REQ-005]` **A ratchet keeps it true.**
+  - The gate-parity table (src/gate-parity.mjs) also covers the evidence evaluator's own `EVIDENCE_*` and `SCOPE_*`
+    findings.
+  - A test fails when a later step's refusal judges an earlier step's output and has neither an owner-step check nor
+    an upstream route.
+
+## Findings (read-only audits, main 04db2ae90)
+
+Ranked by how likely a real Story meets them.
+
+**Routing: the finding fires later and strands the current author** (batch 1)
+
+1. `SPEC_COVERAGE_INCOMPLETE` at code submit and approve (state.mjs ~1992). It does not work out the upstream decision
+   that code publish does (spec-coverage-preview.mjs ~28-36), and a decided issue does not settle it.
+   - Name `decision plan --replace-location / --remove-location / --replace-test` and the upstream issue.
+   - Apply 1f68d7b6c on every path.
+   - Treat a decided `accept-risk` or `dismiss` issue like a decided conformance gap.
+2. `SPEC_VERIFICATION_INTENT_INVALID` at planning (intent.mjs ~113-143; phase-prepublish.mjs ~229-236). Plan-row syntax
+   and "the plan does not meet the approved intent" share one code, and both are filed as the planner's.
+   - Split out the plan's own row errors.
+   - Give "intent not met" `upstreamPhase` = the clause's defining step, and an upstream issue or intent amendment as
+     its route.
+   - Make it disputable before the plan's approvers.
+3. Approval `holdRoute` ignores `repairCommand` and `gate.actions` (approval-check.mjs ~766-777), so for example
+   `PRIOR_CODE_TEST_EVIDENCE_STALE` sends the person to reject the verification step to itself.
+4. `PHASE_VALIDATION_FAILED` at verification approval, from `repositoryTests: run`: a regression in code it does not
+   own. Its route is `reject --to <code step> --repair`.
+5. `EVIDENCE_STALE_AFTER_SCOPE_REVISION` (evidence/evaluate.mjs ~542) has no route. Offer the owning step's return or
+   revalidation.
+6. `STEP_ACTION_REQUIRED_UNRECORDED` (step-action-receipts.mjs ~250) blocks later steps' prepare and submit. Hold only
+   the Story's ending, as upstream issues do.
+7. **At the end of the Story** (evidence/terminal.mjs ~270-280), an open upstream issue naming every blocking row
+   makes the hold "someone decides". A decided issue settles its rows (`[PHR:REQ-003]`).
+8. A planning source-review `reviewer-blocker` about the approved Specification (source-grounded-review.mjs ~444) can
+   name its owning step and become an upstream issue that does not hold planning.
+9. `specification.clause-source-required` at planning prepublish (phase-prepublish.mjs ~164) carries the same
+   `upstreamPhase` as its plan-publish twin.
+
+**Shift-left: the owning step does not check it** (batch 2)
+
+10. Scope items with no disposition (`SCOPE_ITEMS_UNRESOLVED`, evaluate.mjs ~695) are refused only at the end, and
+    are advisory in the scope step. Hold the scope step's approval until each is dispositioned.
+11. Per-criterion test results (`EVIDENCE_TEST_*`, `EVIDENCE_ASSURANCE_SHORTFALL`, contract-results.mjs ~16-45) are
+    judged only at the end. The code step only warns ("judged at the end", state.mjs ~6049).
+    - Judge them at code submission and approval.
+    - `inconclusive` also gets the upstream route.
+12. A missing inspection witness (`EVIDENCE_INSPECTION_MISSING`) is advisory at code approval. Require the witness, or
+    an explicit deferral that names who gives it, at code approval.
+13. Coverage under the default `coverage: record / qualified` is refused only at the end (governance.mjs ~864). Refuse
+    it at the last code step's approval.
+14. The plan's existing, removed, document and configuration paths are checked only at Code (delivery-evidence.mjs
+    ~921-933). Planning prepublish checks them against the Story's base. The code refusal names `decision plan
+    --set-fulfillment / --replace-location` and the upstream issue.
+15. An intent amendment to a separate Specification does not recheck the separate plan
+    (`SPEC_PLANNED_CLAIM_MAP_REQUIRED` and `SPEC_CLAIM_MAP_UNKNOWN_CLAUSE` at code, state.mjs ~1813-1844).
+    - Check the plan against the amended clauses when the amendment is proposed.
+    - Refuse an "unchanged" revalidation that leaves gaps.
+    - Add a remove-row plan correction, and name `--add-row`.
+16. Story start does not check approval staffing, so `APPROVAL_IDENTITY_NOT_AUTHORIZED` and
+    `APPROVAL_SELF_APPROVAL_PROHIBITED` surface at a later approval. Warn at start when a gated step has no eligible
+    approver besides its author. This informs and blocks nothing.
+17. A supplemental document's `downstream` risk is decided only at submit or approve (trp-document-runtime.mjs ~218).
+    Offer it in the same decision at approval.
+
+## Constraints
+
+- **Approvals and decisions stay people's.** A route never decides for anyone. Shift-left checks refuse only in the
+  owning step and say how to fix the output there.
+- **No guard is loosened to make a test pass.** A guard that is in the way is reported.
+- **Stories already running keep their pinned policy.** A new owner-step check applies from the next time that step
+  is published.
+- **Both hosts matter.** VS Code Copilot and Copilot CLI show the same routes.
+
+## Order
+
+- **Batch 1 (routing, findings 1–9)** first. It removes the dead ends without new refusals.
+- **Batch 2 (shift-left, findings 10–17)** next. Each new owner-step check gets its own commit, with a test showing
+  the later step no longer meets that fault.
+- **`[PHR:REQ-005]`'s ratchet** last, so it holds what both batches built.

@@ -225,7 +225,7 @@ test('PCR REQ-010, REQ-011: under refuse, a code step\'s edit and writing comman
   for (const [toolName, toolArgs] of [['view', { path: 'src/retry.js' }], ['grep', { pattern: 'timeout', path: 'src' }],
     ['bash', { command: 'git diff' }], ['bash', { command: 'git status --short && git log --oneline -5' }], ['bash', { command: `cd ${repo.root} && git diff --stat` }],
     ['bash', { command: 'ls src' }], ['bash', { command: 'singularity-flow status --json' }], ['bash', { command: 'singularity-flow phase enter --json' }],
-    ['sflow_read', { subject: 'QF-1' }], ['web_fetch', { url: 'https://example.test' }]]) {
+    ['sflow_read', { subject: 'QF-1' }], ['web_fetch', { url: 'https://example.test' }], ['write_stdin', { chars: '\u0003' }], ['read_bash', { sessionId: '1' }]]) {
     assert.deepEqual(await repo.call('person', toolName, toolArgs), {}, `${toolName} ${JSON.stringify(toolArgs)}`);
   }
   for (const [toolName, toolArgs] of [edit(), ['create', { path: 'src/new.js', file_text: 'x' }], ['bash', { command: 'npm test' }],

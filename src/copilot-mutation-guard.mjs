@@ -2167,8 +2167,8 @@ export function plainChatChanges(payload, { rootOf = () => null } = {}) {
     else if (GATEWAY_RUN_TOOL.test(call.name)) found.push({ kind: 'run', name: call.name, targets: [], cwd });
     else if (SHELL_INPUT_TOOLS.has(call.name)) {
       const line = typedShellLine(call.args ?? {});
-      // Nothing typed reads the shell's output; a line typed into it is judged as the command it is.
-      if (typeof line !== 'string' || !line.trim()) continue;
+      // Nothing typed, or only a key such as Ctrl-C, reads or stops the shell; a line typed into it is judged as the command it is.
+      if (typeof line !== 'string' || /^[\s\u0000-\u001f\u007f]*$/u.test(line)) continue;
       const command = { ...call, args: { ...call.args, command: line.replace(/[\r\n]+$/u, '') } };
       const value = { repositoryRoot: rootOf(cwd) };
       if (readOnlyShell(command, value) || shellAllowed(command, 'read', value)) continue;

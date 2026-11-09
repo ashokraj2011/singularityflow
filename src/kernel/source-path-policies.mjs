@@ -554,3 +554,171 @@ export function sourceBaselineInventoryPolicies(port,roots) {
   }
   return Object.freeze({sourceBaselineInventory});
 }
+
+
+export const TEST_DELIVERY_POLICY_FACTS='sflow-test-delivery-policy-facts/v1';
+/** Shared executable-test names and module/runner coverage. Fact and path bindings are explicit. */
+export function testDeliveryPolicies(port,facts) {
+  const syntax=configurationPathSyntax(port);
+  const keys=['profile','ecosystems','posixExtname','ecosystemOfAdapter','ecosystemOfProgram'];
+  if(!facts||!Object.isFrozen(facts)||Reflect.ownKeys(facts).length!==keys.length||keys.some(key=>{
+    const d=Object.getOwnPropertyDescriptor(facts,key);return !d?.enumerable||!Object.hasOwn(d,'value');
+  })||facts.profile!==TEST_DELIVERY_POLICY_FACTS||!Array.isArray(facts.ecosystems)||facts.ecosystems.length!==10
+    ||facts.ecosystems.some(value=>typeof value!=='string'||!value||value.length>128)
+    ||['posixExtname','ecosystemOfAdapter','ecosystemOfProgram'].some(key=>typeof facts[key]!=='function')) {
+    throw new SingularityFlowError('Test-delivery rules need an explicit frozen runner/path-facts port.',{code:'ENGINE_TEST_DELIVERY_FACTS_INVALID'});
+  }
+  const path=Object.freeze({posix:Object.freeze({basename:syntax.path.posix.basename,extname:facts.posixExtname.bind(facts)})}),posix=syntax.posix;
+  const TEST_COMMAND_ECOSYSTEMS=Object.freeze([...facts.ecosystems]);
+  const ecosystemOfAdapter=facts.ecosystemOfAdapter.bind(facts),ecosystemOfProgram=facts.ecosystemOfProgram.bind(facts);
+  const {isTestAutomationPath}=sourceBoundaryPolicies(port),{isConfigurationPath,configurationPathKind}=configurationFilePolicies(port);
+  const {isDocumentationPath}=deliveryClassificationPolicies(port,[]);
+const SUPPORTING_SEGMENTS = new Set([
+  '__fixtures__', '__mocks__', '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
+  'reports', 'results', 'snapshots', 'test-data', 'testdata'
+]);
+const SUPPORTING_BASENAMES = /^(?:readme(?:\.[^.]+)?|(?:playwright|cypress|jest|vitest|pytest)\.config\.[^.]+)$/i;
+const SUPPORTING_EXTENSIONS = /\.(?:snap|snapshot|golden|md|mdx|txt|csv|tsv|json|ya?ml|xml|toml|properties)$/i;
+const TEST_SOURCE_NAMES = [
+  /(?:^|[._-])(?:test|tests|spec|e2e)(?:[._-]|$)/i,
+  /(?:Test|Tests|Spec)\.(?:java|kt|kts|scala|cs|fs|vb|swift|php)$/,
+  /[a-z\d]IT(?:Case)?\.(?:java|kt|groovy|scala)$/,
+  /^(?:test_.+|.+_test)\.py$/i,
+  /_test\.go$/i,
+  /(?:^|_)tests?\.rs$/i
+];
+const TEST_SOURCE_EXTENSIONS = new Set([
+  '.c', '.cc', '.cjs', '.cpp', '.cs', '.cts', '.cxx', '.fs', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
+  '.mjs', '.mts', '.php', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx', '.vb'
+]);
+// Jest's default testMatch runs every script below a `__tests__` folder, whatever it is called
+// (`__tests__/value.js`); its fixtures, mocks and snapshots are support, and a declaration file is not a test.
+const JEST_TEST_SCRIPT = /\.[cm]?[jt]sx?$/iu;
+const DECLARATION_FILE = /\.d\.[cm]?ts$/iu;
+
+const LANGUAGE = /\.(?:([cm]?[jt]sx?|vue|svelte)|(pyx?|pyi)|(java|kts?|scala|groovy)|(cs|fsx?|vb)|(go)|(rs)|(swift|mm?)|(rb|erb|rake)|(php)|(dart))$/iu;
+// In LANGUAGE's group order; a command's `ecosystem` names one of them.
+const ECOSYSTEMS = TEST_COMMAND_ECOSYSTEMS;
+// A JUnit report's ecosystem is its launcher's: a package manager or Node, a Python interpreter or project tool, or a runner's own program.
+const LAUNCHERS = [[/^(?:npm|npx|pnpm|yarn|bunx?|node)$/u, 'node'], [/^(?:py(?:thon[\d.]*)?|uv|poetry)$/u, 'python']];
+const lastSegment = (value) => String(value ?? '').split(/[\\/]/u).at(-1);
+
+
+function normalized(candidate) {
+  return posix(String(candidate ?? '')).replace(/^\.\//, '');
+}
+
+function jestTestFolderScript(relative) {
+  const directories = relative.toLowerCase().split('/').slice(0, -1);
+  return directories.includes('__tests__') && !directories.some((segment) => SUPPORTING_SEGMENTS.has(segment))
+    && JEST_TEST_SCRIPT.test(relative) && !DECLARATION_FILE.test(relative);
+}
+
+function testNamed(relative) {
+  return TEST_SOURCE_NAMES.some((pattern) => pattern.test(path.posix.basename(relative))) || jestTestFolderScript(relative);
+}
+
+function isTestSourceName(candidate) {
+  const relative = normalized(candidate);
+  return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(relative).toLowerCase()) && testNamed(relative);
+}
+
+function sourceEcosystem(candidate) {
+  const match = LANGUAGE.exec(lastSegment(candidate));
+  return match ? ECOSYSTEMS[match.slice(1).findIndex(Boolean)] : null;
+}
+
+function testCommandEcosystem(command) {
+  const launcher = lastSegment(command?.argv?.[0]).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
+  return ecosystemOfAdapter(command?.result?.adapter) ?? LAUNCHERS.find(([pattern]) => pattern.test(launcher))?.[1] ?? ecosystemOfProgram(launcher);
+}
+
+/**
+ * Which changed paths a test command is evidence for [TCE:REQ-052, TCE:REQ-053].
+ *
+ * A command a person configured or accepted covers the affected roots they gave it. A command
+ * Singularity Flow inferred runs one ecosystem's tests, so below its roots (the whole repository
+ * included) it covers only that ecosystem's source and files of no language (configuration,
+ * documents, assets, C and C++ that a package builds): `npm test` is never evidence for a `.py` or
+ * `.swift` file, and pytest never for a `.ts` one. A command that names its `ecosystem` (a test
+ * setup suggestion accepted as offered keeps its own) is read the same way, so a root `mvn test`
+ * accepted with `affectedRoots: ['.']` never covers the `.js` beside it. Publication, submission,
+ * recovery and witness discovery all ask this one question. A record that does not say where its
+ * command came from (an older receipt) keeps its roots.
+ */
+function testCommandCoversPath(command, candidate) {
+  const relative = String(candidate).replace(/^\.\//u, '');
+  const below = (command?.affectedRoots ?? []).some((root) => {
+    const prefix = String(root).replaceAll('\\', '/').replace(/^\.\/|\/+$/gu, '') || '.';
+    return prefix === '.' || relative === prefix || relative.startsWith(`${prefix}/`);
+  });
+  const ecosystem = command?.ecosystem ?? (command?.provenance === 'inferred' && testCommandEcosystem(command));
+  // An Android device test is run only by a connected (device) command [TCE:REQ-075].
+  return below && (ecosystem === false || ([null, ecosystem].includes(sourceEcosystem(relative))
+    && !(ecosystem === 'jvm' && /(?:^|\/)src\/androidTest\//u.test(relative) && !/AndroidTest$/u.test(command.argv?.at(-1)))));
+}
+
+function isAllowedTestAutomationPath(candidate) {
+  return isTestAutomationPath(candidate);
+}
+
+function isSupportingTestResourcePath(candidate) {
+  const relative = normalized(candidate);
+  const segments = relative.toLowerCase().split('/');
+  const basename = segments.at(-1) ?? '';
+  return isConfigurationPath(relative) || segments.some((segment) => SUPPORTING_SEGMENTS.has(segment))
+    || SUPPORTING_BASENAMES.test(basename)
+    || SUPPORTING_EXTENSIONS.test(basename)
+    || /(?:^|[._-])(?:fixture|snapshot|page-object|pageobject)(?:[._-]|$)/i.test(basename);
+}
+
+function affectedDeliveryPaths(delivery = {}, sourceBoundary = 'unrestricted') {
+  return [...new Set([
+    ...(sourceBoundary === 'test-automation' ? delivery.testPaths ?? [] : delivery.sourcePaths ?? []),
+    ...(delivery.configurationPaths ?? [])
+  ])].sort();
+}
+
+function testCoverageExemptPath(candidate) {
+  const kind = configurationPathKind(candidate);
+  return kind === 'repository-metadata' || kind === 'ci-configuration';
+}
+
+function testCoverageDeliveryPaths(delivery = {}, sourceBoundary = 'unrestricted') {
+  return affectedDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !testCoverageExemptPath(candidate));
+}
+
+function uncoveredTestDeliveryPaths(delivery, sourceBoundary, commands = []) {
+  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) =>
+    !commands.some((command) => testCommandCoversPath(command, candidate)));
+}
+
+function isExecutableTestSourceCandidate(candidate, { sourceExtensions = [] } = {}) {
+  const relative = normalized(candidate);
+  if (!isAllowedTestAutomationPath(relative) || isSupportingTestResourcePath(relative)) return false;
+  const extension = path.posix.extname(relative).toLowerCase();
+  if (!TEST_SOURCE_EXTENSIONS.has(extension) && !new Set(sourceExtensions.map((item) => item.toLowerCase())).has(extension)) return false;
+  return testNamed(relative);
+}
+function deliveryPathCohorts(applicationEntries) {
+const currentPaths = applicationEntries
+    .filter((entry) => entry.status !== 'deleted' && entry.newPath
+      && (entry.newContent?.kind === 'regular-file' || entry.newMode === '160000'))
+    .map((entry) => entry.newPath);
+const changedPaths = [...new Set(currentPaths)].sort();
+const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
+const deletedPaths = applicationEntries
+    .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath)
+    .map((entry) => entry.oldPath);
+const deletedSourcePaths = deletedPaths.filter(candidate =>
+    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate));
+const configurationPaths = [...new Set([...changedPaths, ...deletedPaths].filter(isConfigurationPath))].sort();
+const changedSourcePaths = [...new Set([
+    ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)
+      && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)),
+    ...deletedSourcePaths
+  ])].sort();
+return {changedPaths,changedTestCandidates,deletedPaths,deletedSourcePaths,configurationPaths,changedSourcePaths};
+}
+  return Object.freeze({isTestSourceName,sourceEcosystem,testCommandEcosystem,testCommandCoversPath,isAllowedTestAutomationPath,isSupportingTestResourcePath,isExecutableTestSourceCandidate,deliveryPathCohorts,affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths});
+}

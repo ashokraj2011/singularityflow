@@ -125,6 +125,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   `phase.source.retain`. Supply explicit `sourceReaders` for a new collection. Chunked immutable
   evidence and verified receipts remain readable without the original checkout; baseline file
   contents, publication readiness and human approval remain separate requirements.
+- `hosts/namespace-delivery-inspection`: inspect accepted original/current source archives and
+  real phase-check receipts through `phase.delivery.inspect`, with bounded affected-path previews.
+  It checks current file matches, reports missing or stale evidence and gives registered recovery
+  actions. Reading starts no test or application process and records no approval. Native code,
+  claims, constitution and artifact-set publication policies retain their separate owners.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
   drafts using separately device-bound local ports, without changing canonical phase state.
 - `hosts/namespace-publication`: publish primary authored documents using the conditional namespace

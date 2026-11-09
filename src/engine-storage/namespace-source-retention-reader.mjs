@@ -146,5 +146,15 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
       index:{key:codec.indexKey(prepared.plan),version:result.records.find(row=>row.key===codec.indexKey(prepared.plan)).version}});sourceRetentionBinding(binding);
     return {...prepared,body,record:binding.result,binding,replayed:true};
   }
-  return Object.freeze({observer,codec,json,intent,snapshot,projected,accepted,verifyRepository});
+  async function inspectDraft({phaseId,generation,baseRevision,draft,artifact,configuration},{signal}={}) {
+    const key=codec.indexKey({input:{phaseId},generation,basis:{headVersion:baseRevision},draft});
+    const index=await observer.record('evidence',key,false,signal,true);if(!index)return null;
+    const selected=codec.index(index.value),metadata=await observer.record('evidence',selected.manifestKey,true,signal);
+    const found=await accepted({operationId:metadata.value.operationId,workId,phaseId},{signal});
+    if(!found||found.record.key!==selected.manifestKey||found.binding.index.key!==key||found.binding.index.version!==index.version
+      ||found.plan.generation!==generation||found.plan.basis.headVersion!==baseRevision||!same(found.plan.draft,draft)
+      ||!same(found.plan.basis.configuration,configuration)||!same(found.plan.artifact,artifact))throw error('The retained source index has another authored draft binding.');
+    return found;
+  }
+  return Object.freeze({observer,codec,json,intent,snapshot,projected,accepted,verifyRepository,inspectDraft});
 }

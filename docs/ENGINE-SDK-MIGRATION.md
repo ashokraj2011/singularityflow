@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [candidate delivery inspector](ENGINE-SDK-DELIVERY-INSPECTION.md) reads accepted original/current
+source archives and phase-check evidence through one registered operation. Shared pure test naming,
+affected-path cohorts and runner/root coverage preserve the native rules. Missing or drifted
+evidence gets semantic recovery actions; all production publication policy owners remain required.
+This slice does not finish application publication or the Phase 5, 7, 8 and 9 gates.
+
+Mac qualification passed 103 namespace/source/check regression cases, 67 architecture checks and
+25 installed offline SDK-package checks. The native regression files passed all 105 distinct cases
+across their ordinary and explicit slow-lane runs, including all five initially deferred journey
+cases. Source validation passed 3,929 checks across 191 skills; typechecking, the unchanged 2,011-site
+Git ownership audit and all 13 unchanged bundle budgets passed. The optional SDK exposes 56
+operations across 173 owned modules. Detailed compatibility and qualification limits are recorded
+with the inspector; full application execution and authority migration remain required.
+
 The [original-source archive](ENGINE-SDK-SOURCE-BASELINE.md) retains actual baseline application
 bytes through a registered operation while preserving local attachment boundaries and existing
 record formats. Baseline and changed-source operations share chunk copying and reconstruction.

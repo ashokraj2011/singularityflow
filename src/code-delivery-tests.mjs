@@ -1,3 +1,5 @@
+import {isTestSourceName,sourceEcosystem,testCommandEcosystem,testCommandCoversPath,isAllowedTestAutomationPath,isSupportingTestResourcePath,isExecutableTestSourceCandidate} from './engine-compatibility/node-source-policy.mjs';
+export {isTestSourceName,sourceEcosystem,testCommandEcosystem,testCommandCoversPath,isAllowedTestAutomationPath,isSupportingTestResourcePath} from './engine-compatibility/node-source-policy.mjs';
 import {TEST_REPORT_LIMITS} from './kernel/test-report-codec.mjs';
 import {parseXml,nodeTapCounts,replayLocalJavascriptJsonObservation,replayLocalJunitObservation,junitCaseLocations,parseNativeNodeJunitReport,parseTrpJunitReport,replayTestReports,persistedOccurrences,testReceiptPassing,prepareTestReportReader,number,combinedReports,testReportFromContents,consistentTestCounts} from './verification/test-report-reader.mjs';
 export {parseXml,nodeTapCounts,replayLocalJavascriptJsonObservation,replayLocalJunitObservation,junitCaseLocations,parseNativeNodeJunitReport,parseTrpJunitReport,replayTestReports,persistedOccurrences,testReceiptPassing,prepareTestReportReader} from './verification/test-report-reader.mjs';
@@ -8,7 +10,7 @@ import { constants as fsConstants } from 'node:fs';
 import { access, lstat, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeExternalCommand, TEST_COMMAND_ECOSYSTEMS } from "./engine-compatibility/node-configuration-path.mjs";
+import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './engine-compatibility/node-source-policy.mjs';
@@ -18,30 +20,8 @@ import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 import { gradleBuildKind } from './gradle-manifests.mjs';
 import { SWIFT_TEST_ARGUMENTS, SWIFT_TEST_REPORT_DIRECTORY } from './swift-manifests.mjs';
 import { readRepositoryManifest, repositoryManifestExists } from './repository-manifest.mjs';
-import { ecosystemOfAdapter, ecosystemOfProgram } from './test-runners.mjs';
 
-const SUPPORTING_SEGMENTS = new Set([
-  '__fixtures__', '__mocks__', '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
-  'reports', 'results', 'snapshots', 'test-data', 'testdata'
-]);
-const SUPPORTING_BASENAMES = /^(?:readme(?:\.[^.]+)?|(?:playwright|cypress|jest|vitest|pytest)\.config\.[^.]+)$/i;
-const SUPPORTING_EXTENSIONS = /\.(?:snap|snapshot|golden|md|mdx|txt|csv|tsv|json|ya?ml|xml|toml|properties)$/i;
-const TEST_SOURCE_NAMES = [
-  /(?:^|[._-])(?:test|tests|spec|e2e)(?:[._-]|$)/i,
-  /(?:Test|Tests|Spec)\.(?:java|kt|kts|scala|cs|fs|vb|swift|php)$/,
-  /[a-z\d]IT(?:Case)?\.(?:java|kt|groovy|scala)$/,
-  /^(?:test_.+|.+_test)\.py$/i,
-  /_test\.go$/i,
-  /(?:^|_)tests?\.rs$/i
-];
-const TEST_SOURCE_EXTENSIONS = new Set([
-  '.c', '.cc', '.cjs', '.cpp', '.cs', '.cts', '.cxx', '.fs', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
-  '.mjs', '.mts', '.php', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx', '.vb'
-]);
-// Jest's default testMatch runs every script below a `__tests__` folder, whatever it is called
-// (`__tests__/value.js`); its fixtures, mocks and snapshots are support, and a declaration file is not a test.
-const JEST_TEST_SCRIPT = /\.[cm]?[jt]sx?$/iu;
-const DECLARATION_FILE = /\.d\.[cm]?ts$/iu;
+
 const MAX_RESULT_DEPTH = 8;
 
 const MANIFESTS = Object.freeze({
@@ -63,89 +43,10 @@ function normalized(candidate) {
   return posix(String(candidate ?? '')).replace(/^\.\//, '');
 }
 
-/** Whether a script is a test by Jest's folder rule: below `__tests__`, outside its support folders. */
-function jestTestFolderScript(relative) {
-  const directories = relative.toLowerCase().split('/').slice(0, -1);
-  return directories.includes('__tests__') && !directories.some((segment) => SUPPORTING_SEGMENTS.has(segment))
-    && JEST_TEST_SCRIPT.test(relative) && !DECLARATION_FILE.test(relative);
-}
-
-/** Whether a source path's name marks it as a test: its own (`_test.go`, `test_x.py`, `FooTest.java`), or Jest's `__tests__` folder. */
-function testNamed(relative) {
-  return TEST_SOURCE_NAMES.some((pattern) => pattern.test(path.posix.basename(relative))) || jestTestFolderScript(relative);
-}
-
-/** Whether a file's name marks it as a test, in any directory: `_test.go`, `test_x.py`, `FooTest.java`, `__tests__/value.js`. */
-export function isTestSourceName(candidate) {
-  const relative = normalized(candidate);
-  return TEST_SOURCE_EXTENSIONS.has(path.posix.extname(relative).toLowerCase()) && testNamed(relative);
-}
-
-/**
- * Which changed paths a test command is evidence for [TCE:REQ-052, TCE:REQ-053].
- *
- * A command a person configured or accepted covers the affected roots they gave it. A command
- * Singularity Flow inferred runs one ecosystem's tests, so below its roots (the whole repository
- * included) it covers only that ecosystem's source and files of no language (configuration,
- * documents, assets, C and C++ that a package builds): `npm test` is never evidence for a `.py` or
- * `.swift` file, and pytest never for a `.ts` one. A command that names its `ecosystem` (a test
- * setup suggestion accepted as offered keeps its own) is read the same way, so a root `mvn test`
- * accepted with `affectedRoots: ['.']` never covers the `.js` beside it. Publication, submission,
- * recovery and witness discovery all ask this one question. A record that does not say where its
- * command came from (an older receipt) keeps its roots.
- */
-const LANGUAGE = /\.(?:([cm]?[jt]sx?|vue|svelte)|(pyx?|pyi)|(java|kts?|scala|groovy)|(cs|fsx?|vb)|(go)|(rs)|(swift|mm?)|(rb|erb|rake)|(php)|(dart))$/iu;
-// In LANGUAGE's group order; a command's `ecosystem` names one of them.
-const ECOSYSTEMS = TEST_COMMAND_ECOSYSTEMS;
-// A JUnit report's ecosystem is its launcher's: a package manager or Node, a Python interpreter or project tool, or a runner's own program.
-const LAUNCHERS = [[/^(?:npm|npx|pnpm|yarn|bunx?|node)$/u, 'node'], [/^(?:py(?:thon[\d.]*)?|uv|poetry)$/u, 'python']];
-const lastSegment = (value) => String(value ?? '').split(/[\\/]/u).at(-1);
-
-/** The ecosystem whose source a file is, by its extension, or null for a file of no language. */
-export function sourceEcosystem(candidate) {
-  const match = LANGUAGE.exec(lastSegment(candidate));
-  return match ? ECOSYSTEMS[match.slice(1).findIndex(Boolean)] : null;
-}
-
-/** The ecosystem an inferred command's runner tests: its report adapter, else its launcher. */
-export function testCommandEcosystem(command) {
-  const launcher = lastSegment(command?.argv?.[0]).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
-  return ecosystemOfAdapter(command?.result?.adapter) ?? LAUNCHERS.find(([pattern]) => pattern.test(launcher))?.[1] ?? ecosystemOfProgram(launcher);
-}
-
-/** Whether `command` (with its `provenance` or declared `ecosystem`) covers a changed repository path. */
-export function testCommandCoversPath(command, candidate) {
-  const relative = String(candidate).replace(/^\.\//u, '');
-  const below = (command?.affectedRoots ?? []).some((root) => {
-    const prefix = String(root).replaceAll('\\', '/').replace(/^\.\/|\/+$/gu, '') || '.';
-    return prefix === '.' || relative === prefix || relative.startsWith(`${prefix}/`);
-  });
-  const ecosystem = command?.ecosystem ?? (command?.provenance === 'inferred' && testCommandEcosystem(command));
-  // An Android device test is run only by a connected (device) command [TCE:REQ-075].
-  return below && (ecosystem === false || ([null, ecosystem].includes(sourceEcosystem(relative))
-    && !(ecosystem === 'jvm' && /(?:^|\/)src\/androidTest\//u.test(relative) && !/AndroidTest$/u.test(command.argv?.at(-1)))));
-}
-
-export function isAllowedTestAutomationPath(candidate) {
-  return isTestAutomationPath(candidate);
-}
-
-export function isSupportingTestResourcePath(candidate) {
-  const relative = normalized(candidate);
-  const segments = relative.toLowerCase().split('/');
-  const basename = segments.at(-1) ?? '';
-  return isConfigurationPath(relative) || segments.some((segment) => SUPPORTING_SEGMENTS.has(segment))
-    || SUPPORTING_BASENAMES.test(basename)
-    || SUPPORTING_EXTENSIONS.test(basename)
-    || /(?:^|[._-])(?:fixture|snapshot|page-object|pageobject)(?:[._-]|$)/i.test(basename);
-}
-
+/** File-kind observations stay in the host after the shared name policy accepts a path. */
 export async function isExecutableTestSourcePath(root, candidate, { sourceExtensions = [] } = {}) {
   const relative = normalized(candidate);
-  if (!isAllowedTestAutomationPath(relative) || isSupportingTestResourcePath(relative)) return false;
-  const extension = path.posix.extname(relative).toLowerCase();
-  if (!TEST_SOURCE_EXTENSIONS.has(extension) && !new Set(sourceExtensions.map((item) => item.toLowerCase())).has(extension)) return false;
-  if (!testNamed(relative)) return false;
+  if (!isExecutableTestSourceCandidate(candidate, { sourceExtensions })) return false;
   try {
     const info = await lstat(path.join(root, relative));
     return info.isFile() && !info.isSymbolicLink();

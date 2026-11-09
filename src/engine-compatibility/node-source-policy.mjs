@@ -1,7 +1,9 @@
 /** Native syntax and packaged-root binding for shared source policies. No source/Git/file access. */
-import {NODE_CONFIGURATION_PATH_SYNTAX} from './node-configuration-path.mjs';
+import path from 'node:path';
+import {NODE_CONFIGURATION_PATH_SYNTAX,TEST_COMMAND_ECOSYSTEMS} from './node-configuration-path.mjs';
+import {ecosystemOfAdapter,ecosystemOfProgram} from '../test-runners.mjs';
 import {GOVERNED_ROOTS} from '../governed-roots.mjs';
-import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies} from '../kernel/source-path-policies.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS} from '../kernel/source-path-policies.mjs';
 export {SOURCE_BOUNDARIES,normalizeSourceBoundary} from '../kernel/configuration-declarations.mjs';
 
 const configurationFilePoliciesBinding=/* @__PURE__ */ configurationFilePolicies(NODE_CONFIGURATION_PATH_SYNTAX);
@@ -38,3 +40,18 @@ const sourceChangeInspectionPoliciesBinding=/* @__PURE__ */ sourceChangeInspecti
 export const inspectSourceChanges=/* @__PURE__ */ (()=>sourceChangeInspectionPoliciesBinding.inspectSourceChanges)();
 const sourceBaselineInventoryBinding=/* @__PURE__ */ sourceBaselineInventoryPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS);
 export const sourceBaselineInventory=/* @__PURE__ */ (()=>sourceBaselineInventoryBinding.sourceBaselineInventory)();
+const testDeliveryFacts=/* @__PURE__ */ Object.freeze({profile:TEST_DELIVERY_POLICY_FACTS,ecosystems:TEST_COMMAND_ECOSYSTEMS,
+  posixExtname:path.posix.extname,ecosystemOfAdapter,ecosystemOfProgram});
+const testDeliveryBinding=/* @__PURE__ */ testDeliveryPolicies(NODE_CONFIGURATION_PATH_SYNTAX,testDeliveryFacts);
+export const isTestSourceName=/* @__PURE__ */ (()=>testDeliveryBinding.isTestSourceName)();
+export const sourceEcosystem=/* @__PURE__ */ (()=>testDeliveryBinding.sourceEcosystem)();
+export const testCommandEcosystem=/* @__PURE__ */ (()=>testDeliveryBinding.testCommandEcosystem)();
+export const testCommandCoversPath=/* @__PURE__ */ (()=>testDeliveryBinding.testCommandCoversPath)();
+export const isAllowedTestAutomationPath=/* @__PURE__ */ (()=>testDeliveryBinding.isAllowedTestAutomationPath)();
+export const isSupportingTestResourcePath=/* @__PURE__ */ (()=>testDeliveryBinding.isSupportingTestResourcePath)();
+export const isExecutableTestSourceCandidate=/* @__PURE__ */ (()=>testDeliveryBinding.isExecutableTestSourceCandidate)();
+export const affectedDeliveryPaths=/* @__PURE__ */ (()=>testDeliveryBinding.affectedDeliveryPaths)();
+export const testCoverageExemptPath=/* @__PURE__ */ (()=>testDeliveryBinding.testCoverageExemptPath)();
+export const testCoverageDeliveryPaths=/* @__PURE__ */ (()=>testDeliveryBinding.testCoverageDeliveryPaths)();
+export const uncoveredTestDeliveryPaths=/* @__PURE__ */ (()=>testDeliveryBinding.uncoveredTestDeliveryPaths)();
+export const deliveryPathCohorts=/* @__PURE__ */ (()=>testDeliveryBinding.deliveryPathCohorts)();

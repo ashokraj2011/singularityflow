@@ -1,3 +1,6 @@
+import {deliveryPathCohorts} from './engine-compatibility/node-source-policy.mjs';
+import {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
+export {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 import {pathInside,isDocumentationPath,classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
 export {classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
 import { createHash } from 'node:crypto';
@@ -57,35 +60,6 @@ import {
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
-
-/** Configuration is a tested candidate input, even though it is never product source. */
-export function affectedDeliveryPaths(delivery = {}, sourceBoundary = 'unrestricted') {
-  return [...new Set([
-    ...(sourceBoundary === 'test-automation' ? delivery.testPaths ?? [] : delivery.sourcePaths ?? []),
-    ...(delivery.configurationPaths ?? [])
-  ])].sort();
-}
-
-/**
- * Repository metadata (.gitignore, CODEOWNERS, editor settings) and CI configuration
- * (.github/workflows/*, .gitlab-ci.yml) are never exercised by a module's tests. They are not held
- * to affected-module test coverage; the plan and scope still account for every one of them.
- */
-export function testCoverageExemptPath(candidate) {
-  const kind = configurationPathKind(candidate);
-  return kind === 'repository-metadata' || kind === 'ci-configuration';
-}
-
-/** The affected paths a passing module test command must cover: publish, submit, replay and recovery agree. */
-export function testCoverageDeliveryPaths(delivery = {}, sourceBoundary = 'unrestricted') {
-  return affectedDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !testCoverageExemptPath(candidate));
-}
-
-/** The affected paths no command covers, in order: an inferred one covers only its own ecosystem's files. */
-export function uncoveredTestDeliveryPaths(delivery, sourceBoundary, commands = []) {
-  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) =>
-    !commands.some((command) => testCommandCoversPath(command, candidate)));
-}
 
 function pinnedTestEvidenceSource(workflow, phase) {
   return workflow.resolution?.phases?.find((entry) => entry.id === phase?.id)?.testEvidenceFrom ?? null;
@@ -1258,14 +1232,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       { code: 'CHANGE_SET_POLICY_VIOLATION' }
     );
   }
-  const currentPaths = applicationEntries
-    .filter((entry) => entry.status !== 'deleted' && entry.newPath
-      && (entry.newContent?.kind === 'regular-file' || entry.newMode === '160000'))
-    .map((entry) => entry.newPath);
-  const changedPaths = [...new Set(currentPaths)].sort();
+  const {changedPaths,changedTestCandidates,deletedPaths,deletedSourcePaths,configurationPaths,changedSourcePaths}=deliveryPathCohorts(applicationEntries);
   const changedEndpointPaths = new Set(applicationEntries.flatMap((entry) =>
     [entry.oldPath, entry.newPath].filter(Boolean)));
-  const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
   const priorGenerationCommit = phase.generationIntent?.baseline?.previousGenerationCommit ?? null;
   const documentationOnlyCorrection = Number(phase.generation ?? 0) > 0
     && priorGenerationCommit === baselineCommit
@@ -1323,17 +1292,6 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     }
   }
   const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths])].sort();
-  const deletedPaths = applicationEntries
-    .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath)
-    .map((entry) => entry.oldPath);
-  const deletedSourcePaths = deletedPaths.filter(candidate =>
-    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate));
-  const configurationPaths = [...new Set([...changedPaths, ...deletedPaths].filter(isConfigurationPath))].sort();
-  const changedSourcePaths = [...new Set([
-    ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)
-      && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)),
-    ...deletedSourcePaths
-  ])].sort();
   // A reviewer-returned Testing defect can change only executable tests or their supporting
   // resources. Do not require a fake product-source edit in the new Code generation: reuse the
   // exact prior approved source bytes, but only when the latest open change request was created

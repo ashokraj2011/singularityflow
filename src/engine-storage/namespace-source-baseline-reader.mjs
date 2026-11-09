@@ -93,5 +93,12 @@ export function createNamespaceSourceBaselineReader(options={}){
     if(!same(body.totals,totals))throw error('The baseline summary contradicts its retained files.');
     return {...prepared,body,record:{key:k.manifest,version:saved.version,content:metadata.content},indexVersion:result.records.find(row=>row.key===codec.indexKey(input)).version,replayed:true};
   }
-  return Object.freeze({observer,codec,json,intent,inventory,binding:observations.binding,verifyRepository,accepted});
+  async function inspectBinding(sourceBindingId,{signal}={}) {
+    const key=codec.indexKey({sourceBindingId}),index=await observer.record('evidence',key,false,signal,true);if(!index)return null;
+    const selected=codec.index(index.value,{sourceBindingId}),metadata=await observer.record('evidence',selected.manifestKey,true,signal);
+    const found=await accepted({operationId:metadata.value.operationId,workId,sourceBindingId},{signal});
+    if(!found||found.record.key!==selected.manifestKey||found.indexVersion!==index.version)throw error('The source baseline index lost its actual accepted result.');
+    return {...found,indexKey:key};
+  }
+  return Object.freeze({observer,codec,json,intent,inventory,binding:observations.binding,verifyRepository,accepted,inspectBinding});
 }

@@ -458,6 +458,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
       import {createNamespaceSourceRetentionEngine} from '${packageName}/hosts/namespace-source-retention';
       import {createNamespaceSourceBaselineEngine} from '${packageName}/hosts/namespace-source-baseline';
+      import {createNamespaceDeliveryInspectionEngine} from '${packageName}/hosts/namespace-delivery-inspection';
       import {createFilesystemSourceUnit,createFilesystemSourceContentReader} from '${packageName}/sources/filesystem';
       const fresh=process.argv[2]==='fresh',scope={projectId:'inspection-project'},workId='code-story',authority={id:'inspection-authority',epoch:1};
       const binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'inspection-device'};
@@ -501,6 +502,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(result.manifest.status,'inspected');assert.equal(result.manifest.totals.changes,2);
         assert.equal(result.manifest.repositories[0].roles['build-configuration'],1);assert.equal(result.manifest.repositories[0].roles['product-source'],1);
         assert.equal(result.manifest.publicationReadinessInspected,false);assert.equal(result.effects.committed,false);assert.equal(result.effects.testsRun,false);
+        const delivery=await createNamespaceDeliveryInspectionEngine({...common,localRecords,localContent}).run('phase.delivery.inspect',{phaseId:'delivery'});
+        assert.equal(delivery.manifest.status,'observed');assert.equal(delivery.manifest.evidence.baseline.operationId,'retain-baseline-bytes');
+        assert.equal(delivery.manifest.evidence.changes===null,fresh);assert.equal(delivery.manifest.repositories[0].sourceMatched,fresh?null:true);
+        assert.equal(delivery.manifest.publicationReadinessInspected,false);assert.equal(delivery.manifest.applicationAcceptanceEstablished,false);
         const sourceReaders=fresh?[await createFilesystemSourceContentReader({root,id:'installed-source-reader',source:unit.descriptor,maximumChunkBytes:4})]:[];
         if(!fresh)await rm(root,{recursive:true});
         const baseline=await createNamespaceSourceBaselineEngine({...common,sources:[],sourceReaders:[]}).run('source.baseline.retain',{
@@ -1015,6 +1020,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createNamespaceSourceRetentionEngine} from '${packageName}/hosts/namespace-source-retention';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import {createNamespaceSourceBaselineEngine} from '${packageName}/hosts/namespace-source-baseline';
+      import {createNamespaceDeliveryInspectionEngine} from '${packageName}/hosts/namespace-delivery-inspection';
       import type { SourceUnit } from '${packageName}/source';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
       import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
@@ -1045,6 +1051,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       // @ts-expect-error A source query cannot accept caller-supplied readiness or a replacement source path.
       createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{ready:true,path:'/other'});
       const inspectFactory:typeof createNamespaceSourceInspectionEngine=createNamespaceSourceInspectionEngine;
+      const deliveryInspectFactory:typeof createNamespaceDeliveryInspectionEngine=createNamespaceDeliveryInspectionEngine;
+      createNamespaceDeliveryInspectionEngine({...phaseCheckOptions,localRecords:runtimeMetadata,localContent:runtimeContent}).run('phase.delivery.inspect',{phaseId:'review',maximumEntries:25});
+      createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review'});
+      // @ts-expect-error Delivery observations cannot accept a caller-supplied publication verdict.
+      createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review',ready:true});
       createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review'});
       // @ts-expect-error Replacement commands do not enter the registered phase-check operation.
       createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review',argv:['node','other']});

@@ -166,3 +166,61 @@ export function sourceBaselineRetentionResult(input,facts) {
     effects:{committed:!facts.replayed,pushed:false,evidenceRecorded:!facts.replayed,sourceFilesChanged:false,canonicalStateChanged:false,
       phasePublished:false,testsRun:false,approvalRecorded:false,storyAdvanced:false}};
 }
+
+/** Bounded observed source/test evidence. No publication, requirement or acceptance verdict. */
+export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntries) {
+  const bad=()=>fail('The delivery inspector returned another or unbounded evidence binding.','ENGINE_PORT_RESULT_INVALID');
+  if(!exact(facts,['workId','phase','status','revision','authorityVersion','configuration','draft','sourceBinding','evidence','repositories','tests','requiredPolicyOwners'])
+    ||facts.workId!==workId||facts.phase!==phaseId||!['missing-draft','stale-draft','not-code-generation','observed'].includes(facts.status)
+    ||!revision(facts.revision)||!revision(facts.authorityVersion)||!exact(facts.configuration,['key','content'])
+    ||typeof facts.configuration.key!=='string'||!exact(facts.configuration.content,['namespace','sha256','bytes'])
+    ||facts.configuration.content.namespace!=='config'||!sha(facts.configuration.content.sha256)||!count(facts.configuration.content.bytes)
+    ||!exact(facts.evidence,['baseline','changes','checks'])||!Array.isArray(facts.repositories)||facts.repositories.length>32
+    ||!Array.isArray(facts.requiredPolicyOwners)||facts.requiredPolicyOwners.length>128||facts.requiredPolicyOwners.some(value=>!id(value)))bad();
+  const d=facts.draft;
+  if(d!==null&&(!exact(d,['generation','revision','bodySha256','baseRevision'])||!count(d.generation)||d.generation<1||!revision(d.revision)||!revision(d.baseRevision)||!sha(d.bodySha256)))bad();
+  if(facts.status==='missing-draft'?d!==null:d===null)bad();
+  if(facts.status==='stale-draft'?d.baseRevision===facts.revision:d!==null&&d.baseRevision!==facts.revision)bad();
+  for(const [kind,proof]of Object.entries(facts.evidence))if(proof!==null){
+    if(!exact(proof,['operationId','record','index'])||!id(proof.operationId)||!exact(proof.record,['key','version','content'])
+      ||typeof proof.record.key!=='string'||!revision(proof.record.version)||!exact(proof.record.content,['namespace','sha256','bytes'])
+      ||proof.record.content.namespace!=='evidence'||!sha(proof.record.content.sha256)||!count(proof.record.content.bytes)
+      ||!exact(proof.index,['key','version'])||typeof proof.index.key!=='string'||!revision(proof.index.version))bad();
+    const prefix=kind==='baseline'?'source-baseline':kind==='changes'?'source-retention':'phase-checks';
+    if(!proof.record.key.startsWith(prefix+'/')||!proof.index.key.startsWith(prefix+'/'))bad();
+  }
+  const seen=new Set();let displayed=0;
+  for(const repository of facts.repositories){
+    if(!exact(repository,['id','baselineRevision','currentRevision','retainedRevision','sourceMatched','checksMatched','safety','coverage'])
+      ||!id(repository.id)||seen.has(repository.id)||!/^sha256:[a-f0-9]{64}$/u.test(repository.baselineRevision)||!/^sha256:[a-f0-9]{64}$/u.test(repository.currentRevision)
+      ||repository.retainedRevision!==null&&!/^sha256:[a-f0-9]{64}$/u.test(repository.retainedRevision)
+      ||['sourceMatched','checksMatched'].some(key=>repository[key]!==null&&typeof repository[key]!=='boolean')
+      ||!exact(repository.safety,['protectedChanges','boundaryViolations'])||Object.values(repository.safety).some(value=>!count(value)))bad();seen.add(repository.id);
+    const c=repository.coverage;
+    if(!exact(c,['required','affectedPaths','uncoveredPaths','changedExecutableTests','pathCount','paths','truncated'])||typeof c.required!=='boolean'
+      ||['affectedPaths','uncoveredPaths','changedExecutableTests','pathCount'].some(key=>!count(c[key]))||c.uncoveredPaths>c.affectedPaths
+      ||!Array.isArray(c.paths)||c.paths.length>c.pathCount||c.pathCount<Math.max(c.affectedPaths,c.changedExecutableTests)
+      ||c.pathCount>c.affectedPaths+c.changedExecutableTests||c.truncated!==(c.paths.length<c.pathCount)
+      ||(repository.retainedRevision===null)!==(repository.sourceMatched===null)
+      ||(facts.evidence.changes===null)!==(repository.sourceMatched===null)||(facts.evidence.checks===null)!==(repository.checksMatched===null))bad();
+    const paths=new Set();for(const row of c.paths){if(!exact(row,['path','role','covered'])||!['source','configuration','test'].includes(row.role)
+      ||row.covered!==null&&typeof row.covered!=='boolean')bad();sourceRelativePath(row.path);if(paths.has(row.path))bad();paths.add(row.path);}
+    displayed+=c.paths.length;
+  }
+  if(displayed>maximumEntries||!exact(facts.tests,['status','checks'])||!['not-configured','missing','passed','failed','unavailable','partial','invalid'].includes(facts.tests.status)
+    ||!Array.isArray(facts.tests.checks)||facts.tests.checks.length>1024)bad();
+  for(const check of facts.tests.checks){if(!exact(check,['id','repositoryId','status','tests'])||!id(check.id)||!id(check.repositoryId)
+    ||!['passed','failed','unavailable'].includes(check.status)||check.tests!==null&&(!plain(check.tests)||Object.values(check.tests).some(value=>!count(value))))bad();}
+  const actions=[];const action=(operation,inputs,required=[],prerequisites=[])=>actions.push({operation,inputs,required,prerequisites});
+  if(facts.status==='missing-draft')action('phase.prepare',{workId,phaseId});
+  if(facts.status==='stale-draft'){if(!d)bad();action('phase.draft.rebase',{workId,phaseId,expectedRevision:d.revision,confirm:d.bodySha256},['operationId','reason']);}
+  if(facts.status==='observed'){
+    if(!d||!exact(facts.sourceBinding,['operationId'])||!id(facts.sourceBinding.operationId)||!facts.repositories.length)bad();
+    if(!facts.evidence.baseline)action('source.baseline.retain',{workId,sourceBindingId:facts.sourceBinding.operationId},['operationId'],['original-source-selection-available']);
+    if(!facts.evidence.changes||facts.repositories.some(row=>row.sourceMatched===false))action('phase.source.retain',{workId,phaseId},['operationId']);
+    if(facts.tests.status!=='not-configured'&&(facts.tests.status!=='passed'||facts.repositories.some(row=>row.checksMatched===false)))action('phase.checks.run',{workId,phaseId},['operationId'],
+      ['failed','unavailable','partial','invalid'].includes(facts.tests.status)?['repair-observed-check-failures']:[]);
+  }else if(facts.sourceBinding!==null||facts.repositories.length||Object.values(facts.evidence).some(Boolean))bad();
+  return {schemaVersion:1,contract:'sflow-delivery-evidence-inspection/v1',...facts,actions,
+    observationsOnly:true,publicationReadinessInspected:false,applicationAcceptanceEstablished:false};
+}

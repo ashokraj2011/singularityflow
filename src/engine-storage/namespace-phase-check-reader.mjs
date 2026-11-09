@@ -125,11 +125,10 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     if(found.body.verdict!=='passed')throw error('The current draft has no complete passing check set. Repair and run its configured checks.',
       'PHASE_CHECKS_NOT_PASSED',{operation:'phase.checks.run',workId,phase:phaseId,verdict:found.body.verdict,checks:found.body.checks});
   }
-  async function forDraft({phaseId,generation,baseRevision,draft,artifact,configuration},{signal}={}) {
+  async function inspectDraft({phaseId,generation,baseRevision,draft,artifact,configuration},{signal}={}) {
     const key=codec.indexKey({input:{phaseId},generation,basis:{headVersion:baseRevision},draft});
     const index=await observer.record('evidence',key,false,signal,true);
-    if(!index)throw error('Run the configured phase checks for this exact authored draft before publication.','ENGINE_CHECK_EVIDENCE_REQUIRED',{
-      operation:'phase.checks.run',workId,phase:phaseId,generation});
+    if(!index)return null;
     codec.index(index.value);
     const metadata=await observer.record('evidence',index.value.manifestKey,true,signal);
     phaseCheckRecordValue('manifest',metadata.value);
@@ -139,7 +138,13 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     if(found.plan.generation!==generation||found.plan.basis.headVersion!==baseRevision||!same(found.plan.draft,draft)
       ||!same(found.plan.basis.configuration,configuration)||found.plan.artifact.sha256!==artifact.sha256||found.plan.artifact.bytes!==artifact.bytes)
       throw error('The accepted check set belongs to another authored draft.','ENGINE_STORAGE_CORRUPT');
-    assertPassing(found,phaseId);return binding;
+    return {binding,found};
+  }
+  async function forDraft(input,{signal}={}) {
+    const selected=await inspectDraft(input,{signal});
+    if(!selected)throw error('Run the configured phase checks for this exact authored draft before publication.','ENGINE_CHECK_EVIDENCE_REQUIRED',{
+      operation:'phase.checks.run',workId,phase:input.phaseId,generation:input.generation});
+    assertPassing(selected.found,input.phaseId);return selected.binding;
   }
   async function publication(value,{signal}={}) {
     const found=await proof(value.checks,value.phase,{signal}),plan=found.plan;
@@ -174,5 +179,5 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     }
     return found;
   }
-  return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,publication,readBindings,assertCurrent,freshSources});
+  return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,readBindings,assertCurrent,freshSources});
 }

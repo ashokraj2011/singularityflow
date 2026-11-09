@@ -43,7 +43,7 @@ function printResult(result) {
     const how = entry.kind === 'plain' ? 'plain chat' : `/${entry.skill}`;
     const words = String(entry.text ?? '').replace(/\s+/gu, ' ').trim();
     console.log(`\n${entry.at.replace('T', ' ').slice(0, 19)}${where} (${how}, session ${entry.session ?? 'unknown'})`);
-    console.log(`  "${words}"${entry.truncated ? ' (cut at 2,000 characters)' : ''}${entry.secret ? ` (held what looks like a ${entry.secret}; refused, kept redacted)` : ''}`);
+    console.log(`  "${words}"${entry.truncated ? ' (cut at 2,000 characters)' : ''}${entry.secret ? ` (held what looks like a ${entry.secret}; refused, kept redacted)` : ''}${entry.held ? ` (not sent: an earlier prompt in that chat held what looks like a ${entry.held})` : ''}`);
   }
 }
 

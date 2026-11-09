@@ -12,7 +12,7 @@ related:
   - approvals
 commands:
   - prompts
-version: 2
+version: 3
 ---
 In a repository that uses SFlow, Copilot's hooks keep every prompt, refuse a prompt that holds what looks like a secret, and send a chat's changes through an `/sf-` skill as far as the repository chooses. Questions, reading and explaining stay free. The repository's setting is `policy.plainChatEdits` on its capability map: `refuse`, `record` (the default) or `allow`.
 
@@ -43,7 +43,7 @@ Use this topic to choose what a Copilot chat with no `/sf-` command may change i
 
 **What is kept.** Each prompt, plain or `/sf-`, with its session (by a key, never its ID), time and repository, and the Story and step the checkout holds. Secrets are taken out before anything is written: token shapes, private keys, and the values of the repository's declared environment files. In a Story checkout a plain prompt joins the Story's "Asked for", marked plain chat, and is shared when the Story is pushed; it waits to be accounted for only when its turn changed something. Outside a Story it goes to the clone's own log, `<Git directory>/singularity-flow/prompts/`, which never leaves the clone.
 
-**What is refused, and why.** A prompt holding what looks like a secret: Copilot CLI never sends it to the model, and in VS Code, which sends it on, nothing in that turn runs and the advice is to rotate it. Under `refuse`, a plain chat's edit or writing command, so the change goes through the step that records and reviews it.
+**What is refused, and why.** A prompt holding what looks like a secret is never sent to the model. VS Code keeps a refused prompt in its chat and would send it with the next message, so that chat refuses every later prompt too, saying to start a new chat; `/sf-pause` goes through if it was no secret. Under `refuse`, a plain chat's edit or writing command, so the change goes through the step that records and reviews it.
 
 ## State and safety
 

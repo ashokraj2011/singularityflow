@@ -369,7 +369,8 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
  */
 export function settledUpstreamClauses(workflow, phaseId, clauseIds, { now = new Date().toISOString() } = {}) {
   const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
-  const earlier = order.slice(0, Math.max(0, order.indexOf(phaseId)));
+  // At the ending (`phaseId` null) every step is earlier.
+  const earlier = phaseId == null ? order : order.slice(0, Math.max(0, order.indexOf(phaseId)));
   const states = upstreamIssueStates(workflow, now).filter((state) => !state.supersededBy && earlier.includes(state.issue.phase));
   if (!states.length) return [];
   return (clauseIds ?? []).flatMap((clauseId) => {

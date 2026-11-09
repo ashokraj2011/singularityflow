@@ -184,6 +184,18 @@ function evidenceBlockersOf(evaluation) {
 }
 
 /**
+ * The evidence blockers that wait on an open upstream issue's decision rather than on the last step:
+ * every one, when open issues name every blocking row (the SPEC_COVERAGE_INCOMPLETE rule of
+ * 1f68d7b6c); none otherwise, so the author still delivers what no issue names.
+ */
+export async function evidenceWaitingOnIssues(workflow, evaluation) {
+  const rows = (evaluation?.rows ?? []).filter((row) => BLOCKING_RESULTS.has(row.result)).map((row) => row.id);
+  if (!rows.length) return [];
+  const { upstreamDecisionFor } = await import('../spec-coverage-preview.mjs');
+  return upstreamDecisionFor(workflow, rows)?.complete ? evidenceBlockersOf(evaluation) : [];
+}
+
+/**
  * Evaluate an ending without changing anything. `openStory` names the final phase and its real
  * status: the Story is judged as if closed, but until the transition commits it is open.
  */
@@ -302,6 +314,9 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   // Upstream issues are decided by earlier steps' owners while the last step is reviewed; only the
   // ending itself waits for them, so the submission preview defers them too.
   if (stage === 'submission') result.upstream.forEach((entry) => deferredMessages.add(entry.message));
+  // When an open issue names every blocking row, those rows wait on its decision too, never on the
+  // last step's author: someone decides, and only the ending holds [PHR:REQ-003].
+  if (stage === 'submission' && result.upstream.length) (await evidenceWaitingOnIssues(workflow, result.evaluation)).forEach((message) => deferredMessages.add(message));
   const blockers = result.blockers.filter((message) => !omitted.has(message) && !deferredMessages.has(message));
   // Submission defers the decisions; approval and the ending lead with their list.
   const decisions = stage === 'submission' ? null : result.decisions;

@@ -8,6 +8,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { approvalHold } from '../src/approval-check.mjs';
+import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
+import { evidenceGraph } from '../src/evidence/graph.mjs';
+import { evidenceWaitingOnIssues } from '../src/evidence/terminal.mjs';
 import { findingOwnedByPhase, phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
@@ -152,4 +155,67 @@ test('[PHR:REQ-003] a coverage gap at code submission and approval: a decided is
   const choices = phaseResolutionChoices(codeStory(), codeStory().phases.implementation, { code: 'SPEC_COVERAGE_INCOMPLETE', details }).choices;
   assert.deepEqual(choices.filter((entry) => ['plan-correction', 'upstream-issue'].includes(entry.kind)).map((entry) => [entry.kind, entry.owner, entry.command]), [
     ['plan-correction', 'planning-approval-authority', corrections.routes[0].command], ['upstream-issue', 'planning-approval-authority', corrections.routes[3].command]]);
+});
+
+/**
+ * The ending of a Story whose code step delivered REQ-001 and AC-001 but not AC-002 (and, with
+ * `bothMissing`, not AC-001 either), with the Story's upstream issues and their decisions.
+ */
+function ending({ issues = [], decisions = [], bothMissing = false } = {}) {
+  const W = 'END-1';
+  const [REQ, AC1, AC2] = [`${W}:REQ-001`, `${W}:AC-001`, `${W}:AC-002`];
+  const policy = { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [] };
+  const approval = { decision: 'approved', actor: { login: 'reviewer' }, authorityGroup: 'reviewers', at: '2026-11-09T00:00:00Z' };
+  const step = (id, extra = {}) => ({ id, status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval], ...extra });
+  const workflow = { workItem: { id: W }, status: 'in_progress', currentPhase: 'testing', phaseOrder: ['intake', 'implementation', 'testing'],
+    resolution: { plannedClaims: { mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' } } },
+    phases: { intake: step('intake', { requiredArtifact: { kind: 'requirements' } }),
+      implementation: step('implementation', { generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' } }),
+      testing: step('testing', { status: 'in_progress', approvals: [], requiredArtifact: { kind: 'test-evidence' } }) },
+    upstreamIssues: issues, upstreamIssueDecisions: decisions };
+  const clause = (id, type, line, dependsOn = []) => ({ id, type, source: { path: 'intake.md', line }, bodySha256: String(line).repeat(64).slice(0, 64), dependsOn });
+  const claim = { expectedPaths: ['src/value.mjs'], tests: [], testDisposition: 'unspecified', testReason: null };
+  const delivered = { observedPaths: ['src/value.mjs'], commits: [], verdict: 'matched' };
+  const missing = { observedPaths: [], testResults: [], commits: [], verdict: 'missing' };
+  const evaluation = evaluateEvidence(evidenceGraph({ workflow,
+    records: { indexes: [{ workId: W, phase: 'intake', generation: 1, clauses: [clause(REQ, 'REQ', 3), clause(AC1, 'AC', 5, [REQ]), clause(AC2, 'AC', 6)] }],
+      planned: [{ workId: W, phase: 'intake', generation: 1, kind: 'planned', claims: { [REQ]: claim,
+        [AC1]: { ...claim, tests: ['test/one.test.mjs'], testDisposition: 'applicable' }, [AC2]: { ...claim, tests: ['test/two.test.mjs'], testDisposition: 'applicable' } } }],
+      observed: [{ workId: W, phase: 'implementation', generation: 1, kind: 'observed', claims: { [REQ]: { ...delivered, testResults: [] },
+        [AC1]: bothMissing ? missing : { ...delivered, testResults: ['test/one.test.mjs'] }, [AC2]: missing } }], acceptance: [] },
+    deliveries: [{ phaseId: 'implementation', generation: 1, status: 'ready', testRecovery: null,
+      acceptanceCriteria: { bindings: [{ clauseId: AC1, testSource: 'test/one.test.mjs' }, { clauseId: AC2, testSource: 'test/two.test.mjs' }] },
+      receipt: { status: 'ready', traceability: { bindings: [{ clauseId: AC1, testSource: 'test/one.test.mjs', commandId: 'unit' }, { clauseId: AC2, testSource: 'test/two.test.mjs', commandId: 'unit' }] } },
+      executions: [{ commandId: 'unit', kind: 'test-execution', status: 'passed', record: { status: 'passed', tests: { discovered: 2, passed: 2, failed: 0, skipped: 0 } } }] }] }),
+  { boundary: 'terminal', mode: 'decision' });
+  return { workflow, evaluation, row: (id) => evaluation.rows.find((entry) => entry.id === id), AC1, AC2 };
+}
+
+test('[PHR:REQ-003] at the end of the Story a decided upstream issue settles its row, and an open one naming every blocking row is someone\'s decision', async () => {
+  const issue = { id: 'UPI-001', phase: 'intake', about: 'END-1:AC-002', problem: 'AC-002 cannot be delivered in this repository.' };
+  // No issue: the missing implementation blocks, as before.
+  const plain = ending();
+  assert.equal(plain.evaluation.decision.gate, 'block');
+  assert.equal(plain.row(plain.AC2).obligations.find((entry) => entry.responsibility === 'implement').status, 'missing');
+  // Decided (dismiss, or an unexpired accepted risk): the row is settled, shown as that decision, never as met.
+  for (const decision of [{ issue: 'UPI-001', outcome: 'dismiss' }, { issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }]) {
+    const decided = ending({ issues: [issue], decisions: [decision] });
+    const implement = decided.row(decided.AC2).obligations.find((entry) => entry.responsibility === 'implement');
+    assert.deepEqual([implement.status, implement.facets.exception, implement.upstreamDecision.issue, implement.upstreamDecision.outcome],
+      ['excepted', 'upstream-decision', 'UPI-001', decision.outcome]);
+    assert.notEqual(decided.evaluation.decision.gate, 'block');
+  }
+  // An expired risk, a return, or an issue that names another clause settles nothing.
+  assert.equal(ending({ issues: [issue], decisions: [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2000-01-01T00:00:00.000Z' }] }).evaluation.decision.gate, 'block');
+  assert.equal(ending({ issues: [issue], decisions: [{ issue: 'UPI-001', outcome: 'return' }] }).evaluation.decision.gate, 'block');
+  assert.equal(ending({ issues: [{ ...issue, about: 'END-1:AC-001', problem: 'The first criterion is worded loosely.' }], decisions: [{ issue: 'UPI-001', outcome: 'dismiss' }] }).evaluation.decision.gate, 'block');
+
+  // Open, naming every blocking row: those blockers wait on its decision, so the last step's submission defers them.
+  const open = ending({ issues: [issue] });
+  const waiting = await evidenceWaitingOnIssues(open.workflow, open.evaluation);
+  assert.ok(waiting.length > 0 && waiting.every((message) => /AC-002/u.test(message)), waiting.join('\n'));
+  // A blocking row no issue names is still the author's: nothing is deferred.
+  const partial = ending({ issues: [issue], bothMissing: true });
+  assert.deepEqual(await evidenceWaitingOnIssues(partial.workflow, partial.evaluation), []);
+  assert.deepEqual(await evidenceWaitingOnIssues(plain.workflow, plain.evaluation), []);
 });

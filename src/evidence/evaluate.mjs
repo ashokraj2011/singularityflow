@@ -20,6 +20,7 @@ import { revalidationCarriers, revalidatorName } from '../scope/carried-evidence
 import { scopeStaleness } from '../scope/revisions.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from '../scope/extract.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
+import { settledUpstreamClauses } from '../upstream-routes.mjs';
 import { applicabilityStatus, endpointTaken } from './applicability.mjs';
 import { completionLabel, lifecycleWords, resultCounts } from './labels.mjs';
 import {
@@ -30,6 +31,9 @@ import { effectiveContract, mergedVerificationContracts, witnessMappingCore, wit
 
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
 const STORY_RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);
+
+// The responsibilities an earlier step's upstream issue answers for at the ending [terminal.mjs UPSTREAM_OWNED].
+const UPSTREAM_SETTLED = new Set(['plan', 'implement', 'verify']);
 
 function finding(code, message, { obligationIds = [], category = 'evidence', blocking = true } = {}) {
   return { code, message, obligationIds, category, blocking };
@@ -311,6 +315,11 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     return adequacy.get(witnessMappingSha256(witnessMappingCore(entry.witness, { clauseBodySha256: clauseBodies.get(id), contract }))) ?? null;
   };
 
+  // A clause an upstream issue's decision settled (accept-risk, unexpired, or dismiss): its approvers
+  // decided the row, so it no longer blocks, as a decided conformance gap does not [PHR:REQ-003].
+  const settledByIssue = new Map(settledUpstreamClauses(workflow, null, clauses.map((clause) => clause.id), { now: at })
+    .map((entry) => [String(entry.clauseId).toUpperCase(), entry]));
+
   const rows = clauses.map((clause) => {
     const id = clause.id;
     const planned = plannedClaims[id] ?? null;
@@ -553,6 +562,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     // transition it names, and what was observed stays visible. One that expired, was revoked, does
     // not permit the transition or accepted different evidence counts for nothing.
     const riskActions = [];
+    const settledHere = new Set();
     for (const [index, obligation] of obligations.entries()) {
       const pilot = !graph.untrusted && obligation.responsibility === 'implement'
         && ['missing', 'partial'].includes(obligation.status) && obligation.facets?.freshness !== 'stale'
@@ -564,6 +574,17 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
           facets: { ...obligation.facets, exception: 'accepted-risk' } };
         for (const entry of rowFindings) if ((entry.obligationIds ?? []).length
           && entry.obligationIds.every(subject => subject === obligation.id)) entry.blocking = false;
+        continue;
+      }
+      // Only what the issue's step owns and a dated risk could carry: never stale evidence, a review or untrusted records.
+      const decided = !graph.untrusted && UPSTREAM_SETTLED.has(obligation.responsibility)
+        && ['missing', 'partial', 'failed'].includes(obligation.status) && obligation.facets?.freshness !== 'stale'
+        ? settledByIssue.get(String(id).toUpperCase()) : null;
+      if (decided) {
+        obligations[index] = { ...obligation, status: 'excepted',
+          upstreamDecision: { issue: decided.issue, phase: decided.phase, outcome: decided.outcome, expiresAt: decided.expiresAt },
+          facets: { ...obligation.facets, exception: 'upstream-decision' } };
+        settledHere.add(obligation.id);
         continue;
       }
       const risk = riskDecisionState(workflow, obligation, { at, transition: 'terminal' });
@@ -587,6 +608,9 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
         riskActions.push({ kind: 'accept-risk', command: `singularity-flow decision risk --obligation ${obligation.id} --category <category> --expires <YYYY-MM-DD> --reason "<why>"` });
       }
     }
+    // What the settled obligations alone explain no longer blocks; it stays listed.
+    for (const entry of rowFindings) if (settledHere.size && (entry.obligationIds ?? []).length
+      && entry.obligationIds.every((subject) => settledHere.has(subject))) entry.blocking = false;
     const judged = obligations.map(applyOmission);
     const result = graph.untrusted ? 'inconclusive' : rowResult(judged);
     findings.push(...rowFindings);

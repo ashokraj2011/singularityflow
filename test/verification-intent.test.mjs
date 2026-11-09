@@ -10,6 +10,7 @@ import { sourceReviewReportTemplate } from '../src/source-review-contract.mjs';
 import { checkSourceReviewReport } from '../src/source-review-lifecycle.mjs';
 import { buildActiveClauseCapsule } from '../src/active-clause-capsule.mjs';
 import { phaseAuthoringContract, phaseAuthoringContractLines } from '../src/phase-authoring-contract.mjs';
+import { validatePlannedVerification } from '../src/verification/intent.mjs';
 
 const req = 'PROOF:REQ-001';
 const ac = 'PROOF:AC-001';
@@ -134,6 +135,38 @@ test('Planning cannot waive automation, use another AC, omit primary proof or we
   assert.equal(diagnostics.valid, false);
   assert.equal(diagnostics.diagnostics[0].code, 'SPEC_VERIFICATION_INTENT_INVALID');
   assert.equal(diagnostics.diagnostics[0].details.repairScope, 'current-draft');
+});
+
+test('a requirement may borrow only the visual proof of an AC that is also tested, and waives nothing', () => {
+  // Office, 2026-11-09: REQ-002 is approved as visual under AC-001, and AC-001 as test and visual. The plan did as the
+  // authoring guidance says (verification: AC-001 and AC-001's primary visual slot), and AC-001's own primary test
+  // slot made the check report a missing visual slot.
+  const spec = scope + ['## Verification intent', '', '| Clause | Methods | Criterion |', '|---|---|---|',
+    '| `PROOF:REQ-001` | visual | `PROOF:AC-001` |', '| `PROOF:AC-001` | test, visual | `PROOF:AC-001` |', ''].join('\n');
+  const both = (combination = 'all') => [
+    '# Plan', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    '| `PROOF:REQ-001` | `docs/proof.md` | verification: PROOF:AC-001 | document |',
+    '| `PROOF:AC-001` | `docs/proof.md` | `test/proof.test.js` | document |',
+    '', '## Verification contracts', '', '| Criterion | Slot | Method | Witness | Role | Combination |', '|---|---|---|---|---|---|',
+    `| \`PROOF:AC-001\` | screen | visual | \`success screen\` | primary | ${combination} |`,
+    `| \`PROOF:AC-001\` | unit | test | \`test/proof.test.js\` | primary | ${combination} |`, ''
+  ].join('\n');
+  const { claims } = derive(both(), spec).claimMap;
+  assert.equal(claims[req].testDisposition, 'non-test');
+  assert.equal(claims[req].verificationCriterion, ac);
+  assert.equal(claims[ac].testDisposition, 'applicable', 'the AC keeps its own test');
+  // Any of the two would let the test alone pass the AC, so the requirement's visual proof would not be guaranteed.
+  assert.throws(() => derive(both('any'), spec));
+  const anyOf = [{ clauseId: ac, combination: 'any', slots: [{ method: 'visual', role: 'primary' }, { method: 'test', role: 'primary' }] }];
+  assert.throws(() => validatePlannedVerification({ [req]: { tests: [], testDisposition: 'non-test', verificationCriterion: ac } }, anyOf,
+    [{ id: req, verification: { methods: ['visual'], criterionId: ac } }]), /non-test proof/u);
+  // The AC itself still cannot be called non-test while its own contract has a primary test slot, and says so.
+  assert.throws(() => derive(both().replace('| `test/proof.test.js` | document |', '| verification: PROOF:AC-001 | document |'), spec),
+    /PROOF:AC-001 plans no tests \(non-test\), so its slot unit cannot be a test/u);
+  const tested = [{ clauseId: ac, combination: 'all', slots: [{ method: 'visual', role: 'primary' }, { method: 'test', role: 'primary' }] }];
+  assert.throws(() => validatePlannedVerification({ [ac]: { tests: [], testDisposition: 'non-test', verificationCriterion: ac } }, tested,
+    [{ id: ac, verification: { methods: ['test', 'visual'], criterionId: ac } }]),
+  /PROOF:AC-001's own contract has a primary test slot, so plan its test paths instead of verification: PROOF:AC-001/u);
 });
 
 test('source review of custom phases distinguishes manual proof from real exemptions and preserves independence', () => {

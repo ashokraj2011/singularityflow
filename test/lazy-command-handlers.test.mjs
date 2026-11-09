@@ -454,10 +454,14 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,621,100 (measured 9,621,059, commands/phase-lifecycle.mjs): init and bootstrap write an application checkout's Copilot
     // hooks (config.mjs +251, bootstrap.mjs +27) and doctor --repair-hooks is a flag (util.mjs +60) [PCR:REQ-030]. The hooks
     // module stays lazy (repository-hooks.mjs).
-    // 9,628,400 (measured 9,628,325, commands/phase-lifecycle.mjs): the repository's test commands are checked and given to the
+    // 9,622,000 (measured 9,621,911, commands/phase-lifecycle.mjs): a requirement may borrow only the visual proof of an AC
+    // that is also tested, and an AC called non-test while its own contract has a test slot is told so
+    // (verification/intent.mjs +852).
+    // 9,629,500 (measured 9,629,451, commands/phase-lifecycle.mjs): the repository's test commands are checked and given to the
     // steps that run tests at resolution, which is synchronous (external-command-policy.mjs repository tests, level and URL
-    // credential check +5,927, config.mjs +1,339) [RTC:REQ-001, REQ-002, REQ-011]; no new eager file.
-    assert.ok(closure.bytes <= 9_628_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // credential check +5,927, config.mjs +1,339) [RTC:REQ-001, REQ-002, REQ-011], and workflow activate joins the
+    // own-terminal steps (person-step-catalog.mjs, copilot-mutation-guard.mjs) [RTC decision 6]; no new eager file.
+    assert.ok(closure.bytes <= 9_629_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -679,9 +683,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,183,350 (measured 4,183,304): the same prompts command and exported token shapes as root dispatch (+154), and the
   // command's route to /sf-prompt-log (command-skills.mjs +30) [PCR:REQ-002].
   // 4,183,650 (measured 4,183,615): the same flag (util.mjs +60) and init's hook files (config.mjs +251) [PCR:REQ-030].
-  // 4,190,950 (measured 4,190,881): the same repository test commands as start (external-command-policy.mjs, config.mjs)
+  // 4,184,500 (measured 4,184,467): the same borrowed visual proof (verification/intent.mjs +852).
+  // 4,192,050 (measured 4,192,007): the same repository test commands as start (external-command-policy.mjs, config.mjs)
   // [RTC:REQ-001, REQ-002, REQ-011].
-  assert.ok(current.bytes <= 4_190_950, `session current loads ${current.bytes} source bytes`);
+  assert.ok(current.bytes <= 4_192_050, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

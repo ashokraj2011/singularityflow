@@ -1051,17 +1051,27 @@ export function adjudicationAnswersOf(step) {
 function askedForItem(workflow, context, entry, facts) {
   const workId = workflow.workItem.id;
   const name = stepName(workflow, facts.phase);
-  const command = `singularity-flow departure account --work-id ${workId} --instruction ${entry.instruction} --clauses <CLAUSES>`;
-  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new generation now that this one is published'}: within the plan, with the clauses it implements, or as the departure recorded for it.`;
+  const account = `singularity-flow departure account --work-id ${workId} --instruction ${entry.instruction} --clauses <CLAUSES>`;
   const quoted = `"${String(entry.text ?? '').replace(/\s+/gu, ' ').trim()}"`;
-  return {
+  const item = (option, routeSkill) => ({
     kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}: not accounted for yet`.slice(0, 200),
     why: `The person typed this in ${name} (generation ${entry.generation}), shown here as typed. Nothing says yet whether the approved plan covers it or it departs from the approved documents. ${name} goes ahead with it; its approval waits until it is accounted for.`,
-    options: [personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command, words,
-      decidedBy: { groups: [], labels: [], allowed: false, author: true, words } })],
-    details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, commands: [command] },
-    routeSkill: '/sf-code'
-  };
+    options: [option],
+    details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text,
+      commands: [...new Set([option.action.command, account])] },
+    routeSkill
+  });
+  // Only an open generation accounts for it, which `departure account` refuses otherwise: a published step's
+  // author begins the next one, and a submitted step comes back to its author from its approvers first.
+  if (workflow.phases?.[facts.phase]?.status === 'awaiting_approval') {
+    const words = `${name} is submitted, so it is accounted for in a new generation: its approvers return it to ${name}, then its author accounts for it in a /sf-code turn, within the plan, with the clauses it implements, or as the departure recorded for it.`;
+    return item({ ...personalStep({ id: 'return', label: `Return it to ${name} to account for it`,
+      command: `singularity-flow reject ${facts.phase} --work-id ${workId} --to ${facts.phase} --reason <reason>`, words }),
+    decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: facts.phase }], context) }, '/sf-reject');
+  }
+  const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new generation now that this one is published'}: within the plan, with the clauses it implements, or as the departure recorded for it.`;
+  return item(personalStep({ id: 'account', label: 'Its author accounts for it in /sf-code', command: facts.open ? account : `singularity-flow phase begin ${facts.phase}`, words,
+    decidedBy: { groups: [], labels: [], allowed: false, author: true, words } }), '/sf-code');
 }
 
 /**

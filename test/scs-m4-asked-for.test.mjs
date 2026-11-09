@@ -230,24 +230,44 @@ test('SCS REQ-042: an instruction left unaccounted holds the code step\'s approv
   await summarized(repo);
   const published = repo.run(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
   assert.equal(published.status, 0, published.stdout + published.stderr);
+  const listed = () => { const list = repo.sflowJson('decisions', 'QF-1'); return list.value.data ?? list.value; };
+  // Published, its open generation is gone: the author's next step begins the next one, never an account that is refused.
+  let packet = listed();
+  let item = packet.items.find((entry) => entry.kind === 'asked-for');
+  assert.equal(item.options[0].action.command, 'singularity-flow phase begin implement');
+  assert.equal(item.decidedBy.allowed, false);
   repo.sflow('submit', 'implement');
-  // The list: one item for it, quoted, holding the approval; the author's route, nobody's decision.
-  const list = repo.sflowJson('decisions', 'QF-1');
-  const packet = list.value.data ?? list.value;
-  const item = packet.items.find((entry) => entry.kind === 'asked-for');
+  // The list: one item for it, quoted, holding the approval.
+  packet = listed();
+  item = packet.items.find((entry) => entry.kind === 'asked-for');
   assert.ok(item, JSON.stringify(packet.items.map((entry) => entry.kind)));
   assert.equal(item.title, 'Asked for (2) "add a log line when it changes": not accounted for yet');
   assert.equal(item.holdsApproval, true);
-  assert.equal(item.decidedBy.allowed, false);
-  assert.match(item.options[0].action.command, /^singularity-flow departure account --work-id QF-1 --instruction 2 /u);
   assert.deepEqual(packet.items.find((entry) => entry.kind === 'approval').details.heldBy, [item.id]);
   const refused = repo.run(process.execPath, [cli, ...approveArgs]);
   assert.notEqual(refused.status, 0);
   assert.match(refused.stdout + refused.stderr, /INSTRUCTIONS_UNACCOUNTED/u);
-  // Once published, the open generation is gone: a new one accounts for it.
+  // Submitted, an account is refused, so the next step is the approvers' return: what "next" names is what runs (2026-11-09).
   assert.match(refusal('--instruction', '2', '--clauses', 'QF-1:AC-001'), /DEPARTURE_LIFECYCLE/u);
+  const back = 'singularity-flow reject implement --work-id QF-1 --to implement --reason <reason>';
+  assert.equal(item.options[0].action.command, back);
+  assert.equal(item.routeSkill, '/sf-reject');
+  assert.equal(packet.next.item, item.id);
+  assert.equal(packet.next.command, back);
+  assert.ok(item.details.commands.some((command) => command.startsWith('singularity-flow departure account --work-id QF-1 --instruction 2 ')));
   recorded = await state();
   assert.equal(recorded.phases.implement.status, 'awaiting_approval');
+  // That route ends where it says: returned, a new generation accounts for it, and nothing holds the approval.
+  const returned = repo.run(process.execPath, [cli, '--no-model', 'reject', 'implement', '--work-id', 'QF-1', '--to', 'implement', '--reason', 'Account for the log line the person asked for', '--json']);
+  assert.equal(returned.status, 0, returned.stdout + returned.stderr);
+  item = listed().items.find((entry) => entry.kind === 'asked-for');
+  assert.equal(item.options[0].action.command, 'singularity-flow phase begin implement');
+  const begun = repo.run(process.execPath, [cli, '--no-model', 'phase', 'begin', 'implement', '--json']);
+  assert.equal(begun.status, 0, begun.stdout + begun.stderr);
+  assert.match(listed().items.find((entry) => entry.kind === 'asked-for').options[0].action.command, /^singularity-flow departure account --work-id QF-1 --instruction 2 /u);
+  const late = repo.sflowJson('departure', 'account', '--instruction', '2', '--clauses', 'QF-1:AC-001');
+  assert.equal(late.status, 0, JSON.stringify(late.value));
+  assert.equal(listed().items.filter((entry) => entry.kind === 'asked-for').length, 0);
 });
 
 test('SCS REQ-042: an instruction accounted for as a departure is decided with it, and the step approves', async (t) => {

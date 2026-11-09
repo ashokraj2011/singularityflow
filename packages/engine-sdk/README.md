@@ -149,6 +149,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   drafts using separately device-bound local ports, without changing canonical phase state.
 - `hosts/namespace-publication`: publish primary authored documents using the conditional namespace
   writer, preserve exact bytes and acknowledge original receipts across retry or device takeover.
+  `NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE` identifies the specification/plan profile: actual
+  clause indexes and planned claims are retained with their original artifact/configuration and
+  approved predecessor proof. It uses the same registered publish/submit/approve operations;
+  command declarations are not passing tests. See `docs/ENGINE-SDK-SPECIFICATION-PUBLICATION.md`
+  in the source repository for its versioned records and supported policy boundary.
   Additional policy/execution owners and the complete portable lifecycle remain unfinished.
 - `hosts/namespace-submission`: submit a published primary document using shared records only,
   retain its exact review packet and acknowledge its receipt on another host without private drafts.

@@ -1,0 +1,446 @@
+{
+  "schemaVersion": 1,
+  "capturedAtCommit": "5cd644f1f",
+  "originals": {
+    "src/verification/profiles.mjs": "7e98957c058d117abf610a875d597b1bede5c52c9a78c112495449441512aff9",
+    "src/phase-authoring-contract.mjs": "aa00e3700a03b58d596b348d7702600441188cc7560315ba80f24029785babe4"
+  },
+  "cases": [
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "profile": "node-test-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "profile": "node-test-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "profile": "node-test-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "profile": "node-test-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "jest-json"
+        }
+      },
+      "profile": "jest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "jest-json"
+        }
+      },
+      "profile": "jest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "jest-json"
+        }
+      },
+      "profile": "jest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "jest-json"
+        }
+      },
+      "profile": "jest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "profile": "vitest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "profile": "vitest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "profile": "vitest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "profile": "vitest-static-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "playwright-json"
+        }
+      },
+      "profile": "playwright-json-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "playwright-json"
+        }
+      },
+      "profile": "playwright-json-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "playwright-json"
+        }
+      },
+      "profile": "playwright-json-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "playwright-json"
+        }
+      },
+      "profile": "playwright-json-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "profile": "junit5-surefire-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "profile": "junit5-gradle-v2",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "profile": "pytest-junit-v1",
+      "ceiling": "exact-local-observed",
+      "exact": true
+    },
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "generic"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "generic"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "generic"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "generic"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "node",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "unknown"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "mvnw.cmd",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "unknown"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "/tools/gradlew",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "unknown"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    },
+    {
+      "command": {
+        "argv": [
+          "C:\\Python\\python.exe",
+          "pytest"
+        ],
+        "result": {
+          "adapter": "unknown"
+        }
+      },
+      "profile": "module-counts-v1",
+      "ceiling": "module-observed",
+      "exact": false
+    }
+  ],
+  "rootCases": [
+    {
+      "commands": [
+        {
+          "id": "root",
+          "affectedRoots": [
+            "."
+          ]
+        },
+        {
+          "id": "near",
+          "affectedRoots": [
+            "test"
+          ]
+        },
+        {
+          "id": "tie",
+          "affectedRoots": [
+            "test"
+          ]
+        }
+      ],
+      "candidate": "test/value.js",
+      "selected": "near"
+    },
+    {
+      "commands": [
+        {
+          "id": "node",
+          "affectedRoots": [
+            "."
+          ],
+          "ecosystem": "javascript"
+        }
+      ],
+      "candidate": "app.py",
+      "selected": null
+    },
+    {
+      "commands": [],
+      "candidate": "test/value.js",
+      "selected": null
+    }
+  ]
+}

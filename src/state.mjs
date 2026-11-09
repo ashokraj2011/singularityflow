@@ -1,3 +1,4 @@
+import {plannedClaimContractFindings} from './kernel/specification-values.mjs';
 import { enrollPinnedApprovalIdentity } from './kernel/approval-policy.mjs';
 import { skillPhaseHostRequirement } from './kernel/phase-admission.mjs';
 import {initialWorkflowProgress} from './kernel/lifecycle-transitions.mjs';
@@ -114,7 +115,7 @@ import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 
 import { planRowsOf } from './plan-amendments.mjs';
 import { buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes, evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, mergePlannedClaimRecords, codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, readBoundSpecificationClaimMap, predecessorSpecClauses, plannedClaimsForObservedPhase } from './specifications.mjs';
-import { isSpecificationDefinitionPhase } from './kernel/specification-policy.mjs';
+import {isSpecificationDefinitionPhase,plannedClaimsPolicy,plannedClaimsEnforced,phaseDefinesSpecificationClaims,assertSpecificationIndexClauses} from './kernel/specification-policy.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
@@ -1227,32 +1228,15 @@ function specificationPolicy(config, workflow) {
   return normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
 }
 
-function plannedClaimsPolicy(workflow) {
-  const value = workflow.resolution?.plannedClaims;
-  return value && typeof value === 'object' ? value : null;
-}
 
-function plannedClaimsEnforced(workflow, specPolicy) {
-  const policy = plannedClaimsPolicy(workflow);
-  // New Story resolutions pin the specific early-planning obligation. Historical snapshots do
-  // not have this field, so retain their original spec.mode behavior instead of retroactively
-  // changing an in-flight lifecycle.
-  return policy ? policy.mode === 'required' : specPolicy.mode === 'enforce';
-}
+
+
 
 function explicitPlannedClaimsRequired(workflow) {
   return plannedClaimsPolicy(workflow)?.mode === 'required';
 }
 
-function phaseDefinesSpecificationClaims(workflow, phase) {
-  const policy = plannedClaimsPolicy(workflow);
-  if (policy?.mode === 'required' && Array.isArray(policy.clausePhases)) {
-    // Configuration validation already proves the kind, but re-check it at runtime because the
-    // pinned Story snapshot is the actual authority and may predate that validator.
-    return policy.clausePhases.includes(phase.id) && isSpecificationDefinitionPhase(phase);
-  }
-  return isSpecificationDefinitionPhase(phase);
-}
+
 
 function specificationClauseIds(records) {
   return [...new Set((records.indexes ?? []).flatMap((index) =>
@@ -1376,13 +1360,6 @@ function plannedTestGaps(records, policy) {
   return evaluateSpecAcceptance(records, { ...policy, acceptance: 'presence' }).missingPlannedTests;
 }
 
-function placeholderTestReason(reason) {
-  const value = String(reason ?? '').trim();
-  return !value
-    || /\b(?:todo|tbd|fixme|placeholder|to be determined|to be defined)\b/i.test(value)
-    || /^<[^>]+>$/.test(value)
-    || /^(?:specific|concrete)\s+reason$/i.test(value);
-}
 
 /**
  * Materialize the reviewed planning contract before the lifecycle can enter a code phase.
@@ -1410,10 +1387,7 @@ function plannedClaimContract(phase, authored, {
   const derived = derivePlannedClaimMap(authored, { clauseIds, clauses, policy,
     evidenceRoot: evidenceRoot ? `${evidenceRoot}/evidence` : null });
   if (evidenceRoot) validatePlannedEvidenceTypes(derived.claimMap.claims, { evidenceRoot: `${evidenceRoot}/evidence` });
-  const placeholderReasons = Object.entries(derived.claimMap.claims)
-    .filter(([, claim]) => claim.testDisposition === 'not-applicable' && placeholderTestReason(claim.testReason))
-    .map(([id]) => id)
-    .sort();
+  const {placeholderReasons,misallocated,idle}=plannedClaimContractFindings(derived.claimMap.claims,codeSteps);
   if (placeholderReasons.length) {
     throw new SingularityFlowError(
       `${subject} because not-applicable test reasons are placeholders for: ${placeholderReasons.join(', ')}. `
@@ -1423,8 +1397,6 @@ function plannedClaimContract(phase, authored, {
   }
   // An obligation is allocated to the code steps that implement it [E2G-009]; one this plan does not
   // plan for could never be delivered.
-  const misallocated = Object.entries(derived.claimMap.claims)
-    .flatMap(([id, claim]) => (claim.steps ?? []).filter((step) => !codeSteps.includes(step)).map((step) => `${id} to ${step}`));
   if (misallocated.length) {
     throw new SingularityFlowError(
       `${subject} because it allocates obligations to steps it does not plan for: ${misallocated.join(', ')}. `
@@ -1434,10 +1406,6 @@ function plannedClaimContract(phase, authored, {
   }
   // Every code step the plan plans for delivers something: a step left with no obligation would
   // publish nothing it could be held to.
-  const claimsList = Object.values(derived.claimMap.claims);
-  const idle = codeSteps.length > 1
-    ? codeSteps.filter((step) => !claimsList.some((claim) => !(claim.steps ?? []).length || claim.steps.includes(step)))
-    : [];
   if (idle.length) {
     throw new SingularityFlowError(
       `${subject} because no obligation is allocated to ${idle.join(', ')}. Allocate at least one row to each code step it plans for.`,
@@ -4897,11 +4865,7 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
     indexSha256: specIndex.indexSha256,
     sourceSha256: specIndex.source.sha256
   };
-  if (plannedClaimsEnforced(workflow, normalizeSpecPolicy(specPolicy)) && !specIndex.clauses.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`
-    );
-  }
+  assertSpecificationIndexClauses(specIndex,workflow,phase,normalizeSpecPolicy(specPolicy));
   return specIndex;
 }
 

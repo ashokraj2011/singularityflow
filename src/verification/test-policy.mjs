@@ -20,12 +20,10 @@ import { loadRepositoryReadinessReceipt, loadRepositoryTestBaseline } from '../i
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { resolveDeliveryQualityCommands, testCommandProvenance } from '../delivery-evidence.mjs';
-import { ASSURANCE } from '../evidence/vocabulary.mjs';
 import { normalizeExternalCommand } from "../engine-compatibility/node-configuration-path.mjs";
 import { commandCovering } from './adapters.mjs';
 import { capabilityLines, launcherPresent, repositoryTestCapability } from './capability.mjs';
-import {effectiveContract} from '../engine-compatibility/node-specification-policy.mjs';
-import { profileCeiling, profileForCommand } from './profiles.mjs';
+import {plannedTestSlots,plannedTestAssuranceProblem} from '../engine-compatibility/node-specification-policy.mjs';
 
 export const BASELINE_FAILURE_DISPOSITIONS = Object.freeze(['repair-in-story', 'accept-pre-existing', 'resolve-outside']);
 export const TEST_POLICY_PATH = 'context/test-policy.json';
@@ -128,11 +126,7 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
   for (const step of codeSteps) {
     const phase = workflow.phases?.[step];
     if (!phase) continue;
-    const slots = Object.entries(claims)
-      .filter(([, claim]) => !(claim.steps ?? []).length || claim.steps.includes(step))
-      .flatMap(([id, claim]) => (effectiveContract(id, contracts, claim)?.slots ?? [])
-        .filter((slot) => slot.method === 'test' && slot.role === 'primary')
-        .flatMap((slot) => (slot.witness.path ? [slot.witness.path] : slot.witness.paths ?? []).map((testPath) => ({ id, slot, testPath }))));
+    const slots = plannedTestSlots(claims,contracts,step);
     if (!slots.length) continue;
     let commands;
     try {
@@ -151,10 +145,8 @@ export async function assertPlannedTestsRunnable(root, workflow, { subject, code
     for (const { id, slot, testPath } of slots) {
       const command = commandCovering(commands, testPath);
       if (!command) { pending.push(`${id}: no test command of ${step} can run ${testPath}`); continue; }
-      const ceiling = profileCeiling(profileForCommand(command));
-      if (slot.requiredAssurance && ASSURANCE.indexOf(slot.requiredAssurance) > ASSURANCE.indexOf(ceiling)) {
-        problems.push(`${id}: ${testPath} runs under ${command.id}, which reaches ${ceiling}, but its contract requires ${slot.requiredAssurance}`);
-      }
+      const problem=plannedTestAssuranceProblem({id,slot,testPath},command);
+      if(problem)problems.push(problem);
       const launcher = String(command.argv?.[0] ?? '');
       if (!reported.has(command.id) && !(await launcherPresent(launcher, { cwd: path.join(root, command.workingDirectory ?? '.') }))) {
         reported.add(command.id);

@@ -202,6 +202,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           workflow,phase,{agent:s.reviewer.agentId},'approve');
         if(!mutation.allowed)throw error('The selected agent cannot approve this phase.',mutation.code,mutation);
         const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
+        for(const owner of packets.publicationOwners(s.proof.published))required.delete(owner);
         if(s.proof.published.checks)required.delete('check-execution'); // The submission reader verified actual immutable execution proof.
         if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
         if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');

@@ -43,7 +43,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     const submitted=accepted.state.workflow.phases[phaseId];
     if(submitted?.generation!==value.generation||submitted.status!=='awaiting_approval'||!same(submitted.namespaceSubmission,binding)
       ||submitted.submittedAt!==value.submittedAt)throw error('The accepted submission lost its exact review binding.','ENGINE_STORAGE_CORRUPT');
-    const published=await publication(value,{signal,snapshot,cache:cache.receipts});
+    const published=await publication(value,{signal,snapshot,cache:cache.receipts,specificationTraversal:cache.specificationTraversal});
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>accepted.plan.readBindings?.some(item=>same(item,row)))
       ||!accepted.plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The submission did not conditionally retain its checked publication.','ENGINE_STORAGE_CORRUPT');
@@ -80,14 +80,14 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     }
     return proof;
   }
-  const traversal=()=>({packets:new Map(),approvals:new Map(),receipts:{}});
+  const traversal=specificationTraversal=>({packets:new Map(),approvals:new Map(),receipts:{},specificationTraversal});
   async function inspect(snapshot,phaseId,{signal}={}) {return inspectCached(snapshot,phaseId,signal,traversal());}
   async function context(snapshot,phaseId,{signal}={}) {
     const cache=traversal(),proof=await inspectCached(snapshot,phaseId,signal,cache);
     return {proof,sources:proof?(await Promise.all([...cache.packets.values()])).filter(item=>item&&item!==proof):[]};
   }
-  async function inspectApprovedMany(snapshot,phaseIds,{signal}={}) {
-    const cache=traversal(),result=[];
+  async function inspectApprovedMany(snapshot,phaseIds,{signal,specificationTraversal}={}) {
+    const cache=traversal(specificationTraversal),result=[];
     for(const phaseId of phaseIds)result.push(await approved(snapshot,phaseId,signal,cache));
     return result;
   }
@@ -99,5 +99,5 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
     return (await inspect(snapshot,phaseId,options))?.review??null;
   }
-  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review});
+  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,publicationOwners:publications.specifications.owners});
 }

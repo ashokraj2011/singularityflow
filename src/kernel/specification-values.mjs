@@ -315,6 +315,20 @@ return Object.freeze({extractClauses,specificationIndexRecord});
 export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', 'removed', 'test-only', 'document', 'configuration', 'evidence']);
 export const SPECIFICATION_CLAIM_TIMESTAMP_REQUEST=Object.freeze({kind:'specification-claim-timestamp',version:1});
 
+/** Deterministic plan allocation defects; presentation and persistence stay with their callers. */
+export function plannedClaimContractFindings(claims,codeSteps=[]) {
+  const placeholderTestReason=reason=>{
+    const value=String(reason??'').trim();
+    return !value||/\b(?:todo|tbd|fixme|placeholder|to be determined|to be defined)\b/i.test(value)
+      ||/^<[^>]+>$/.test(value)||/^(?:specific|concrete)\s+reason$/i.test(value);
+  };
+  return {
+    placeholderReasons:Object.entries(claims).filter(([,claim])=>claim.testDisposition==='not-applicable'&&placeholderTestReason(claim.testReason)).map(([id])=>id).sort(),
+    misallocated:Object.entries(claims).flatMap(([id,claim])=>(claim.steps??[]).filter(step=>!codeSteps.includes(step)).map(step=>`${id} to ${step}`)),
+    idle:codeSteps.length>1?codeSteps.filter(step=>!Object.values(claims).some(claim=>!(claim.steps??[]).length||claim.steps.includes(step))):[]
+  };
+}
+
 export function specificationClaimPolicies(pathSyntax,utf8) {
 const {path,posix}=configurationPathSyntax(pathSyntax);
 const text=textValueSyntax(utf8),{byteLengthUtf8}=text;

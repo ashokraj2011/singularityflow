@@ -494,3 +494,89 @@ export function validatePlannedVerification(claims, contracts = [], clauses = []
     }
   }
 }
+
+
+export const ASSURANCE = Object.freeze([
+  'none', 'declared', 'source-bound', 'module-observed', 'exact-local-observed', 'exact-authenticated'
+]);
+export const TEST_ADAPTER_PROFILES = Object.freeze({
+  'node-test-v1': Object.freeze({ language: 'javascript', framework: 'node:test', resultAdapter: 'node-tap', ceiling: 'exact-local-observed' }),
+  'jest-static-v2': Object.freeze({ language: 'javascript', framework: 'jest', resultAdapter: 'jest-json', ceiling: 'exact-local-observed' }),
+  'vitest-static-v2': Object.freeze({ language: 'javascript', framework: 'vitest', resultAdapter: 'vitest-json', ceiling: 'exact-local-observed' }),
+  'junit5-surefire-v2': Object.freeze({ language: 'java', framework: 'junit5', runner: 'surefire', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
+  'junit5-gradle-v2': Object.freeze({ language: 'java', framework: 'junit5', runner: 'gradle', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
+  // Each Playwright test and each pytest test reports its own result [TCE:REQ-071, TCE:REQ-074].
+  'playwright-json-v1': Object.freeze({ language: 'javascript', framework: 'playwright', resultAdapter: 'playwright-json', ceiling: 'exact-local-observed' }),
+  'pytest-junit-v1': Object.freeze({ language: 'python', framework: 'pytest', resultAdapter: 'junit-xml', ceiling: 'exact-local-observed' }),
+  'module-counts-v1': Object.freeze({ language: null, framework: null, resultAdapter: null, ceiling: 'module-observed' })
+});
+/** Actual adapter interpretation shared by native planning and namespace publication. */
+export function verificationExecutionProfiles(pathSyntax) {
+const {path}=configurationPathSyntax(pathSyntax);
+
+
+const MAVEN = new Set(['mvn', 'mvnw', 'mvn.cmd', 'mvnw.cmd']);
+
+const GRADLE = new Set(['gradle', 'gradlew', 'gradle.bat', 'gradlew.bat']);
+
+
+function executableName(value) {
+  return path.posix.basename(String(value ?? '').replaceAll('\\', '/')).toLowerCase();
+}
+
+
+/** The profile that reads one normalized test command. Unknown shapes only count tests. */
+function profileForCommand(command) {
+  const adapter = command?.result?.adapter;
+  if (adapter === 'node-tap') return 'node-test-v1';
+  if (adapter === 'jest-json') return 'jest-static-v2';
+  if (adapter === 'vitest-json') return 'vitest-static-v2';
+  if (adapter === 'playwright-json') return 'playwright-json-v1';
+  if (adapter === 'junit-xml') {
+    const executable = executableName(command?.argv?.[0]);
+    if (MAVEN.has(executable)) return 'junit5-surefire-v2';
+    if (GRADLE.has(executable)) return 'junit5-gradle-v2';
+    if (/^(?:py(?:thon[\d.]*)?(?:\.exe)?|uv|poetry)$/u.test(executable) && command.argv.includes('pytest')) return 'pytest-junit-v1';
+  }
+  return 'module-counts-v1';
+}
+
+
+function testAdapterProfile(id) {
+  const profile = TEST_ADAPTER_PROFILES[id];
+  if (!profile) throw new Error(`Unknown test adapter profile '${id}'.`);
+  return { id, ...profile };
+}
+
+
+/** True when the profile can tie a criterion to one exact test. */
+function profileIsExact(id) {
+  return testAdapterProfile(id).ceiling === 'exact-local-observed';
+}
+
+
+/** The strongest assurance a profile can produce; unknown profiles only count tests. */
+function profileCeiling(id) {
+  return TEST_ADAPTER_PROFILES[id]?.ceiling ?? 'module-observed';
+}
+return Object.freeze({profileForCommand,testAdapterProfile,profileIsExact,profileCeiling});
+}
+
+/** Planning capability declarations share native slot and runner rules without changing the original contract factory. */
+export function plannedTestCapabilityPolicies(pathSyntax,digests) {
+const {effectiveContract}=verificationContractPolicies(pathSyntax,digests),profiles=verificationExecutionProfiles(pathSyntax);
+/** Primary executable slots owned by one code step; supporting slots never establish acceptance. */
+function plannedTestSlots(claims,contracts,step) {
+  return Object.entries(claims)
+    .filter(([,claim])=>!(claim.steps??[]).length||claim.steps.includes(step))
+    .flatMap(([id,claim])=>(effectiveContract(id,contracts,claim)?.slots??[])
+      .filter(slot=>slot.method==='test'&&slot.role==='primary')
+      .flatMap(slot=>(slot.witness.path?[slot.witness.path]:slot.witness.paths??[]).map(testPath=>({id,slot,testPath}))));
+}
+function plannedTestAssuranceProblem({id,slot,testPath},command) {
+  const ceiling=profiles.profileCeiling(profiles.profileForCommand(command));
+  return slot.requiredAssurance&&ASSURANCE.indexOf(slot.requiredAssurance)>ASSURANCE.indexOf(ceiling)
+    ?`${id}: ${testPath} runs under ${command.id}, which reaches ${ceiling}, but its contract requires ${slot.requiredAssurance}`:null;
+}
+return Object.freeze({plannedTestSlots,plannedTestAssuranceProblem});
+}

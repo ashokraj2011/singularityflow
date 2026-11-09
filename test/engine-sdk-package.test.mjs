@@ -573,6 +573,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(replay,{...first,status:'retained',effects:{committed:false,pushed:false},retentionReason:'unchanged-document'});
   });
 
+  await t.test('installed specification and plan publication retain their original approvals and reopen without a checkout',async()=>{
+    const source=(await readFile(new URL('./helpers/installed-namespace-specification.mjs',import.meta.url),'utf8')).replaceAll('@sdk-name@',packageName);
+    const first=JSON.parse(await run('specification-publication.mjs',source,['fresh']));
+    const reopened=JSON.parse(await run('specification-publication.mjs',source,['reopen']));assert.deepEqual(reopened,first);
+  });
+
   await t.test('installed submission uses only shared publication records and reopens its exact review packet',async()=>{
     const source=`
       import assert from 'node:assert/strict';import path from 'node:path';
@@ -1127,7 +1133,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
       import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
-      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
+      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
+      const specificationPublicationProfile:'sflow-specification-publication/v1'=NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE;
       import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE } from '${packageName}/hosts/namespace-submission';
       import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE } from '${packageName}/hosts/namespace-routing-choice';

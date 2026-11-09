@@ -156,9 +156,8 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
         if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
         if(s.decisionPlan?.kind==='retained')required.add('retained-decision-input-provenance');
         if(workflow.resolution.presence)required.add('person-presence');
-        if([...required].some(item=>item!=='check-execution'))throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
-          operation:'phase.submit',required:[...required].sort()});
         const published=await publications.accepted(s.publication,s.phaseId,{signal,snapshot});
+        for(const owner of publications.specifications.owners(published))required.delete(owner);
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
         if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation

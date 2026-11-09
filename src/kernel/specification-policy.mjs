@@ -384,3 +384,35 @@ export function accountedAmendmentPaths(planned = []) {
 }
 
 export const SOURCE_CHANGING_FULFILLMENT=Object.freeze(['new','modified']);
+
+
+export function plannedClaimsPolicy(workflow) {
+  const value = workflow.resolution?.plannedClaims;
+  return value && typeof value === 'object' ? value : null;
+}
+
+export function plannedClaimsEnforced(workflow, specPolicy) {
+  const policy = plannedClaimsPolicy(workflow);
+  // New Story resolutions pin the specific early-planning obligation. Historical snapshots do
+  // not have this field, so retain their original spec.mode behavior instead of retroactively
+  // changing an in-flight lifecycle.
+  return policy ? policy.mode === 'required' : specPolicy.mode === 'enforce';
+}
+
+export function phaseDefinesSpecificationClaims(workflow, phase, phaseId=phase.id) {
+  const policy = plannedClaimsPolicy(workflow);
+  if (policy?.mode === 'required' && Array.isArray(policy.clausePhases)) {
+    // Configuration validation already proves the kind, but re-check it at runtime because the
+    // pinned Story snapshot is the actual authority and may predate that validator.
+    return policy.clausePhases.includes(phaseId) && isSpecificationDefinitionPhase(phase);
+  }
+  return isSpecificationDefinitionPhase(phase);
+}
+
+export function assertSpecificationIndexClauses(specIndex,workflow,phase,specPolicy) {
+  if (plannedClaimsEnforced(workflow, specPolicy) && !specIndex.clauses.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`
+    );
+  }
+}

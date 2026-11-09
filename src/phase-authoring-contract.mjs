@@ -1,24 +1,11 @@
+import {plannedDeliveryCodeSteps} from './kernel/phase-policy.mjs';
+export {plannedDeliveryCodeSteps} from './kernel/phase-policy.mjs';
 import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsScope, stepResponsibilities } from './kernel/phase-policy.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
 import { REPAIR_CONTINUATION_CONTRACT, REPAIR_CONTINUATION_PROTOCOL, phaseRepairCapabilities } from './phase-finding-policy.mjs';
 import { REQUIREMENT_COVERAGE, REQUIREMENT_AUTHORING_PROTOCOL } from './requirement-coverage.mjs';
-
-/** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
-export function plannedDeliveryCodeSteps(workflow, phase) {
-  if (!phase) return [];
-  const policy = workflow?.resolution?.plannedClaims;
-  if (policy) return policy.mode === 'required' ? Object.entries(policy.owners ?? {})
-    .filter(([codeId, ownerId]) => ownerId === phase.id && phaseRequiresCodeDelivery(workflow.phases?.[codeId]))
-    .map(([codeId]) => codeId).sort() : [];
-  const order = workflow?.phaseOrder ?? workflow?.resolution?.phases?.map(entry => entry.id)
-    ?? Object.keys(workflow?.phases ?? {});
-  const position = order.indexOf(phase.id);
-  if (position < 0) return [];
-  const next = order[position + 1];
-  return phaseRequiresCodeDelivery(workflow?.phases?.[next]) ? [next] : [];
-}
 
 export function phasePlansDelivery(workflow, phase) {
   return plannedDeliveryCodeSteps(workflow, phase).length > 0;

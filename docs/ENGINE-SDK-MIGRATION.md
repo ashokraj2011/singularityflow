@@ -67,6 +67,19 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [namespace specification publication](ENGINE-SDK-SPECIFICATION-PUBLICATION.md) integration
+retains actual clause indexes and planned claim maps through registered publication, submission
+and independent human approval. Its explicit schema-3 publication profile binds derived records
+to original artifact bytes, configuration, lifecycle basis and approved predecessor receipts.
+Native Git records and writers remain unchanged. The remaining production policy owners, complete
+application Story execution and migration Phases 5, 7, 8 and 9 are still required.
+
+Mac qualification passed 351 distinct affected cases without failures, cancellations or skips,
+including native compatibility, three storage adapters, actual checks and an installed-package
+specification/plan journey with independent human approval and cross-process receipt replay.
+Source validation passed 3,965 checks across 191 skills; typechecking, the Git ownership audit and
+all 13 unchanged runtime budgets passed. The SDK retains 57 operations across 194 owned modules.
+
 The [shared specification claim values](ENGINE-SDK-SPECIFICATION-CLAIMS.md) extract planned parsing,
 native-v2 normalization and observed projection, including explicit late-clock checkpoints and
 shared source/test/supporting-file roles. Native adapters retain their synchronous API, real clock
@@ -223,7 +236,7 @@ observation and shared path policy, not full application delivery or installed a
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, one public namespace Engine composition, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, namespace-backed SGOS operational history, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, one public namespace Engine composition, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, namespace-backed SGOS operational history, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, retained specification indexes/planned claims with original upstream human approval proof, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 

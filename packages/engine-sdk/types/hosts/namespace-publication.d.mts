@@ -3,6 +3,7 @@ import type {NamespaceStoryAccessFacts} from './namespace-story.mjs';
 import type {createNamespacePreparationEngine,PreparationOperation} from './namespace-preparation.mjs';
 export declare const NAMESPACE_PUBLICATION_PROFILE:'sflow-primary-document-publication/v1';
 export declare const NAMESPACE_CHECKED_PUBLICATION_PROFILE:'sflow-primary-document-publication/v2';
+export declare const NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE:'sflow-specification-publication/v1';
 export interface NamespacePublicationAccess {current(request:{readonly projectId:string;readonly workId:string;
   readonly operation:PreparationOperation|'phase.publish';readonly signal?:AbortSignal|null}):
   (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>}

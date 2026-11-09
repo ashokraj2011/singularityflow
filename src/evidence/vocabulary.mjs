@@ -7,15 +7,9 @@
 
 /** What a Story owes, independent of which step owes it. `complete` is the kernel's duty at an end. */
 export const RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review', 'complete']);
+import {ASSURANCE} from '../kernel/verification-policy.mjs';
+export {ASSURANCE} from '../kernel/verification-policy.mjs';
 
-/**
- * Assurance, weakest first. The identity rungs say how a test is tied to a criterion; the
- * execution rungs say how its run was observed. Nothing above `exact-local-observed` is reachable
- * before qualified execution exists, so it is listed but never produced here.
- */
-export const ASSURANCE = Object.freeze([
-  'none', 'declared', 'source-bound', 'module-observed', 'exact-local-observed', 'exact-authenticated'
-]);
 
 /**
  * The two facets assurance is made of [E2G-017], kept apart on every verify obligation. Identity:

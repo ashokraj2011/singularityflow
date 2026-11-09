@@ -708,6 +708,18 @@ function testCommandCoversPath(command, candidate) {
     && !(ecosystem === 'jvm' && /(?:^|\/)src\/androidTest\//u.test(relative) && !/AndroidTest$/u.test(command.argv?.at(-1)))));
 }
 
+
+
+/** The command among `commands` that covers a repository path, as publication judges it [TCE:REQ-052]. */
+function commandCovering(commands, candidate) {
+  const covering = commands.filter((command) => testCommandCoversPath(command, candidate));
+  // The most specific root wins; equal specificity keeps configuration order.
+  return covering.sort((left, right) => {
+    const depth = (command) => Math.max(...(command.affectedRoots ?? ['.']).map((root) => (root === '.' ? 0 : root.split('/').length)));
+    return depth(right) - depth(left);
+  })[0] ?? null;
+}
+
 function isAllowedTestAutomationPath(candidate) {
   return isTestAutomationPath(candidate);
 }
@@ -770,7 +782,7 @@ const changedSourcePaths = [...new Set([
   ])].sort();
 return {changedPaths,changedTestCandidates,deletedPaths,deletedSourcePaths,configurationPaths,changedSourcePaths};
 }
-  return Object.freeze({isTestSourceName,sourceEcosystem,testCommandEcosystem,testCommandCoversPath,isAllowedTestAutomationPath,isSupportingTestResourcePath,isExecutableTestSourceCandidate,deliveryPathCohorts,affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths});
+  return Object.freeze({isTestSourceName,sourceEcosystem,testCommandEcosystem,testCommandCoversPath,commandCovering,isAllowedTestAutomationPath,isSupportingTestResourcePath,isExecutableTestSourceCandidate,deliveryPathCohorts,affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths});
 }
 
 /** Provider-neutral change-record identities; source-control execution and wire decoding stay in adapters. */

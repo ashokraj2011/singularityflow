@@ -1,3 +1,4 @@
+export {commandCovering} from '../engine-compatibility/node-source-policy.mjs';
 /**
  * The test adapter registry [E2G-015, E2G-016, D2].
  *
@@ -40,16 +41,6 @@ export function classifyTestCommand(id, command) {
     return { selection: scope.gaps.length ? 'filtered' : 'complete', gaps: scope.gaps };
   }
   return { selection: profile.runner === 'gradle' ? 'complete' : 'module', gaps: [] };
-}
-
-/** The command among `commands` that covers a repository path, as publication judges it [TCE:REQ-052]. */
-export function commandCovering(commands, candidate) {
-  const covering = commands.filter((command) => testCommandCoversPath(command, candidate));
-  // The most specific root wins; equal specificity keeps configuration order.
-  return covering.sort((left, right) => {
-    const depth = (command) => Math.max(...(command.affectedRoots ?? ['.']).map((root) => (root === '.' ? 0 : root.split('/').length)));
-    return depth(right) - depth(left);
-  })[0] ?? null;
 }
 
 async function readTestSource(root, relative) {

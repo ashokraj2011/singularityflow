@@ -1,7 +1,7 @@
 /** Native value binding only; no repository, file, process or provider access. */
 import {NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX} from '../records.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from './node-configuration-path.mjs';
-import {verificationContractPolicies} from '../kernel/verification-policy.mjs';
+import {verificationContractPolicies,verificationExecutionProfiles,plannedTestCapabilityPolicies} from '../kernel/verification-policy.mjs';
 import {specificationValuePolicies,specificationClaimPolicies} from '../kernel/specification-values.mjs';
 
 const contracts=/* @__PURE__ */ verificationContractPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
@@ -28,3 +28,13 @@ export const deriveObservedClaimMapReplay=/* @__PURE__ */ (()=>claims.deriveObse
 export const validatePlannedEvidenceTypes=/* @__PURE__ */ (()=>claims.validatePlannedEvidenceTypes)();
 export const planSupportingFiles=/* @__PURE__ */ (()=>claims.planSupportingFiles)();
 export const testOnlyClaimEvidence=/* @__PURE__ */ (()=>claims.testOnlyClaimEvidence)();
+
+const profiles=/* @__PURE__ */ verificationExecutionProfiles(NODE_CONFIGURATION_PATH_SYNTAX);
+export const profileForCommand=/* @__PURE__ */ (()=>profiles.profileForCommand)();
+export const testAdapterProfile=/* @__PURE__ */ (()=>profiles.testAdapterProfile)();
+export const profileIsExact=/* @__PURE__ */ (()=>profiles.profileIsExact)();
+export const profileCeiling=/* @__PURE__ */ (()=>profiles.profileCeiling)();
+
+const plannedCapabilities=/* @__PURE__ */ plannedTestCapabilityPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
+export const plannedTestSlots=/* @__PURE__ */ (()=>plannedCapabilities.plannedTestSlots)();
+export const plannedTestAssuranceProblem=/* @__PURE__ */ (()=>plannedCapabilities.plannedTestAssuranceProblem)();

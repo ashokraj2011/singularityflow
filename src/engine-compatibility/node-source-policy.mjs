@@ -93,3 +93,5 @@ export const plannedCodeStepPaths=/* @__PURE__ */ (()=>deliveryEvidenceBinding.p
 export const canonicalFinding=/* @__PURE__ */ (()=>deliveryEvidenceBinding.canonicalFinding)();
 export const canonicalFindingId=/* @__PURE__ */ (()=>deliveryEvidenceBinding.canonicalFindingId)();
 export const codeDeliveryCandidateSha256=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryCandidateSha256)();
+
+export const commandCovering=/* @__PURE__ */ (()=>testDeliveryBinding.commandCovering)();

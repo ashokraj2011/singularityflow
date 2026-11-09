@@ -5,13 +5,15 @@ import {phasePublicationBindingValue,canonicalJson} from '../foundation/record-s
 import {artifactBytesAreText,artifactContentObservation} from '../kernel/artifact-content.mjs';
 import {namespacePublicationValue} from './namespace-publication-contract.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
+import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:canonicalJson(a)===canonicalJson(b);
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
 export function createNamespacePublicationReader({observer,scope,workId,checks=null}) {
   const bytes=observer.bytes.bind(observer);
-  async function read(binding,phaseId,{signal}={}) {
+  const specifications=createNamespaceSpecificationReader({observer,scope,workId,checks});
+  async function read(binding,phaseId,{signal,specificationTraversal}={}) {
     phasePublicationBindingValue(binding);
     let value;try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
     catch(cause){if(cause.code)throw cause;throw error('The publication record is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',cause);}
@@ -26,6 +28,7 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
       if(typeof checks?.publication!=='function')throw error('This publication requires its retained check-proof reader.','ENGINE_PORT_UNAVAILABLE');
       await checks.publication(publication,{signal});
     }
+    await specifications.verify(publication,{signal,specificationTraversal});
     return publication;
   }
   async function accepted(binding,phaseId,options={}) {
@@ -39,9 +42,10 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
     return value;
   }
   function verifyPlan(value,plan) {
+    specifications.verifyPlan(value,plan);
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>plan.readBindings?.some(item=>same(item,row)))
       ||!plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The publication did not conditionally accept its retained check evidence.','ENGINE_STORAGE_CORRUPT');
   }
-  return Object.freeze({read,accepted,verifyPlan});
+  return Object.freeze({read,accepted,verifyPlan,specifications});
 }

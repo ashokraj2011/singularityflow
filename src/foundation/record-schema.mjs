@@ -228,14 +228,18 @@ export const NAMESPACE_SOURCE_CONTROL_SCHEMAS=/* @__PURE__ */ Object.freeze({
 });
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
-  manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
 export function namespacePublicationRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.manifest,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-publication/v${storedVersion}`,
-    profile:`sflow-primary-document-publication/v${storedVersion}`,checks:storedVersion>1});
+    profile:storedVersion===3?'sflow-specification-publication/v1':`sflow-primary-document-publication/v${storedVersion}`,
+    checks:storedVersion>1,...(storedVersion===3?{optionalChecks:true,specifications:true}:{})});
 }
+export const NAMESPACE_SPECIFICATION_SCHEMAS=Object.freeze({
+  binding:frozenFamily('namespace-specification-evidence-binding'),manifest:frozenFamily('namespace-specification-evidence')
+});
 export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
   binding: frozenFamily('namespace-phase-submission-binding'),
   packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,

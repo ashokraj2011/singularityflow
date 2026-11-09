@@ -1146,3 +1146,21 @@ export function codeDeliveryRepairRoute(workflow,phase,{unchanged,testOnly}) {
 export function codeCandidateScopeRequired(workflow,phase) {
   return phaseRequiresCodeDelivery(phase)&&workflow?.resolution?.plannedClaims?.mode==='required';
 }
+
+
+
+
+/** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
+export function plannedDeliveryCodeSteps(workflow, phase) {
+  if (!phase) return [];
+  const policy = workflow?.resolution?.plannedClaims;
+  if (policy) return policy.mode === 'required' ? Object.entries(policy.owners ?? {})
+    .filter(([codeId, ownerId]) => ownerId === phase.id && phaseRequiresCodeDelivery(workflow.phases?.[codeId]))
+    .map(([codeId]) => codeId).sort() : [];
+  const order = workflow?.phaseOrder ?? workflow?.resolution?.phases?.map(entry => entry.id)
+    ?? Object.keys(workflow?.phases ?? {});
+  const position = order.indexOf(phase.id);
+  if (position < 0) return [];
+  const next = order[position + 1];
+  return phaseRequiresCodeDelivery(workflow?.phases?.[next]) ? [next] : [];
+}

@@ -10,7 +10,7 @@ import {extractClauses,specificationIndexRecord} from './engine-compatibility/no
 export {extractClauses} from './engine-compatibility/node-specification-policy.mjs';
 import {plannedImplementationPaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
 export {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
-import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole } from './kernel/specification-policy.mjs';
+import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole,phaseDefinesSpecificationClaims } from './kernel/specification-policy.mjs';
 export { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole, SPECIFICATION_DEFINITION_KINDS } from './kernel/specification-policy.mjs';
 import { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
 export { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
@@ -402,10 +402,6 @@ export function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workf
  */
 export function selectActiveSpecRecords(records, workflow) {
   const workId = workflow?.workItem?.id ?? null;
-  const configuredClausePhases = workflow?.resolution?.plannedClaims?.mode === 'required'
-    && Array.isArray(workflow.resolution.plannedClaims.clausePhases)
-    ? new Set(workflow.resolution.plannedClaims.clausePhases)
-    : null;
   const active = (record) => {
     const phase = workflow?.phases?.[record?.phase];
     return Boolean(
@@ -416,12 +412,8 @@ export function selectActiveSpecRecords(records, workflow) {
     );
   };
   return {
-    indexes: (records.indexes ?? []).filter((record) =>
-      active(record)
-      && (configuredClausePhases
-        ? configuredClausePhases.has(record.phase)
-          && isSpecificationDefinitionPhase(workflow?.phases?.[record.phase])
-        : isSpecificationDefinitionPhase(workflow?.phases?.[record.phase]))).sort(recordOrder),
+    indexes: (records.indexes ?? []).filter(record=>active(record)
+      &&phaseDefinesSpecificationClaims(workflow,workflow.phases[record.phase],record.phase)).sort(recordOrder),
     planned: (records.planned ?? []).filter(active).sort(recordOrder),
     observed: (records.observed ?? []).filter(active).sort(recordOrder),
     acceptance: (records.acceptance ?? []).filter(active).sort(recordOrder)

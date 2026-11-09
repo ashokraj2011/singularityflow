@@ -428,10 +428,14 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
     // A draft is a file written, not a record: said apart, with where it is and what is next.
     const drafted = (Array.isArray(data.drafted) ? data.drafted : []).map((value) => object(value)).filter(Boolean)
       .map((entry) => `${entry!.item}: drafted at ${String(entry!.path ?? '')}. ${String(object(entry!.next)?.words ?? '')}`.trim());
-    const recordLine = recorded.length || !drafted.length ? `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.` : '';
+    // The same convergence answer again records nothing, and says so [SCS:REQ-034].
+    const unchanged = (Array.isArray(data.unchanged) ? data.unchanged : []).map((value) => object(value)).filter(Boolean)
+      .map((entry) => `${entry!.item}: ${String(entry!.words ?? '')}`.trim());
+    const recordLine = recorded.length || (!drafted.length && !unchanged.length) ? `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.` : '';
     const draftLine = drafted.length ? `Drafted ${drafted.length === 1 ? 'the amendment' : `${drafted.length} amendments`}; a draft is not a record, and nothing is decided until it is proposed and approved.` : '';
+    const sameLine = unchanged.length ? `Nothing changed for ${unchanged.join('; ')}.` : '';
     return {
-      outcome: { kind: 'recorded', message: `${[recordLine, draftLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}`,
+      outcome: { kind: 'recorded', message: `${[recordLine, draftLine, sameLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}`,
         recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string'),
         ...(drafted.length ? { drafted } : {}) },
       packet: null

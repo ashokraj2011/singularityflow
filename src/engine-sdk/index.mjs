@@ -29,7 +29,7 @@ import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kern
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
 import {phaseSourceInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseDeliveryInspectionManifest} from '../kernel/source-changes.mjs';
-import {sourceBaselineRetentionInput,sourceBaselineRetentionResult} from '../kernel/source-changes.mjs';
+import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceControlRetentionResult} from '../kernel/source-changes.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -180,6 +180,9 @@ const definitions = [
   {id:'phase.source.retain',version:1,effect:'source-retention',humanDecision:false,authority:'phase.source.retain',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceRetention',
     stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
+  {id:'phase.source-control.retain',version:1,effect:'source-control-retention',humanDecision:false,authority:'phase.source.retain',
+    inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceControlRetention',
+    stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
   {id:'source.baseline.retain',version:1,effect:'source-retention',humanDecision:false,authority:'source.baseline.retain',
     inputFields:Object.freeze(['operationId','workId','sourceBindingId']),requiredFields:Object.freeze(['operationId','workId','sourceBindingId']),port:'sourceBaselineRetention',
     stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'baselineRetentionInput',execute:'retainPhaseSources'},
@@ -212,7 +215,7 @@ async function retainPhaseSources(port,input,signal,operation) {
   let accepted=await port.retained(context,input,{signal});notCancelled(signal);
   if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);
     const collected=await port.collect(context,prepared,{signal});notCancelled(signal);accepted=await port.commit(context,collected,{signal});}
-  const result=operation.id==='source.baseline.retain'?sourceBaselineRetentionResult:phaseSourceRetentionResult;
+  const result=operation.id==='source.baseline.retain'?sourceBaselineRetentionResult:operation.id==='phase.source-control.retain'?phaseSourceControlRetentionResult:phaseSourceRetentionResult;
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
     ...result(input,data(await port.finish(context,accepted,{signal:null})))});
 }

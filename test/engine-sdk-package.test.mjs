@@ -1034,6 +1034,29 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       assert.equal(JSON.stringify(first).includes(root),false);assert.equal(Object.hasOwn(first,'publicationReady'),false);
     `,[executable,path.join(directory,'git-source')]);
   });
+  await t.test('installed control evidence reopens an actual accepted generation without a checkout or Git executable',async sub=>{
+    const {namespaceSourceControlFixture}=await import('./helpers/namespace-source-control-fixture.mjs');
+    const f=await namespaceSourceControlFixture(sub),original=await f.engine.run('phase.source-control.retain',f.input),before=await f.head();
+    const facts={...await f.access.current({projectId:f.scope.projectId,workId:f.inputs.workId,operation:'phase.source.retain'}),permissions:[],agentId:null};
+    await rm(f.sourceRoot,{recursive:true});
+    const result=JSON.parse(await run('retained-git-control.mjs',`
+      import path from 'node:path';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {DatabaseSync} from 'node:sqlite';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceSourceControlEngine} from '${packageName}/hosts/namespace-source-control';
+      const selected=JSON.parse(process.argv[2]),database=new DatabaseSync(path.join(selected.directory,'content.db'));
+      database.enableDefensive(true);database.enableLoadExtension(false);
+      const records=await createFilesystemNamespaceStore({root:path.join(selected.directory,'records'),binding:{kind:'shared'},create:false});
+      try{const content=createSqliteContentStore({database,binding:{kind:'shared'},create:false});
+        const engine=createNamespaceSourceControlEngine({records,content,scope:selected.scope,workId:selected.input.workId,authority:selected.authority,
+          access:{current:()=>selected.facts},clock:{now(){throw Error('Accepted control evidence cannot be restamped.');}}});
+        process.stdout.write(JSON.stringify(await engine.run('phase.source-control.retain',selected.input)));
+      }finally{records.close?.();database.close();}
+    `,[JSON.stringify({directory:f.directory,scope:f.scope,authority:f.authority,input:f.input,facts})]));
+    assert.deepEqual(result.record,original.record);assert.equal(result.recordedAt,original.recordedAt);assert.equal(result.status,'retained');
+    assert.deepEqual(await f.head(),before);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -1065,6 +1088,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import {createNamespaceSourceBaselineEngine} from '${packageName}/hosts/namespace-source-baseline';
       import {createNamespaceDeliveryInspectionEngine} from '${packageName}/hosts/namespace-delivery-inspection';
+      import {createNamespaceSourceControlEngine} from '${packageName}/hosts/namespace-source-control';
       import type { SourceUnit,SourceDescriptor } from '${packageName}/source';
       import type {SourceControlReader,SourceControlSubject} from '${packageName}/source-control';
       import {createNodeGitSourceControlReader} from '${packageName}/sources/git';
@@ -1120,6 +1144,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const deliveryInspectFactory:typeof createNamespaceDeliveryInspectionEngine=createNamespaceDeliveryInspectionEngine;
       createNamespaceDeliveryInspectionEngine({...phaseCheckOptions,localRecords:runtimeMetadata,localContent:runtimeContent}).run('phase.delivery.inspect',{phaseId:'review',maximumEntries:25});
       createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review'});
+      createNamespaceEngine(phaseCheckOptions).run('phase.source-control.retain',{operationId:'retain-origin',workId:'example',phaseId:'review'});
+      createNamespaceSourceControlEngine({...phaseCheckOptions,localRecords:runtimeMetadata,localContent:runtimeContent,sourceControlReaders:[]});
+      // @ts-expect-error Required source/control retention identities cannot be null.
+      createNamespaceEngine(phaseCheckOptions).run('phase.source-control.retain',{operationId:'retain-origin',workId:'example',phaseId:null});
+      // @ts-expect-error Observations are captured by an explicit capability, never operation input.
+      createNamespaceEngine(phaseCheckOptions).run('phase.source-control.retain',{operationId:'retain-origin',workId:'example',phaseId:'review',observation:{}});
       // @ts-expect-error Delivery observations cannot accept a caller-supplied publication verdict.
       createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review',ready:true});
       createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review'});

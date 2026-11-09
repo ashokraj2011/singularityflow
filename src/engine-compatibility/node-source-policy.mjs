@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {NODE_CONFIGURATION_PATH_SYNTAX,TEST_COMMAND_ECOSYSTEMS} from './node-configuration-path.mjs';
 import {ecosystemOfAdapter,ecosystemOfProgram} from '../test-runners.mjs';
 import {GOVERNED_ROOTS} from '../governed-roots.mjs';
-import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS,createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '../kernel/source-path-policies.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,sourceControlObservationPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS,createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '../kernel/source-path-policies.mjs';
 export {SOURCE_BOUNDARIES,normalizeSourceBoundary} from '../kernel/configuration-declarations.mjs';
 
 const configurationFilePoliciesBinding=/* @__PURE__ */ configurationFilePolicies(NODE_CONFIGURATION_PATH_SYNTAX);
@@ -65,3 +65,5 @@ export const repositoryChangeEntryOrder=/* @__PURE__ */ (()=>repositoryChangeSet
 export const withRepositoryChangeEntryIdentity=/* @__PURE__ */ (()=>repositoryChangeSetBinding.withEntryIdentity)();
 export const repositoryChangeSetDigest=/* @__PURE__ */ (()=>repositoryChangeSetBinding.repositoryChangeSetDigest)();
 export const verifyRepositoryChangeSetIntegrity=/* @__PURE__ */ (()=>repositoryChangeSetBinding.verifyRepositoryChangeSetIntegrity)();
+const sourceControlObservationBinding=/* @__PURE__ */ sourceControlObservationPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS,repositoryChangeSetValues);
+export const verifySourceControlObservation=/* @__PURE__ */ (()=>sourceControlObservationBinding.verifySourceControlObservation)();

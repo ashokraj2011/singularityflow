@@ -67,9 +67,10 @@ children remain owned by the shared supervisor until close/quiescence; a failed 
 be turned into successful evidence.
 
 An observation is candidate data. It is not an accepted evidence record, publication readiness,
-human acceptance, phase approval or a lifecycle transition. Namespace-backed conditional acceptance,
-proof reading, complete code/claim/constitution/artifact-set integration and a full application Story
-remain required Phase 7 work. Remaining Phase 5 extraction, Phase 8 migration/fencing/reconciliation
+human acceptance, phase approval or a lifecycle transition. The separate [conditional evidence
+owner](ENGINE-SDK-SOURCE-CONTROL-EVIDENCE.md) supplies namespace acceptance and receipt proof reading.
+Complete code/claim/constitution/artifact-set integration and a full application Story remain required
+Phase 7 work. Remaining Phase 5 extraction, Phase 8 migration/fencing/reconciliation
 and Phase 9 cleanup/distribution/performance qualification also remain open.
 
 ## Qualification
@@ -96,7 +97,7 @@ the dependency guard. Earlier failing attempts are not counted as successful qua
 
 Source validation passed 3,936 checks across 191 skills. VS Code typechecking, the unchanged
 2,011-site Git ownership audit and all 13 unchanged bundle budgets passed. Gateway/extension/Help/
-support/prewarm remain 852/152/135/111/23 modules. The optional SDK has 56 registered operations,
-179 owned modules and 1,750,583 JavaScript bytes. Baseline reuse removes the two immutable-baseline
+support/prewarm remain 852/152/135/111/23 modules. That observation extraction had 56 registered
+operations, 179 owned modules and 1,750,583 JavaScript bytes. Baseline reuse removes the two immutable-baseline
 Git reads on the second ordinary capture while retaining every final current-binding check.
 These are component results, not complete-Story latency or full application-runtime qualification.

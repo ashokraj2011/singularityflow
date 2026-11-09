@@ -9,7 +9,7 @@ import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
   WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, EXECUTION_UNIT_ABI_SCHEMA, recordJsonSyntax,
-  recordReadTargetVersion,assertRecordRestampAllowed } from './foundation/record-schema.mjs';
+  recordReadTargetVersion,assertRecordRestampAllowed,REPOSITORY_CHANGE_SET_SCHEMA } from './foundation/record-schema.mjs';
 
 const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
 
@@ -2883,7 +2883,7 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/generation-start\/[^/]+-gen\d+\.json$/]
   }),
   family({
-    id: 'repository-change-set', currentVersion: 1,
+    ...REPOSITORY_CHANGE_SET_SCHEMA,
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+-changes\.json$/], immutable: true
   }),
   // Experimental CMP record-mode transport. It has no durable path and no writer; registration

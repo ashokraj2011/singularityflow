@@ -9,12 +9,24 @@ import ts from 'typescript';
 import {createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '../src/kernel/source-path-policies.mjs';
 import * as binding from '../src/engine-compatibility/node-source-policy.mjs';
 import * as native from '../src/repository-change-set.mjs';
+import {schemaFamily} from '../src/schema-migrations.mjs';
+import {REPOSITORY_CHANGE_SET_SCHEMA,admitRecordSchemaVersion} from '../src/foundation/record-schema.mjs';
 const original=JSON.parse(await readFile(new URL('./fixtures/repository-change-codec/native-v1.json',import.meta.url),'utf8'));
 const hash=text=>createHash('sha256').update(text).digest('hex');
 const values=extra=>Object.freeze({profile:REPOSITORY_CHANGE_SET_VALUES,sha256Text:text=>'sha256:'+hash(text),
   compareUtf8:(left,right)=>Buffer.compare(Buffer.from(left,'utf8'),Buffer.from(right,'utf8')),...extra});
 const codec=()=>createRepositoryChangeSetCodec(values());
 const outcome=invoke=>{try{return {value:JSON.parse(JSON.stringify(invoke()))};}catch(error){return {error:{name:error.name,message:error.message,code:error.code??null,details:error.details??null}};}};
+test('shared repository change-set admission preserves the original native family metadata and path ownership',()=>{
+  const {paths,...metadata}=schemaFamily('repository-change-set');
+  assert.deepEqual(metadata,{id:'repository-change-set',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,
+    steps:[],immutable:true,unversionedAs:null,migrationPolicy:'migrate-on-read',model:'never'});
+  assert.equal(paths.length,1);assert.equal(paths[0].test('singularity/work-items/example/context/code-delivery/implementation-gen1-changes.json'),true);
+  assert.equal(paths[0].test('singularity/work-items/example/artifacts/implementation/changes.json'),false);
+  assert.equal(admitRecordSchemaVersion(REPOSITORY_CHANGE_SET_SCHEMA,{schemaVersion:1}).storedVersion,1);
+  assert.throws(()=>admitRecordSchemaVersion(REPOSITORY_CHANGE_SET_SCHEMA,{schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>admitRecordSchemaVersion(REPOSITORY_CHANGE_SET_SCHEMA,{}),{code:'SCHEMA_VERSION_MISSING'});
+});
 test('649 independently captured raw Git records retain exact endpoints, scores, modes, malformed-record errors and path refusals',()=>{
   assert.equal(original.baseline,'23190d234');assert.equal(original.records.length,649);
   for(const row of original.records)assert.deepEqual(outcome(()=>native.parseRawDiff(row.raw)),row.outcome,JSON.stringify(row.raw));

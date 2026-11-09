@@ -208,6 +208,14 @@ export const NAMESPACE_SOURCE_BASELINE_SCHEMAS = /* @__PURE__ */ Object.freeze({
   index: /* @__PURE__ */ frozenFamily('namespace-source-baseline-index')
 });
 export const SOURCE_CONTROL_OBSERVATION_SCHEMA=/* @__PURE__ */ frozenFamily('source-control-observation');
+// Shared native/portable v1 read metadata; preserve the installed family's migration classification.
+export const REPOSITORY_CHANGE_SET_SCHEMA=/* @__PURE__ */ Object.freeze({id:'repository-change-set',currentVersion:1,
+  minimumReadableVersion:1,maximumReadableVersion:1,unversionedAs:null,immutable:true,migrationPolicy:'migrate-on-read'});
+export const NAMESPACE_SOURCE_CONTROL_SCHEMAS=/* @__PURE__ */ Object.freeze({
+  plan:/* @__PURE__ */ frozenFamily('namespace-source-control-plan'),intent:/* @__PURE__ */ frozenFamily('namespace-source-control-intent'),
+  result:/* @__PURE__ */ frozenFamily('namespace-source-control-result'),manifest:/* @__PURE__ */ frozenFamily('namespace-source-control-manifest'),
+  index:/* @__PURE__ */ frozenFamily('namespace-source-control-index')
+});
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
   manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,

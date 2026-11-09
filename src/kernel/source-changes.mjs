@@ -47,6 +47,27 @@ export function phaseSourceRetentionResult(input,facts) {
       phasePublished:false,testsRun:false,approvalRecorded:false,storyAdvanced:false}};
 }
 
+/** Accepted control observations are evidence, never publication or source-content acceptance. */
+export function phaseSourceControlRetentionResult(input,facts){
+  const bad=()=>fail('The source-control owner returned another or incomplete accepted binding.','ENGINE_PORT_RESULT_INVALID');
+  if(!exact(facts,['workId','phase','operationId','generation','record','recordedAt','principalId','replayed','repositories','totals'])
+    ||facts.workId!==input.workId||facts.phase!==input.phaseId||facts.operationId!==input.operationId||!count(facts.generation)||facts.generation<1
+    ||typeof facts.replayed!=='boolean'||typeof facts.principalId!=='string'||!facts.principalId
+    ||typeof facts.recordedAt!=='string'||!Number.isFinite(Date.parse(facts.recordedAt))
+    ||!exact(facts.record,['key','version','content'])||!/^source-control\/results\/[a-f0-9]{64}$/u.test(facts.record.key??'')||!revision(facts.record.version)
+    ||!exact(facts.record.content,['namespace','sha256','bytes'])||facts.record.content.namespace!=='evidence'||!sha(facts.record.content.sha256)||!count(facts.record.content.bytes)
+    ||!Array.isArray(facts.repositories)||facts.repositories.length<1||facts.repositories.length>32
+    ||!exact(facts.totals,['repositories','changes'])||facts.totals.repositories!==facts.repositories.length||!count(facts.totals.changes))bad();
+  const seen=new Set();let changes=0;
+  for(const row of facts.repositories){if(!exact(row,['id','observation','revision','changes'])||!id(row.id)||seen.has(row.id)||!count(row.changes)
+    ||!/^sha256:[a-f0-9]{64}$/u.test(row.revision??'')||!exact(row.observation,['namespace','sha256','bytes'])
+    ||row.observation.namespace!=='evidence'||!sha(row.observation.sha256)||!count(row.observation.bytes))bad();seen.add(row.id);changes+=row.changes;}
+  if(changes!==facts.totals.changes)bad();
+  return {status:facts.replayed?'retained':'recorded',subject:{kind:'story',id:input.workId},...facts,sourceControlEvidenceRetained:true,
+    sourceContentsRetained:false,publicationReadinessInspected:false,effects:{committed:!facts.replayed,pushed:false,evidenceRecorded:!facts.replayed,
+      sourceFilesChanged:false,canonicalStateChanged:false,phasePublished:false,testsRun:false,approvalRecorded:false,storyAdvanced:false}};
+}
+
 /** Exact path additions/removals, content and executable-mode changes; never inferred Git renames. */
 export function sourceSnapshotChanges(before,after,descriptor) {
   sourceSnapshot(before,descriptor);sourceSnapshot(after,descriptor);

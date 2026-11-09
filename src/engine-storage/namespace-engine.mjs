@@ -2,6 +2,7 @@
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {validateSourceUnit,validateSourceContentReader} from '../foundation/source-snapshot.mjs';
+import {validateSourceControlReader} from '../foundation/source-control.mjs';
 import {validateNamespaceStore,NAMESPACE_STORE_METHODS} from '../sda/namespace/contract.mjs';
 import {namespaceScope,namespaceIdentifier,exactObject} from '../sda/namespace/values.mjs';
 import {validateContentStore,CONTENT_STORE_METHODS} from '../sda/content/contract.mjs';
@@ -20,6 +21,7 @@ import {createNamespaceSourceInspectionPort} from './namespace-source-inspection
 import {createNamespaceSourceRetentionPort} from './namespace-source-retention.mjs';
 import {createNamespaceSourceBaselinePort} from './namespace-source-baseline.mjs';
 import {createNamespaceDeliveryInspectionPort} from './namespace-delivery-inspection.mjs';
+import {createNamespaceSourceControlPort} from './namespace-source-control.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -27,7 +29,7 @@ function captured(port,validate,methods) {
 }
 
 export function createNamespaceEngine(options={}) {
-  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks','sourceReaders'];
+  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks','sourceReaders','sourceControlReaders'];
   if(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(key=>!fields.includes(key)))invalid('Use explicit namespace Engine bindings and capabilities.');
   options=Object.fromEntries(fields.map(key=>[key,options[key]]));
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID');
@@ -52,8 +54,10 @@ export function createNamespaceEngine(options={}) {
   }));
   if(!Array.isArray(options.sourceReaders??[])||(options.sourceReaders??[]).length>32)invalid('Source content readers must be an explicit bounded list.');
   const sourceReaders=Object.freeze((options.sourceReaders??[]).map(reader=>Object.freeze({descriptor:validateSourceContentReader(reader),read:reader.read.bind(reader)})));
+  if(!Array.isArray(options.sourceControlReaders??[])||(options.sourceControlReaders??[]).length>32)invalid('Source-control readers must be an explicit bounded list.');
+  const sourceControlReaders=Object.freeze((options.sourceControlReaders??[]).map(reader=>Object.freeze({descriptor:validateSourceControlReader(reader),capture:reader.capture.bind(reader)})));
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
-    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders};
+    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders,sourceControlReaders};
   const runtime=working?createNamespacePreparationRuntime({...common,localRecords:working.records,localContent:working.content}):null;
   const ports={...createNamespaceReadPorts(common,{authority}),
     ...(authority.epoch===1?createNamespaceProjectPorts(common):{}),
@@ -61,6 +65,7 @@ export function createNamespaceEngine(options={}) {
     sourceBinding:createNamespaceSourceBindingPort(common),...(runtime?.ports??{}),
     phaseSourceInspection:createNamespaceSourceInspectionPort(common,runtime),
     phaseSourceRetention:createNamespaceSourceRetentionPort(common,runtime),
+    phaseSourceControlRetention:createNamespaceSourceControlPort(common,runtime),
     sourceBaselineRetention:createNamespaceSourceBaselinePort(common),
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),

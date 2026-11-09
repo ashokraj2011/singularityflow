@@ -131,6 +131,10 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   `phase.source.retain`. Supply explicit `sourceReaders` for a new collection. Chunked immutable
   evidence and verified receipts remain readable without the original checkout; baseline file
   contents, publication readiness and human approval remain separate requirements.
+- `hosts/namespace-source-control`: accept actual source-control observations for the exact
+  retained generation through `phase.source-control.retain`. Supply explicit `sourceControlReaders`
+  for new collection. Conditional receipts and source/generation proofs support checkout-free
+  acknowledgement; publication readiness and human acceptance remain separate requirements.
 - `hosts/namespace-delivery-inspection`: inspect accepted original/current source archives and
   real phase-check receipts through `phase.delivery.inspect`, with bounded affected-path previews.
   It checks current file matches, reports missing or stale evidence and gives registered recovery

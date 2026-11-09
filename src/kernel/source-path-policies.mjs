@@ -1,6 +1,6 @@
 /** Source path, change-set and delivery value rules over explicit primitives. No repository or file access. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {canonicalJson,REPOSITORY_CHANGE_SET_SCHEMA,admitRecordSchemaVersion} from '../foundation/record-schema.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 import {isAgentOutputPath} from '../foundation/agent-output-paths.mjs';
 import {configurationPathSyntax} from './configuration-path-policies.mjs';
@@ -554,6 +554,54 @@ export function sourceBaselineInventoryPolicies(port,roots) {
     return {selection:'baseline-application-paths/v1',roles:counts,entries};
   }
   return Object.freeze({sourceBaselineInventory});
+}
+
+/** Logical origin/content consistency. Git execution and byte decoding are adapter responsibilities. */
+export function sourceControlObservationPolicies(port,roots,values){
+  const codec=createRepositoryChangeSetCodec(values),{sourceBaselineInventory}=sourceBaselineInventoryPolicies(port,roots);
+  const same=(a,b)=>canonicalJson(a)===canonicalJson(b),object=v=>v&&typeof v==='object'&&!Array.isArray(v);
+  const exact=(v,keys,optional=[])=>object(v)&&Object.keys(v).every(key=>keys.includes(key)||optional.includes(key))&&keys.every(key=>Object.hasOwn(v,key));
+  const oid=v=>typeof v==='string'&&/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v);
+  const fail=reason=>{throw new SingularityFlowError('Source-control observations do not match their retained source binding.',{
+    code:'ENGINE_SOURCE_CONTROL_BINDING_INVALID',details:{reason}});};
+  function verifySourceControlObservation(observation,{descriptor,subject,baseline,current,definition,workflow}){
+    if(descriptor.profile!=='git-selected-worktree-change-set/v1')throw new SingularityFlowError('The source-control profile needs its own evidence verifier.',{code:'ENGINE_SOURCE_CONTROL_PROFILE_UNSUPPORTED'});
+    const c=observation.control;
+    if(!same(observation.subject,subject)||!same(observation.current.snapshot,current)||observation.baseline.revision!==descriptor.baselineRevision)fail('subject-or-current-source');
+    const inventory=snapshot=>sourceBaselineInventory(snapshot,{definition,workflow}).entries;
+    // Filesystem executable bits and repository file modes are distinct facts (notably on Windows).
+    const contents=rows=>rows.map(({path,sha256,bytes})=>({path,sha256,bytes}));
+    if(!same(contents(inventory(baseline)),contents(inventory({entries:observation.baseline.entries}))))fail('baseline-source');
+    if(!exact(c,['schemaVersion','kind','subject','base','target','entries','digest']))fail('control-record');
+    admitRecordSchemaVersion(REPOSITORY_CHANGE_SET_SCHEMA,c);
+    if(c.kind!=='repository-change-set'
+      ||!same(c.subject,subject)||!exact(c.base,['commit','tree'])||c.base.commit!==descriptor.baselineRevision||![c.base.commit,c.base.tree].every(oid)
+      ||!exact(c.target,['head','includesIndex','includesWorktree','includesUntracked','caseInsensitivePaths'])||!oid(c.target.head)
+      ||!['includesIndex','includesWorktree','includesUntracked'].every(key=>c.target[key]===true)||typeof c.target.caseInsensitivePaths!=='boolean'
+      ||!Array.isArray(c.entries)||!c.entries.every(object)||!codec.verifyRepositoryChangeSetIntegrity(c).valid)fail('control-record');
+    const before=new Map(observation.baseline.entries.map(row=>[row.path,row])),after=new Map(current.entries.map(row=>[row.path,row])),paths=new Set(),ids=new Set();let previous=null;
+    for(const row of c.entries){
+      if(!exact(row,['status','similarity','oldPath','newPath','oldMode','newMode','oldObject','newObject','newContent','changeId'],['untracked'])
+        ||!['added','copied','deleted','modified','renamed','type-changed'].includes(row.status)||ids.has(row.changeId)
+        ||previous!==null&&codec.entryOrder(previous,row)>=0||row.similarity!==null&&(!Number.isSafeInteger(row.similarity)||row.similarity<0||row.similarity>100)
+        ||![row.oldObject,row.newObject].every(value=>value===null||oid(value))||Object.hasOwn(row,'untracked')&&(row.untracked!==true||row.status!=='added'))fail('change-entry');
+      ids.add(row.changeId);previous=row;
+      for(const relative of [row.oldPath,row.newPath])if(relative!==null){sourceRelativePath(relative);
+        if(descriptor.source.selection.excludePaths.some(exclude=>relative===exclude||relative.startsWith(exclude+'/')))fail('excluded-path');paths.add(relative);}
+      if(row.status==='added'?(row.oldPath!==null||row.newPath===null):row.status==='deleted'?(row.newPath!==null||row.oldPath===null)
+        :row.oldPath===null||row.newPath===null||(['renamed','copied'].includes(row.status)?row.oldPath===row.newPath:row.oldPath!==row.newPath))fail('change-endpoints');
+      const old=row.oldPath===null?null:before.get(row.oldPath),next=row.newPath===null?null:after.get(row.newPath);
+      if(row.oldPath!==null&&!old||row.newPath!==null&&!next)fail('change-source-member');
+      if(old?(row.oldMode!==(old.executable?'100755':'100644')||row.oldObject===null):(row.oldMode!=='000000'||row.oldObject!==null))fail('baseline-mode');
+      if(next?(!['100644','100755'].includes(row.newMode)||!same(row.newContent,{kind:'regular-file',sha256:'sha256:'+next.sha256,bytes:next.bytes}))
+        :(row.newMode!=='000000'||row.newObject!==null||row.newContent!==null))fail('current-content');
+    }
+    const a=new Map(inventory(baseline).map(row=>[row.path,row])),b=new Map(inventory(current).map(row=>[row.path,row]));
+    for(const relative of new Set([...a.keys(),...b.keys()])){const old=a.get(relative),next=b.get(relative);
+      if((!old||!next||old.sha256!==next.sha256||old.bytes!==next.bytes)&&!paths.has(relative))fail('unreported-application-change');}
+    return {changes:c.entries.length};
+  }
+  return Object.freeze({verifySourceControlObservation});
 }
 
 

@@ -48,13 +48,13 @@ function within(directory, target) {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
-/** The repository containing `cwd` and its Git common directory, or null. */
-function repositoryOf(cwd) {
+/** The repository containing `cwd`, its checkout's Git directory and its Git common directory, or null. */
+export function repositoryOf(cwd) {
   let directory = path.resolve(cwd || process.cwd());
   for (let depth = 0; depth < 64; depth += 1) {
     const dotGit = path.join(directory, '.git');
     const info = exists(dotGit);
-    if (info?.isDirectory()) return { root: directory, common: dotGit };
+    if (info?.isDirectory()) return { root: directory, gitDir: dotGit, common: dotGit };
     if (info?.isFile()) {
       try {
         const gitdir = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/mu)?.[1]?.trim();
@@ -62,7 +62,7 @@ function repositoryOf(cwd) {
         const worktreeGit = path.resolve(directory, gitdir);
         const common = exists(path.join(worktreeGit, 'commondir'))
           ? path.resolve(worktreeGit, readFileSync(path.join(worktreeGit, 'commondir'), 'utf8').trim()) : worktreeGit;
-        return { root: directory, common };
+        return { root: directory, gitDir: worktreeGit, common };
       } catch { return null; }
     }
     const parent = path.dirname(directory);
@@ -425,7 +425,7 @@ export async function environmentFilesToolGuard(payload = {}, { env = process.en
 }
 
 /** What SFlow leaves in a clone that uses it. Files only: an ordinary refusal should not start Git. */
-function usesSflow({ root, common }) {
+export function usesSflow({ root, common }) {
   if (['workflow.yml', 'capabilities.yml', 'environments.yml'].some((file) => exists(path.join(root, 'singularity', file)))) return true;
   if ([['singularity-flow'], ['refs', 'heads', 'sflow'], ['refs', 'remotes', 'origin', 'sflow']].some((parts) => exists(path.join(common, ...parts)))) return true;
   try { return /\srefs\/(?:heads|remotes\/[^/\s]+)\/sflow\/config\s/u.test(`${readFileSync(path.join(common, 'packed-refs'), 'utf8')}\n`); }

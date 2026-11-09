@@ -6514,6 +6514,14 @@ async function capabilityChanges(options) {
     }
     changes['policy.plainChatSecrets'] = plainChatSecrets === 'inherit' ? null : plainChatSecrets;
   }
+  // What a plain chat's change does here [PCR:REQ-013]; `inherit` takes this capability's own value out.
+  const plainChatEdits = optionString(options, 'plain-chat-edits');
+  if (plainChatEdits != null) {
+    if (!['inherit', 'refuse', 'record', 'allow'].includes(plainChatEdits)) {
+      throw new SingularityFlowError('--plain-chat-edits must be inherit, refuse, record, or allow.');
+    }
+    changes['policy.plainChatEdits'] = plainChatEdits === 'inherit' ? null : plainChatEdits;
+  }
 
   // Auto is the one capability policy slice exposed by the guided editor. It is deliberately
   // narrower than a generic `--policy` escape hatch: capability policy can only tighten the
@@ -11580,7 +11588,7 @@ async function dispatch(command, positionals, options, argv) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     appeal: async () => (await import('./commands/appeal.mjs')).run(positionals, { options }),
-    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), departure: async () => (await import('./commands/departure.mjs')).run(positionals, { positionals, options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }), apm: async () => (await import('./commands/apm.mjs')).run(argv, { positionals, options }), index: async () => (await import('./commands/read-index.mjs')).run(argv, { positionals, options }), lock: async () => (await import('./commands/lock.mjs')).run(argv, { positionals, options }), backup: async () => (await import('./commands/backup.mjs')).run(argv, { positionals, options }), guard: async () => (await import('./commands/guard.mjs')).run(argv, { positionals, options }), findings: async () => (await import('./commands/findings.mjs')).run(argv, { positionals, options }),
+    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), departure: async () => (await import('./commands/departure.mjs')).run(positionals, { positionals, options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }), app: async () => (await import('./commands/app.mjs')).run(argv, { positionals, options }), tests: async () => (await import('./commands/tests.mjs')).run(argv, { positionals, options }), call: async () => (await import('./commands/call.mjs')).run(argv, { positionals, options }), gateway: async () => (await import('./commands/gateway.mjs')).run(argv, { positionals, options }), apm: async () => (await import('./commands/apm.mjs')).run(argv, { positionals, options }), index: async () => (await import('./commands/read-index.mjs')).run(argv, { positionals, options }), lock: async () => (await import('./commands/lock.mjs')).run(argv, { positionals, options }), backup: async () => (await import('./commands/backup.mjs')).run(argv, { positionals, options }), guard: async () => (await import('./commands/guard.mjs')).run(argv, { positionals, options }), findings: async () => (await import('./commands/findings.mjs')).run(argv, { positionals, options }), prompts: async () => (await import('./commands/prompts.mjs')).run(argv, { positionals, options }),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }), outcome: async () => (await import('./commands/outcome.mjs')).run(argv, { positionals, options }), 'git-policy': async () => (await import('./commands/git-policy.mjs')).run(argv, { positionals, options }), 'app-review': async () => (await import('./commands/app-review.mjs')).run(argv, { positionals, options }), result: async () => (await import('./commands/result.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct

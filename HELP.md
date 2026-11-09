@@ -1333,6 +1333,13 @@ or existing Story pins. Version-1 maps keep legacy editing semantics until the e
 chat, with no `/sf-` command, may read that capability's files that hold secrets. `refuse` is the default, a child
 cannot allow under a parent that refuses, and a `/sf-` command is always refused. `capability show` says which applies.
 
+`--edits refuse|record|allow|inherit` on the same command (and `--plain-chat-edits` on `capability set|edit`) says
+what a plain chat's change does in a repository that uses SFlow: `refuse` refuses an edit or a writing command with
+the `/sf-` line to type, `record` (the default) lets it go ahead and keeps the prompt, so a code step's approval waits
+until it is accounted for, and `allow` lets it go ahead. Reading, searching and read-only `git` stay free. Every
+prompt there is kept, redacted: in the Story's "Asked for" inside a Story checkout, otherwise in the clone's own log,
+which `singularity-flow prompts` shows. A prompt holding what looks like a secret is refused.
+
 **Configuration → Review proposals** opens a dashboard of pending changes across
 every registered lead repository; it is available even when no workspace is active.
 Select a proposal to open its exact diff and **Merge and acknowledge** action. The
@@ -3609,6 +3616,7 @@ singularity-flow findings link <WORK-ID> --address ID,... [--json]
 singularity-flow findings plan [--feed security|tlm] [--all-repositories] [--json]
 singularity-flow findings start <GROUP-ID> [--work-id ID] [--from-branch BRANCH] [--fetch] [--isolated-worktree] [--json]
 singularity-flow findings report [--out FILE] [--feed security|tlm] [--all-repositories] [--json]
+singularity-flow prompts [--story ID] [--limit N] [--json]
 singularity-flow local start <NAME> --intent <TEXT> --input <ABSOLUTE-PATH>... --classification public|internal|confidential|restricted [--allow-empty-output] [--json]
 singularity-flow local list [--json]
 singularity-flow local status --story <LOC-ID> [--json]

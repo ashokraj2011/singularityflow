@@ -316,6 +316,14 @@ export const LOCAL_INTEGRATION_EVIDENCE_VALUES = Object.freeze(['off', 'allowed'
 export const PLAIN_CHAT_SECRETS_VALUES = Object.freeze(['refuse', 'allow']);
 
 /**
+ * What a plain Copilot chat's change does in a repository that uses SFlow (docs/SPEC-PCR-PLAIN-CHAT-ROUTING-v1.md,
+ * [PCR:REQ-013]): `refuse` it with the `/sf-` line to type, `record` it (the default: it goes ahead and is tracked,
+ * and a code step's approval waits for it), or `allow` it as before. Folding only tightens, in that order.
+ */
+export const PLAIN_CHAT_EDITS_VALUES = Object.freeze(['refuse', 'record', 'allow']);
+export const PLAIN_CHAT_EDITS_DEFAULT = 'record';
+
+/**
  * Whether a capability's code steps enforce their lint, static-analysis and security findings
  * [CQF decision 6]. `warn` leaves the workflow's codeDelivery.staticAnalysis as it is; `enforce` holds
  * the step for a person when new-code findings remain. Folding only tightens, as above.
@@ -329,32 +337,34 @@ export const STATIC_ANALYSIS_POLICY_VALUES = Object.freeze(['enforce', 'warn']);
  */
 export const TYPED_FOCUS_VALUES = Object.freeze(['off', 'on']);
 
-// Each field's values, the tighter first. A child may always choose the tighter.
+// Each field's values, the tighter first. A child may always choose a tighter one.
 const ONE_WAY_POLICY = Object.freeze({
   localIntegrationEvidence: LOCAL_INTEGRATION_EVIDENCE_VALUES,
+  plainChatEdits: PLAIN_CHAT_EDITS_VALUES,
   plainChatSecrets: PLAIN_CHAT_SECRETS_VALUES,
   staticAnalysis: STATIC_ANALYSIS_POLICY_VALUES,
   typedFocus: TYPED_FOCUS_VALUES
 });
 
+const choices = (values) => (values.length === 2 ? values.join(' or ') : `${values.slice(0, -1).join(', ')} or ${values.at(-1)}`);
+
 function foldOneWayPolicy(field, parent, child) {
-  const [tighter, wider] = ONE_WAY_POLICY[field];
+  const values = ONE_WAY_POLICY[field];
   for (const [value, label] of [[parent, 'Parent capability policy'], [child, 'Capability policy']]) {
-    if (value != null && value !== tighter && value !== wider) {
-      throw new SingularityFlowError(`${label}.${field} must be ${tighter} or ${wider}.`, {
+    if (value != null && !values.includes(value)) {
+      throw new SingularityFlowError(`${label}.${field} must be ${choices(values)}.`, {
         code: 'CAPABILITY_POLICY_INVALID'
       });
     }
   }
-  if (parent === tighter && child === wider) throw oneWayPolicyLoosened(field);
+  if (parent != null && child != null && values.indexOf(child) > values.indexOf(parent)) throw oneWayPolicyLoosened(field, null, null, parent, child);
   return child ?? parent ?? null;
 }
 
-function oneWayPolicyLoosened(field, capabilityId = null, ancestorId = null) {
-  const [tighter, wider] = ONE_WAY_POLICY[field];
+function oneWayPolicyLoosened(field, capabilityId = null, ancestorId = null, ancestorValue = ONE_WAY_POLICY[field][0], value = ONE_WAY_POLICY[field].at(-1)) {
   return new SingularityFlowError(
-    `${capabilityId ? `Capability '${capabilityId}'` : 'A child capability'} cannot turn policy.${field} to ${wider}`
-    + ` under ${ancestorId ? `'${ancestorId}'` : 'a parent'}, which sets it ${tighter}. Change it on that parent through a capability proposal, or leave the child ${tighter}.`,
+    `${capabilityId ? `Capability '${capabilityId}'` : 'A child capability'} cannot turn policy.${field} to ${value}`
+    + ` under ${ancestorId ? `'${ancestorId}'` : 'a parent'}, which sets it ${ancestorValue}. Change it on that parent through a capability proposal, or leave the child ${ancestorValue}.`,
     { code: 'CAPABILITY_POLICY_LOOSENED', details: { capabilityId, ancestorId, field } }
   );
 }
@@ -367,7 +377,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     'allowedPhases', 'requiredChecks', 'requiredAuthorityGroups', 'jiraProjects', 'jiraHosts', 'jiraOperations', 'jiraFields',
     'protectedPaths', 'worldModelGrounding', 'worldModelStaleness', 'requiredWorldModelViews',
     'writeScopes', 'qualityCommands', 'storageProviders', 'allowedMimeTypes', 'tokenBudget',
-    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatSecrets', 'staticAnalysis', 'typedFocus'
+    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence', 'plainChatEdits', 'plainChatSecrets', 'staticAnalysis', 'typedFocus'
   ]);
   for (const key of Object.keys(child)) if (!allowed.has(key)) throw new SingularityFlowError(`Capability policy contains unknown key '${key}'.`);
   const array = (key) => uniqueStrings(child[key], `Capability policy.${key}`);
@@ -412,6 +422,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     contextMaxBytes: min(parentContextMaxBytes, childContextMaxBytes),
     auto: foldCapabilityAutoPolicy(parentAuto, childAuto),
     localIntegrationEvidence: foldOneWayPolicy('localIntegrationEvidence', parent.localIntegrationEvidence, child.localIntegrationEvidence),
+    plainChatEdits: foldOneWayPolicy('plainChatEdits', parent.plainChatEdits, child.plainChatEdits),
     plainChatSecrets: foldOneWayPolicy('plainChatSecrets', parent.plainChatSecrets, child.plainChatSecrets),
     staticAnalysis: foldOneWayPolicy('staticAnalysis', parent.staticAnalysis, child.staticAnalysis),
     typedFocus: foldOneWayPolicy('typedFocus', parent.typedFocus, child.typedFocus)
@@ -961,15 +972,18 @@ export function validateCapabilities(definition, portfolio = null) {
       cursor = capabilities[cursor]?.parent ?? null;
     }
   }
-  // A child may choose the tighter value, never the wider one under an ancestor that chose the tighter.
-  for (const [field, [tighter, wider]] of Object.entries(ONE_WAY_POLICY)) {
+  // A child may choose a tighter value, never a wider one than the nearest ancestor that chose one.
+  for (const [field, values] of Object.entries(ONE_WAY_POLICY)) {
     for (const [id, capability] of Object.entries(capabilities)) {
-      if (capability.policy?.[field] !== wider) continue;
+      const value = capability.policy?.[field];
+      if (!values.includes(value) || value === values[0]) continue;
       let cursor = capability.parent ?? null;
       while (cursor) {
         const declared = capabilities[cursor]?.policy?.[field];
-        if (declared === tighter) throw oneWayPolicyLoosened(field, id, cursor);
-        if (declared === wider) break;
+        if (values.includes(declared)) {
+          if (values.indexOf(declared) < values.indexOf(value)) throw oneWayPolicyLoosened(field, id, cursor, declared, value);
+          break;
+        }
         cursor = capabilities[cursor]?.parent ?? null;
       }
     }

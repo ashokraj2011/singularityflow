@@ -70,9 +70,9 @@ export interface ApprovalEvidencePacket {
   requiredChecks?: { status: string; words: string | null; checks: Array<{ name: string; status: string }> };
   /** Evidence that predates an amendment's wording, counted because the step's approvers said it still holds [SCS:REQ-022]. */
   carried?: { words: string; more?: number; entries: Array<{ amendment: string; phase: string; generation: number; clauses: string[]; by: string; authorityGroup: string; words: string }> };
-  /** What the person typed after /sf-code or /sf-phase, quoted, with each instruction's account [SCS:REQ-043]. */
+  /** What the person typed after /sf-code or /sf-phase, or asked in a plain chat [PCR:REQ-002], quoted, with each instruction's account [SCS:REQ-043]. */
   askedFor?: { words: string; unaccounted: number; more?: number;
-    instructions: Array<{ instruction: number; generation: number; text: string; truncated?: boolean;
+    instructions: Array<{ instruction: number; generation: number; text: string; truncated?: boolean; plainChat?: boolean;
       account?: { as: string; clauses: string[]; departure: string | null } | null; accountWords?: string; words: string }> };
 }
 

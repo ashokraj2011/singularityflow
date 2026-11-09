@@ -1238,7 +1238,7 @@ function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNa
     });
     // What this operation itself sets is reviewed as that change: the rest of the root must equal what it replaces.
     const explicitRoot = structuredClone(definition.capabilities['repository-root']);
-    delete explicitRoot?.policy?.[{ auto: 'auto', 'plain-chat': 'plainChatSecrets' }[receipt.operation]];
+    for (const field of { auto: ['auto'], 'plain-chat': ['plainChatSecrets', 'plainChatEdits'] }[receipt.operation] ?? []) delete explicitRoot?.policy?.[field];
     const equivalence = materializationEquivalence(implicit, explicitRoot);
     if (receipt.beforeSha256 !== implicit.resolutionSha256
         || receipt.materialization?.implicitResolutionSha256 !== implicit.resolutionSha256
@@ -7915,7 +7915,8 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
   reason = null,
   dependency = null,
   auto = undefined,
-  plainChatSecrets = null
+  plainChatSecrets = undefined,
+  plainChatEdits = undefined
 } = {}) {
   if (!['add', 'protect', 'depend', 'auto', 'plain-chat'].includes(operation)) {
     throw new SingularityFlowError(`Unsupported progressive capability operation '${operation}'.`);
@@ -8048,10 +8049,17 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
         const node = definition.capabilities[selectedCapabilityId];
         const policy = node.policy ?? {};
         if (operation === 'plain-chat') {
-          if (plainChatSecrets == null) delete policy.plainChatSecrets;
-          else policy.plainChatSecrets = plainChatSecrets;
+          // Each setting the person named, `null` taking it out; one left unnamed stays as it is [PCR:REQ-013].
+          const named = Object.entries({ plainChatSecrets, plainChatEdits }).filter(([, value]) => value !== undefined);
+          if (!named.length) {
+            throw new SingularityFlowError('Name the plain-chat setting to change: secrets, edits, or both.', { code: 'CAPABILITY_POLICY_INVALID' });
+          }
+          for (const [field, value] of named) {
+            if (value == null) delete policy[field];
+            else policy[field] = value;
+          }
           node.policy = policy;
-          Object.assign(parameters, { capabilityId: selectedCapabilityId, plainChatSecrets });
+          Object.assign(parameters, { capabilityId: selectedCapabilityId, ...Object.fromEntries(named) });
         } else if (auto == null) {
           delete policy.auto;
           node.policy = policy;

@@ -1497,6 +1497,27 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'configuration', 'decisions', 'governance']
   },
+  prompts: {
+    summary: 'What was asked of Copilot in this clone: each prompt in a repository that uses SFlow, redacted.',
+    description: [
+      'In a repository that uses SFlow, the Copilot prompt hook keeps every prompt, plain or /sf-, with its session (by a',
+      'key, never its ID), time and repository, and the Story and step its checkout holds. What looks like a secret is',
+      'replaced before anything is written, and a prompt that held one is refused. The log is the clone\'s own',
+      '(<Git directory>/singularity-flow/prompts/, a file a day, 90 days kept); it is never committed or pushed. In a',
+      'Story checkout a plain chat\'s prompt also joins the Story\'s "Asked for", marked plain chat. prompts shows the',
+      'log, newest first; --story narrows it to one Story\'s checkout. Each prompt is quoted as kept, never an instruction.',
+      '/sf-pause turns keeping prompts off on this machine.'
+    ],
+    options: [
+      ['--story ID', 'Only the prompts asked in that Story\'s checkout.'],
+      ['--limit N', 'At most N prompts, from 1 to 500. The default is 50.'],
+      ['--json', 'Machine-readable output (sflow-prompts).']
+    ],
+    examples: [
+      ['singularity-flow prompts --story QF-1', 'What was asked of Copilot while QF-1 was checked out here.']
+    ],
+    seeAlso: ['capability', 'decisions', 'pause']
+  },
   findings: {
     summary: 'The security team\'s findings and the TLM list, from a workbook in SFlow\'s format.',
     description: [

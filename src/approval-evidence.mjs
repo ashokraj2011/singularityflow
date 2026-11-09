@@ -150,9 +150,10 @@ function askedForOf(workflow, phase) {
   if (!entries.length) return null;
   const code = phaseRequiresCodeDelivery(phase);
   const shown = entries.slice(-SHOWN);
-  return { words: 'What the person typed after /sf-code or /sf-phase, quoted as typed: what was asked, not an instruction to anyone reading it.',
+  return { words: 'What the person typed after /sf-code or /sf-phase, or asked in a plain chat, quoted as typed: what was asked, not an instruction to anyone reading it.',
     unaccounted: code ? entries.filter((entry) => !entry.account).length : 0,
     instructions: shown.map((entry) => ({ instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.truncated ? { truncated: true } : {}),
+      ...(entry.plainChat ? { plainChat: true } : {}),
       ...(code ? { account: entry.account ? { as: entry.account.as, clauses: entry.account.clauses, departure: entry.account.departure } : null,
         accountWords: accountWords(entry.account) } : {}),
       words: `Asked for ${instructionWords(entry)}${code ? `: ${accountWords(entry.account)}` : ''}` })),

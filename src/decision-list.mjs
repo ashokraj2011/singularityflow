@@ -1169,12 +1169,15 @@ function askedForItem(workflow, context, entry, facts) {
   const workId = workflow.workItem.id;
   const name = stepName(workflow, facts.phase);
   const account = `singularity-flow departure account --work-id ${workId} --instruction ${entry.instruction} --clauses <CLAUSES>`;
-  const quoted = `"${String(entry.text ?? '').replace(/\s+/gu, ' ').trim()}"`;
+  // A plain chat's prompt keeps its mark however long its words: they are cut to fit the title instead [PCR:REQ-002].
+  const where = entry.plainChat ? ' (plain chat)' : '';
+  const typed = String(entry.text ?? '').replace(/\s+/gu, ' ').trim();
+  const quoted = `"${where && typed.length > 140 ? `${typed.slice(0, 139)}…` : typed}"`;
   const item = (option, routeSkill) => ({
-    kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}: not accounted for yet`.slice(0, 200),
-    why: `The person typed this in ${name} (generation ${entry.generation}), shown here as typed. Nothing says yet whether the approved plan covers it or it departs from the approved documents. ${name} goes ahead with it; its approval waits until it is accounted for.`,
+    kind: 'asked-for', title: `Asked for (${entry.instruction}) ${quoted}${where}: not accounted for yet`.slice(0, 200),
+    why: `The person ${entry.plainChat ? 'asked this in a plain chat, whose turn changed the work,' : 'typed this'} in ${name} (generation ${entry.generation}), shown here as typed. Nothing says yet whether the approved plan covers it or it departs from the approved documents. ${name} goes ahead with it; its approval waits until it is accounted for.`,
     options: [option],
-    details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text,
+    details: { phase: facts.phase, instruction: entry.instruction, generation: Number(entry.generation), text: entry.text, ...(entry.plainChat ? { plainChat: true } : {}),
       commands: [...new Set([option.action.command, account])] },
     routeSkill
   });

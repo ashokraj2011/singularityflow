@@ -49,19 +49,100 @@ hook_input_goes_to_node() {
   shopt -u nocasematch
   return "$status"
 }
+# The session's folder as the host wrote it, or nothing: an escaped character is not unescaped here.
+hook_input_cwd() {
+  local LC_ALL=C text=$hook_input
+  [[ $text == *'"cwd":"'* ]] || return 1
+  text=${text#*'"cwd":"'}
+  text=${text%%\"*}
+  [[ $text == /* && $text != *\\* ]] || return 1
+  printf '%s' "$text"
+}
+# A repository that uses SFlow, from its files alone (usesSflow in src/copilot-environment-files-guard.mjs): its
+# singularity/*.yml, or SFlow's folder or branch under its Git directory. Walked up from the session's folder to
+# the first checkout, with shell builtins only; a nested repository is judged on its own. Plain-chat routing's
+# guard runs in Node for these [PCR:REQ-001]; Node judges each call by its own paths.
+cwd_uses_sflow() {
+  local LC_ALL=C directory=$1 depth=0 line common
+  [[ $directory == /* ]] || return 1
+  while (( depth < 64 )); do
+    if [[ -e "$directory/.git" ]]; then
+      [[ -f "$directory/singularity/workflow.yml" || -f "$directory/singularity/capabilities.yml" || -f "$directory/singularity/environments.yml" ]] && return 0
+      common="$directory/.git"
+      if [[ -f "$common" ]]; then
+        IFS= read -r line < "$common" || return 1
+        [[ $line == 'gitdir: '* ]] || return 1
+        common=${line#gitdir: }
+        [[ $common == /* ]] || common="$directory/$common"
+        if [[ -f "$common/commondir" ]]; then
+          IFS= read -r line < "$common/commondir" || return 1
+          if [[ $line == /* ]]; then common=$line; else common="$common/$line"; fi
+        fi
+      fi
+      [[ -d "$common/singularity-flow" || -e "$common/refs/heads/sflow" ]]
+      return
+    fi
+    [[ $directory == / ]] && return 1
+    directory=${directory%/*}
+    [[ -n $directory ]] || directory=/
+    depth=$((depth + 1))
+  done
+  return 1
+}
 # Answered here, or the bytes go to Node as the host sent them.
 quiet_hook() {
+  local folder
   if [[ "$action" == boundary-guard ]]; then
     # No reader to hold the payload with: Node reads it, as with a recorded turn.
     hold_hook_input || return 1
     if hook_input_goes_to_node; then return 1; fi
+    if folder=$(hook_input_cwd) && cwd_uses_sflow "$folder"; then return 1; fi
   else cat >/dev/null 2>&1 || true; fi
   printf '%s\n' '{}'; exit 0
+}
+# [PCR:REQ-016] Before Node starts for a prompt, the session's copy of its last prompt goes, and a plain prompt
+# ends the session's earlier /sf- turn: a prompt hook that fails or times out then leaves no earlier turn's
+# contract, or secret, governing this one. A prompt that may name a skill, or a stop continuation (which reads
+# the turn it continues), is left to the runtime, which writes a skill turn's record again as today.
+# Mirrors copilotModeFile() and recordPath() in src/copilot-repository-boundary.mjs.
+clear_stale_turn() {
+  local LC_ALL=C text before after id hash tool mode_dir
+  hold_hook_input || return 0
+  (( hook_input_large )) && return 0
+  text=$hook_input
+  # A stop continuation reads the turn it continues; a subagent's task shares the person's session.
+  [[ $text == *SFLOW_* || $text == *'"agentId"'* || $text == *'"agent_id"'* ]] && return 0
+  # macOS's bash 3.2 takes no bound past 255 in a pattern: the length is checked apart.
+  [[ $text =~ \"session(Id|_id)\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9._:-]+)\" ]] || return 0
+  id=${BASH_REMATCH[2]}
+  (( ${#id} <= 256 )) || return 0
+  mode_dir=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-}
+  if [[ -z "$mode_dir" && "${HOME:-}" == /* ]]; then mode_dir="$HOME/.singularity-flow/copilot-mode.json"; fi
+  [[ "$mode_dir" == /* && "$mode_dir" != */ && "$mode_dir" != *'/./'* && "$mode_dir" != *'/../'* ]] || return 0
+  mode_dir=${mode_dir%/*}
+  for tool in "$(command -v sha256sum 2>/dev/null)" /sbin/sha256sum /usr/bin/sha256sum "$(command -v shasum 2>/dev/null)" /usr/bin/shasum; do
+    [[ -n "$tool" && -x "$tool" ]] || continue
+    if [[ ${tool##*/} == shasum ]]; then hash=$(printf '%s' "$id" | "$tool" -a 256 2>/dev/null)
+    else hash=$(printf '%s' "$id" | "$tool" 2>/dev/null); fi
+    hash=${hash%% *}
+    [[ $hash =~ ^[a-f0-9]{64}$ ]] && break
+    hash=''
+  done
+  [[ -n "$hash" ]] || return 0
+  rm -f -- "$mode_dir/copilot-prompts/$hash.json" 2>/dev/null
+  if [[ $text == *'"cwd":"'* ]]; then
+    before=${text%%'"cwd":"'*} after=${text#*'"cwd":"'}
+    text=$before${after#*\"}
+  fi
+  [[ $text == */sf* || $text == *skill-context* ]] && return 0
+  rm -f -- "$mode_dir/copilot-boundaries/$hash.json" "$mode_dir/copilot-boundaries/$hash.mutation.json" 2>/dev/null
+  return 0
 }
 run_hook() {
   if (( ! hook_input_held )); then exec "$@"; fi
   exec "$@" < <(printf '%s' "$hook_input")
 }
+if [[ "$action" == boundary-turn ]]; then clear_stale_turn; fi
 managed_root="${SINGULARITY_FLOW_ENGINE_HOME:-${HOME:-}/.singularity-flow/engine}"
 if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
   IFS='|' read -r managed_schema managed_runtime managed_release managed_extra < "$managed_root/active"
@@ -82,7 +163,7 @@ if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
         # The engine's PATH entry comes from a shell profile, which a GUI-started host never read.
         # Off PATH, --cli-off-path has the turn name the verified Node and entry instead.
         boundary-turn) command -v singularity-flow >/dev/null 2>&1 \
-          || exec "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli" --cli-off-path ;;
+          || run_hook "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli" --cli-off-path ;;
       esac
       run_hook "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli"
     fi

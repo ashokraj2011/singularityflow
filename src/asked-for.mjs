@@ -1,5 +1,7 @@
 /**
- * What the person asked for [SCS:REQ-040 to REQ-044]: the words typed after /sf-code or /sf-phase.
+ * What the person asked for [SCS:REQ-040 to REQ-044]: the words typed after /sf-code or /sf-phase, and in a
+ * repository whose Story checkout it is, a plain chat's prompt, marked so (copilot-plain-chat.mjs [PCR:REQ-002]). A plain
+ * chat's prompt waits to be accounted for only once its turn changed the work (`markAskedForChanged`, [PCR:REQ-012]).
  *
  * The prompt hook keeps a person's own prompt, never a subagent's task, once the diagnostic redactor has
  * removed its secrets: at most 2,000 characters a turn and 20 turns a generation, in a local record beside
@@ -38,6 +40,25 @@ export function typedArguments(prompt) {
 }
 
 /**
+ * Typed words as they may be kept: the diagnostic redactor's pass, then every shape the commit gate's secret
+ * rules find (an access key ID or a provider key the redactor alone let through), then cut at 2,000
+ * characters. Redacted whole before it is cut, so a cut never leaves half a secret behind. Null when nothing is left.
+ */
+export async function redactedWords(typed) {
+  const [{ redactDiagnosticText }, { SECRET_RULES }] = await Promise.all([import('./git-remote-diagnostics.mjs'), import('./secrets.mjs')]);
+  let text = redactDiagnosticText(typed, { multiline: true });
+  for (const rule of SECRET_RULES) {
+    text = text.replace(new RegExp(rule.pattern.source, rule.pattern.flags), (match, group) => {
+      if (rule.accept && !rule.accept(typeof group === 'string' ? group : match)) return match;
+      return rule.id === 'assigned-secret' && typeof group === 'string' ? match.replace(group, '[REDACTED]') : '[REDACTED]';
+    });
+  }
+  const characters = [...text.trim()];
+  if (!characters.length) return null;
+  return { text: characters.slice(0, ASKED_FOR.characters).join(''), ...(characters.length > ASKED_FOR.characters ? { truncated: true } : {}) };
+}
+
+/**
  * The instruction a person typed into a /sf-code or /sf-phase turn, redacted and bounded, or null: a
  * subagent's task, another skill, nothing typed, or only a step word.
  */
@@ -45,11 +66,7 @@ export async function typedInstruction(payload, skill) {
   if (!ASKED_FOR_SKILLS.includes(skill) || subagentPayload(payload)) return null;
   const typed = typedArguments(payload?.prompt);
   if (!typed || NOT_AN_INSTRUCTION.test(typed)) return null;
-  const { redactDiagnosticText } = await import('./git-remote-diagnostics.mjs');
-  // Redacted whole before it is cut, so a cut never leaves half a secret behind.
-  const characters = [...redactDiagnosticText(typed, { multiline: true }).trim()];
-  if (!characters.length) return null;
-  return { text: characters.slice(0, ASKED_FOR.characters).join(''), ...(characters.length > ASKED_FOR.characters ? { truncated: true } : {}) };
+  return redactedWords(typed);
 }
 
 /** Whether the Story's capability turned recording off: its pinned policy says `typedFocus: off`. */
@@ -77,21 +94,48 @@ async function readLedger(file, subject) {
   } catch { return null; }
 }
 
-/** One turn's words in the local record of its Story step and generation; a turn past the 20th is only counted. */
-export async function noteAskedFor(gitDir, { workId, phase, generation, text, truncated = false, skill, turnId, at }) {
-  const subject = { workId, phase, generation };
-  const file = ledgerFile(gitDir, subject);
-  const ledger = await readLedger(file, subject) ?? { schema: LEDGER_SCHEMA, ...subject, turns: [], omitted: 0 };
-  if (ledger.turns.some((entry) => entry.turnId === turnId)) return ledger;
-  if (ledger.turns.length >= ASKED_FOR.turns) ledger.omitted = Number(ledger.omitted ?? 0) + 1;
-  else ledger.turns.push({ turnId, skill, text, ...(truncated ? { truncated: true } : {}), at });
+async function writeLedger(file, ledger) {
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(ledger)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(temporary, file);
   } finally { await rm(temporary, { force: true }).catch(() => {}); }
+}
+
+/**
+ * Whether an entry waits to be accounted for in a code step [SCS:REQ-042]: what was typed after /sf-code or
+ * /sf-phase always does; a plain chat's prompt [PCR:REQ-012] only once its turn changed something.
+ */
+export const needsAccount = (entry) => entry?.plainChat !== true || entry.changed === true;
+
+/**
+ * One turn's words in the local record of its Story step and generation; a turn past the 20th is only counted.
+ * A plain chat's prompts [PCR:REQ-002] are counted apart, so questions never crowd out an instruction.
+ */
+export async function noteAskedFor(gitDir, { workId, phase, generation, text, truncated = false, skill, turnId, at, plainChat = false }) {
+  const subject = { workId, phase, generation };
+  const file = ledgerFile(gitDir, subject);
+  const ledger = await readLedger(file, subject) ?? { schema: LEDGER_SCHEMA, ...subject, turns: [], omitted: 0 };
+  if (ledger.turns.some((entry) => entry.turnId === turnId)) return ledger;
+  if (ledger.turns.filter((entry) => (entry.plainChat === true) === plainChat).length >= ASKED_FOR.turns) ledger.omitted = Number(ledger.omitted ?? 0) + 1;
+  else ledger.turns.push({ turnId, skill, text, ...(truncated ? { truncated: true } : {}), ...(plainChat ? { plainChat: true } : {}), at });
+  await writeLedger(file, ledger);
   return ledger;
+}
+
+/**
+ * A plain chat's turn changed the work under `policy.plainChatEdits: record` [PCR:REQ-012]: its prompt now
+ * waits to be accounted for like typed words. Null when the local record does not hold that turn.
+ */
+export async function markAskedForChanged(gitDir, subject, turnId) {
+  const file = ledgerFile(gitDir, subject);
+  const ledger = await readLedger(file, subject);
+  const entry = ledger?.turns.find((candidate) => candidate.turnId === turnId);
+  if (!entry || entry.changed === true) return entry ?? null;
+  entry.changed = true;
+  await writeLedger(file, ledger);
+  return entry;
 }
 
 /** The local record of one Story step and generation: its turns in the order typed, and how many were past the limit. */

@@ -174,8 +174,10 @@ if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hook
 const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
 if (hooksJson.version !== 1) fail('plugin/hooks.json version must be 1');
 if (hooksJson.hooks?.sessionStart != null) fail('plugin/hooks.json must not inject a model prompt at every session start');
-// No blanket lifecycle guard: discovery and file edits are restricted only during an explicit SFlow
-// invocation. Keep the closed hook map so native turns cannot acquire an unrelated policy gate.
+// Plain chats are governed only where SFlow is used (owner decision 7, docs/SPEC-PCR-PLAIN-CHAT-ROUTING-v1.md):
+// there each prompt is kept and a change follows the repository's policy.plainChatEdits; elsewhere a plain chat
+// is untouched, and discovery stays restricted only during an explicit SFlow invocation. Blocking, steering and
+// recording all use the prompt hook, so the closed hook map keeps its seven events and no unrelated policy gate.
 const expectedHooks = { userPromptSubmitted: 'boundary-turn', preToolUse: 'boundary-guard',
   postToolUse: 'boundary-after', sessionEnd: 'boundary-end', subagentStart: 'agent-start',
   agentStop: 'boundary-stop', postToolUseFailure: 'boundary-failure' };

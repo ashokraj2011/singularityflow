@@ -52,6 +52,8 @@ export interface CapabilityDetail {
   owns: string[];
   policy: PolicyField[];
   plainChatSecrets: { declared: 'refuse' | 'allow' | null; effective: 'refuse' | 'allow' };
+  /** What a plain chat's change does here [PCR:REQ-013]: record when nothing says otherwise (decision 8). */
+  plainChatEdits: { declared: PlainChatEdits | null; effective: PlainChatEdits };
   auto: {
     declared: {
       eligibility: 'inherit' | 'disabled' | 'plan-only' | 'bounded';
@@ -92,10 +94,16 @@ const POLICY_FIELDS: Array<{ key: string; label: string; rule: string }> = [
   { key: 'gitPublication', label: 'Git publication', rule: 'the stricter of this and every ancestor' },
   { key: 'contextBoundary', label: 'Context boundary', rule: 'the stricter of this and every ancestor' },
   { key: 'plainChatSecrets', label: 'Secrets in plain chats', rule: 'a child cannot allow what an ancestor refuses' },
+  { key: 'plainChatEdits', label: 'Changes in plain chats', rule: 'a child may tighten an ancestor (refuse, record, allow), never loosen it' },
   { key: 'maxDocumentBytes', label: 'Maximum document bytes', rule: 'the smallest set by any ancestor' },
   { key: 'tokenBudget', label: 'Token budget', rule: 'the smallest set by any ancestor' },
   { key: 'contextMaxBytes', label: 'Context maximum bytes', rule: 'the smallest set by any ancestor' }
 ];
+
+type PlainChatEdits = 'refuse' | 'record' | 'allow';
+const PLAIN_CHAT_EDITS: readonly PlainChatEdits[] = ['refuse', 'record', 'allow'];
+const plainChatEdits = (value: PolicyValue | undefined): PlainChatEdits | null =>
+  (PLAIN_CHAT_EDITS as readonly unknown[]).includes(value) ? value as PlainChatEdits : null;
 
 type AutoPolicy = {
   eligibility?: 'disabled' | 'plan-only' | 'bounded';
@@ -193,6 +201,10 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
       declared: declaredPolicy.plainChatSecrets === 'refuse' || declaredPolicy.plainChatSecrets === 'allow' ? declaredPolicy.plainChatSecrets : null,
       effective: effectivePolicy.plainChatSecrets === 'allow' ? 'allow' : 'refuse'
     },
+    plainChatEdits: {
+      declared: plainChatEdits(declaredPolicy.plainChatEdits),
+      effective: plainChatEdits(effectivePolicy.plainChatEdits) ?? 'record'
+    },
     auto: {
       declared: {
         eligibility: declaredAuto?.eligibility ?? 'inherit',
@@ -225,7 +237,8 @@ const EDIT_FLAGS: Array<[string, string]> = [
   ['autoEligibility', '--auto-eligibility'], ['autoProtectedScope', '--auto-protected-scope'],
   ['autoMaximumTouchedPaths', '--auto-maximum-touched-paths'],
   ['autoMaximumConcurrentFlights', '--auto-maximum-concurrent-flights'],
-  ['plainChatSecrets', '--plain-chat-secrets']
+  ['plainChatSecrets', '--plain-chat-secrets'],
+  ['plainChatEdits', '--plain-chat-edits']
 ];
 
 /**

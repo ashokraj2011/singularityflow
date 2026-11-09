@@ -5269,6 +5269,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const panels = lazyPanelsRuntime;
     if (panels && state.snapshot) panels.IntakePanel.lifecycleChanged(panels.intakeInFlight(state.snapshot), repository);
   }));
+  // People know, once per repository, that their Copilot prompts there are kept and what a plain chat's change
+  // does [PCR:REQ-004]. A repository the engine reads is one that uses SFlow; nothing is asked or decided here.
+  const plainChatToldKey = 'singularityFlow.plainChatNoticeShown';
+  context.subscriptions.push(store.onDidChange((state) => {
+    if (!state.snapshot || state.stale || state.error) return;
+    const told = context.globalState.get<string[]>(plainChatToldKey) ?? [];
+    const key = createHash('sha256').update(repository).digest('hex').slice(0, 32);
+    if (told.includes(key)) return;
+    void context.globalState.update(plainChatToldKey, [...told, key].slice(-200));
+    void vscode.window.showInformationMessage('Singularity Flow keeps each Copilot prompt in this repository, redacted: in the Story\'s "Asked for" '
+      + 'in a Story checkout, otherwise in this clone\'s own log (singularity-flow prompts). A prompt that holds what looks like a secret is refused, '
+      + 'and a plain chat\'s changes follow the capability\'s "Changes in plain chats" setting. /sf-pause turns this off on this machine.');
+  }));
   // The engine identifies code delivery, including custom phases. Open its human handoff once per
   // generation; no new snapshot, application process, test or acceptance is triggered by this offer.
   const outcomeOffered = new Set(context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? []);
@@ -7705,7 +7718,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           argv.push('--json');
         } else if (message.type === 'managed-plain-chat') {
-          argv = ['capability', 'plain-chat', message.id, '--secrets', message.edits.plainChatSecrets ?? 'inherit', '--json'];
+          argv = ['capability', 'plain-chat', message.id, '--secrets', message.edits.plainChatSecrets ?? 'inherit',
+            '--edits', message.edits.plainChatEdits ?? 'inherit', '--json'];
         } else {
           const protectedPath = await vscode.window.showInputBox({
             title: 'Protect a path',

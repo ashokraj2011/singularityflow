@@ -113,6 +113,8 @@ existing runtime bundle ceilings passed unchanged; the gateway has 852 modules a
 852-module ceiling. VS Code typechecking passed. Windows, hosted CI, live providers, installed
 authority changes and real user Stories were not exercised or changed.
 
-This qualifies checkpoint recording and publication replay. Namespace phase-entry composition,
-remaining native policy extraction, complete application/code-delivery execution, existing-project
+This qualifies checkpoint recording and publication replay. The subsequent
+[namespace entry integration](ENGINE-SDK-NAMESPACE-PHASE-ENTRY.md) includes the exact retained
+answers in an authoring read manifest without putting model wording in the SDK. Remaining native
+policy extraction, complete application/code-delivery execution, existing-project
 migration/cutover and final distribution/performance qualification retain their Phase 5, 7, 8 and 9 gates.

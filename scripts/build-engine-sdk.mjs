@@ -29,6 +29,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(operation.id==='phase.context.read')return ['maximumBytes','offset'].includes(field)?'number':field==='representation'?"'text' | 'base64' | 'metadata'":'string';
   if(operation.id.startsWith('clarification.')&&field==='agentId')return 'string | null';
   if(operation.id==='clarification.status')return 'string';
   if(operation.id==='clarification.record')return field==='responses'?'readonly JsonValue[]':field==='replace'?'boolean':'string';

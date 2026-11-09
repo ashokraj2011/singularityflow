@@ -4,6 +4,9 @@ import {currentEntryPhase,phaseCompositionAdmission} from './phase-admission.mjs
 import {nextPhaseGeneration,phaseReviewSelection} from './phase-policy.mjs';
 import {approvedInputPhases,resolvedPhaseInputs,clarificationCheckpointState,normalizeClarificationPolicy} from './phase-inputs.mjs';
 import {validDocumentReference} from './document-read.mjs';
+import {clarificationPublicationState,resolvedClarificationPolicy} from './clarification-responses.mjs';
+import {effectivePhasePublicationProducer} from './phase-policy.mjs';
+import {utf8Bytes} from './artifact-content.mjs';
 
 const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
 const count=value=>Number.isSafeInteger(value)&&value>=0;
@@ -12,6 +15,168 @@ const keys=(value,allowed)=>value&&typeof value==='object'&&!Array.isArray(value
 const nullableText=value=>value===null||text(value);
 const strings=value=>Array.isArray(value)&&value.every(text);
 function bad(){throw new SingularityFlowError('The phase entry port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});}
+
+export const CONTENT_PHASE_ENTRY_PROFILE='sflow-phase-entry-manifest/v2';
+const exact=(value,fields)=>keys(value,fields)&&Object.keys(value).length===fields.length;
+const contentRef=value=>exact(value,['namespace','sha256','bytes'])&&['config','state','evidence','runtime','local'].includes(value.namespace)
+  &&digest(value.sha256)&&count(value.bytes)&&value.bytes<=134217728;
+/** Explicit protocol dispatch keeps the existing checkout manifest and callbacks unchanged. */
+export function phaseEntryProtocol(context) {
+  if(context.manifestProfile===undefined)return {selection:phaseEntrySelection,inspection:phaseEntryInspection,
+    composition:phaseEntryComposition,clarification:phaseEntryClarification,plan:phaseEntryPlan,manifest:phaseEntryManifest};
+  if(context.manifestProfile!==CONTENT_PHASE_ENTRY_PROFILE)throw new SingularityFlowError(
+    'This phase-entry manifest requires its matching protocol.',{code:'ENGINE_STORAGE_UNSUPPORTED',details:{profile:context.manifestProfile}});
+  return {selection:contentEntrySelection,inspection:contentEntryInspection,composition:contentEntryComposition,
+    clarification:contentEntryClarification,plan:contentEntryPlan,manifest:contentEntryManifest};
+}
+function contentEntrySelection(context,inputs) {
+  const binding=phaseEntrySelection(context,inputs);
+  if(!text(context.projectId)||typeof context.modelEnabled!=='boolean')bad();
+  const phase=context.workflow.phases[binding.phase],producer=effectivePhasePublicationProducer(phase,{modelEnabled:context.modelEnabled});
+  return {...binding,projectId:context.projectId,producer,authorAgentId:phase.defaultAgent??binding.agentId,
+    clarificationPolicy:resolvedClarificationPolicy({},context.workflow,phase)};
+}
+export function phaseContextResources(value,{maximumBytes=65536}={}) {
+  if(!Array.isArray(value)||value.length>4096||!count(maximumBytes)||maximumBytes>1048576)bad();
+  const roles=['constitution','agent','skill','instruction','story-source','approved-input','supporting-document','human-clarifications','artifact-template','generation-intent','current-draft'];
+  const rank=kind=>kind==='constitution'?0:['agent','skill','instruction'].includes(kind)?1:roles.indexOf(kind);
+  const ids=new Set();
+  for(const resource of value) {
+    if(!exact(resource,['id','kind','reference','locality','availability','phase','generation'])||!text(resource.id)||ids.has(resource.id)
+      ||!roles.includes(resource.kind)||!contentRef(resource.reference)||!['project','machine-local'].includes(resource.locality)
+      ||!['verified','verify-on-read','reupload-required'].includes(resource.availability)||!nullableText(resource.phase)
+      ||resource.generation!==null&&(!count(resource.generation)||resource.generation<1)
+      ||(resource.reference.namespace==='local')!==(resource.locality==='machine-local')
+      ||resource.availability!=='verified'&&resource.locality!=='machine-local')bad();
+    ids.add(resource.id);
+  }
+  return [...value].sort((a,b)=>rank(a.kind)-rank(b.kind)).map((resource,index)=>({...resource,order:index+1,budgetBytes:Math.min(resource.reference.bytes,maximumBytes)}));
+}
+function contentEntryInspection(binding,facts) {
+  if(!exact(facts,['workId','phase','generation','inspectionGeneration','projectId','authoring','recovery','references','deterministic','documents','budgets','resources',
+    'contextIdentity','permissions','draft','blockers','configuration'])||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||facts.generation!==binding.generation||facts.inspectionGeneration!==binding.inspectionGeneration||facts.projectId!==binding.projectId
+    ||!admissionFactsValid(facts)||facts.deterministic!==binding.deterministic
+    ||!exact(facts.budgets,['documentPreviewBytes','supportingTotalBytes'])||!count(facts.budgets.documentPreviewBytes)||facts.budgets.documentPreviewBytes>1048576
+    ||!count(facts.budgets.supportingTotalBytes)||!strings(facts.permissions)||!Array.isArray(facts.blockers)
+    ||!exact(facts.contextIdentity,['sha256','bytes'])||!digest(facts.contextIdentity.sha256)||!count(facts.contextIdentity.bytes)
+    ||!exact(facts.configuration,['key','content'])||!text(facts.configuration.key)||!contentRef(facts.configuration.content)||facts.configuration.content.namespace!=='config')bad();
+  if(facts.blockers.some(item=>!exact(item,['code','message','details'])||!text(item.code)||!text(item.message)))bad();
+  const draft=facts.draft;
+  if(draft!==null&&(!exact(draft,['generation','revision','bodySha256','baseRevision','artifact','intent'])
+    ||!count(draft.generation)||draft.generation<1||!text(draft.revision)||!digest(draft.bodySha256)||!text(draft.baseRevision)
+    ||!contentRef(draft.artifact)||draft.artifact.namespace!=='local'
+    ||draft.intent!==null&&(!exact(draft.intent,['id','reference'])||!text(draft.intent.id)||!contentRef(draft.intent.reference)||draft.intent.reference.namespace!=='local')))bad();
+  const resources=phaseContextResources(facts.resources,{maximumBytes:facts.budgets.documentPreviewBytes}),admission=phaseCompositionAdmission(facts);
+  const ofKind=kind=>resources.filter(item=>item.kind===kind),sameReference=(a,b)=>a.namespace===b.namespace&&a.sha256===b.sha256&&a.bytes===b.bytes;
+  if(ofKind('story-source').length!==1||ofKind('artifact-template').length!==1||ofKind('agent').length!==(binding.authorAgentId===null?0:1)
+    ||ofKind('constitution').length>1||ofKind('human-clarifications').length>1
+    ||ofKind('supporting-document').length!==facts.documents.documentCount
+    ||ofKind('supporting-document').filter(item=>item.locality==='machine-local').length!==facts.documents.localDocumentCount)bad();
+  for(const input of binding.inputs) {
+    const matches=ofKind('approved-input').filter(item=>item.phase===input.phase);
+    if(input.status!=='approved'){if(matches.length||input.required)bad();continue;}
+    if(matches.length!==1||matches[0].generation!==input.generation||!input.retained.some(item=>item.role==='artifact'
+      &&item.sha256===matches[0].reference.sha256&&(item.bytes===null||item.bytes===matches[0].reference.bytes)))bad();
+  }
+  if(ofKind('approved-input').some(item=>!binding.inputs.some(input=>input.phase===item.phase)))bad();
+  const current=ofKind('current-draft'),intent=ofKind('generation-intent');
+  if(current.length!==(draft===null?0:1)||draft!==null&&(!sameReference(current[0].reference,draft.artifact)||current[0].phase!==binding.phase||current[0].generation!==draft.generation)
+    ||intent.length!==(draft?.intent?1:0)||draft?.intent&&(!sameReference(intent[0].reference,draft.intent.reference)||intent[0].phase!==binding.phase||intent[0].generation!==draft.generation))bad();
+  for(const blocker of facts.blockers)admission.blockers.push({code:blocker.code,details:blocker.details});
+  admission.allowed=admission.blockers.length===0;
+  return {facts:{...facts,resources},admission};
+}
+function contentEntryComposition(binding,facts) {
+  if(!exact(facts,['workId','phase','generation','sha256','bytes'])||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||facts.generation!==binding.inspectionGeneration||!digest(facts.sha256)||!count(facts.bytes))bad();
+  return facts;
+}
+function contentEntryClarification(binding,facts) {
+  if(!exact(facts,['workId','phase','generation','contextSha256','record'])||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||facts.generation!==binding.inspectionGeneration||!digest(facts.contextSha256))bad();
+  const record=facts.record,policy=binding.clarificationPolicy;
+  if(record!==null&&(!exact(record,['reference','contextSha256','responses','completed'])||!contentRef(record.reference)||record.reference.namespace!=='evidence'
+    ||!digest(record.contextSha256)||!Array.isArray(record.responses)||typeof record.completed!=='boolean'))bad();
+  let state;try{state=clarificationPublicationState(policy,record?{...record,phase:binding.phase}:null,binding.producer);}catch{bad();}
+  const stale=record!==null&&record.contextSha256!==facts.contextSha256;
+  const errors=[...state.errors,...(stale?['record-binding-changed']:[])];
+  return {...facts,mode:policy.mode,errorCount:errors.length,errors,recordState:policy.mode==='off'?'not-applicable':record===null?'missing':errors.length?'stale-or-incomplete':'complete',
+    maxQuestions:policy.maxQuestions,recordedQuestions:record?.responses.length??0,staleOnly:stale&&state.ready,
+    ...clarificationCheckpointState(policy.mode,record===null?'missing':'recorded',errors.length),stagingIssued:false};
+}
+function contentEntryPlan(binding,inspection,composition,clarification,{compose=false}={}) {
+  const {facts,admission}=inspection,retained=facts.authoring.entry.status==='retained-generation',draft=facts.draft,
+    current=draft!==null&&draft.baseRevision===binding.revision&&draft.generation===binding.inspectionGeneration;
+  const human=facts.resources.filter(item=>item.kind==='human-clarifications');
+  if(human.length!==(clarification.record===null?0:1)||clarification.record&&(human[0].reference.sha256!==clarification.record.reference.sha256
+    ||human[0].reference.bytes!==clarification.record.reference.bytes||human[0].reference.namespace!=='evidence'))bad();
+  const authoringAllowed=admission.allowed&&!retained&&clarification.errorCount===0&&current&&facts.permissions.includes('phase.draft.write');
+  const status=retained?'retained-generation':facts.documents.status!=='ready'?'documents-required':!admission.allowed?'attention-required'
+    :clarification.errorCount?'clarification-required':!current?draft?'draft-rebind-required':'preparation-required'
+      :!facts.permissions.includes('phase.draft.write')?'author-permission-required':'authoring-entry';
+  return {status,authoringAllowed,codeAuthoringReady:Boolean(binding.generatesCode&&authoringAllowed&&binding.codeGenerationReady&&draft?.intent),
+    compositionRequested:compose,contextComposition:!compose?'not-requested':composition?'delivered':'not-admitted',
+    questioningAllowed:!retained&&admission.allowed&&clarification.questioningAllowed,
+    recordingAllowed:!retained&&admission.allowed&&clarification.mode!=='off'&&(clarification.questioningAllowed||clarification.errorCount>0),
+    rebindAllowed:!retained&&admission.allowed&&clarification.staleOnly};
+}
+function contentEntryManifest(binding,inspection,composition,clarification,plan,finished) {
+  if(!exact(finished,['workId','phase','generation','revision','task'])||finished.workId!==binding.workId||finished.phase!==binding.phase
+    ||finished.generation!==binding.inspectionGeneration||finished.revision!==binding.revision||finished.task!==null)bad();
+  if(!binding.ready)return null;
+  if(composition&&(composition.sha256!==inspection.facts.contextIdentity.sha256||composition.bytes!==inspection.facts.contextIdentity.bytes))bad();
+  const {facts}=inspection;
+  const inputs={workId:binding.workId,phaseId:binding.phase};
+  const action=plan.status==='retained-generation'?{operation:'phase.review',inputs}
+    :plan.status==='clarification-required'?{operation:'clarification.record',inputs:{...inputs,contextSha256:clarification.contextSha256,agentId:binding.authorAgentId,
+      ...(clarification.record?{replace:true}:{})},prerequisites:['human-responses','authenticated-phase-authority',...(clarification.record?['review-existing-answers','reason']:[])]}
+    :plan.status==='preparation-required'?{operation:'phase.prepare',inputs,prerequisites:['machine-local-working-store','phase.prepare-permission']}
+    :plan.status==='draft-rebind-required'?{operation:'phase.draft.rebase',inputs:{...inputs,expectedRevision:facts.draft.revision,confirm:facts.draft.bodySha256},prerequisites:['human-draft-review','operation-id','reason']}
+    :plan.status==='authoring-entry'?{operation:'phase.draft.write',inputs:{...inputs,expectedRevision:facts.draft.revision},prerequisites:['authored-content-reference','operation-id','reason']}
+    :plan.status==='author-permission-required'?{operation:'phase.enter',inputs,prerequisites:['phase.draft.write-permission']}
+    :{operation:'phase.enter',inputs,prerequisites:inspection.admission.blockers.map(item=>item.code)};
+  return {schemaVersion:2,contract:CONTENT_PHASE_ENTRY_PROFILE,purpose:'phase-authoring',projectId:binding.projectId,workId:binding.workId,phase:binding.phase,
+    publishedGeneration:binding.generation,inspectionGeneration:binding.inspectionGeneration,prospectiveGeneration:binding.nextGeneration,
+    agentId:binding.agentId,authorAgentId:binding.authorAgentId,configuration:facts.configuration,revision:binding.revision,budgets:facts.budgets,resources:facts.resources,
+    context:{...facts.contextIdentity,representation:'resource-manifest',delivered:Boolean(composition)},readsVerified:false,
+    draft:facts.draft,clarification:{mode:clarification.mode,recordState:clarification.recordState,stage:clarification.stage,
+      contextSha256:clarification.contextSha256,record:clarification.record?{reference:clarification.record.reference,contextSha256:clarification.record.contextSha256}:null,
+      errorCount:clarification.errorCount,recordedQuestions:clarification.recordedQuestions,maxQuestions:clarification.maxQuestions,
+      questioningAllowed:plan.questioningAllowed,recordingAllowed:plan.recordingAllowed,rebindAllowed:plan.rebindAllowed},
+    blockers:[...inspection.admission.blockers],actions:[action],execution:{inspected:false},humanReviewRecorded:false,approvalRecorded:false};
+}
+
+export function phaseContextReadInput(value) {
+  const fields=['workId','phaseId','contextSha256','resourceId','maximumBytes','representation','offset'];
+  if(!keys(value,fields)||['workId','phaseId','resourceId'].some(key=>!text(value[key]))||!digest(value.contextSha256)
+    ||value.maximumBytes!==undefined&&(!count(value.maximumBytes)||value.maximumBytes>1048576)
+    ||value.offset!==undefined&&!count(value.offset)||value.representation!==undefined&&!['text','base64','metadata'].includes(value.representation)
+    ||(value.offset??0)>0&&(value.representation??'text')!=='base64')throw new SingularityFlowError(
+    'Read an exact issued phase resource under a bounded representation.',{code:'ENGINE_INPUT_INVALID'});
+  return {...value,maximumBytes:value.maximumBytes??65536,representation:value.representation??'text',offset:value.offset??0};
+}
+export function phaseContextReadResult(input,facts) {
+  if(!exact(facts,['workId','phase','generation','contextSha256','resourceId','reference','representation','offset','encoding','content'])
+    ||facts.workId!==input.workId||facts.phase!==input.phaseId||facts.contextSha256!==input.contextSha256||facts.resourceId!==input.resourceId
+    ||!count(facts.generation)||facts.generation<1||!contentRef(facts.reference)||facts.offset!==input.offset||facts.representation!==input.representation
+    ||!['utf8','binary'].includes(facts.encoding)||input.offset>facts.reference.bytes)bad();
+  const body=facts.content;
+  if(body!==null) {
+    if(input.representation==='text') {
+      if(facts.encoding!=='utf8'||!exact(body,['kind','text','bytes','truncated'])||body.kind!=='text'||typeof body.text!=='string'||!count(body.bytes)
+        ||utf8Bytes(body.text)!==body.bytes||body.bytes>input.maximumBytes||body.bytes>facts.reference.bytes
+        ||body.truncated!==(body.bytes<facts.reference.bytes))bad();
+    }else if(input.representation==='base64') {
+      if(!exact(body,['kind','base64','bytes','truncated'])||body.kind!=='bytes'||typeof body.base64!=='string'
+        ||!count(body.bytes)||body.bytes>input.maximumBytes||input.offset+body.bytes>facts.reference.bytes
+        ||body.truncated!==(input.offset+body.bytes<facts.reference.bytes)||! /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(body.base64)
+        ||body.base64.length/4*3-(body.base64.endsWith('==')?2:body.base64.endsWith('=')?1:0)!==body.bytes)bad();
+    }else bad();
+  }else if(input.representation!=='metadata'&&(input.representation!=='text'||facts.encoding!=='binary'))bad();
+  return {status:'read',subject:{kind:'story',id:input.workId},...facts,
+    effects:{committed:false,pushed:false,testsRun:false,approvalRecorded:false,storyAdvanced:false}};
+}
 
 export function phaseEntrySelection(context,inputs) {
   const workflow=context?.workflow;

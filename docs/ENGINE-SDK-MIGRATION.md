@@ -67,6 +67,21 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [namespace phase-entry and exact context-read](ENGINE-SDK-NAMESPACE-PHASE-ENTRY.md) integration
+binds the authoring manifest to actual approved inputs, agent/skill/instruction dependencies,
+human clarification receipts, private drafts and selected sources. Its explicit v2 profile returns
+content handles and bounded read operations; model wording stays in the host. Confirmed replies
+survive edits and takeover, and entry does not prepare, execute checks, publish or approve.
+Native v1 output, Git behavior and authority remain unchanged. Phases 5, 7, 8 and 9 remain open.
+
+Mac qualification covers 316 distinct affected core, namespace, native compatibility and installed
+SDK cases without failures, cancellations or skips. The final changed-entry rerun passed all 41
+affected cases, including actual bundled native parity. Source validation passed 3,985 checks
+across 191 skills. VS Code types, the unchanged Git ownership audit and all 13 existing runtime
+ceilings passed; gateway remains 852/852. The SDK exposes 60 operations across 205 owned modules
+and 2,081,982 JavaScript bytes. Remaining production policy/execution owners, full application
+Story execution, installed-project migration/cutover and distribution/performance remain required.
+
 The [retained clarification checkpoint](ENGINE-SDK-CLARIFICATIONS.md) integration adds registered
 status and human-record operations, a shared read manifest and actual namespace answer receipts.
 Publication conditionally accepts the observed checkpoint revision or its explicit absence;
@@ -78,9 +93,9 @@ including native Git configuration, lifecycle and proof conformance. Source vali
 3,981 checks across 191 skills with the unchanged Git ownership audit.
 The SDK has 59 operations across 204 owned modules and 2,041,156 JavaScript bytes. VS Code types
 and all 13 unchanged runtime ceilings passed, including gateway 852/852. Required-clarification
-integration is no longer an unbound namespace publication owner; namespace phase-entry composition,
-full application execution, remaining native extraction and existing-project migration/cutover are
-still required.
+integration was no longer an unbound namespace publication owner at that delivery. Namespace entry
+is qualified separately above; full application execution, remaining native extraction and
+existing-project migration/cutover are still required.
 
 The [shared specification analysis and human checklist](ENGINE-SDK-SPECIFICATION-ANALYSIS.md)
 integration moves deterministic quality, marker and scenario rules into kernel owners. Actual
@@ -263,7 +278,7 @@ observation and shared path policy, not full application delivery or installed a
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content and specification/marker/scenario/checklist rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, one public namespace Engine composition, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, namespace-backed SGOS operational history, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, retained specification indexes/planned claims with original upstream human approval proof, retained specification analysis and bound human checklists, actual human clarification checkpoints and conditional absence, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, one public namespace Engine composition, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, namespace-backed SGOS operational history, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, retained specification indexes/planned claims with original upstream human approval proof, retained specification analysis and bound human checklists, actual human clarification checkpoints and conditional absence, namespace authoring manifests and exact resource reads, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 

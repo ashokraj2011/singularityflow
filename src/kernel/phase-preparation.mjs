@@ -1,7 +1,9 @@
 /** Preparation selection and observations. No host locations, model wording, I/O or approval decisions. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {phaseBeginSelection,effectivePhasePublicationProducer,isConvergencePhase,
-  phaseKernelOwned,phaseRequiresCodeDelivery} from './phase-policy.mjs';
+  phaseKernelOwned,phaseRequiresCodeDelivery,phaseExplicitlyReopened,pendingIntentAmendmentAcknowledgement,phaseGovernancePlan} from './phase-policy.mjs';
+import {phaseCatalogAuthorAdmission,skillPhaseHostRequirement} from './phase-admission.mjs';
+import {sequenceAdmission} from './lifecycle-transitions.mjs';
 import {storyActorValue} from './story-creation.mjs';
 import {projectEnrollmentTimestamp} from './project-enrollment.mjs';
 import {utf8Bytes} from './artifact-content.mjs';
@@ -13,6 +15,28 @@ const nullable=(check,value)=>value===null||check(value);
 const exact=(value,fields)=>value&&typeof value==='object'&&!Array.isArray(value)
   &&Object.keys(value).length===fields.length&&Object.keys(value).every(key=>fields.includes(key));
 function bad(){throw new SingularityFlowError('The preparation port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});}
+
+const admissionError=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
+/** Existing ordered admission shared by concrete preparation and authoring-entry readers. */
+export function phasePreparationOpeningAdmission(w,phase) {
+    const sequence=sequenceAdmission(w,{requestedPhase:phase.id});
+    if(!sequence.allowed)throw admissionError('Preparation requires the current in-progress phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
+    if(pendingIntentAmendmentAcknowledgement(w))throw admissionError('Acknowledge the approved intent amendment before preparing another draft.','INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED');
+    const hold=phaseGovernancePlan(w,phase);
+    if(hold)throw admissionError('Select the phase author before preparing or publishing this draft.',hold.code,hold);
+    if(phase.generationIntent?.status==='consumed'&&!phaseExplicitlyReopened(w,phase))throw admissionError('The published code generation needs an explicitly reviewed successor.','GENERATION_INTENT_ALREADY_CONSUMED');
+}
+export function phasePreparationCatalogAdmission(definition,w,phase,agentId) {
+    const author=phaseCatalogAuthorAdmission(definition,w,phase,agentId);
+    if(!author.allowed)throw admissionError(author.reason==='read-only'?'The selected agent is read-only for this phase.'
+      :author.reason==='unknown'?'The selected agent is not in the pinned catalog.':'Select the pinned phase author before preparing its draft.',author.code,author.facts);
+    const skillHost=skillPhaseHostRequirement(w,phase);
+    if(skillHost)throw admissionError('The qualified skill containment and delivery host is not installed for this phase.','SKP_HOST_ENFORCEMENT_UNAVAILABLE',skillHost);
+    if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled)throw admissionError('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
+      w.resolution.testRecoveryAgreement?'TRP_READINESS_EVIDENCE_REQUIRED':'TRP_AGREEMENT_REQUIRED');
+    if((w.referenceRepositories??[]).length)throw admissionError('The declared reference repositories need actual source bindings before preparation.','REFERENCE_REPOSITORIES_NOT_READY');
+    if((w.pendingPublications??[]).length)throw admissionError('Reconcile the pending publication before preparing a private draft.','PENDING_PUBLICATION_REQUIRED');
+}
 
 export function phasePreparationSelection(workflow,inputs,modelEnabled) {
   if(typeof modelEnabled!=='boolean')bad();

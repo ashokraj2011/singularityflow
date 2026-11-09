@@ -41,6 +41,16 @@ and acknowledge retained effects, including publication without the old private 
 write authority share the same explicit binding. Construction performs no I/O or enrollment.
 Full application/test execution and additional production policy owners remain required work.
 
+`phase.enter` also provides a content-reference authoring manifest over actual namespace inputs,
+including pinned agent/skill/instruction dependencies and accepted human clarifications. Read its
+exact resources through `phase.context.read` with the returned context digest and resource handle;
+bounded text, binary chunks and metadata do not expose laptop paths or launch a model. Entry does
+not prepare a draft or run checks. Edits invalidate the read plan without re-asking settled human
+questions; published generations remain reviewable without the old private store. Hosts own
+prompt wording and must respect the manifest's per-resource and total supporting-input budgets.
+See `docs/ENGINE-SDK-NAMESPACE-PHASE-ENTRY.md` in the source repository for protocol and freshness
+details. The installed Git adapter retains its existing v1 entry contract.
+
 ```js
 import { createEngine, ENGINE_OPERATIONS } from '@singularity-flow/engine-sdk';
 

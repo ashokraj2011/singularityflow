@@ -15,8 +15,7 @@ import {phaseReviewSelection,phaseReviewManifest,phaseReviewResourcesManifest,ph
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
-import {phaseEntrySelection,phaseEntryInspection,phaseEntryComposition,phaseEntryClarification,
-  phaseEntryPlan,phaseEntryManifest} from '../kernel/phase-entry.mjs';
+import {phaseEntryProtocol,phaseContextReadInput,phaseContextReadResult} from '../kernel/phase-entry.mjs';
 import {phasePrepublishSelection,phasePrepublishManifest,phaseDraftCheckSelection,phaseDraftCheckManifest} from '../kernel/phase-prepublish.mjs';
 import {phasePreparationSelection,phasePreparationManifest} from '../kernel/phase-preparation.mjs';
 import {workflowAssetSelection,workflowAssetManifest} from '../kernel/workflow-assets.mjs';
@@ -135,6 +134,10 @@ const definitions = [
   {id:'phase.enter',version:1,effect:'context-entry',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','compose']),port:'phaseEntry',
     stages:Object.freeze(['load','inspect','compose','clarify','finish']),validate:'phaseEntryInput',execute:'enterPhase'},
+  {id:'phase.context.read',version:1,effect:'read',humanDecision:false,
+    inputFields:Object.freeze(['workId','phaseId','contextSha256','resourceId','maximumBytes','representation','offset']),
+    requiredFields:Object.freeze(['workId','phaseId','contextSha256','resourceId']),port:'phaseContextRead',
+    stages:Object.freeze(['load','read']),validate:'contextReadInput',execute:'readPhaseContext'},
   {id:'phase.begin',version:1,effect:'local-draft',humanDecision:false,
     inputFields:Object.freeze(['workId','phaseId','adoptExisting','confirm']),port:'phaseBegin',
     stages:Object.freeze(['load','verify','begin']),validate:'phaseBeginInput',execute:'beginPhase'},
@@ -702,6 +705,14 @@ function phaseEntryInput(value,operation) {
     ||input.compose!=null&&typeof input.compose!=='boolean')invalid('Invalid phase entry selection or composition request.');
   return input;
 }
+function contextReadInput(value){return phaseContextReadInput(data(value));}
+async function readPhaseContext(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||context.subject.id!==input.workId||context.phase!==input.phaseId)throw new SingularityFlowError(
+    'The context reader returned another Story or phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const facts=data(await port.read(context,input,{signal}));notCancelled(signal);
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.context.read',...phaseContextReadResult(input,facts)});
+}
 
 async function enterPhase(port,inputs,signal) {
   const compose=inputs.compose===true,completedStages=[];
@@ -717,26 +728,27 @@ async function enterPhase(port,inputs,signal) {
     let inspection=null,admission=null,plan={status:'paused',authoringAllowed:false,codeAuthoringReady:false,
       contextComposition:compose?'not-admitted':'not-requested',compositionRequested:compose},manifest=null;
     if(!context.paused) {
-      binding=data(phaseEntrySelection(context,inputs));
+      const protocol=phaseEntryProtocol(context);
+      binding=data(protocol.selection(context,inputs));
       if(!binding.ready) {
         admission=data(phaseCompositionAdmission({ready:false}));plan={...plan,status:'binding-required'};
       } else {
         pendingStage='inspect';
         const inspected=await port.inspect(context,binding,{signal});completedStages.push('inspect');notCancelled(signal);
-        inspection=data(phaseEntryInspection(binding,copy(inspected)));admission=inspection.admission;
+        inspection=data(protocol.inspection(binding,copy(inspected)));admission=inspection.admission;
         if(compose&&admission.allowed) {
           pendingStage='compose';
           const facts=await port.compose(context,binding,{signal});completedStages.push('compose');notCancelled(signal);
-          composition=data(phaseEntryComposition(binding,copy(facts)));
+          composition=data(protocol.composition(binding,copy(facts)));
         }
         pendingStage='clarify';
         const facts=await port.clarify(context,binding,{signal});completedStages.push('clarify');notCancelled(signal);
-        clarification=data(phaseEntryClarification(binding,copy(facts)));
-        plan=data(phaseEntryPlan(binding,inspection,composition,clarification,{compose}));
+        clarification=data(protocol.clarification(binding,copy(facts)));
+        plan=data(protocol.plan(binding,inspection,composition,clarification,{compose}));
       }
       pendingStage='finish';
       const facts=await port.finish(context,binding,{admission,plan},{signal});completedStages.push('finish');notCancelled(signal);
-      finished=copy(facts);manifest=data(phaseEntryManifest(binding,inspection,composition,clarification,plan,finished));
+      finished=copy(facts);manifest=data(protocol.manifest(binding,inspection,composition,clarification,plan,finished));
     }
     const interrupted=finished?.task?.state==='inspect-interrupted-operation';
     return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.enter',status:interrupted?'attention-required':plan.status,
@@ -1539,7 +1551,7 @@ export function createEngine(options = {}) {
     sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
-    documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,
+    documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
     recordSingleDecision, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,

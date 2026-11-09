@@ -952,7 +952,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const identity={name:'Example reviewer',email:'reviewer@example.test',login:null};
       let principalId='check-author',person=identity,agentId=fresh?'analyst':null;
       const access={current(){return {projectId:scope.projectId,principalId,actorKind:'human',identity:person,agentId,
-        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','clarification.record','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run','phase.publish','phase.submit','phase.approve']:[]};}};
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','clarification.record','phase.enter','phase.context.read','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run','phase.publish','phase.submit','phase.approve']:[]};}};
       const common={records,content,scope,workId,authority,access,clock},input={operationId:'run-pinned-checks',workId,phaseId:'intake'};
       try{
         let engine;
@@ -984,7 +984,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           const storySource=(await content.put(scope,'state',Buffer.from('Retain actual existing test execution.'))).reference;
           const story=await engine.run('story.create',{operationId:'create-check-story',workId,title:'Check existing behavior',workTypeId:'simple',configurationId:'approve-check-config',source:storySource});
           await engine.run('source.bind',{operationId:'bind-check-source',workId,expectedRevision:story.revision,repositories:['app'],reason:'Select the real application bytes.'});
+          const entry=await engine.run('phase.enter',{phaseId:'intake',compose:true});
+          assert.equal(entry.status,'clarification-required');assert.equal(entry.effects.modelInvocations,0);
+          assert.equal(entry.manifest.execution.inspected,false);assert.equal(entry.manifest.readsVerified,false);
+          const resource=entry.manifest.resources.find(item=>item.kind==='story-source');
+          const sourceRead=await engine.run('phase.context.read',{workId,phaseId:'intake',contextSha256:entry.manifest.context.sha256,resourceId:resource.id});
+          assert.equal(sourceRead.content.text,'Retain actual existing test execution.');
           const checkpoint=await engine.run('clarification.status',{phaseId:'intake'});assert.equal(checkpoint.ready,false);
+          assert.equal(checkpoint.context.sha256,entry.manifest.clarification.contextSha256);
           const replyInput={operationId:'human-check-context',workId,phaseId:'intake',contextSha256:checkpoint.context.sha256,
             responses:[{question:'Which behavior is in scope?',answer:'Review the existing application tests and retain their actual passing execution.'}]};
           const reply=await engine.run('clarification.record',replyInput);
@@ -997,6 +1004,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(result.status,fresh?'recorded':'retained');assert.equal(result.effects.committed,fresh);assert.equal(result.effects.approvalRecorded,false);
         if(fresh){
           assert.equal((await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'})).status,'published');
+          const entry=await engine.run('phase.enter',{phaseId:'intake',compose:true});
+          assert.equal(entry.status,'retained-generation');assert.equal(entry.manifest.clarification.questioningAllowed,false);
+          assert.equal(entry.manifest.clarification.recordingAllowed,false);
+          const answers=entry.manifest.resources.find(item=>item.kind==='human-clarifications');
+          const answerBody=await engine.run('phase.context.read',{workId,phaseId:'intake',contextSha256:entry.manifest.context.sha256,resourceId:answers.id});
+          assert.equal(JSON.parse(answerBody.content.text).responses[0].question,'Which behavior is in scope?');
           assert.equal((await engine.run('phase.submit',{phaseId:'intake'})).status,'awaiting-approval');
           const review=await engine.run('phase.review',{phaseId:'intake'}),binding=review.manifest.reviewBinding;
           principalId='independent-human';person={name:'Independent reviewer',email:'independent@example.test',login:null};agentId=null;
@@ -1222,6 +1235,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         command:{executable:'/explicit/node',executableSha256:'sha256:abc',arguments:['--test'],environment:{}},
         report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
       declare const phaseCheckOptions:NamespaceEngineOptions;
+      createNamespaceEngine(phaseCheckOptions).run('phase.enter',{phaseId:'review',compose:true});
+      createNamespaceEngine(phaseCheckOptions).run('phase.context.read',{workId:'example',phaseId:'review',contextSha256:'exact-context',resourceId:'issued-resource',maximumBytes:4000,representation:'base64',offset:256});
+      // @ts-expect-error Context bodies require the exact manifest digest and issued resource handle.
+      createNamespaceEngine(phaseCheckOptions).run('phase.context.read',{workId:'example',phaseId:'review',resourceId:'issued-resource'});
+      // @ts-expect-error Context reads accept bounded representations, never a model prompt or file path.
+      createNamespaceEngine(phaseCheckOptions).run('phase.context.read',{workId:'example',phaseId:'review',contextSha256:'exact-context',resourceId:'issued-resource',representation:'prompt'});
+      // @ts-expect-error Byte offsets are numeric, never shell arguments.
+      createNamespaceEngine(phaseCheckOptions).run('phase.context.read',{workId:'example',phaseId:'review',contextSha256:'exact-context',resourceId:'issued-resource',offset:'20'});
       createNamespaceEngine(phaseCheckOptions).run('clarification.status',{phaseId:'review'});
       createNamespaceEngine(phaseCheckOptions).run('clarification.record',{operationId:'answer-checkpoint',workId:'example',phaseId:'review',
         contextSha256:'exact-reviewed-context',responses:[{question:'Scope?',answer:'The human scope.'}],replace:true,reason:'Reviewed replacement.'});

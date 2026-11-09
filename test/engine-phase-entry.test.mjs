@@ -61,6 +61,14 @@ test('host flags, model/provider requests, raw context, authority and accessors 
   assert.deepEqual(f.calls,[]);
 });
 
+test('an explicit unknown manifest profile cannot fall back to the native checkout protocol',async()=>{
+  for(const profile of [null,'sflow-phase-entry-manifest/v3','sflow-phase-entry-manifest/v1']) {
+    const f=fixture((stage,{context})=>{if(stage==='load')context.manifestProfile=profile;});
+    await assert.rejects(f.engine.run('phase.enter',{compose:true}),error=>error.code==='ENGINE_STORAGE_UNSUPPORTED'&&error.details.profile===profile);
+    assert.deepEqual(f.calls,['load']);
+  }
+});
+
 test('pause and missing binding do not load authoring or consume clarification/context stages',async()=>{
   const paused=fixture(stage=>stage==='load'?{paused:true}:undefined),result=await paused.engine.run('phase.enter',{compose:true});
   assert.equal(result.status,'paused');assert.equal(result.subject,null);assert.equal(result.manifest,null);assert.deepEqual(paused.calls,['load']);

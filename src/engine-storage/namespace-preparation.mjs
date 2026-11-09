@@ -4,10 +4,8 @@ import { createEngine } from '../engine-sdk/index.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
-import { phaseDraftAccess,phasePreparationSelection } from '../kernel/phase-preparation.mjs';
-import { phaseCatalogAuthorAdmission,skillPhaseHostRequirement } from '../kernel/phase-admission.mjs';
-import { phaseBeginSelection,phaseExplicitlyReopened,pendingIntentAmendmentAcknowledgement,phaseRequiresCodeDelivery,phaseGovernancePlan } from '../kernel/phase-policy.mjs';
-import { sequenceAdmission } from '../kernel/lifecycle-transitions.mjs';
+import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission } from '../kernel/phase-preparation.mjs';
+import { phaseBeginSelection } from '../kernel/phase-policy.mjs';
 import { projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
 import { storyActorValue } from '../kernel/story-creation.mjs';
 import { sourceSnapshot,sourceUnitDescriptor,sourceRelativePath,validateSourceUnit } from '../foundation/source-snapshot.mjs';
@@ -52,7 +50,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     ...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,localRecords[name].bind(localRecords)]))});
   const privateContent=Object.freeze({descriptor:structuredClone(localContent.descriptor),
     ...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,localContent[name].bind(localContent)]))});
-  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap();
+  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap(),entryReads=new WeakMap();
   const store=phaseId=>createNamespaceDraftStore({records:privateRecords,content:privateContent,scope,workId,phaseId});
   const selected=context=>{const value=contexts.get(context);if(!value)throw error('Use the issued preparation context.','ENGINE_INPUT_INVALID');return value;};
   async function authorize(operation,signal,expected=null) {
@@ -129,23 +127,11 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     return {...found,payload:p,currentBytes,initialBytes,generationBytes:intentBytes};
   }
   async function contract(captured,agent,signal) {
-    const w=captured.snapshot.workflow,phase=captured.phase,sequence=sequenceAdmission(w,{requestedPhase:phase.id});
-    if(!sequence.allowed)throw error('Preparation requires the current in-progress phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
-    if(pendingIntentAmendmentAcknowledgement(w))throw error('Acknowledge the approved intent amendment before preparing another draft.','INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED');
-    const hold=phaseGovernancePlan(w,phase);
-    if(hold)throw error('Select the phase author before preparing or publishing this draft.',hold.code,hold);
-    if(phase.generationIntent?.status==='consumed'&&!phaseExplicitlyReopened(w,phase))throw error('The published code generation needs an explicitly reviewed successor.','GENERATION_INTENT_ALREADY_CONSUMED');
+    const w=captured.snapshot.workflow,phase=captured.phase;
+    phasePreparationOpeningAdmission(w,phase);
     const approval=await observer.approved(captured.snapshot,{signal});
     if(!same(approval.configuration,captured.snapshot.configuration))throw error('Preparation has another immutable configuration pin.','ENGINE_STORAGE_CORRUPT');
-    const author=phaseCatalogAuthorAdmission(approval.compiled.definition,w,phase,agent.agentId);
-    if(!author.allowed)throw error(author.reason==='read-only'?'The selected agent is read-only for this phase.'
-      :author.reason==='unknown'?'The selected agent is not in the pinned catalog.':'Select the pinned phase author before preparing its draft.',author.code,author.facts);
-    const skillHost=skillPhaseHostRequirement(w,phase);
-    if(skillHost)throw error('The qualified skill containment and delivery host is not installed for this phase.','SKP_HOST_ENFORCEMENT_UNAVAILABLE',skillHost);
-    if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled)throw error('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
-      w.resolution.testRecoveryAgreement?'TRP_READINESS_EVIDENCE_REQUIRED':'TRP_AGREEMENT_REQUIRED');
-    if((w.referenceRepositories??[]).length)throw error('The declared reference repositories need actual source bindings before preparation.','REFERENCE_REPOSITORIES_NOT_READY');
-    if((w.pendingPublications??[]).length)throw error('Reconcile the pending publication before preparing a private draft.','PENDING_PUBLICATION_REQUIRED');
+    phasePreparationCatalogAdmission(approval.compiled.definition,w,phase,agent.agentId);
     const configuredPhase=approval.compiled.workflows[w.workItem.workType]?.phases.find(item=>item.id===phase.id);
     if(!configuredPhase)throw error('The phase is absent from its approved workflow.','ENGINE_STORAGE_CORRUPT');
     return {approval,phase:configuredPhase};
@@ -361,8 +347,29 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       throw error('The private source draft changed during its read-only inspection.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
     }
   }
+  async function captureEntryDraft(phaseId,{signal}={}) {
+    const captured=await canonical(phaseId,signal),found=await inspectPrivate(captured,signal),token=Object.freeze({});
+    entryReads.set(token,{captured,found});return token;
+  }
+  function entryDraft(token) {const value=entryReads.get(token);if(!value)throw error('Use the issued entry draft observation.','ENGINE_INPUT_INVALID');return value;}
+  function entryDraftFacts(token) {
+    const {captured,found}=entryDraft(token);
+    return structuredClone({revision:captured.snapshot.revision,authorityVersion:captured.basis.authorityVersion,
+      draft:found?{revision:found.revision,bodySha256:found.body.sha256,payload:found.payload}:null});
+  }
+  async function entryDraftBytes(token,reference,{signal}={}) {
+    const {captured,found}=entryDraft(token);
+    if(!found||![found.payload.artifact.current,found.payload.generationIntent?.record].filter(Boolean).some(value=>same(value,reference)))throw error('Read the exact private resource issued for this entry.','ENGINE_INPUT_INVALID');
+    return captured.store.bytes(reference,{signal});
+  }
+  async function revalidateEntryDraft(token,{signal}={}) {
+    const {captured,found}=entryDraft(token);await unchanged(captured,signal);
+    const fresh=await inspectPrivate(captured,signal);
+    if((found===null)!==(fresh===null)||found!==null&&(fresh.revision!==found.revision||!same(fresh.body,found.body)))throw error(
+      'The authored draft changed during its phase-entry read.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
+  }
   return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,generationIntentBytes,revalidateDraft,
-    captureSourceDraft,sourceDraftFacts,revalidateSourceDraft});
+    captureSourceDraft,sourceDraftFacts,revalidateSourceDraft,captureEntryDraft,entryDraftFacts,entryDraftBytes,revalidateEntryDraft});
 }
 
 export function createNamespacePreparationEngine(options) {

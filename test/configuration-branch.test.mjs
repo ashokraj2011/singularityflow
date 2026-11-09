@@ -1331,7 +1331,7 @@ test('new-Story choices and start freeze one current authority definition', asyn
       '--title', 'Use one current authority snapshot',
       '--description', 'Every new Story decision comes from the same approved definition.'
     ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.equal(started.status, 0, started.stderr || started.stdout);
+    assert.equal(started.status, 0, [started.stderr, started.stdout].filter(Boolean).join('\n'));
     const result = JSON.parse(started.stdout);
     assert.equal(result.data.workType, 'current-only');
     assert.equal(result.data.base.branch, 'trunk');

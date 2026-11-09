@@ -1,9 +1,10 @@
 /** Native syntax and packaged-root binding for shared source policies. No source/Git/file access. */
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import {NODE_CONFIGURATION_PATH_SYNTAX,TEST_COMMAND_ECOSYSTEMS} from './node-configuration-path.mjs';
 import {ecosystemOfAdapter,ecosystemOfProgram} from '../test-runners.mjs';
 import {GOVERNED_ROOTS} from '../governed-roots.mjs';
-import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS} from '../kernel/source-path-policies.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS,createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '../kernel/source-path-policies.mjs';
 export {SOURCE_BOUNDARIES,normalizeSourceBoundary} from '../kernel/configuration-declarations.mjs';
 
 const configurationFilePoliciesBinding=/* @__PURE__ */ configurationFilePolicies(NODE_CONFIGURATION_PATH_SYNTAX);
@@ -55,3 +56,12 @@ export const testCoverageExemptPath=/* @__PURE__ */ (()=>testDeliveryBinding.tes
 export const testCoverageDeliveryPaths=/* @__PURE__ */ (()=>testDeliveryBinding.testCoverageDeliveryPaths)();
 export const uncoveredTestDeliveryPaths=/* @__PURE__ */ (()=>testDeliveryBinding.uncoveredTestDeliveryPaths)();
 export const deliveryPathCohorts=/* @__PURE__ */ (()=>testDeliveryBinding.deliveryPathCohorts)();
+const repositoryChangeSetValues=/* @__PURE__ */ Object.freeze({profile:REPOSITORY_CHANGE_SET_VALUES,
+  sha256Text:value=>'sha256:'+createHash('sha256').update(value).digest('hex'),
+  compareUtf8:(left,right)=>Buffer.compare(Buffer.from(left,'utf8'),Buffer.from(right,'utf8'))});
+const repositoryChangeSetBinding=/* @__PURE__ */ createRepositoryChangeSetCodec(repositoryChangeSetValues);
+export const compareRepositoryIdentity=/* @__PURE__ */ (()=>repositoryChangeSetBinding.compareRepositoryIdentity)();
+export const repositoryChangeEntryOrder=/* @__PURE__ */ (()=>repositoryChangeSetBinding.entryOrder)();
+export const withRepositoryChangeEntryIdentity=/* @__PURE__ */ (()=>repositoryChangeSetBinding.withEntryIdentity)();
+export const repositoryChangeSetDigest=/* @__PURE__ */ (()=>repositoryChangeSetBinding.repositoryChangeSetDigest)();
+export const verifyRepositoryChangeSetIntegrity=/* @__PURE__ */ (()=>repositoryChangeSetBinding.verifyRepositoryChangeSetIntegrity)();

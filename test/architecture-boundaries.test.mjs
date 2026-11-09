@@ -49,7 +49,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'changes', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries, 'src/sgos/operational-contract.mjs'] });
   assert.deepEqual(report.problems, []);
@@ -320,7 +320,7 @@ test('configuration path rules depend on a string-syntax contract and native bin
 });
 
 test('source path rules have one pure owner and legacy facades cannot import repository infrastructure',async()=>{
-  const allowed=new Set(['node:path','../test-runners.mjs','./node-configuration-path.mjs','../governed-roots.mjs','../kernel/source-path-policies.mjs','../kernel/configuration-declarations.mjs']);
+  const allowed=new Set(['node:path','node:crypto','../test-runners.mjs','./node-configuration-path.mjs','../governed-roots.mjs','../kernel/source-path-policies.mjs','../kernel/configuration-declarations.mjs']);
   const file='src/engine-compatibility/node-source-policy.mjs';
   const binding=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
   assert.equal(binding.statements.some(ts.isFunctionDeclaration),false);

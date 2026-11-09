@@ -76,6 +76,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       } });
       const sdk = await import('${packageName}');
       assert.equal(sdk.ENGINE_CONTRACT, 'sflow-engine/v1');
+      const changes=await import('${packageName}/changes');
+      let digestCalls=0;
+      const changeCodec=changes.createRepositoryChangeSetCodec(Object.freeze({profile:changes.REPOSITORY_CHANGE_SET_VALUES,
+        sha256Text:value=>{digestCalls++;return 'sha256:'+createHash('sha256').update(value).digest('hex');},compareUtf8:(a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b))}));
+      assert.equal(digestCalls,0);assert.equal(Object.hasOwn(changeCodec,'parseRawDiff'),false);
+      const retainedEntry=changeCodec.withEntryIdentity({oldPath:null,newPath:'src/value.js',status:'added'});
+      const candidate={entries:[retainedEntry]},digest=changeCodec.repositoryChangeSetDigest(candidate);
+      assert.equal(changeCodec.verifyRepositoryChangeSetIntegrity({...candidate,digest}).valid,true);
       const execution=await import('${packageName}/execution');
       assert.equal(execution.EXECUTION_UNIT_CONTRACT,'sflow-execution-unit/v1');
       assert.equal(execution.EXECUTION_UNIT_METHODS.length,8);
@@ -996,6 +1004,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
       import type { EngineInputs, EngineOperation, EngineResult } from '${packageName}';
+      import {createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '${packageName}/changes';
+      import type {RepositoryChangeSetCodec} from '${packageName}/changes';
       import { ARTIFACT_TEMPLATE_TOKENS, renderArtifactTemplateText, validateArtifactTemplateText,
         artifactBytesAreText, artifactContentObservation, inspectRequiredArtifactObservation, inspectBinaryArtifactSize } from '${packageName}/artifacts';
       import type { ArtifactContentPhase, ArtifactContentFinding } from '${packageName}/artifacts';
@@ -1035,6 +1045,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;declare const unitPort:ExecutionUnit;
+      const changeCodec:RepositoryChangeSetCodec=createRepositoryChangeSetCodec(Object.freeze({profile:REPOSITORY_CHANGE_SET_VALUES,
+        sha256Text:(text:string)=>text,compareUtf8:(a:string,b:string)=>a===b?0:a<b?-1:1}));
+      const changeEntries=[changeCodec.withEntryIdentity({newPath:'src/value.js',status:'added'})];
+      const candidateIntegrity:boolean=changeCodec.verifyRepositoryChangeSetIntegrity({entries:changeEntries}).valid;
+      const observedFailureId=changeCodec.verifyRepositoryChangeSetIntegrity({entries:[{changeId:123}]}).entryFailures[0]??'';
+      // @ts-expect-error An invalid supplied record may retain a non-string identity; inspect it before display.
+      const assumedFailureId:string=observedFailureId;
+      // @ts-expect-error Git wire decoding is owned by a source-control adapter.
+      changeCodec.parseRawDiff('');
+      // @ts-expect-error Hashing must be an explicitly bound callable capability.
+      createRepositoryChangeSetCodec({profile:REPOSITORY_CHANGE_SET_VALUES,sha256Text:true,compareUtf8:()=>0});
       const localCheckPromise:Promise<ExecutionUnit>=createNodeCheckExecutionUnit({id:'declared-check',projectId:'example',repositoryId:'application',root:'/explicit',content:runtimeContent,
         command:{executable:'/explicit/node',executableSha256:'sha256:abc',arguments:['--test'],environment:{}},
         report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});

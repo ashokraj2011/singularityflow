@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson } from './foundation/record-schema.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath } from './util.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
+import {repositoryChangeSetDigest,repositoryChangeEntryOrder as entryOrder,
+  withRepositoryChangeEntryIdentity as withEntryIdentity} from './engine-compatibility/node-source-policy.mjs';
+export {compareRepositoryIdentity,repositoryChangeSetDigest,verifyRepositoryChangeSetIntegrity} from './engine-compatibility/node-source-policy.mjs';
 
 const STATUS = Object.freeze({
   A: 'added', C: 'copied', D: 'deleted', M: 'modified', R: 'renamed',
@@ -37,10 +39,6 @@ function normalizeRepositoryPath(value) {
   return normalized;
 }
 
-function nullFields(value) {
-  return value.split('\0').filter((field) => field !== '');
-}
-
 /** Parse `git diff --raw -z`; rename/copy records deliberately retain both endpoints. */
 export function parseRawDiff(value) {
   const fields = nullFields(value);
@@ -66,6 +64,10 @@ export function parseRawDiff(value) {
     });
   }
   return entries;
+}
+
+function nullFields(value) {
+  return value.split('\0').filter((field) => field !== '');
 }
 
 async function currentContent(root, relative) {
@@ -111,49 +113,6 @@ async function untrackedEntries(root) {
       untracked: true
     };
   }));
-}
-
-/**
- * Compare repository identities without consulting the host locale.
- *
- * These values participate in durable SHA-256 records. `localeCompare` makes the same Git tree
- * sort differently under, for example, English, Turkish, and Swedish process locales. Git paths
- * are byte identities, so use their UTF-8 byte order everywhere a repository digest is assembled.
- */
-export function compareRepositoryIdentity(left, right) {
-  return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
-}
-
-function entryOrder(left, right) {
-  return compareRepositoryIdentity(left.oldPath ?? '', right.oldPath ?? '')
-    || compareRepositoryIdentity(left.newPath ?? '', right.newPath ?? '')
-    || compareRepositoryIdentity(left.status, right.status);
-}
-
-function entryCore(entry) {
-  const { changeId, ...core } = entry;
-  return core;
-}
-
-function withEntryIdentity(entry) {
-  return { ...entry, changeId: sha256(canonicalJson(entryCore(entry))) };
-}
-
-export function repositoryChangeSetDigest(changeSet) {
-  const { digest: _digest, ...core } = changeSet ?? {};
-  return sha256(canonicalJson(core));
-}
-
-export function verifyRepositoryChangeSetIntegrity(changeSet) {
-  const entryFailures = (changeSet?.entries ?? []).filter((entry) =>
-    entry.changeId !== sha256(canonicalJson(entryCore(entry))));
-  return {
-    valid: Boolean(changeSet)
-      && changeSet.digest === repositoryChangeSetDigest(changeSet)
-      && entryFailures.length === 0,
-    digest: repositoryChangeSetDigest(changeSet),
-    entryFailures: entryFailures.map((entry) => entry.changeId ?? null)
-  };
 }
 
 /**

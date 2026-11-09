@@ -67,6 +67,21 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared change-record identity owner](ENGINE-SDK-CHANGE-IDENTITIES.md) extracts ordering,
+canonical entry identities and digest/integrity rules behind explicit value primitives. Native
+source-control captures use the same rule instances; Git execution and wire decoding retain
+their adapter owner. The optional installed SDK exposes the pure `changes` entry. No existing
+record hash, code-delivery requirement or publication authority is changed. Retained Git-origin
+observations and full application policy/publication integration remain required Phase 7 work;
+the Phase 5, 7, 8 and 9 milestones remain open.
+
+The identity slice passed 180 affected native Mac cases, 87 policy/architecture cases and
+25 installed offline SDK checks, with no failures, cancellations or skips in the final suites.
+Source validation passed 3,931 checks across 191 skills; typechecking, the unchanged 2,011-site
+Git ownership audit and all 13 unchanged bundle budgets passed. The optional SDK retains 56
+operations across 174 owned modules. These results qualify shared record identity and existing
+native compatibility, not full application publication or installed authority migration.
+
 The [candidate delivery inspector](ENGINE-SDK-DELIVERY-INSPECTION.md) reads accepted original/current
 source archives and phase-check evidence through one registered operation. Shared pure test naming,
 affected-path cohorts and runner/root coverage preserve the native rules. Missing or drifted

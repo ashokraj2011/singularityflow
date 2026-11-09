@@ -1,5 +1,6 @@
-/** Source-path policy over explicit string syntax and declared roots. No repository or file access. */
+/** Source path, change-set and delivery value rules over explicit primitives. No repository or file access. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
+import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 import {isAgentOutputPath} from '../foundation/agent-output-paths.mjs';
 import {configurationPathSyntax} from './configuration-path-policies.mjs';
@@ -721,4 +722,45 @@ const changedSourcePaths = [...new Set([
 return {changedPaths,changedTestCandidates,deletedPaths,deletedSourcePaths,configurationPaths,changedSourcePaths};
 }
   return Object.freeze({isTestSourceName,sourceEcosystem,testCommandEcosystem,testCommandCoversPath,isAllowedTestAutomationPath,isSupportingTestResourcePath,isExecutableTestSourceCandidate,deliveryPathCohorts,affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths});
+}
+
+/** Provider-neutral change-record identities; source-control execution and wire decoding stay in adapters. */
+export const REPOSITORY_CHANGE_SET_VALUES='sflow-repository-change-set-values/v1';
+export function createRepositoryChangeSetCodec(values) {
+  const keys=['profile','sha256Text','compareUtf8'];
+  if(!values||typeof values!=='object'||![Object.prototype,null].includes(Object.getPrototypeOf(values))||!Object.isFrozen(values)
+    ||Reflect.ownKeys(values).length!==keys.length||keys.some(key=>{const d=Object.getOwnPropertyDescriptor(values,key);
+      return !d?.enumerable||!Object.hasOwn(d,'value')||(key==='profile'?d.value!==REPOSITORY_CHANGE_SET_VALUES:typeof d.value!=='function');})) {
+    throw new SingularityFlowError('Repository change-set rules need explicit frozen digest and UTF-8 ordering primitives.',{code:'ENGINE_CHANGE_SET_VALUES_INVALID'});
+  }
+  const sha256=values.sha256Text.bind(values),compareUtf8=values.compareUtf8.bind(values);
+  function compareRepositoryIdentity(left,right) {return compareUtf8(String(left),String(right));}
+  function entryOrder(left, right) {
+    return compareRepositoryIdentity(left.oldPath ?? '', right.oldPath ?? '')
+      || compareRepositoryIdentity(left.newPath ?? '', right.newPath ?? '')
+      || compareRepositoryIdentity(left.status, right.status);
+  }
+  function entryCore(entry) {
+    const { changeId, ...core } = entry;
+    return core;
+  }
+  function withEntryIdentity(entry) {
+    return { ...entry, changeId: sha256(canonicalJson(entryCore(entry))) };
+  }
+  function repositoryChangeSetDigest(changeSet) {
+    const { digest: _digest, ...core } = changeSet ?? {};
+    return sha256(canonicalJson(core));
+  }
+  function verifyRepositoryChangeSetIntegrity(changeSet) {
+    const entryFailures = (changeSet?.entries ?? []).filter((entry) =>
+      entry.changeId !== sha256(canonicalJson(entryCore(entry))));
+    return {
+      valid: Boolean(changeSet)
+        && changeSet.digest === repositoryChangeSetDigest(changeSet)
+        && entryFailures.length === 0,
+      digest: repositoryChangeSetDigest(changeSet),
+      entryFailures: entryFailures.map((entry) => entry.changeId ?? null)
+    };
+  }
+  return Object.freeze({compareRepositoryIdentity,entryOrder,withEntryIdentity,repositoryChangeSetDigest,verifyRepositoryChangeSetIntegrity});
 }

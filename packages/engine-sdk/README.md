@@ -96,6 +96,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `hosts/namespace-story`: create work from an approved configuration through `story.create` and
   read its canonical lifecycle state and exact source through the same registry.
 - `source`: pure source-unit and snapshot contracts, with logical identities and bounded metadata.
+- `changes`: shared change-record ordering, entry identities and digest/integrity checks through
+  explicitly bound SHA-256 and UTF-8 primitives. It preserves supplied logical data; source-control
+  execution, wire decoding and accepted provenance remain adapter/lifecycle responsibilities.
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
   The separate `createFilesystemSourceContentReader` capability reads bounded byte ranges;
   the original observation unit does not gain file-content access implicitly.

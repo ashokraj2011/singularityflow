@@ -20,7 +20,8 @@ import { buildComprehensionDiffPreview } from '../comprehension/diff-preview.mjs
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { maskPolyglotNonCode } from '../polyglot-lexical.mjs';
 import { runBoundedTaskPool } from '../quality-command-runner.mjs';
-import { recordSha256 } from '../records.mjs';
+import {cornerCaseMatrixDigest} from '../engine-compatibility/node-source-policy.mjs';
+export {cornerCaseMatrixDigest} from '../engine-compatibility/node-source-policy.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { isTestAutomationPath } from '../engine-compatibility/node-source-policy.mjs';
 import { isConfigurationPath } from '../engine-compatibility/node-source-policy.mjs';
@@ -378,18 +379,6 @@ export function analyzeTestFileSignals(source, { sourcePath = 'test.js', framewo
     },
     { root, persist }
   );
-}
-
-export function cornerCaseMatrixDigest(matrix) {
-  const {
-    matrixSha256,
-    harness,
-    obligations,
-    uncoveredObligations,
-    inadequateDeclarations,
-    ...core
-  } = matrix ?? {};
-  return `sha256:${recordSha256(core)}`;
 }
 
 export function compactCornerCaseMatrix(matrix) {

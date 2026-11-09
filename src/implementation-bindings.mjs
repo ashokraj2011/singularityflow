@@ -13,30 +13,13 @@ import path from 'node:path';
 
 import { changedDeclarations, documentationLanguage, publicDeclarations } from './code-documentation.mjs';
 import { buildComprehensionDiffPreview } from './comprehension/diff-preview.mjs';
-import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
-export const EXPLANATION_LIMITS = Object.freeze({ minimum: 10, maximum: 300 });
+import {clauseTagExplanation,EXPLANATION_LIMITS} from './kernel/code-delivery-evidence.mjs';
+export {clauseTagExplanation,EXPLANATION_LIMITS} from './kernel/code-delivery-evidence.mjs';
+import {implementationBindingsDigest as bindingsDigest} from './engine-compatibility/node-source-policy.mjs';
+export {implementationBindingsDigest as bindingsDigest} from './engine-compatibility/node-source-policy.mjs';
 const MAX_BOUND_FILE_BYTES = 2 * 1024 * 1024;
-const TRAILING_COMMENT = /\s*(?:\*\/(?:\s*\})?|-->|#\}|%\})\s*$/u;
-
-/**
- * The explanation after a `@clause` tag on its comment line: the text that follows the clause ID,
- * without a leading dash or colon or a closing comment marker. Null when there is none.
- */
-export function clauseTagExplanation(line, clauseId) {
-  const text = String(line ?? '');
-  const at = text.toUpperCase().indexOf(`@CLAUSE:${String(clauseId).toUpperCase()}`);
-  if (at < 0) return null;
-  const rest = text.slice(at + `@clause:${clauseId}`.length)
-    // A same-line JSX element may follow the comment-only expression container.
-    .replace(/\s*\*\/\s*\}.*$/u, '')
-    .replace(TRAILING_COMMENT, '')
-    .replace(/^\s*(?:[-–—:]+\s*)?/u, '')
-    .replace(/\s+/gu, ' ')
-    .trim();
-  return rest || null;
-}
 
 function hunksByPath(preview) {
   const byPath = new Map();
@@ -122,12 +105,7 @@ export async function implementationBindings(root, { changeSet, required = [], t
     }
     bindings.push({ clauseId: obligation.clauseId, explanation, regions });
   }
-  return { bindings, bindingsSha256: `sha256:${recordSha256(bindings)}`, problems, problemFindings, explanationsMissing };
-}
-
-/** The digest a reviewer approves: the exact bindings, in order. */
-export function bindingsDigest(bindings = []) {
-  return `sha256:${recordSha256(bindings)}`;
+  return { bindings, bindingsSha256: bindingsDigest(bindings), problems, problemFindings, explanationsMissing };
 }
 
 export const BINDING_DECISIONS = Object.freeze(['accepted', 'accepted-with-exception']);

@@ -1,7 +1,7 @@
 /** Conservative readiness-only pilot; path inference never grants product-edit authority. */
 import path from 'node:path';
 import { isAllowedTestAutomationPath, isTestSourceName } from './code-delivery-tests.mjs';
-import { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
+import { approvedConfigurationMaterializations } from './engine-compatibility/node-source-policy.mjs';
 import { exactFileAtObject } from './git.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { buildRepositoryTreeChangeSet } from './repository-change-set.mjs';

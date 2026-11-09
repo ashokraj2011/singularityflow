@@ -1,3 +1,4 @@
+import {codeDeliveryReceiptReplay,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
 import {deliveryPathCohorts} from './engine-compatibility/node-source-policy.mjs';
 import {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 export {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
@@ -19,17 +20,16 @@ import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import {
   configuredTestModuleOverrides, isAllowedTestAutomationPath, isExecutableTestSourcePath,
   isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, prepareTestReportReader, readDurableTestObservation, replayTestReports,
-  resolveAffectedModule, testCommandCoversPath, testReceiptPassing
+  resolveAffectedModule
 } from './code-delivery-tests.mjs';
 import {
-  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateSourceBoundary,
-  verifyRepositoryChangeSetIntegrity
+  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateSourceBoundary
 } from './repository-change-set.mjs';
 import {
   autoCandidateResourceDigest, validateAutoCandidateBinding,
   validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
-import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
+import { evaluateStoryProtectedPaths } from './engine-compatibility/node-source-policy.mjs';
 import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor, prefetchExactObjectFiles } from './git.mjs';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { normalizeSourceBoundary } from "./kernel/configuration-declarations.mjs";
@@ -49,7 +49,7 @@ import { codeCandidateScope, outsideEveryCandidate, unreconciledCandidatePaths }
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
-import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
+import { implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
 import { committedChangedPaths, excludeAlwaysLocalNames, mergedBaseChanges, trackedPaths, worktreePatchMatching } from './git.mjs';
@@ -1754,13 +1754,6 @@ function receiptDigest(record) {
   return createHash('sha256').update(canonicalJson(record)).digest('hex');
 }
 
-function safeEvidencePath(value) {
-  const candidate = String(value ?? '');
-  return candidate && !path.posix.isAbsolute(candidate) && !candidate.includes('\\')
-    && !candidate.includes(':') && !candidate.includes('\0')
-    && !candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..');
-}
-
 /** Optional immutable read-ahead only; hashes, schemas and verdicts are still checked on replay. */
 function prefetchTestReplay(root, evidenceCommit, executions) {
   const empty = () => ({ receipts: new Map(), records: new Map(), reports: new Map() });
@@ -1796,13 +1789,6 @@ function prefetchTestReplay(root, evidenceCommit, executions) {
   return { receipts, records, reports: prefetchExactObjectFiles(root, evidenceCommit, [...paths], { maximumObjectBytes }) };
 }
 
-const MODEL_ASSURANCE_RANK = Object.freeze({
-  unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
-});
-function modelAssuranceRank(value) {
-  return MODEL_ASSURANCE_RANK[value === 'observed' ? 'host-observed' : value] ?? -1;
-}
-
 /**
  * Re-verify the durable code-delivery receipt without consulting current source bytes.
  * Source policy is replayed from the change set committed with the generation; test receipts are
@@ -1826,449 +1812,58 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   // { workflow, at }: the Story, for test-run risks and the pins its attempts ran under.
   testRunRisks = null
 } = {}) {
-  const errors = [];
-  const fail = (message) => errors.push(message);
-  if (!receipt || receipt.kind !== 'code-delivery' || Number(receipt.schemaVersion) !== 2) {
-    return { valid: false, errors: ['code-delivery v2 receipt is unavailable'] };
-  }
-  if (receipt.status !== 'ready') fail(`code-delivery receipt is ${receipt.status ?? 'unavailable'}`);
-
-  const generationCommit = receipt.tree?.generationCommit;
-  if (!generationCommit) fail('generation commit is absent');
-  else {
-    const tree = run('git', ['rev-parse', '--verify', `${generationCommit}^{tree}`], { cwd: root, allowFailure: true });
-    if (tree.status !== 0) fail(`generation commit ${generationCommit} is unavailable`);
-    else if (tree.stdout.trim() !== receipt.tree?.generationTree) fail('generation tree differs from the committed generation');
-  }
-
-  let changeSet = null;
-  if (!generationCommit || !receipt.changeSet?.path) fail('committed repository change set is absent');
-  else {
-    const historical = run('git', ['show', `${generationCommit}:${receipt.changeSet.path}`], { cwd: root, allowFailure: true });
-    if (historical.status !== 0) fail('repository change set was not committed with the generation');
-    else {
-      try { changeSet = readRecord('repository-change-set', historical.stdout).record; }
-      catch (error) { fail(`repository change set is unreadable: ${error.message}`); }
-    }
-  }
-  if (changeSet) {
-    const integrity = verifyRepositoryChangeSetIntegrity(changeSet);
-    if (!integrity.valid) fail('repository change-set integrity does not reproduce');
-    if (changeSet.digest !== receipt.changeSet.digest) fail('repository change-set digest differs from its receipt');
-    const protectedResult = evaluateStoryProtectedPaths(changeSet, protectedPaths, configurationSource);
-    if (!protectedResult.valid) fail(`protected path policy fails: ${protectedResult.violations.map((item) => item.path).join(', ')}`);
-    const applicationChangeSet = {
-      ...changeSet,
-      entries: changeSet.entries.filter((entry) => isApplicationChangeEntry(entry, pathContext))
-    };
-    const boundary = evaluateSourceBoundary(applicationChangeSet, sourceBoundary, {
-      phaseId: receipt.phase, allowedPath: isAllowedTestAutomationPath
-    });
-    if (!boundary.valid) fail(`source boundary fails: ${boundary.violations.map((item) => item.path).join(', ')}`);
-    if (symlinkPolicy === 'reject' && applicationChangeSet.entries.some((entry) => entry.newContent?.kind === 'symlink')) {
-      fail('source or test delivery contains a symbolic link');
-    }
-    if (receipt.autoCandidate) {
-      try {
-        const candidate = validateAutoCandidateBinding(receipt.autoCandidate);
-        const verification = validateAutoCandidateVerification(
-          receipt.autoCandidateVerification
-        );
-        if (verification.status !== 'passed'
-            || verification.flightId !== candidate.flightId
-            || verification.candidateId !== candidate.candidateId
-            || verification.candidateSha256 !== candidate.candidateSha256
-            || verification.bindingSha256 !== candidate.bindingSha256) {
-          fail('Auto Candidate verification does not bind the published Candidate');
-        }
-        if (candidate.candidateSha256 !== receipt.tree?.workingStateDigest) {
-          fail('Auto Candidate source-tree identity differs from the published generation');
-        }
-        if (receipt.tree?.generationTree) {
-          const publishedCandidate = applicationChangeSetProjection(buildRepositoryTreeChangeSet(root, {
-            baseTree: candidate.repository.baselineTree,
-            targetTree: receipt.tree.generationTree,
-            subject: { kind: 'auto-candidate', id: candidate.attemptId }
-          }), pathContext);
-          const publishedResourceDigest = autoCandidateResourceDigest(publishedCandidate, {
-            baselineTree: candidate.repository.baselineTree,
-            candidateSha256: candidate.candidateSha256
-          });
-          if (publishedResourceDigest !== candidate.applicationResourceDigest) {
-            fail('Auto Candidate resource delta differs from the published generation tree');
-          }
-        }
-      } catch (error) {
-        fail(`Auto Candidate binding is invalid: ${error.message}`);
+  const plan=codeDeliveryReceiptReplay(receipt,{protectedPaths,configurationSource,sourceBoundary,symlinkPolicy,
+    minimumDiscovered,minimumPassed,requireAffectedModuleCoverage,minimumModelAssurance,sourceBindingPolicy,
+    cornerCasePolicy,assertionAdequacyPolicy,evidenceCommit,pathContext,testRecovery,testRunRisks});
+  let generationFiles=new Map(),replayFiles={receipts:new Map(),records:new Map(),reports:new Map()};
+  const read=async request=>{
+    switch(request.kind){
+      case 'generation-tree':return run('git',['rev-parse','--verify',`${request.generationCommit}^{tree}`],{cwd:root,allowFailure:true});
+      case 'change-set':return run('git',['show',`${request.generationCommit}:${request.path}`],{cwd:root,allowFailure:true});
+      case 'decode-record':return readRecord(request.family,request.value).record;
+      case 'prepare-generation-files':generationFiles=prefetchExactObjectFiles(root,request.generationCommit,request.paths);return;
+      case 'generation-file':{
+        const bytes=generationFiles.get(request.path),options=request.options;
+        return !options.regularOnly&&bytes&&bytes.length<=(options.maximumBytes??1024*1024)
+          ?bytes:exactFileAtObject(root,request.generationCommit,request.path,options);
       }
+      case 'javascript-declarations':return scanJavaScriptDeclarations(request.source,{sourcePath:request.sourcePath,framework:request.framework});
+      case 'source-clause-tags':return scanSourceClauseTags(request.source,{sourcePath:request.sourcePath});
+      case 'prepare-test-replay':replayFiles=prefetchTestReplay(root,request.evidenceCommit,request.executions);return;
+      case 'test-receipt':{
+        const prefetched=replayFiles.receipts.get(request.path);
+        const source=request.evidenceCommit&&!prefetched?run('git',['show',`${request.evidenceCommit}:${request.path}`],{cwd:root,allowFailure:true,encoding:'buffer'}):null;
+        if(source&&source.status!==0)throw new Error(`not present in evidence commit ${request.evidenceCommit}`);
+        const storedBytes=prefetched??(source?source.stdout:await readDurableTestObservation(root,request.path));
+        return replayFiles.records.has(request.path)?replayFiles.records.get(request.path)
+          :JSON.parse(Buffer.isBuffer(storedBytes)?storedBytes.toString('utf8'):storedBytes);
+      }
+      case 'test-report':{
+        const prefetched=replayFiles.reports.get(request.path);if(prefetched)return prefetched;
+        if(request.evidenceCommit){
+          const raw=run('git',['show',`${request.evidenceCommit}:${request.path}`],{cwd:root,allowFailure:true,encoding:'buffer'});
+          if(raw.status!==0)throw new Error(`not present in evidence commit ${request.evidenceCommit}`);return raw.stdout;
+        }
+        return readDurableTestObservation(root,request.path,{expectedSha256:request.sha256,expectedBytes:request.bytes});
+      }
+      case 'prepare-report-reader':return prepareCodeDeliveryReportReader(request.adapter);
+      case 'auto-candidate':return validateAutoCandidateBinding(request.value);
+      case 'auto-verification':return validateAutoCandidateVerification(request.value);
+      case 'auto-resource-delta':return applicationChangeSetProjection(buildRepositoryTreeChangeSet(root,{
+        baseTree:request.baseTree,targetTree:request.targetTree,subject:request.subject}),request.pathContext);
+      case 'auto-resource-digest':return autoCandidateResourceDigest(request.changeSet,{baselineTree:request.baselineTree,candidateSha256:request.candidateSha256});
+      case 'test-recovery-context':return (await import('./test-recovery-runtime.mjs')).assertStoryTestRiskGate(root,request.config,request.workflow,request.options);
+      case 'test-recovery-commands':return resolveDeliveryQualityCommands(root,request.phase,{executionMode:storyTestScope(request.workflow)});
+      case 'test-command-pin-problems':return (await import('./test-command-pins.mjs')).attemptReplayProblems(request.testRunRisks,request.receipt,request.execution,request.testReceipt);
+      case 'test-run-risk-problem':return (await import('./test-run-risk.mjs')).testRunRiskCoverageProblem(request.workflow,request.risk,request.options);
+      default:throw new SingularityFlowError('Unknown code-delivery evidence request.',{code:'ENGINE_PORT_REQUEST_INVALID'});
     }
-  }
-
-  // The same committed file often backs many clauses. Prefetch only the recorded generation's
-  // source/test bytes; current worktree, authority, regular-file and final verdict checks remain
-  // at their original boundaries. Missing/oversized/unsupported batch answers take the old read.
-  const array = value => Array.isArray(value) ? value : [];
-  const generationFiles = prefetchExactObjectFiles(root, generationCommit, [
-    ...array(receipt.implementationBindings?.bindings).map(binding => binding?.explanation?.path),
-    ...array(receipt.fulfillment?.obligations).filter(item => item?.fulfillment !== 'evidence')
-      .flatMap(item => array(item?.paths).map(entry => entry?.path)),
-    ...array(receipt.traceability?.witnesses).map(witness => witness?.testSource),
-    ...array(sourceBindingPolicy === 'enforce' ? receipt.traceability?.sourceBindings : []).map(binding => binding?.sourcePath)
-  ].filter(file => safeEvidencePath(file)));
-  const readGenerationFile = (file, options = {}) => {
-    const bytes = generationFiles.get(file);
-    return !options.regularOnly && bytes && bytes.length <= (options.maximumBytes ?? 1024 * 1024)
-      ? bytes : exactFileAtObject(root, generationCommit, file, options);
   };
-  const explanationLines = new Map();
-  const declarationIndexes = new Map();
-  const sourceTagIndexes = new Map();
-
-  // The bindings a reviewer approves are exactly the recorded ones, and every explanation is still
-  // on its tag line in the committed generation [E2G-011].
-  if (receipt.cornerCaseMatrix) {
-    const { cornerCaseMatrixDigest } = await import(CORNER_CASE_MODULE);
-    if (cornerCaseMatrixDigest(receipt.cornerCaseMatrix) !== receipt.cornerCaseMatrix.matrixSha256) {
-      fail('corner-case obligation matrix does not match its digest');
-    } else if (cornerCasePolicy === 'enforce' && !['satisfied', 'not-applicable'].includes(receipt.cornerCaseMatrix.status)) {
-      fail('corner-case obligation matrix is incomplete for the committed generation');
-    }
-    if (assertionAdequacyPolicy === 'enforce' && receipt.cornerCaseMatrix.summary?.inadequateDeclarations !== 0) {
-      fail('assertion adequacy is incomplete for the committed generation');
-    }
-  } else if (cornerCasePolicy === 'enforce' || assertionAdequacyPolicy === 'enforce') {
-    fail('corner-case obligation matrix is absent from the code-delivery receipt');
+  let step=plan.next();
+  while(!step.done){
+    let value;
+    try{value=await read(step.value);}catch(error){step=plan.throw(error);continue;}
+    step=plan.next(value);
   }
-  if (receipt.implementationBindings) {
-    const { bindings, bindingsSha256 } = receipt.implementationBindings;
-    if (!Array.isArray(bindings) || bindingsDigest(bindings) !== bindingsSha256) fail('implementation bindings do not match their digest');
-    for (const binding of Array.isArray(bindings) ? bindings : []) {
-      if (!normalizeQualifiedClauseId(binding?.clauseId) || !Array.isArray(binding.regions)) { fail('an implementation binding is malformed'); continue; }
-      const explanation = binding.explanation;
-      if (explanation == null) continue;
-      const text = typeof explanation.text === 'string' ? explanation.text : '';
-      const bytes = generationCommit && safeEvidencePath(explanation.path) ? readGenerationFile(explanation.path) : null;
-      if (bytes && !explanationLines.has(explanation.path)) explanationLines.set(explanation.path, bytes.toString('utf8').split(/\r?\n/u));
-      const line = bytes ? explanationLines.get(explanation.path)?.[Number(explanation.line) - 1] : null;
-      if (text.length < EXPLANATION_LIMITS.minimum || !line || !(clauseTagExplanation(line, binding.clauseId) ?? '').startsWith(text)) {
-        fail(`the explanation of ${binding.clauseId} is not on its tag line in the generation`);
-      }
-    }
-  }
-  // Each fulfillment the delivery recorded is replayed against the committed generation [E2G-010].
-  for (const obligation of receipt.fulfillment?.obligations ?? []) {
-    for (const entry of obligation?.paths ?? []) {
-      if (!safeEvidencePath(entry?.path)) { fail(`fulfillment evidence for ${obligation?.clauseId ?? 'unknown'} names an unsafe path`); continue; }
-      if (!generationCommit) continue;
-      const bytes = readGenerationFile(entry.path, obligation.fulfillment === 'evidence'
-        ? { regularOnly: true, maximumBytes: 16 * 1024 * 1024 } : {});
-      if (['existing', 'evidence'].includes(obligation.fulfillment)) {
-        if (entry.state !== 'present' || !bytes || createHash('sha256').update(bytes).digest('hex') !== entry.sha256) {
-          fail(`${obligation.fulfillment} evidence of ${obligation.clauseId} is not at ${entry.path} in the generation`);
-        }
-      } else if (obligation.fulfillment === 'removed') {
-        if (entry.state !== 'absent' || bytes) fail(`${entry.path}, removed for ${obligation.clauseId}, is still in the generation`);
-      } else if (['document', 'configuration'].includes(obligation.fulfillment)) {
-        const changedInSet = (changeSet?.entries ?? []).some((change) => change.newPath === entry.path || change.oldPath === entry.path);
-        if (entry.state !== 'changed' || (changeSet && !changedInSet)) {
-          fail(`the ${obligation.fulfillment} change of ${obligation.clauseId} did not change ${entry.path}`);
-        }
-      } else {
-        fail(`fulfillment evidence for ${obligation?.clauseId ?? 'unknown'} names an unknown type`);
-      }
-    }
-  }
-
-  const traceability = receipt.traceability ?? {};
-  if (traceability.missing?.length) fail(`acceptance bindings are missing: ${traceability.missing.join(', ')}`);
-  if (traceability.ambiguous?.length) fail('acceptance bindings are ambiguous');
-  const bound = new Set(traceability.bound ?? []);
-  const bindings = traceability.bindings ?? [];
-  for (const clauseId of traceability.required ?? []) {
-    if (!bound.has(clauseId) || !bindings.some((binding) => binding.clauseId === clauseId)) {
-      fail(`acceptance clause ${clauseId} has no module test-source binding`);
-    }
-  }
-  // Each exact JavaScript witness is read again from the committed generation: the test, its
-  // revision and its tag must still be what publication recorded [E2G-015].
-  for (const witness of traceability.witnesses ?? []) {
-    if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1', 'playwright-json-v1'].includes(witness.profile)) continue;
-    const bytes = generationCommit && safeEvidencePath(witness.testSource) ? readGenerationFile(witness.testSource) : null;
-    let declaration = null;
-    try {
-      if (bytes) {
-        const framework = witness.identity.framework;
-        const key = typeof framework === 'string' ? JSON.stringify([witness.testSource, framework]) : null;
-        if (!key) {
-          declaration = scanJavaScriptDeclarations(bytes.toString('utf8'), { sourcePath: witness.testSource, framework })
-            .declarations.find(entry => entry.logicalTestId === witness.logicalTestId) ?? null;
-        } else if (!declarationIndexes.has(key)) {
-          const index = new Map();
-          for (const entry of scanJavaScriptDeclarations(bytes.toString('utf8'), {
-            sourcePath: witness.testSource, framework
-          }).declarations) {
-            if (!index.has(entry.logicalTestId)) index.set(entry.logicalTestId, entry);
-          }
-          declarationIndexes.set(key, index);
-        }
-        if (key) declaration = declarationIndexes.get(key).get(witness.logicalTestId) ?? null;
-      }
-    } catch { declaration = null; }
-    if (!declaration || declaration.declarationSha256 !== witness.declarationSha256 || !declaration.clauseIds.includes(witness.clauseId)
-        || (witness.profile === 'node-test-v1' && (declaration.line !== witness.line || declaration.gaps.length))) {
-      fail(`the acceptance witness for ${witness.clauseId} in ${witness.testSource} does not match the committed test`);
-    }
-  }
-  if (sourceBindingPolicy === 'enforce') {
-    const required = traceability.sourceRequired;
-    const sourceBindings = traceability.sourceBindings;
-    if (!Array.isArray(required) || !Array.isArray(sourceBindings)) {
-      fail('planned source-clause bindings are absent from the code-delivery receipt');
-    } else {
-      const delivered = new Set(receipt.changeSet?.sourcePaths ?? []);
-      for (const item of required) {
-        if (!normalizeQualifiedClauseId(item?.clauseId)
-            || !Array.isArray(item.expectedPaths) || !item.expectedPaths.length
-            || item.expectedPaths.some((candidate) => !safeEvidencePath(candidate))) {
-          fail('planned source-clause requirement is invalid');
-          continue;
-        }
-        const witnesses = sourceBindings.filter((binding) => binding?.clauseId === item.clauseId
-          && item.expectedPaths.includes(binding.sourcePath));
-        if (!witnesses.length) fail(`planned clause ${item.clauseId} has no exact source-comment binding`);
-      }
-      for (const binding of sourceBindings) {
-        const sourcePath = binding?.sourcePath;
-        const clauseId = binding?.clauseId;
-        const requirement = required.find((item) => item.clauseId === clauseId);
-        if (!requirement || !normalizeQualifiedClauseId(clauseId)
-            || !safeEvidencePath(sourcePath) || !delivered.has(sourcePath)
-            || !requirement.expectedPaths.includes(sourcePath)
-            || !['clause', 'deletion'].includes(binding.tag)
-            || (binding.tag === 'clause' && (!Number.isInteger(binding.line) || binding.line < 1))
-            || (binding.tag === 'deletion' && (binding.line !== null
-              || !(receipt.changeSet?.deletedSourcePaths ?? []).includes(sourcePath)))) {
-          fail(`source-clause binding for ${clauseId ?? 'unknown'} is outside the reviewed delivery`);
-          continue;
-        }
-        let historical;
-        try {
-          historical = generationCommit
-            ? readGenerationFile(sourcePath, { maximumBytes: MAX_BOUND_SOURCE_BYTES })
-            : null;
-        } catch (error) {
-          fail(`source-clause binding ${clauseId} at ${sourcePath} could not be read: ${error.message}`);
-          continue;
-        }
-        if (binding.tag === 'deletion') {
-          if (historical) {
-            fail(`planned deletion ${sourcePath} for ${clauseId} still exists in the generation commit`);
-          }
-        } else {
-          if (historical && !sourceTagIndexes.has(sourcePath)) {
-            sourceTagIndexes.set(sourcePath, new Set(scanSourceClauseTags(historical.toString('utf8'), { sourcePath })
-              .filter(tag => tag.tag === 'clause').map(tag => JSON.stringify([tag.clauseId, tag.line]))));
-          }
-          if (!historical || !sourceTagIndexes.get(sourcePath)?.has(JSON.stringify([clauseId, binding.line]))) {
-            fail(`source-clause binding ${clauseId} at ${sourcePath}:${binding.line} does not replay from the generation commit`);
-          }
-        }
-      }
-    }
-  }
-
-  const replayFiles = prefetchTestReplay(root, evidenceCommit, receipt.testExecutions ?? []);
-  const executions = new Map();
-  for (const execution of receipt.testExecutions ?? []) {
-    if (execution.kind === 'phase-validation-observation') {
-      try {
-        if (!testRecovery?.config || !testRecovery?.workflow || !evidenceCommit || !receipt.testRecovery
-          || !['unavailable', 'failed', 'passed'].includes(execution.status) || receipt.testRecovery.observedOutcome !== execution.status
-          || receipt.testRecovery.disposition !== 'accepted-risk') throw new Error('authenticated TRP runtime context is required');
-        const { assertStoryTestRiskGate } = await import('./test-recovery-runtime.mjs');
-        const context = await assertStoryTestRiskGate(root, testRecovery.config, testRecovery.workflow, {
-          phaseId: receipt.phase, generation: Number(receipt.generation), operation: testRecovery.operation ?? 'replay',
-          observationSha256: receipt.testRecovery.observationSha256, evidenceCommit,
-          ...(testRecovery.mode === 'historical' ? { mode: 'historical', at: testRecovery.at } : {}) });
-        const observation = context.observations[0];
-        if (!observation || context.evaluation.gateDecision !== 'allow-with-risk'
-          || (observation.observedOutcome === 'passed' && observation.counts.skipped <= 0)
-          || observation.obligationId !== execution.commandId || observation.observedOutcome !== execution.status
-          || observation.sourceManifestSha256 !== receipt.tree.workingStateDigest
-          || execution.receiptPath !== `${testRecovery.config.workItemRoot ?? 'singularity/work-items'}/${receipt.workId}/context/test-recovery/runs/${observation.id}.json`
-          || receiptDigest(observation) !== String(execution.receiptSha256).replace(/^sha256:/u, '')) {
-          throw new Error('the risk observation is not bound to this exact committed delivery');
-        }
-        const phase = testRecovery.workflow.phases?.[receipt.phase];
-        const commands = await resolveDeliveryQualityCommands(root, phase,
-          { executionMode: storyTestScope(testRecovery.workflow) });
-        const command = commands.find(item => item?.kind === 'test' && item.id === execution.commandId);
-        if (!command || canonicalJson(command.affectedRoots) !== canonicalJson(execution.affectedRoots)) {
-          throw new Error('risk observation command coverage differs from the approved command contract');
-        }
-        executions.set(execution.commandId, { commandId: execution.commandId, status: observation.observedOutcome,
-          affectedRoots: execution.affectedRoots, observedOutcome: observation.observedOutcome, disposition: 'accepted-risk',
-          decisionRefs: context.evaluation.decisionRefs });
-      } catch (error) { fail(`TRP risk validation ${execution.commandId} does not replay: ${error.message}`); }
-      continue;
-    }
-    let testReceipt;
-    try {
-      const prefetched = replayFiles.receipts.get(execution.receiptPath);
-      const source = evidenceCommit && !prefetched
-        ? run('git', ['show', `${evidenceCommit}:${execution.receiptPath}`], {
-          cwd: root, allowFailure: true, encoding: 'buffer'
-        })
-        : null;
-      if (source && source.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
-      const storedBytes = prefetched ?? (source
-        ? source.stdout
-        : await readDurableTestObservation(root, execution.receiptPath));
-      const storedRecord = replayFiles.records.has(execution.receiptPath) ? replayFiles.records.get(execution.receiptPath)
-        : JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
-      if (receiptDigest(storedRecord) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
-        fail(`test receipt ${execution.commandId} differs from its bound digest`);
-      }
-      testReceipt = readRecord('test-execution', storedRecord).record;
-    }
-    catch (error) {
-      fail(`test receipt ${execution.commandId} is unavailable: ${error.message}`);
-      continue;
-    }
-    // An attempt is bound by its own identity, to this generation and to the exact candidate tree
-    // the generation published [E2G-016].
-    if (testReceipt.attemptId !== execution.attemptId || testReceipt.commandId !== execution.commandId
-        || !String(execution.receiptPath ?? '').endsWith(`/${testReceipt.attemptId}.json`)) {
-      fail(`test receipt ${execution.commandId} is not the attempt it is bound to`);
-    }
-    if (testReceipt.phase !== receipt.phase || Number(testReceipt.generation) !== Number(receipt.generation)) {
-      fail(`test receipt ${execution.commandId} is an attempt of another step or generation`);
-    }
-    if (!testReceipt.candidate?.treeSha256 || testReceipt.candidate.treeSha256 !== receipt.tree?.workingStateDigest) {
-      fail(`test receipt ${execution.commandId} did not run against the published candidate`);
-    }
-    const replayReports = [];
-    const referencedPaths = new Set();
-    let replayable = true;
-    for (const report of testReceipt.rawReports ?? []) {
-      const expectedExtension = ['junit-xml', 'dotnet-trx'].includes(testReceipt.adapter) ? '.xml' : '.bin';
-      const contentAddressedPath = typeof report.path === 'string'
-        && report.path.includes('/context/code-delivery/tests/raw/')
-        && report.path.endsWith(`/${report.sha256}${expectedExtension}`);
-      if (!safeEvidencePath(report.path) || !contentAddressedPath
-          || !/^[0-9a-f]{64}$/.test(report.sha256 ?? '')
-          || !Number.isInteger(report.bytes) || report.bytes < 0 || referencedPaths.has(report.path)) {
-        fail(`test receipt ${execution.commandId} contains an invalid or repeated raw report reference`);
-        replayable = false;
-        continue;
-      }
-      referencedPaths.add(report.path);
-      try {
-        let bytes;
-        const prefetched = replayFiles.reports.get(report.path);
-        if (prefetched) bytes = prefetched;
-        else if (evidenceCommit) {
-          const raw = run('git', ['show', `${evidenceCommit}:${report.path}`], {
-            cwd: root, allowFailure: true, encoding: 'buffer'
-          });
-          if (raw.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
-          bytes = raw.stdout;
-        } else {
-          bytes = await readDurableTestObservation(root, report.path, {
-            expectedSha256: report.sha256,
-            expectedBytes: report.bytes
-          });
-        }
-        if (createHash('sha256').update(bytes).digest('hex') !== report.sha256 || bytes.length !== report.bytes) {
-          fail(`test receipt ${execution.commandId} raw report differs from its content address`);
-          replayable = false;
-          continue;
-        }
-        replayReports.push({ contents: bytes });
-      } catch (error) {
-        fail(`test receipt ${execution.commandId} raw report is unavailable: ${error.message}`);
-        replayable = false;
-      }
-    }
-    if (testReceipt.status === 'passed' && !testReceipt.rawReports?.length) {
-      fail(`test receipt ${execution.commandId} has no durable raw report evidence`);
-    } else if (replayable && replayReports.length) {
-      try {
-        await prepareTestReportReader(testReceipt.adapter);
-        const replay = replayTestReports(testReceipt.adapter, replayReports);
-        if (canonicalJson(replay.tests) !== canonicalJson(testReceipt.tests)) {
-          fail(`test receipt ${execution.commandId} module counts do not replay from its raw reports`);
-        }
-        // An older engine kept no Playwright occurrences; a receipt without them replays its counts alone.
-        if (canonicalJson(persistedOccurrences(replay)) !== canonicalJson(testReceipt.occurrences ?? [])
-            && (testReceipt.occurrences?.length || testReceipt.adapter !== 'playwright-json')) {
-          fail(`test receipt ${execution.commandId} occurrences do not replay from its raw reports`);
-        }
-        if (replay.result.sha256 !== testReceipt.result?.sha256 || replay.result.bytes !== testReceipt.result?.bytes) {
-          fail(`test receipt ${execution.commandId} aggregate result binding does not replay`);
-        }
-      } catch (error) {
-        fail(`test receipt ${execution.commandId} raw report replay failed: ${error.message}`);
-      }
-    }
-    // The pin an attempt ran under replays with it [TCE:REQ-014], and so does its accepted narrowing.
-    if (testReceipt.pin) for (const problem of await (await import('./test-command-pins.mjs')).attemptReplayProblems(testRunRisks, receipt, execution, testReceipt)) {
-      fail(`test receipt ${execution.commandId}: ${problem}`);
-    }
-    if (execution.testRunRisk) {
-      // A run a step approver accepted could not execute any test: it covers its command's modules
-      // while that decision is active, and never a run in which tests executed [test-run risk].
-      const { testRunRiskCoverageProblem } = await import('./test-run-risk.mjs');
-      const problem = testRunRisks?.workflow
-        ? testRunRiskCoverageProblem(testRunRisks.workflow, execution.testRunRisk,
-          { phaseId: receipt.phase, attempt: testReceipt, at: testRunRisks.at })
-        : `test-run risk ${execution.testRunRisk.id ?? '?'} cannot be verified without its Story`;
-      if (problem) fail(`test receipt ${execution.commandId}: ${problem}`);
-      executions.set(execution.commandId, testReceipt);
-      continue;
-    }
-    if (!testReceiptPassing(testReceipt, minimumDiscovered, minimumPassed)) fail(`test receipt ${execution.commandId} is not passing`);
-    executions.set(execution.commandId, testReceipt);
-  }
-  if (!executions.size) fail('no passing test-execution receipt is bound');
-  for (const binding of bindings) {
-    const execution = executions.get(binding.commandId);
-    if (!execution || !testCommandCoversPath(execution, binding.testSource)) {
-      fail(`acceptance clause ${binding.clauseId} is not covered by its bound test command`);
-    }
-  }
-  if (requireAffectedModuleCoverage) {
-    for (const sourcePath of testCoverageDeliveryPaths(receipt.changeSet)) {
-      if (![...executions.values()].some((execution) => testCommandCoversPath(execution, sourcePath))) {
-        fail(`affected ${isConfigurationPath(sourcePath) ? 'configuration' : 'source'} path ${sourcePath} has no passing module test receipt`);
-      }
-    }
-  }
-  if (!['policy-selected', 'provider-reported', 'host-observed', 'unavailable'].includes(receipt.model?.assurance)) {
-    fail(`model assurance '${receipt.model?.assurance ?? ''}' is invalid`);
-  }
-  // The assurance floor governs model-authored code; it must not manufacture a mandatory model
-  // dependency for explicitly human-authored delivery. Older v2 receipts did not record `required`,
-  // so a real observation remains governed while an unavailable observation is treated as manual.
-  const modelRequired = receipt.model?.required ?? receipt.model?.assurance !== 'unavailable';
-  if (modelRequired && modelAssuranceRank(receipt.model?.assurance) < modelAssuranceRank(minimumModelAssurance)) {
-    fail(`model assurance '${receipt.model?.assurance ?? 'unavailable'}' is below required '${minimumModelAssurance}'`);
-  }
-  if (receipt.model?.minimumAssurance != null
-      && receipt.model.minimumAssurance !== minimumModelAssurance) {
-    fail('model assurance minimum differs from the pinned policy');
-  }
-  if (receipt.model?.assurance === 'policy-selected' && !(receipt.model.invocationIds ?? []).length) {
-    fail('policy-selected model assurance has no kernel invocation binding');
-  }
-  if (receipt.model?.assurance !== 'unavailable' && (!receipt.model?.provider || !receipt.model?.resolvedModel
-      || receipt.model?.host !== 'singularity-flow-kernel'
-      || receipt.model?.observationSource !== 'model-invocation-audit'
-      || receipt.model?.observationIntegrity !== 'external-host-attested'
-      || !receipt.model?.observedAt
-      || Number(receipt.model?.generation) !== Number(receipt.generation)
-      || !(receipt.model?.invocationIds ?? []).length)) {
-    fail('model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding');
-  }
-  return { valid: errors.length === 0, errors, changeSet, executions: [...executions.values()] };
+  return step.value;
 }

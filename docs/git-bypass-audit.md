@@ -1,5 +1,12 @@
 # GAL Git bypass regression gate
 
+The code-delivery replay extraction retains all six command sites in `delivery-evidence.mjs`.
+Four existing immutable `rev-parse`/`show` reads now serve explicit requests from the shared kernel
+replay instead of deciding acceptance inline. Source/test batching, exact-object fallback, local
+durable-read safety, deadlines and error handling retain their original owners. Only this file's
+reviewed fingerprint changes; its count and the total 2,011 sites remain unchanged. There is no
+new Git command, general process owner, remote permission or authority exemption.
+
 The engine submission extraction moves one existing, read-only `rev-parse <generation>^{tree}`
 call from `state.mjs` into `engine-compatibility/submission-transition.mjs`. Its arguments, bounded
 central launcher and place in the transition are unchanged. The aggregate count falls from 31 to

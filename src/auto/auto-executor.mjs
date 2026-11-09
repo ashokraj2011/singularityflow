@@ -18,7 +18,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { tryWindowsTaskkill } from '../platform-process.mjs';
 import { composePhasePrompt } from '../phase-prompt-composer.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
-import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
+import { evaluateStoryProtectedPaths } from '../engine-compatibility/node-source-policy.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { verifyAutoFlightContinuation } from './auto-continuation.mjs';

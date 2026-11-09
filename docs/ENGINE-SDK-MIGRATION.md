@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared code-delivery replay](ENGINE-SDK-CODE-DELIVERY-REPLAY.md) extracts the complete native v2
+receipt verifier into kernel rules over explicit evidence requests. The native host retains exact
+committed-file and raw-report reads, parsing and the required Auto/TRP/pin/risk compatibility owners.
+Configuration materialization, binding explanations and receipt identities have shared pure owners.
+The pre-extraction 90-case native oracle and raw in-memory replay tests protect the existing rules,
+error order and authority boundaries. Namespace-backed application publication, remaining policy
+extraction and migration Phases 5, 7, 8 and 9 remain open.
+
+Mac qualification passed 95 replay/architecture cases, 186 native regression cases including both
+opt-in Story journeys, and 27 installed SDK checks, without failures, cancellations or skips.
+Source validation passed 3,946 checks across 191 skills; VS Code typechecking, the 2,011-site Git
+audit and all 13 unchanged bundle budgets passed. The SDK retains 57 registered operations across
+184 owned modules. This qualifies receipt replay, not complete application publication.
+
 The [conditional source-control evidence owner](ENGINE-SDK-SOURCE-CONTROL-EVIDENCE.md) connects
 actual origin observations to the exact already-retained authored generation. Its registered
 operation verifies current/baseline source, original receipts and source indices, with final fresh

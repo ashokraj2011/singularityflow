@@ -321,7 +321,7 @@ test('configuration path rules depend on a string-syntax contract and native bin
 });
 
 test('source path rules have one pure owner and legacy facades cannot import repository infrastructure',async()=>{
-  const allowed=new Set(['node:path','node:crypto','../test-runners.mjs','./node-configuration-path.mjs','../governed-roots.mjs','../kernel/source-path-policies.mjs','../kernel/configuration-declarations.mjs']);
+  const allowed=new Set(['node:path','node:crypto','../test-runners.mjs','./node-configuration-path.mjs','../governed-roots.mjs','../kernel/source-path-policies.mjs','../kernel/configuration-declarations.mjs','../kernel/code-delivery-evidence.mjs','../kernel/test-report-codec.mjs']);
   const file='src/engine-compatibility/node-source-policy.mjs';
   const binding=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
   assert.equal(binding.statements.some(ts.isFunctionDeclaration),false);
@@ -331,18 +331,37 @@ test('source path rules have one pure owner and legacy facades cannot import rep
     if(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword)assert.fail(file+' cannot discover host implementations');
     ts.forEachChild(node,visit);
   };visit(binding);
-  for(const name of ['configuration-paths','source-boundary','supporting-changes','application-paths']){
+  for(const name of ['configuration-paths','source-boundary','supporting-changes','application-paths','configuration-materialization']){
     const ast=ts.createSourceFile(name,await readFile(path.join(packageRoot,`src/${name}.mjs`),'utf8'),ts.ScriptTarget.Latest,true);
     assert.ok(ast.statements.every(node=>ts.isExportDeclaration(node)&&node.moduleSpecifier.text==='./engine-compatibility/node-source-policy.mjs'),name);
   }
   for(const source of await sourceFiles('src')){
-    if(['configuration-paths','source-boundary','supporting-changes','application-paths'].some(name=>source===`src/${name}.mjs`))continue;
+    if(['configuration-paths','source-boundary','supporting-changes','application-paths','configuration-materialization'].some(name=>source===`src/${name}.mjs`))continue;
     const ast=ts.createSourceFile(source,await readFile(path.join(packageRoot,source),'utf8'),ts.ScriptTarget.Latest,true);
     for(const node of ast.statements){
       if(!ts.isImportDeclaration(node)&&!(ts.isExportDeclaration(node)&&node.moduleSpecifier))continue;
-      assert.equal(/(?:^|\/)(?:configuration-paths|source-boundary|supporting-changes|application-paths)\.mjs$/u.test(node.moduleSpecifier.text),false,source);
+      assert.equal(/(?:^|\/)(?:configuration-paths|source-boundary|supporting-changes|application-paths|configuration-materialization)\.mjs$/u.test(node.moduleSpecifier.text),false,source);
     }
   }
+});
+
+test('code-delivery replay rules stay in the kernel and the native verifier only serves explicit evidence requests',async()=>{
+  const owner='src/kernel/code-delivery-evidence.mjs';
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[owner],allowed:[...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel')]});
+  assert.deepEqual(pure.problems,[]);
+  const text=await readFile(path.join(packageRoot,'src/delivery-evidence.mjs'),'utf8');
+  const ast=ts.createSourceFile('native-delivery',text,ts.ScriptTarget.Latest,true);
+  const replay=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='verifyCodeDeliveryReceipt');
+  assert.ok(replay);
+  const body=replay.body.getText(ast);
+  assert.equal((body.match(/codeDeliveryReceiptReplay\(/gu)??[]).length,1);
+  for(const decision of ['testReceiptPassing','testCommandCoversPath','modelAssuranceRank','evaluateStoryProtectedPaths','cornerCaseMatrixDigest']){
+    assert.equal(body.includes(decision+'('),false,decision+' belongs to the shared replay rules');
+  }
+  assert.equal(body.includes('plan.throw(error)'),true,'reader failures return to the same rule checkpoint');
+  const kernel=await readFile(path.join(packageRoot,owner),'utf8');
+  assert.doesNotMatch(kernel,/\b(?:readFile|spawn|process|run|invokeModel|loadSession|loadDefinition)\s*[.(]/u);
+  assert.doesNotMatch(kernel,/import\s*\(/u);
 });
 
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {

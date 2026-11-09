@@ -954,7 +954,7 @@
       "counts": {
         "command-run": 6
       },
-      "digest": "d74b4ca054b75d8e729e1dc975316be857cecb0e580626c385cb8c28ddd47430"
+      "digest": "19ab57783e50a60003cb268c8e170917496038be7dadfe653399668107486409"
     },
     "src/delivery-modes/local-signed-runner.mjs": {
       "counts": {

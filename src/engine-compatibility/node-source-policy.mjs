@@ -4,7 +4,9 @@ import {createHash} from 'node:crypto';
 import {NODE_CONFIGURATION_PATH_SYNTAX,TEST_COMMAND_ECOSYSTEMS} from './node-configuration-path.mjs';
 import {ecosystemOfAdapter,ecosystemOfProgram} from '../test-runners.mjs';
 import {GOVERNED_ROOTS} from '../governed-roots.mjs';
-import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,sourceControlObservationPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS,createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '../kernel/source-path-policies.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,applicationPathPolicies,changeScopePolicies,deliveryClassificationPolicies,sourceChangeInspectionPolicies,sourceBaselineInventoryPolicies,sourceControlObservationPolicies,testDeliveryPolicies,TEST_DELIVERY_POLICY_FACTS,createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES,configurationMaterializationPolicies} from '../kernel/source-path-policies.mjs';
+import {codeDeliveryEvidencePolicies} from '../kernel/code-delivery-evidence.mjs';
+import {TEST_REPORT_BYTE_SYNTAX} from '../kernel/test-report-codec.mjs';
 export {SOURCE_BOUNDARIES,normalizeSourceBoundary} from '../kernel/configuration-declarations.mjs';
 
 const configurationFilePoliciesBinding=/* @__PURE__ */ configurationFilePolicies(NODE_CONFIGURATION_PATH_SYNTAX);
@@ -67,3 +69,16 @@ export const repositoryChangeSetDigest=/* @__PURE__ */ (()=>repositoryChangeSetB
 export const verifyRepositoryChangeSetIntegrity=/* @__PURE__ */ (()=>repositoryChangeSetBinding.verifyRepositoryChangeSetIntegrity)();
 const sourceControlObservationBinding=/* @__PURE__ */ sourceControlObservationPolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS,repositoryChangeSetValues);
 export const verifySourceControlObservation=/* @__PURE__ */ (()=>sourceControlObservationBinding.verifySourceControlObservation)();
+
+const materializationBinding=/* @__PURE__ */ configurationMaterializationPolicies(NODE_CONFIGURATION_PATH_SYNTAX);
+export const approvedConfigurationMaterializations=/* @__PURE__ */ (()=>materializationBinding.approvedConfigurationMaterializations)();
+export const evaluateStoryProtectedPaths=/* @__PURE__ */ (()=>materializationBinding.evaluateStoryProtectedPaths)();
+const deliveryByteSyntax=/* @__PURE__ */ Object.freeze({profile:TEST_REPORT_BYTE_SYNTAX,
+  from:Buffer.from.bind(Buffer),alloc:Buffer.alloc.bind(Buffer),concat:Buffer.concat.bind(Buffer),
+  sha256:value=>createHash('sha256').update(value).digest('hex')});
+const deliveryEvidenceBinding=/* @__PURE__ */ codeDeliveryEvidencePolicies(NODE_CONFIGURATION_PATH_SYNTAX,GOVERNED_ROOTS,testDeliveryFacts,repositoryChangeSetValues,deliveryByteSyntax);
+export const codeDeliveryReceiptReplay=/* @__PURE__ */ (()=>deliveryEvidenceBinding.codeDeliveryReceiptReplay)();
+export const codeDeliveryEvidencePath=/* @__PURE__ */ (()=>deliveryEvidenceBinding.safeEvidencePath)();
+export const implementationBindingsDigest=/* @__PURE__ */ (()=>deliveryEvidenceBinding.bindingsDigest)();
+export const cornerCaseMatrixDigest=/* @__PURE__ */ (()=>deliveryEvidenceBinding.cornerCaseMatrixDigest)();
+export const prepareCodeDeliveryReportReader=/* @__PURE__ */ (()=>deliveryEvidenceBinding.prepareTestReportReader)();

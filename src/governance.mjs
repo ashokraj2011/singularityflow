@@ -34,7 +34,7 @@ import {
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { conformanceGapLine, conformanceGapRefusal, decisionListRoute } from './upstream-routes.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
+import { evaluateStoryProtectedPaths } from './engine-compatibility/node-source-policy.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { obligationsDroppedBySkips } from './workflow-decisions.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -77,7 +77,7 @@ function conformanceGateErrors(findings) {
   return findings.map((finding) => ({ code: conformanceGateCode(finding.code), message: finding.message }));
 }
 
-export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
+export { approvedConfigurationMaterializations } from './engine-compatibility/node-source-policy.mjs';
 
 /**
  * Compare terminal publication against the exact configured push authority, not a mutable name.

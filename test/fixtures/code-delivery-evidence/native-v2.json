@@ -1,0 +1,2124 @@
+{
+  "baseline": "a09cfd37f",
+  "functionSha256": "cdd20835a03d8aa9d024522eed19124b0e933491c53f9064143400c7b7db4d18",
+  "cases": [
+    {
+      "id": "ready",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "legacy-string-version",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "future-version",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "code-delivery v2 receipt is unavailable"
+          ],
+          "hasChangeSet": false,
+          "executions": null
+        }
+      }
+    },
+    {
+      "id": "wrong-kind",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "code-delivery v2 receipt is unavailable"
+          ],
+          "hasChangeSet": false,
+          "executions": null
+        }
+      }
+    },
+    {
+      "id": "not-ready",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "code-delivery receipt is partial"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "missing-tree",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "generation commit is absent",
+            "committed repository change set is absent",
+            "the explanation of REPLAY:REQ-001 is not on its tag line in the generation",
+            "the acceptance witness for REPLAY:AC-001 in test/app.test.js does not match the committed test",
+            "source-clause binding REPLAY:REQ-001 at src/app.js:1 does not replay from the generation commit",
+            "test receipt unit did not run against the published candidate"
+          ],
+          "hasChangeSet": false,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "different-tree",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "generation tree differs from the committed generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "missing-change-set",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "committed repository change set is absent"
+          ],
+          "hasChangeSet": false,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "different-change-set",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "repository change-set digest differs from its receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "protected-source",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-only-boundary",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "source boundary fails: link, src/app.js, src/app.js"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "symlink-refused",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "source or test delivery contains a symbolic link"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "binding-digest",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "implementation bindings do not match their digest"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "binding-shape",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "implementation bindings do not match their digest"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "binding-clause",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "implementation bindings do not match their digest",
+            "an implementation binding is malformed"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "binding-explanation",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "implementation bindings do not match their digest",
+            "the explanation of REPLAY:REQ-001 is not on its tag line in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "binding-line",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "implementation bindings do not match their digest",
+            "the explanation of REPLAY:REQ-001 is not on its tag line in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-existing-src/app.js",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-existing-absent",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "existing evidence of REPLAY:REQ-001 is not at absent in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-existing-../outside",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unsafe path"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-existing-link",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "existing evidence of REPLAY:REQ-001 is not at link in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-evidence-src/app.js",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-evidence-absent",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "evidence evidence of REPLAY:REQ-001 is not at absent in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-evidence-../outside",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unsafe path"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-evidence-link",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "evidence evidence of REPLAY:REQ-001 is not at link in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-removed-src/app.js",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "src/app.js, removed for REPLAY:REQ-001, is still in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-removed-absent",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-removed-../outside",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unsafe path"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-removed-link",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "link, removed for REPLAY:REQ-001, is still in the generation"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-configuration-src/app.js",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-configuration-absent",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "the configuration change of REPLAY:REQ-001 did not change absent"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-configuration-../outside",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unsafe path"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-configuration-link",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-document-src/app.js",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-document-absent",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "the document change of REPLAY:REQ-001 did not change absent"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-document-../outside",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unsafe path"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-document-link",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-unknown-src/app.js",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unknown type"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-unknown-absent",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unknown type"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-unknown-../outside",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unsafe path"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fulfillment-unknown-link",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "fulfillment evidence for REPLAY:REQ-001 names an unknown type"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "missing-acceptance",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "acceptance bindings are missing: REPLAY:AC-001"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ambiguous-acceptance",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "acceptance bindings are ambiguous"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "unbound-acceptance",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "acceptance clause REPLAY:AC-001 has no module test-source binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "wrong-command",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "acceptance clause REPLAY:AC-001 is not covered by its bound test command"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "witness-digest",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "the acceptance witness for REPLAY:AC-001 in test/app.test.js does not match the committed test"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "witness-clause",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "the acceptance witness for REPLAY:AC-002 in test/app.test.js does not match the committed test"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-shape",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "planned source-clause bindings are absent from the code-delivery receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-clause",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "planned source-clause requirement is invalid",
+            "source-clause binding for REPLAY:REQ-001 is outside the reviewed delivery"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-path",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "planned clause REPLAY:REQ-001 has no exact source-comment binding",
+            "source-clause binding for REPLAY:REQ-001 is outside the reviewed delivery"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-line",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "source-clause binding REPLAY:REQ-001 at src/app.js:2 does not replay from the generation commit"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-not-delivered",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "source-clause binding for REPLAY:REQ-001 is outside the reviewed delivery"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-required-missing",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "planned clause REPLAY:REQ-001 has no exact source-comment binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "source-read-policy-off",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "execution-missing",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "no passing test-execution receipt is bound",
+            "acceptance clause REPLAY:AC-001 is not covered by its bound test command",
+            "affected source path src/app.js has no passing module test receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": []
+        }
+      }
+    },
+    {
+      "id": "attempt-identity",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit is not the attempt it is bound to"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "attempt-digest",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit differs from its bound digest"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "candidate-mismatch",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit did not run against the published candidate"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "attempt-unavailable",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit is unavailable: not present in evidence commit 319e672acd078ce817a7a16c790d18826e234528",
+            "no passing test-execution receipt is bound",
+            "acceptance clause REPLAY:AC-001 is not covered by its bound test command",
+            "affected source path src/app.js has no passing module test receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": []
+        }
+      }
+    },
+    {
+      "id": "attempt-key-mismatch",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt other is not the attempt it is bound to",
+            "acceptance clause REPLAY:AC-001 is not covered by its bound test command"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "minimum-discovered",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit is not passing"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "minimum-passed",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit is not passing"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "trp-without-context",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "TRP risk validation unit does not replay: authenticated TRP runtime context is required",
+            "no passing test-execution receipt is bound",
+            "acceptance clause REPLAY:AC-001 is not covered by its bound test command",
+            "affected source path src/app.js has no passing module test receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": []
+        }
+      }
+    },
+    {
+      "id": "risk-without-context",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "test receipt unit: test-run risk risk cannot be verified without its Story"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "auto-without-binding",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "Auto Candidate binding is invalid: Auto Candidate binding has an invalid closed-vocabulary identity."
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-undefined-undefined",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance '' is invalid",
+            "model assurance 'unavailable' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-undefined-false",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance '' is invalid",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-undefined-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance '' is invalid",
+            "model assurance 'unavailable' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-unavailable-undefined",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-unavailable-false",
+      "outcome": {
+        "value": {
+          "valid": true,
+          "errors": [],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-unavailable-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'unavailable' is below required 'provider-reported'"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-observed-undefined",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'observed' is invalid",
+            "model assurance 'observed' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-observed-false",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'observed' is invalid",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-observed-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'observed' is invalid",
+            "model assurance 'observed' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-host-observed-undefined",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'host-observed' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-host-observed-false",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-host-observed-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'host-observed' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-provider-reported-undefined",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-provider-reported-false",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-provider-reported-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-policy-selected-undefined",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "policy-selected model assurance has no kernel invocation binding",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-policy-selected-false",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "policy-selected model assurance has no kernel invocation binding",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-policy-selected-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "policy-selected model assurance has no kernel invocation binding",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-future-undefined",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'future' is invalid",
+            "model assurance 'future' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-future-false",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'future' is invalid",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-future-true",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance 'future' is invalid",
+            "model assurance 'future' is below required 'provider-reported'",
+            "model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-minimum",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "model assurance minimum differs from the pinned policy"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "corner-case-required",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "corner-case obligation matrix is absent from the code-delivery receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "assertions-required",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "corner-case obligation matrix is absent from the code-delivery receipt"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "matrix-digest",
+      "outcome": {
+        "value": {
+          "valid": false,
+          "errors": [
+            "corner-case obligation matrix does not match its digest"
+          ],
+          "hasChangeSet": true,
+          "executions": [
+            {
+              "commandId": "unit",
+              "status": "passed",
+              "tests": {
+                "discovered": 1,
+                "failed": 0,
+                "passed": 1,
+                "skipped": 0
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

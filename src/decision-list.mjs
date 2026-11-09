@@ -723,7 +723,9 @@ function revalidationItem(workflow, context, blocker) {
   const producer = blocker.producer ? stepName(workflow, blocker.producer) : 'the earlier step';
   const report = isConformancePhase(workflow.phases?.[blocker.phase]);
   const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
-  // Each step's own approvers answer for that step alone: never one answer for every row.
+  // Only a step's own approvers answer its row. "Still holds" may be one answer, with one reason, for every row
+  // this person approves, worded alike on each host; each row keeps its own record. A return is row by row.
+  const shared = (built) => ({ ...built, sharedLabel: 'Still holds' });
   const own = (built) => ({ ...built, oneByOne: true });
   return {
     kind: 'forward-amendment', title: `Revalidate ${name} after ${blocker.amendment}`,
@@ -731,7 +733,7 @@ function revalidationItem(workflow, context, blocker) {
       ? `Its approvers confirm the report still holds under the amended ${producer}, or return it for a new report.`
       : `Its approvers say it still holds under the amended ${producer}, which keeps its approval, or return the Story to it.`}`,
     options: [
-      own(option(workflow, context, { id: 'still-holds', label: report ? 'Confirm the report: it still holds' : `${name} still holds`,
+      shared(option(workflow, context, { id: 'still-holds', label: report ? 'Confirm the report: it still holds' : `${name} still holds`,
         words: report ? `The report stands as written, read against the amended ${producer}; its approval comes next, as always.`
           : `Its approval stands, bound to the amended ${producer}.`, effects: effect('unchanged'),
         needs: { reason: textNeed(`${name} still holds under ${blocker.amendment}: the amended ${producer} says what it was built and checked against.`, REASON) } })),

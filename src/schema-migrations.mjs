@@ -2737,6 +2737,10 @@ const families = [
   family({ id: 'skill-version-adoption-summary', currentVersion: 2, unversionedAs: 1,
     steps: [migration(1, 2, identity(2))] }),
   family({ id: 'skill-version-rejection-binding', currentVersion: 1, immutable: true }),
+  // A "still holds" or "return" answer in a Story's amendmentRevalidations (SCS:REQ-022). v2 keeps the
+  // person's name beside the actor key; a v1 answer has none, reads as is, and is shown by its key.
+  family({ id: 'amendment-revalidation', currentVersion: 2, unversionedAs: 1, immutable: true,
+    steps: [migration(1, 2, identity(2))] }),
   family({
     id: 'skill-version-adoption-proposal', currentVersion: 1, immutable: true,
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/context\/skill-amendments\/SAM-[0-9]{3,6}-proposal\.json$/]

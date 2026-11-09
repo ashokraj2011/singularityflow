@@ -116,7 +116,7 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map() } 
       const answer = carrierOf(revision, phaseId, generation);
       if (!answer) return { revision, carried };
       carried.push({ revision: revision.revision, amendment: answer.amendment, phase: phaseId, generation: Number(generation),
-        actor: answer.actor ?? null, authorityGroup: answer.authorityGroup, at: answer.at ?? null });
+        actor: answer.actor ?? null, actorName: answer.actorName ?? null, authorityGroup: answer.authorityGroup, at: answer.at ?? null });
     }
     return { revision: null, carried };
   };

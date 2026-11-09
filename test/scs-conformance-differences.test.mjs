@@ -14,6 +14,8 @@ import { conformanceVerdictGaps, decidesConformanceDifferences, unstatedConforma
 import { recordableInApproval } from '../src/approval-decisions.mjs';
 import { decisionGroups, decisionPacket, decisionRecordPlan, effectWords, ISSUE_ONLY_OPTIONS, parseDecisionAnswers } from '../src/decision-list.mjs';
 import { DECISION_LIST_CHAT_OPTIONS } from '../src/person-step-catalog.mjs';
+import { EACH, firstForm, NOT_NOW, RECORD, runCard, sharedAnswers } from '../plugin/extensions/decisions/card.mjs';
+import { decideHtml, sharedAnswers as cardSharedAnswers } from '../apps/vscode/src/views/decide-card-page.ts';
 import { normalizeSpecPolicy } from '../src/specifications.mjs';
 import { conformanceGapDecisions, conformanceGapRefusal, upstreamIssueStates } from '../src/upstream-routes.mjs';
 
@@ -271,7 +273,9 @@ test('a revalidation row is the step\'s own approvers\' choice on the list: it s
     ['return-step', 'Return the Story to Implementation', 'return', ['engineering-reviewers']]]);
   assert.deepEqual(report.options.map((entry) => entry.label), ['Confirm the report: it still holds', 'Return it for a new report']);
   assert.deepEqual(report.options[0].decidedBy.groups, ['quality-reviewers'], 'the report\'s approvers confirm it');
-  assert.ok([...code.options, ...report.options].every((entry) => entry.oneByOne), 'each step\'s own approvers answer it alone, never one answer for all');
+  // "Still holds" may be one answer for the rows a person approves, worded alike on each host; a return is row by row.
+  assert.deepEqual([...code.options, ...report.options].map((entry) => [entry.id, entry.oneByOne ?? false, entry.sharedLabel ?? null]), [
+    ['still-holds', false, 'Still holds'], ['return-step', true, null], ['still-holds', false, 'Still holds'], ['return-step', true, null]]);
   assert.ok(!DECISION_LIST_CHAT_OPTIONS.includes('still-holds') && !DECISION_LIST_CHAT_OPTIONS.includes('return-step'), 'never a chat turn\'s to answer');
   assert.equal(recordableInApproval(code.options[0]), false);
   // A return moves the Story, so it is written after every other answer.
@@ -280,6 +284,53 @@ test('a revalidation row is the step\'s own approvers\' choice on the list: it s
   assert.deepEqual(plan.steps.map((step) => [step.item, step.option]), [[code.id, 'still-holds'], [report.id, 'return-step']]);
   assert.match(effectWords(workflow, plan.steps[0].effects[0]), /^record that Implementation still holds under AMD-001/u);
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${report.id}=return-step`] }), { at: AT }), /reason for d\d must be 20 to 1000/u);
+});
+
+test('"Still holds for all N, with one reason" covers only the rows this person decides; each is still its own record [SCS:REQ-022]', async () => {
+  // Verification's row is the test leads': it stays listed for them.
+  const base = story();
+  const workflow = story({ status: 'awaiting_approval', extra: {
+    intentAmendments: [{ id: 'AMD-001', status: 'approved', producer: 'requirements',
+      revalidate: [{ phase: 'implementation', generation: 1 }, { phase: 'verification', generation: 1 }, { phase: 'conformance', generation: 1 }] }],
+    resolution: { ...base.resolution, approvalAuthorities: { ...base.resolution.approvalAuthorities,
+      'test-leads': { label: 'Test leads', allowAnyGitIdentity: false, members: [{ githubLogin: 'test-lead' }] } } } } });
+  workflow.phases.verification.approvalPolicy = { authorities: ['test-leads'] };
+  const row = (phase) => ({ code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase, producer: 'requirements', message: 'm', command: 'c' });
+  const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps: [], issues: [], activeReuse: [], candidates: [], reuseProblems: [], testRisks: [],
+    unavailable: [], state: {}, pending: { forwardAmendments: ['implementation', 'verification', 'conformance'].map(row) } };
+  const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
+    actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
+  const [code, testing, report] = packet.items.filter((entry) => entry.kind === 'forward-amendment');
+  assert.deepEqual([code, testing, report].map((entry) => entry.decidedBy.allowed), [true, false, true]);
+
+  // Copilot CLI: one choice beside "Decide each one"; the return is not offered for all.
+  assert.deepEqual(sharedAnswers(packet).map((entry) => [entry.id, entry.label, entry.items.map((item) => item.id), entry.others.map((item) => item.id)]),
+    [['still-holds', 'Still holds', [code.id, report.id], [testing.id]]]);
+  const { form } = firstForm(packet);
+  assert.deepEqual(form.requestedSchema.properties.choice.enum, ['Still holds for all 2, with one reason', EACH, NOT_NOW]);
+  assert.match(form.message, /"Still holds for all 2, with one reason" covers only the rows you decide; 1 more stays listed for their own approvers \(Revalidate Verification after AMD-001\)\.$/u);
+  const reason = 'The amended requirement is what each step was built and checked against.';
+  const asked = [];
+  const replies = [{ action: 'accept', content: { choice: 'Still holds for all 2, with one reason' } }, { action: 'accept', content: { reason } },
+    { action: 'accept', content: { confirm: RECORD } }];
+  let document = null;
+  const result = await runCard({ ask: async (shown) => { asked.push(shown); return replies.shift() ?? { action: 'cancel' }; }, show: async () => {},
+    read: async () => packet, record: async (read, written) => { document = written; return { recorded: Object.keys(written.choose).map((item) => ({ item, record: item })) }; },
+    witness: async () => null, inspect: async () => {} });
+  assert.match(asked[1].message, /^Still holds for all 2, with one reason\. Each of the 2 is recorded on its own, with this reason\./u);
+  assert.equal(result.status, 'recorded');
+  assert.deepEqual([document.choose, document.reason], [{ [code.id]: 'still-holds', [report.id]: 'still-holds' }, { [code.id]: reason, [report.id]: reason }]);
+  // Recorded as two revalidations, one per row, each with the shared reason; the test leads' row is left to them.
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: Object.entries(document.choose).map(([item, option]) => `${item}=${option}`),
+    reason: Object.entries(document.reason).map(([item, text]) => `${item}=${text}`) }), { at: AT });
+  assert.deepEqual(plan.steps.map((step) => [step.item, step.effects.map((effect) => [effect.kind, effect.phase, effect.outcome])]), [
+    [code.id, [['amendment-revalidation', 'implementation', 'unchanged']]], [report.id, [['amendment-revalidation', 'conformance', 'unchanged']]]]);
+
+  // The VS Code card offers the same answer in the same words, and says what it leaves.
+  assert.deepEqual(cardSharedAnswers(packet).map((entry) => [entry.id, entry.label, entry.rows, entry.others]), [['still-holds', 'Still holds', 2, 1]]);
+  const html = decideHtml(packet);
+  assert.match(html, /<option value="still-holds">Still holds \(2 rows\)<\/option>/u);
+  assert.match(html, /"Still holds" covers only the rows you decide; 1 more stays listed for their own approvers\./u);
 });
 
 test('rows hold the waiting step\'s approval and carry its input, ending and history holds, so no hold reads as nobody\'s [SCS:REQ-022]', () => {

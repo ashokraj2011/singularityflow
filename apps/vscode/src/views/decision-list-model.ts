@@ -37,6 +37,8 @@ export interface DecisionOptionPacket {
   available?: boolean;
   /** A departure decided on its own row with its own reason, never by one answer for all [CQF:REQ-024]. */
   oneByOne?: boolean;
+  /** The words one answer for all uses when each row's own label names its row ("Still holds" for "Code still holds") [SCS:REQ-022]. */
+  sharedLabel?: string;
   action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string };
     /** A file the person writes before running the command (an intent-amendment draft), named by the engine. */
     file?: string };

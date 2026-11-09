@@ -261,6 +261,9 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   const answered = await workflow();
   assert.deepEqual(answered.amendmentRevalidations.map((entry) => [entry.amendment, entry.phase, entry.outcome, entry.binding?.producer, entry.binding?.producerGeneration]), [
     ['AMD-001', 'implementation', 'unchanged', 'intake', 2], ['AMD-001', 'testing', 'unchanged', 'intake', 2], ['AMD-001', 'conformance', 'unchanged', 'intake', 2]]);
+  // Each answer keeps the person's name beside the actor key (amendment-revalidation v2); the key is the test identity's email.
+  assert.deepEqual([...new Set(answered.amendmentRevalidations.map((entry) => `${entry.schemaVersion} ${entry.actor} ${entry.actorName}`))],
+    ['2 decision.tester@example.com Decision Tester']);
   const confirmedList = json(cli('decisions', W, '--json')).data;
   assert.equal(confirmedList.items.some((entry) => entry.kind === 'forward-amendment'), false);
   assert.deepEqual(confirmedList.items.map((entry) => entry.kind), ['approval'], 'nothing else holds it: no stale evidence, no intervening commit');
@@ -268,15 +271,16 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   const carried = confirmedList.approvalEvidence?.carried;
   assert.deepEqual(carried.entries.map((entry) => [entry.amendment, entry.phase, entry.clauses]),
     [['AMD-001', 'implementation', [AC1]], ['AMD-001', 'testing', [AC1]], ['AMD-001', 'conformance', [AC1]]]);
-  assert.match(carried.entries[0].words, new RegExp(`^${AC1}: Code's evidence predates AMD-001's wording; [^,]+, for the Code approvers \\(engineering-reviewers\\), said it still holds\\.$`, 'u'));
+  assert.equal(carried.entries[0].words, `${AC1}: Code's evidence predates AMD-001's wording; Decision Tester, for the Code approvers (engineering-reviewers), said it still holds.`, 'by name, not Git email');
   const approved = cli('approve', 'conformance', '--yes').stdout;
-  assert.match(approved, /Carried by "still holds": .*AC-001: Code's evidence predates AMD-001's wording/u, 'named before the approver confirms');
+  assert.match(approved, /Carried by "still holds": .*AC-001: Code's evidence predates AMD-001's wording; Decision Tester, for the Code approvers/u, 'named before the approver confirms');
   const done = await workflow();
   assert.equal(done.phases.conformance.status, 'approved', 'the confirmed report is approved against the amended scope, nothing rerun');
   assert.deepEqual(['intake', 'implementation', 'testing', 'conformance'].map((id) => done.phases[id].generation), [2, 1, 1, 1]);
   const stored = JSON.parse(await readFile(path.join(item, 'approvals/conformance.json'), 'utf8'));
   const decision = stored.decisions.findLast((entry) => entry.decision === 'approved');
-  assert.deepEqual(decision.carriedEvidence?.map((entry) => [entry.amendment, entry.phase]), [['AMD-001', 'implementation'], ['AMD-001', 'testing'], ['AMD-001', 'conformance']]);
+  assert.deepEqual(decision.carriedEvidence?.map((entry) => [entry.amendment, entry.phase, entry.by]),
+    [['AMD-001', 'implementation', 'Decision Tester'], ['AMD-001', 'testing', 'Decision Tester'], ['AMD-001', 'conformance', 'Decision Tester']]);
   assert.deepEqual(decision.confirmedIntentAmendments?.map((entry) => [entry.id, entry.kind]), [['AMD-001', 'proposal'], ['AMD-001', 'approval']]);
 });
 

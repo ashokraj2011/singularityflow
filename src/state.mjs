@@ -9099,8 +9099,11 @@ export async function revalidateAfterForwardAmendment(root, config, workflow, {
     binding = { producer: owed.producer, producerGeneration: Number(amended.producerGeneration), producerSha256: amended.sha256,
       inputRecordSha256: phase.inputContext.sha256 };
   }
-  const entry = { amendment: amendmentId, phase: phaseId, generation: Number(phase.generation), outcome, reason: text, binding,
-    link, actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at };
+  // v2 keeps the person's name beside the key: "still holds" is shown by name, not by Git email.
+  const name = typeof actor?.name === 'string' ? actor.name.trim() : '';
+  const entry = { schemaVersion: currentSchemaVersion('amendment-revalidation'), amendment: amendmentId, phase: phaseId,
+    generation: Number(phase.generation), outcome, reason: text, binding, link, actor: actorKey(actor), actorName: name || null,
+    authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at };
   workflow.amendmentRevalidations ??= [];
   workflow.amendmentRevalidations.push(entry);
   if (outcome === 'unchanged') {

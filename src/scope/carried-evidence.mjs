@@ -32,16 +32,27 @@ export function revalidationCarriers(workflow) {
 }
 
 /**
+ * Who said it still holds, as a person reads it: the name a v2 answer keeps beside its actor key, else
+ * the key itself (a v1 answer, written before names were kept, has none).
+ */
+export function revalidatorName(answer) {
+  const name = typeof answer?.actorName === 'string' ? answer.actorName.trim() : '';
+  if (name) return name;
+  if (typeof answer?.actor === 'string') return answer.actor;
+  return answer?.actor?.name ?? answer?.actor?.email ?? answer?.actor?.login ?? 'a person';
+}
+
+/**
  * What was carried, in words, for each place a person reads it before approving and for the approval
  * itself [SCS:REQ-022]: each "still holds" answer still in force (its step at the generation it
- * answered for), with the amended clauses, the amendment, and who said it under which group.
+ * answered for), with the amended clauses, the amendment, and who said it (by name) under which group.
  */
 export function carriedEvidence(workflow) {
   return [...revalidationCarriers(workflow).values()]
     .filter((answer) => Number(workflow?.phases?.[answer.phase]?.generation) === Number(answer.generation))
     .map((answer) => {
       const step = workflow.phases[answer.phase]?.label ?? answer.phase;
-      const by = typeof answer.actor === 'string' ? answer.actor : answer.actor?.name ?? answer.actor?.email ?? answer.actor?.login ?? 'a person';
+      const by = revalidatorName(answer);
       return { amendment: answer.amendment, phase: answer.phase, generation: Number(answer.generation), clauses: [...answer.clauses],
         by, authorityGroup: answer.authorityGroup, at: answer.at ?? null,
         words: `${answer.clauses.join(', ') || 'The amended clauses'}: ${step}'s evidence predates ${answer.amendment}'s wording; ${by}, for the ${step} approvers (${answer.authorityGroup}), said it still holds.` };

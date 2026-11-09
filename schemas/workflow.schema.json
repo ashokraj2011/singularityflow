@@ -1233,14 +1233,16 @@
       }
     },
     "amendmentRevalidations": {
-      "description": "Append-only revalidations of approved later steps after a forward amendment: unchanged (bound to the amended producer generation and bytes and the step's exact input record) or return.",
+      "description": "Append-only revalidations of approved later steps after a forward amendment: unchanged (bound to the amended producer generation and bytes and the step's exact input record) or return. A v2 entry (amendment-revalidation family) keeps the person's name beside the actor key; a v1 entry has no schemaVersion and no name.",
       "type": "array",
       "items": {
         "type": "object",
         "required": ["amendment", "phase", "generation", "outcome", "reason", "binding", "link", "actor", "authorityGroup", "at"],
         "properties": {
+          "schemaVersion": { "enum": [1, 2] },
           "amendment": { "type": "string", "pattern": "^FAM-[0-9]{3,}$" },
           "outcome": { "enum": ["unchanged", "return"] },
+          "actorName": { "type": ["string", "null"] },
           "binding": { "anyOf": [{ "type": "null" }, { "type": "object", "required": ["producer", "producerGeneration", "producerSha256", "inputRecordSha256"] }] },
           "link": { "type": ["string", "null"] },
           "at": { "type": "string", "format": "date-time" },

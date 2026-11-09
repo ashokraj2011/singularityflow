@@ -5,6 +5,7 @@ import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { riskEligibility } from '../src/evidence/risk-decisions.mjs';
 import { matrixMarkdown } from '../src/evidence/matrix.mjs';
+import { readRecord } from '../src/schema-migrations.mjs';
 import { carriedEvidence } from '../src/scope/carried-evidence.mjs';
 import { acceptedClauses, recordScopeRevision, removedClauseIds, scopeStaleness, staleClausesOf } from '../src/scope/revisions.mjs';
 import { clauseReferences } from '../src/specifications.mjs';
@@ -157,9 +158,15 @@ test('clause references are exact IDs, never substrings', () => {
 // step's own approvers carries that step's evidence across the amendment's revision [SCS:REQ-022, owner decision 12].
 const listedAmendment = (extra = {}) => ({ id: 'AMD-001', status: 'approved', producer: 'intake', changedClauses: [AC2], staleClauses: [AC2],
   revalidate: [{ phase: 'implementation', generation: 1 }], ...extra });
-const stillHolds = (extra = {}) => ({ amendment: 'AMD-001', phase: 'implementation', generation: 1, outcome: 'unchanged', reason: 'The code already returns it.',
+// As recorded: a v2 answer keeps the person's name beside the actor key.
+const stillHolds = (extra = {}) => ({ schemaVersion: 2, amendment: 'AMD-001', phase: 'implementation', generation: 1, outcome: 'unchanged', reason: 'The code already returns it.',
   binding: { producer: 'intake', producerGeneration: 2, producerSha256: hash('9'), inputRecordSha256: hash('8') },
-  actor: { name: 'Code Approver' }, authorityGroup: 'reviewers', at: '2026-10-03T02:00:00Z', ...extra });
+  actor: 'code.approver@example.invalid', actorName: 'Code Approver', authorityGroup: 'reviewers', at: '2026-10-03T02:00:00Z', ...extra });
+// An answer written before names were kept: no schemaVersion, no name.
+const stillHoldsV1 = () => {
+  const { schemaVersion: _version, actorName: _name, ...entry } = stillHolds();
+  return entry;
+};
 
 test('a step\'s approvers\' "still holds" carries its evidence across the amendment\'s revision, labelled, and nothing else does', () => {
   const carried = revisedStory({ ac2: hash('d') }, { extra: { intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHolds()] } });
@@ -172,6 +179,10 @@ test('a step\'s approvers\' "still holds" carries its evidence across the amendm
   assert.equal(label.message, `${AC2}: its implement, verify, review evidence predates AMD-001's wording; Code Approver, for the implementation approvers (reviewers), said it still holds.`);
   assert.equal(row.findings.some((entry) => entry.code === 'EVIDENCE_STALE_AFTER_SCOPE_REVISION'), false);
   assert.notEqual(carried.decision.gate, 'block');
+  // An answer written before names were kept still carries, and its label falls back to the actor key.
+  const older = revisedStory({ ac2: hash('d') }, { extra: { intentAmendments: [listedAmendment()], amendmentRevalidations: [stillHoldsV1()] } })
+    .rows.find((entry) => entry.id === AC2).findings.find((entry) => entry.code === 'EVIDENCE_CARRIED_BY_REVALIDATION');
+  assert.equal(older.message, `${AC2}: its implement, verify, review evidence predates AMD-001's wording; code.approver@example.invalid, for the implementation approvers (reviewers), said it still holds.`);
 
   // Without that exact record it is stale, as before.
   const stale = (extra) => revisedStory({ ac2: hash('d') }, { extra }).rows.find((entry) => entry.id === AC2)
@@ -197,6 +208,10 @@ test('carried evidence is worded once for the card, the Copilot CLI table, the t
   workflow.phases.implementation.label = 'Code';
   assert.deepEqual(carriedEvidence(workflow).map((entry) => [entry.amendment, entry.phase, entry.clauses, entry.by, entry.words]), [['AMD-001', 'implementation', [AC2], 'Code Approver',
     `${AC2}: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (reviewers), said it still holds.`]]);
+  const older = { ...workflow, amendmentRevalidations: [stillHoldsV1()] };
+  assert.deepEqual(carriedEvidence(older).map((entry) => entry.by), ['code.approver@example.invalid'], 'a v1 answer is named by its key');
+  const opened = readRecord('amendment-revalidation', stillHoldsV1());
+  assert.deepEqual([opened.storedVersion, opened.record.schemaVersion, opened.record.actorName], [1, 2, undefined], 'read as is: no name is invented');
   workflow.phases.implementation.generation = 2;
   assert.deepEqual(carriedEvidence(workflow), [], 'a step that ran again carries nothing');
 });

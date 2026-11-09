@@ -88,8 +88,10 @@ export function decisionsTable(packet) {
 }
 
 /**
- * The answers one reason may cover: offered by two or more rows, needing nothing but a reason. A
- * departure's plan row, test or clause-touching wording is decided one by one (`oneByOne`), never here.
+ * The answers one reason may cover: offered by two or more rows this person decides, needing nothing but a
+ * reason. A departure's plan row, test or clause-touching wording is decided one by one (`oneByOne`), never
+ * here. `others` names the rows offering the same answer that it does not cover: other approvers decide
+ * them, and they stay listed for them.
  */
 export function sharedAnswers(packet) {
   const seen = new Map();
@@ -97,11 +99,18 @@ export function sharedAnswers(packet) {
     for (const option of item.options.filter(choosable)) {
       if (option.oneByOne || option.needs?.cause || option.needs?.expires || option.needs?.clause || option.needs?.article) continue;
       const known = seen.get(option.id);
-      if (known) known.items.push(item); else seen.set(option.id, { id: option.id, label: option.label, items: [item] });
+      // One word for every row it covers: a row's own label may name its step ("Code still holds").
+      if (known) known.items.push(item); else seen.set(option.id, { id: option.id, label: option.sharedLabel ?? option.label, items: [item] });
     }
   }
-  return [...seen.values()].filter((entry) => entry.items.length > 1);
+  return [...seen.values()].filter((entry) => entry.items.length > 1).map((entry) => ({ ...entry,
+    others: cardRows(packet).filter((item) => !entry.items.includes(item) && item.options.some((option) => option.id === entry.id && !choosable(option))) }));
 }
+
+/** What an answer for all leaves to other approvers, in words; '' when it covers every row that offers it. */
+const othersWords = ({ word, others = [] }) => (others.length
+  ? ` "${word}" covers only the rows you decide; ${others.length === 1 ? '1 more stays' : `${others.length} more stay`} listed for their own approvers (${others.map(itemName).join('; ')}).`
+  : '');
 
 /**
  * How the person wants to decide: one answer for all that share it, each one, or, when the list offers answers given or files
@@ -113,7 +122,7 @@ export function firstForm(packet) {
   const later = decidable(packet).filter(changeable).length;
   const change = later ? `${CHANGE} (${later})` : null;
   return { shared, change, form: { message: `${open ? `${open} still need a decision from you.` : 'Nothing here waits on a decision from you.'}${later
-    ? ` ${later} ${later === 1 ? 'is' : 'are'} offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree.` : ''}`,
+    ? ` ${later} ${later === 1 ? 'is' : 'are'} offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree.` : ''}${shared.map(othersWords).join('')}`,
   requestedSchema: { type: 'object', required: ['choice'], properties: {
     choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), ...(open ? [EACH] : []), ...(change ? [change] : []), NOT_NOW] } } } } };
 }
@@ -123,7 +132,9 @@ export function sharedReasonForm(entry) {
   const limits = entry.items.map((item) => item.options.find((option) => option.id === entry.id)?.needs?.reason).filter(Boolean);
   const minimum = Math.max(1, ...limits.map((need) => need.minimum));
   const maximum = Math.min(...limits.map((need) => need.maximum), 1000);
-  return { message: `${entry.word}.`, requestedSchema: { type: 'object', required: ['reason'], properties: { reason: textField('One reason for all of them', { minimum, maximum }) } } };
+  // Each row it covers is still recorded on its own, with this reason.
+  return { message: `${entry.word}. Each of the ${entry.items.length} is recorded on its own, with this reason.${othersWords(entry)}`,
+    requestedSchema: { type: 'object', required: ['reason'], properties: { reason: textField('One reason for all of them', { minimum, maximum }) } } };
 }
 
 /** Each row's choice, and nothing else: what a choice needs is asked once it is chosen, so a date is asked only of a risk. */

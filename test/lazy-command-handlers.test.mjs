@@ -443,7 +443,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // process group is left, at the quality runner's, Git's and the other group runners' close, and platform-process.mjs says
     // which child is a real one (+2,662); the sweep itself stays lazy (git-child-groups.mjs endStoppedProcessGroup) [TCE:REQ-034].
     // 9,618,950 (measured 9,618,904, commands/phase-lifecycle.mjs): both of the above together, each one's growth as measured.
-    assert.ok(closure.bytes <= 9_618_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,617,000 (measured 9,616,931, commands/phase-lifecycle.mjs): a "still holds" answer keeps the person's name beside the
+    // actor key (state.mjs +263, scope/revisions.mjs +37) in its new record family (schema-migrations.mjs +346) [SCS:REQ-022].
+    // 9,619,600 (measured 9,619,550, commands/phase-lifecycle.mjs): both of the above together, each one's growth as measured.
+    assert.ok(closure.bytes <= 9_619_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -521,7 +524,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 861,650 (measured 861,626): a stopped remote Git child's group is swept until it is gone (git-execution.mjs +276), and
   // platform-process.mjs, the process owner, says which child is a real one (+188); every command loads both to dispatch.
   // The sweep itself stays lazy (git-child-groups.mjs) [TCE:REQ-034].
-  assert.ok(root.bytes <= 861_650, `root dispatch loads ${root.bytes} source bytes`);
+  // 861,550 (measured 861,508): the amendment-revalidation record family (schema-migrations.mjs +346). Every command reads the registry to dispatch.
+  // 862,000 (measured 861,972): both of the above together, each one's growth as measured.
+  assert.ok(root.bytes <= 862_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -655,7 +660,9 @@ test('the common session projection does not import attach, state stores or publ
   // the revalidation's list option (person-step-catalog.mjs +34) [SCS:REQ-022].
   // 4,182,600 (measured 4,182,554): the same stop-time group sweep at its runners' close as phase-lifecycle (+3,543) [TCE:REQ-034].
   // 4,182,800 (measured 4,182,774): both of the above together, each one's growth as measured.
-  assert.ok(current.bytes <= 4_182_800, `session current loads ${current.bytes} source bytes`);
+  // 4,179,600 (measured 4,179,544): the same amendment-revalidation family as root dispatch (schema-migrations.mjs +346).
+  // 4,183,150 (measured 4,183,120): both of the above together, each one's growth as measured.
+  assert.ok(current.bytes <= 4_183_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

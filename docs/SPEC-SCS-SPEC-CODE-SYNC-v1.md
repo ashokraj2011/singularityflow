@@ -163,6 +163,17 @@ table by that step's approvers. "Still holds" binds the step's input record to t
 carries its evidence across the revision; "return" is the ordinary return (the report's own is a return for a new
 report). Any other intent amendment reopens the later steps, as before.
 
+Built 2026-11-09 (owner answer: show the name). A revalidation record keeps the person's name beside its actor key
+(record family `amendment-revalidation` v2), and every place carried evidence is shown names that person: the
+decide card, the approval page, the Copilot CLI table, the terminal approval preview, the stored approval's carried
+section and the evidence matrix. A record written before (v1) has no name and is shown by its actor key.
+
+Built 2026-11-09 (owner answer: one choice for all in Copilot CLI). `/decide` offers "Still holds for all N, with one
+reason" through the card's shared-answer path. It covers only the rows this person may decide; rows owned by other
+approvers stay listed for them, and the form says how many it covers and what it leaves. Each row is still its own
+revalidation record, with the shared reason. "Return" stays row by row. The VS Code card reads the same option flag,
+so it offers the same answer in the same words ("Still holds (N rows)" under "One answer for all"), with the same note.
+
 ## M3 One decisions list `[SCS:REQ-030]`
 
 - `[SCS:REQ-030]` Convergence items appear in the decisions list as kind `convergence-item`, with

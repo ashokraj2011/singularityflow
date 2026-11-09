@@ -1,7 +1,7 @@
 # Plain-chat routing (PCR) — v1: every prompt tracked, every change through an `/sf-` skill
 
-Status: owner decisions recorded 2026-11-09; Copilot CLI probed in real runs the same day. P1 and P2 are being built. Three new questions, raised by those answers, are
-at the end of the decisions.
+Status: owner decisions recorded 2026-11-09; Copilot CLI probed in real runs the same day. P1 and P2 built the same
+day, with owner decisions 11–15 from that build. P3 and P4 are next.
 
 In every repository that uses SFlow, each prompt is tracked, a secret in a prompt is refused as far as the host
 allows, and a change to the work goes through an `/sf-` skill turn, or is recorded as if it had. Each repository
@@ -39,6 +39,24 @@ Copilot, not only to people who installed SFlow. Questions, reading and explaini
 10. **A machine without SFlow.** The committed hook can't track prompts there, because it has no SFlow to call.
     Refuse changes with a line to install SFlow, unless the repository says `allow`? *Decided: yes.* Otherwise
     work there is the one kind that goes untracked.
+
+**From the P1 and P2 build** (2026-11-09; the owner took each recommendation):
+
+11. **A secret in the words typed after an `/sf-` skill refuses that turn's tools too,** as for a plain chat.
+    Secrets are refused everywhere (decision 2), so `[PCR:REQ-017]` no longer leaves an `/sf-` turn exactly as
+    today on this one point. *Decided: yes.*
+12. **A plain prompt in a Story checkout joins the Story's "Asked for" even when it changed nothing,** marked
+    "plain chat". It is shared when the Story is pushed, as the Story's record is. It needs accounting only when
+    its turn changed something (`[PCR:REQ-012]`). *Decided: yes.*
+13. **A prompt copied into the Story before its turn changed anything stays unmarked** when the turn later changes
+    something. It is rare, and the prompt is still recorded. *Decided: accepted for v1.*
+14. **A chat opened outside a repository that uses SFlow is not guarded when it changes one.** The plugin's
+    launcher starts SFlow only for a session whose folder uses SFlow, and a host loads a repository's hook file
+    only from the session's own folder, so P3 does not close it either. Closing it would start Node for every
+    possible change in every repository on the machine, against `[PCR:REQ-015]`. *Decided: a known limit, said in
+    the docs.*
+15. **`singularity-flow prompts` is reached through `/sf-prompt-log`,** with one line added to that skill.
+    *Decided: yes.*
 
 ## What the hosts allow
 
@@ -145,14 +163,17 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
   - SFlow's folder under `.git`;
   - an `sflow` or `sflow/config` ref.
 
-  The guard decides from the call's own working directory or path, never from the chat's opening folder.
+  The guard decides from the call's own working directory or path, never from the chat's opening folder. It is
+  reached only from a session whose folder uses SFlow (decision 14).
 - `[PCR:REQ-002]` **Tracked.** Every prompt there, plain or `/sf-`, is recorded with the session, time, repository
   and, when a Story is in progress, its Story and step.
   - It is redacted and bounded exactly as `[SCS:REQ-040]` keeps typed text.
   - In a Story checkout it joins the Story's record: "Asked for" for a code step, as `/sf-code` text does, marked
     "plain chat".
   - Outside a Story it goes to the clone's local log, `<git dir>/singularity-flow/prompts/` (decision 9).
-  - `singularity-flow prompts [--story ID]` and a VS Code view show them.
+  - A plain prompt joins the Story's record even when it changed nothing (decision 12).
+  - `singularity-flow prompts [--story ID]`, reached through `/sf-prompt-log` (decision 15), and a VS Code view
+    show them.
   - A prompt is recorded once, whichever hook file ran first (`[PCR:REQ-031]`).
 - `[PCR:REQ-003]` **A secret in a prompt.**
   - **What counts.** Found with the same rules as the redaction (token shapes, private keys, values of declared
@@ -208,7 +229,8 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 - `[PCR:REQ-017]` **Unchanged.**
   - `/sf-pause` turns this off, as it turns off the secrets check.
   - A failure of SFlow's own check lets the call through.
-  - An `/sf-` turn is governed exactly as today.
+  - An `/sf-` turn is governed as today, except that a secret in the words typed after the skill refuses that
+    turn's tools (decision 11).
 
 ### P3 The repository carries the guard `[PCR:REQ-030]`
 
@@ -275,6 +297,7 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 - Rewriting a person's prompt, or choosing a skill for them.
 - `userPromptTransformed` and any other new hook event. Blocking makes redaction unnecessary in Copilot CLI.
 - Organisation policy hooks (`policy.d`).
+- A change made from a chat opened outside a repository that uses SFlow (decision 14).
 - Hosts other than VS Code Copilot Chat and Copilot CLI. IntelliJ is parked.
 
 ## Order and size

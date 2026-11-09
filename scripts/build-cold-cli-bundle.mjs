@@ -86,6 +86,8 @@ const FAMILIES = Object.freeze([
     'evidence/evaluate.mjs', 'verification/contracts.mjs',
     // What the ending judges of a code step's own criteria, read at that step's approval [PHR:REQ-002].
     'owner-step-evidence.mjs',
+    // The plan's existing and removed rows against the Story's base, read at planning prepublish and publication [PHR:REQ-002].
+    'plan-base-paths.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',

@@ -1744,6 +1744,17 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
     throw withClauseIntentOwner(error, workflow, phase.id, records.indexes);
   }
   const { derived, gaps, contracts } = contract;
+  // The plan's existing and removed rows against the Story's base: the planner's to correct, here, not
+  // the code step's to meet after approval [PHR:REQ-002, finding 14].
+  const baseProblems = ownerStepChecks(workflow)
+    ? (await import('./plan-base-paths.mjs')).plannedBasePathProblems(root, workflow, derived.claimMap.claims) : [];
+  if (baseProblems.length) {
+    throw new SingularityFlowError(`Phase ${phase.id} cannot publish because rows of its plan do not match the Story's base:\n- `
+      + `${baseProblems.map((problem) => problem.message).join('\n- ')}\nCorrect the rows in ${artifactPath} and publish again.`,
+    { code: 'SPEC_PLANNED_BASE_PATH_INVALID', details: { phase: phase.id, ownerPhase: phase.id, repairScope: 'current-draft',
+      problems: baseProblems.map(({ message, ...problem }) => problem),
+      recoveryCommand: `singularity-flow phase prepublish ${phase.id} --json` } });
+  }
   // A planned test that could never run here is named now, not first at publication [§12 #18].
   try {
     await assertPlannedTestsRunnable(root, workflow, {

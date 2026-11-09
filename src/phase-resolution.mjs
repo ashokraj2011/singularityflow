@@ -292,7 +292,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   }
   // Coverage the code step did not deliver where the plan put it may be the plan's fault: its own
   // corrections and the upstream issue go with the route, never in its place [PHR:REQ-003].
-  if (code === 'spec_coverage_incomplete' && resolution.kind !== 'upstream-decision') {
+  if (['spec_coverage_incomplete', 'code_delivery_evidence_required'].includes(code) && resolution.kind !== 'upstream-decision') {
     const corrections = (finding.details?.planCorrections ?? []).filter((entry) => typeof entry?.command === 'string');
     const owner = `${finding.details?.planningOwner ?? 'plan'}-approval-authority`;
     gapRoutes.push(...[corrections.find((entry) => / decision plan /u.test(entry.command)), corrections.find((entry) => / upstream-issue raise /u.test(entry.command))]

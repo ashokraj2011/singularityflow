@@ -35,6 +35,7 @@ import { phaseFindingCode, phaseFindingPolicy } from './phase-finding-policy.mjs
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
 import { clauseIntentOwner, upstreamChangeRoutes } from './upstream-routes.mjs';
+import { ownerStepChecks } from './phase-roles.mjs';
 
 /** What a plan's unmet intent says of its two owners: the step that approved the intent, and this plan. */
 function intentOwnerWords(workflow, phase, intent) {
@@ -201,6 +202,14 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         for (const clauseId of placeholders) add('specification.planned-test-placeholder',
           'planning-table', `Clause ${clauseId} has a placeholder not-applicable test reason.`,
           { details: { clauseId } });
+        // Existing and removed rows against the Story's base, while the planner can correct them; the code
+        // step met them first, after the plan was approved [PHR:REQ-002, finding 14].
+        if (ownerStepChecks(workflow)) {
+          for (const problem of (await import('./plan-base-paths.mjs')).plannedBasePathProblems(root, workflow, derived.claimMap.claims)) {
+            add(problem.code, 'planning-table', problem.message, { value: problem.path, details: { clauseId: problem.clauseId, path: problem.path,
+              fulfillment: problem.fulfillment, baseCommit: problem.baseCommit, ownerPhase: phase.id, repairScope: 'current-draft' } });
+          }
+        }
         const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
         if (plannedClaimsEnforced(workflow, specPolicy)) {
           for (const clauseId of gaps) add('specification.planned-test-missing', 'planning-table',

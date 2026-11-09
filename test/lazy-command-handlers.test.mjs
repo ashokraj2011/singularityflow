@@ -494,7 +494,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // [PHR:REQ-002]. No new eager file.
     // 9,653,400 (measured 9,653,382, commands/phase-lifecycle.mjs): under recorded coverage the last code step's approval
     // refuses what the qualified ending would, with its routes (state.mjs +2332) [PHR:REQ-002]. No new eager file.
-    assert.ok(closure.bytes <= 9_653_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,657,050 (measured 9,657,026, commands/phase-lifecycle.mjs): planning prepublish and publication check the plan's
+    // existing and removed rows against the Story's base, and the code refusal names the plan's corrections
+    // (delivery-evidence.mjs +1950, state.mjs +916, phase-prepublish.mjs +735, phase-resolution.mjs +43); the base read
+    // stays lazy (plan-base-paths.mjs) [PHR:REQ-002]. No new eager file.
+    assert.ok(closure.bytes <= 9_657_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -722,7 +726,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,185,700 (measured 4,185,679): whether a submission ends the Story, for a missing receipt (step-actions.mjs +534) [PHR:REQ-003].
   // 4,186,550 (measured 4,186,539): the owner-step pin and whether the scope step's approval waits for its statements
   // (phase-roles.mjs +860) [PHR:REQ-002].
-  assert.ok(current.bytes <= 4_186_550, `session current loads ${current.bytes} source bytes`);
+  // 4,188,500 (measured 4,188,489): the plan's corrections for a planned fulfillment the delivery cannot meet
+  // (delivery-evidence.mjs +1950) [PHR:REQ-003].
+  assert.ok(current.bytes <= 4_188_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

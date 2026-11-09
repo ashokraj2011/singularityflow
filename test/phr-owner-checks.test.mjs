@@ -5,6 +5,7 @@
  * owner-step checks when it started: a Story already running keeps its policy.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +18,10 @@ import { terminalRecoveryActions } from '../src/evidence/terminal.mjs';
 import { criterionTestRefusal, inspectionWitnessRefusal, ownCriterionFindings } from '../src/owner-step-evidence.mjs';
 import { ownerStepChecks, phaseResponsibilityPin } from '../src/phase-roles.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
+import { plannedBasePathProblems } from '../src/plan-base-paths.mjs';
+import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
 import { recordScopeDecision } from '../src/scope/decisions.mjs';
 import { buildScopeInventory } from '../src/scope/inventory.mjs';
@@ -199,4 +204,54 @@ test('[PHR:REQ-002] finding 12: a code step is approved only once the inspection
   // A Story started before the check keeps its policy.
   const legacy = codeStep({ inspection: true, pinned: false });
   assert.equal(inspectionWitnessRefusal(legacy.workflow, legacy.workflow.phases.implementation, legacy.evaluation), null);
+});
+
+test('[PHR:REQ-002] finding 14: the plan\'s existing and removed rows are checked against the Story\'s base where the planner can correct them', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phr-base-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout.trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Base Test');
+  git('config', 'user.email', 'base@example.invalid');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/old.mjs'), 'export const old = 1;\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'base');
+  const baseCommit = git('rev-parse', 'HEAD');
+  const workflow = { workItem: { id: 'PLAN-1', baseCommit } };
+  const claims = {
+    'PLAN-1:REQ-001': { fulfillment: 'existing', expectedPaths: ['src/old.mjs'] },
+    'PLAN-1:REQ-002': { fulfillment: 'existing', expectedPaths: ['src/missing.mjs'] },
+    'PLAN-1:REQ-003': { fulfillment: 'removed', expectedPaths: ['src/gone.mjs'] },
+    'PLAN-1:REQ-004': { fulfillment: 'removed', expectedPaths: ['src/old.mjs'] },
+    // A path the plan itself creates is the Story's work, not the base's.
+    'PLAN-1:REQ-005': { fulfillment: 'new', expectedPaths: ['src/made.mjs'] },
+    'PLAN-1:REQ-006': { fulfillment: 'existing', expectedPaths: ['src/made.mjs'] }
+  };
+  assert.deepEqual(plannedBasePathProblems(root, workflow, claims).map((entry) => [entry.code, entry.clauseId, entry.path]), [
+    ['specification.planned-existing-path-missing', 'PLAN-1:REQ-002', 'src/missing.mjs'],
+    ['specification.planned-removed-path-absent', 'PLAN-1:REQ-003', 'src/gone.mjs']]);
+  // Without an exact base commit nothing is judged here; the code step still judges the delivery.
+  assert.deepEqual(plannedBasePathProblems(root, { workItem: { id: 'PLAN-1', baseBranch: 'main' } }, claims), []);
+
+  // At the code step the same row now names the plan's corrections and the upstream issue, beside the delivery.
+  const step = (id, status) => ({ id, label: id, status, generation: 1, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1, rejectTo: [id] } });
+  const coding = { workItem: { id: 'PLAN-1' }, status: 'in_progress', currentPhase: 'implementation', phaseOrder: ['planning', 'implementation'],
+    phases: { planning: step('planning', 'approved'), implementation: { ...step('implementation', 'in_progress'), generationPolicy: { task: 'code' } } },
+    resolution: { plannedClaims: { mode: 'required', owners: { implementation: 'planning' } } } };
+  const routed = await fulfillmentPlanCorrections(coding, coding.phases.implementation, [{ code: 'code.delivery.existing-path-missing', path: 'src/missing.mjs', value: 'PLAN-1:REQ-002' }]);
+  const { planCorrections } = routed;
+  assert.equal(routed.planningOwner, 'planning');
+  assert.deepEqual(planCorrections.map((entry) => entry.command), [
+    'singularity-flow decision plan PLAN-1 --set-fulfillment PLAN-1:REQ-002=<new|modified|existing|removed|document|configuration> --reason <why>',
+    'singularity-flow decision plan PLAN-1 --replace-location PLAN-1:REQ-002=src/missing.mjs:<NEW-PATH> --reason <why>',
+    'singularity-flow upstream-issue raise --work-id PLAN-1 --phase planning --about PLAN-1:REQ-002 --problem <what-is-wrong>']);
+  const refusal = new SingularityFlowError('Phase implementation has no publishable code delivery.', { code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
+    details: { phase: 'implementation', ...routed, findings: [{ code: 'code.delivery.existing-path-missing', path: 'src/missing.mjs', value: 'PLAN-1:REQ-002' }] } });
+  const plan = refusalRemediationPlan(refusal, ['phase', 'publish', 'implementation', '--work-id', 'PLAN-1']);
+  assert.deepEqual(plan.steps.filter((entry) => ['correct-plan-row', 'raise-upstream-issue'].includes(entry.id)).map((entry) => entry.command),
+    [planCorrections[0].command, planCorrections[2].command]);
+  const choices = phaseResolutionChoices(coding, coding.phases.implementation, refusal).choices;
+  assert.deepEqual(choices.filter((entry) => ['plan-correction', 'upstream-issue'].includes(entry.kind)).map((entry) => [entry.kind, entry.owner, entry.command]),
+    [['plan-correction', 'planning-approval-authority', planCorrections[0].command], ['upstream-issue', 'planning-approval-authority', planCorrections[2].command]]);
 });

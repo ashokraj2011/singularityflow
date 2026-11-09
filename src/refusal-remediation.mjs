@@ -303,6 +303,15 @@ const sessionRepositorySteps = () => [
 const reviewSourceOptionSteps = (argv) => (['stage', 'submit', 'decide'].includes(argv[1]) ? [step('run-without-agent-flag', 'The same command without --for-agent: this one keeps its own authority boundary.',
   retriedCommand([...argv]), 'remediation', '/sf-review-source')] : []);
 
+/** The plan's own correction and the upstream issue to its approvers, from a refusal's planCorrections. */
+function planCorrectionSteps(corrections) {
+  const list = Array.isArray(corrections) ? corrections : [];
+  const correction = list.find((entry) => / decision plan /u.test(entry?.command ?? ''));
+  const raise = list.find((entry) => / upstream-issue raise /u.test(entry?.command ?? ''));
+  return [correction ? step('correct-plan-row', String(correction.label ?? '').slice(0, 2000), correction.command, 'remediation') : null,
+    raise ? step('raise-upstream-issue', String(raise.label ?? '').slice(0, 2000), raise.command, 'remediation', '/sf-decide') : null].filter(Boolean);
+}
+
 const APPEAL_ROUTES = Object.freeze({ PHASE_APPEAL_INVALID: appealNeedsSteps, PHASE_APPEAL_PATH_UNSUPPORTED: appealMissingFileSteps,
   SESSION_AGENT_OPTIONS_INVALID: sessionOptionsSteps, SESSION_REPOSITORY_REQUIRED: sessionRepositorySteps, REVIEW_SOURCE_OPTIONS_INVALID: reviewSourceOptionSteps });
 
@@ -1015,12 +1024,7 @@ const KNOWN = Object.freeze({
       ? step('inspect-coverage', 'Inspect the exact source and test obligations still open.', details.diagnosticCommand, 'diagnostic', '/sf-recover') : null;
     // A row the plan put in the wrong place is the plan's to correct, never more code [PHR:REQ-003]: its
     // approvers' plan correction, and the upstream issue to them.
-    const corrections = Array.isArray(details.planCorrections) && !decision?.complete ? details.planCorrections : [];
-    const [correction] = corrections.filter((entry) => / decision plan /u.test(entry?.command ?? ''));
-    const raise = corrections.find((entry) => / upstream-issue raise /u.test(entry?.command ?? ''));
-    const plan = correction ? step('correct-plan-row', String(correction.label ?? '').slice(0, 2000), correction.command, 'remediation') : null;
-    const upstream = raise ? step('raise-upstream-issue', String(raise.label ?? '').slice(0, 2000), raise.command, 'remediation', '/sf-decide') : null;
-    return [list, author, risk, inspect, plan, upstream].filter(Boolean);
+    return [list, author, risk, inspect, ...planCorrectionSteps(decision?.complete ? [] : details.planCorrections)].filter(Boolean);
   },
   // A folder of several agents is a workflow: team import builds one from the same reading of its
   // files and links. Adding one of its agents alone stays possible with --main.
@@ -1943,6 +1947,9 @@ export function refusalRemediationPlan(error, argv = []) {
   const configurationProblemsBlocked = Array.isArray(error?.details?.configurationProblems)
     && error.details.configurationProblems.length > 0;
   const known = (configurationProblemsBlocked ? configurationProblemSteps(error) : KNOWN[code]?.(argv, error) ?? APPEAL_ROUTES[code]?.(argv, error) ?? []).filter(Boolean);
+  // A planned fulfillment the delivery cannot meet may be the plan's to correct: its approvers' correction and the
+  // upstream issue go beside the delivery, never in its place [PHR:REQ-003, finding 14].
+  if (code === 'CODE_DELIVERY_EVIDENCE_REQUIRED') known.push(...planCorrectionSteps(error?.details?.planCorrections));
   const sessionTransportBlocked = code === 'SESSION_STATE_REFRESH_UNAVAILABLE';
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   // A producer action that repeats a known step's exact command adds a second label, not a route.

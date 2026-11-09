@@ -937,6 +937,28 @@ async function fulfillmentEvidence(root, obligations, changedPaths, deletedPaths
   return { obligations: entries, problems, problemFindings };
 }
 
+/**
+ * The plan's corrections for the first planned fulfillment the delivery cannot meet: a different
+ * kind of change, a different path, or an upstream issue to the plan's approvers. They decide; the
+ * code's author keeps delivering what the plan says meanwhile.
+ */
+export async function fulfillmentPlanCorrections(workflow, phase, problems) {
+  const owner = workflow.resolution?.plannedClaims?.owners?.[phase.id] ?? null;
+  const [{ value: clause, path: candidate }] = problems;
+  if (!owner || !clause) return {};
+  const workId = workflow.workItem.id;
+  const decide = `an approver of ${owner} corrects the row in their own terminal`;
+  const raised = (await import('./upstream-routes.mjs')).raiseUpstreamIssueRoute(workflow, owner, phase.id);
+  return { planningOwner: owner, planCorrections: [
+    { command: `singularity-flow decision plan ${workId} --set-fulfillment ${clause}=<new|modified|existing|removed|document|configuration> --reason <why>`,
+      label: `If ${owner} planned the wrong kind of change for ${clause}, ${decide}; no code is rewritten for it.` },
+    ...(candidate ? [{ command: `singularity-flow decision plan ${workId} --replace-location ${clause}=${candidate}:<NEW-PATH> --reason <why>`,
+      label: `If ${candidate} is the wrong path for ${clause}, ${decide}.` }] : []),
+    ...(raised ? [{ command: raised.command.replace('<clause-or-section>', clause), skill: '/sf-decide',
+      label: `Or record it for ${owner}'s approvers and keep working: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])
+  ] };
+}
+
 export async function plannedSourceClauseBindings(root, config, workflow, phase, sourcePaths, {
   deletedSourcePaths = [], changeSet = null
 } = {}) {
@@ -1606,6 +1628,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
           // The route a refused test-only or unchanged generation takes, never a fake source edit.
           ...(deliveryRoute ? { deliveryRoute } : {}),
+          // A planned existing, removed, document or configuration row the delivery cannot meet may be the
+          // plan's to correct: its approvers' correction and the upstream issue to them [PHR:REQ-003, finding 14].
+          ...(!unknown && fulfillment.problemFindings.length ? await fulfillmentPlanCorrections(workflow, phase, fulfillment.problemFindings) : {}),
           ...(deliveryRoute?.command ? { nextAction: { command: deliveryRoute.command, skill: deliveryRoute.skill,
             label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } } : {}),
           ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,

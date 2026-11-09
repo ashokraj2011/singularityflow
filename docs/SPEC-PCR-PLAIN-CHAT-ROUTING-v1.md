@@ -1,244 +1,282 @@
-# Plain-chat routing (PCR) — v1: work on a Story goes through an `/sf-` skill
+# Plain-chat routing (PCR) — v1: every prompt tracked, every change through an `/sf-` skill
 
-Status: proposed 2026-11-09. Nothing is built. The owner decides the questions below first.
+Status: owner decisions recorded 2026-11-09. Nothing is built. Three new questions, raised by those answers, are
+at the end of the decisions.
 
-In a checkout where a Story is in progress, a change to its work happens in an `/sf-` skill turn, or it is
-recorded as if it had. Questions, reading and explaining stay free in any chat. A repository with no Story
-in progress, a repository that does not use SFlow, and a paused machine behave exactly as today.
+In every repository that uses SFlow, each prompt is tracked, a secret in a prompt is refused as far as the host
+allows, and a change to the work goes through an `/sf-` skill turn, or is recorded as if it had. Each repository
+chooses how strict that is. The guard travels with the repository, so it applies to anyone who opens it with
+Copilot, not only to people who installed SFlow. Questions, reading and explaining stay free.
 
-## Owner decisions
+## Owner decisions (2026-11-09)
 
-My recommendation is in brackets.
-
-1. **The default for a plain chat's change in a Story checkout.**
-   - `refuse`: the edit or writing command is refused, and the person is told the line to type.
-   - `record`: it goes ahead, and what was asked is recorded and must be accounted for before approval.
+1. **The setting is the repository's own.** `policy.plainChatEdits`:
+   - `refuse`: a plain chat's change is refused with the line to type;
+   - `record`: it goes ahead and is tracked;
    - `allow`: today's behaviour.
 
-   *[`refuse`. It is the only one that makes sure the work flows through a skill. Teams that want nothing
-   blocked set `record` on their capability.]*
+   It sits on the repository's capability map. The repository's own setting is also written into its committed
+   hook file, so it applies on a machine without SFlow (`[PCR:REQ-033]`).
+2. **It applies everywhere SFlow is used.** That means every repository that uses SFlow, with or without a Story
+   in progress, so that prompts are tracked and secrets are refused.
+3. **Shell commands.** A plain chat may run the read-only set that read-only `/sf-` turns already use; any other
+   command is a change.
+4. **A line of context naming the route.** Yes, where a host lets a hook add one (see "What the hosts allow":
+   Copilot CLI only, through `userPromptTransformed`).
+5. **Folding.** The same as `policy.plainChatSecrets`: a child capability may tighten its parent, never loosen it.
+6. **The guard ships in the repository** (`.github/hooks/`), not in organisation policy.
+7. **The design rule reverses.** scripts/check.mjs says: "No blanket lifecycle guard: discovery and file edits are
+   restricted only during an explicit SFlow invocation." In a repository that uses SFlow, that no longer holds.
 
-   This stops a plain chat's edit, so it is a deliberate exception to "nothing should get blocked". The
-   refusal never loses work: nothing has been written yet, and the person's words come back to them as the line to type.
-2. **Where it applies.** Only a checkout with a Story in progress (any step), or every repository that uses SFlow?
-   *[Only a checkout with a Story in progress. Elsewhere there is no step for a skill to run.]*
-3. **Shell commands in a plain chat.** Hold a plain turn to the read-only rules a read-only `/sf-` turn already
-   uses (reads, searches, `git status|log|diff|show`, …), and treat any other command as a change?
-   *[Yes. A test run or a build in a plain chat would be refused under `refuse`. "Run the tests" belongs to
-   `/sf-code` or `/sf-test`, which record the run.]*
-4. **The context line.** Should the prompt hook add one line to the model's context, naming the Story, its
-   step and the skill to use, so the agent can say so before it tries an edit? *[Yes, in VS Code. Copilot CLI
-   ignores a plugin's prompt-hook output (see "What the hosts allow"), so there the refusal alone steers.]*
-5. **Can a child capability loosen its parent?** *[No, the same one-way folding as `policy.plainChatSecrets`.
-   A child may tighten.]*
-6. **Should the guard also travel with the repository or the organisation?** Copilot CLI loads hooks from a
-   repository's `.github/hooks/*.json` and from organisation policy (`/etc/github-copilot/policy.d/*.json`) as
-   well as from plugins. Either would reach someone who never installed SFlow. *[Not in v1. Such a hook has no
-   SFlow runtime to call on that machine, and a command hook that errors denies every tool call. The plugin
-   stays the way SFlow reaches a chat. `doctor` and the VS Code status can say when it is missing.]*
-7. **This reverses a stated design rule.** scripts/check.mjs says: "No blanket lifecycle guard: discovery and
-   file edits are restricted only during an explicit SFlow invocation." PCR restricts a plain chat's changes in
-   a governed checkout. The closed map of hook events stays as it is: no new event and no `sessionStart`. Only
-   the rule's words and what `boundary-guard` does change. *[Accept, for governed checkouts only.]*
+**Still to decide.** My recommendation is in brackets.
 
-## What happens today (main 9a2971879)
-
-A prompt with no `/sf-` skill is native Copilot. The prompt hook keeps nothing. The agent's edits and
-ordinary commands go through in any Story and any step.
-
-- **The prompt hook** (`userPromptSubmitted` → `boundary-turn`).
-  - `explicitSflowSkill` counts a turn only when the prompt starts with `/sf-…` or `/sflow-…`, or carries
-    host-expanded `<skill-context name="sf-…">` (src/copilot-repository-boundary.mjs).
-  - For any other prompt, `recordTurn` deletes the session's turn record and mutation record, then returns
-    `{}`. An earlier `/sf-code` turn's permissions therefore end at the plain prompt.
-  - Nothing is recorded in "Asked for", which keeps only `/sf-code` and `/sf-phase` text (src/asked-for.mjs).
-  - Nothing is added to the model's context.
-- **The tool guard** (`preToolUse` → `boundary-guard`). With no turn record, `repositoryToolGuard` runs
-  `plainChatGuard`, which refuses only two things:
-  - **A person's own step:** `approve`, `reject`, `decisions record` and the rest of
-    src/person-step-catalog.mjs. The person is told the command for their own terminal.
-  - **Secret files:** under `policy.plainChatSecrets` (docs/SPEC-ENVIRONMENT-FILES-v2.md, "Plain chats"),
-    unless paused.
-
-  An edit to `src/retry.js`, `npm test` or `sed -i` goes through with no message, in a code step, another
-  step, with no Story, or paused.
-- **Later.** SFlow sees only the changed bytes.
-  - In a code step with an open generation, a planned file publishes as if `/sf-code` had changed it.
-  - A file outside a required plan becomes a departure at the agent's prepublish, or refuses a person's
-    publication.
-  - With no open generation, `phase begin` refuses the dirty tree.
-  - Another step refuses source changes at prepublish and submission.
-- **The gap this leaves.** A plain prompt that changes behaviour inside a planned file is recorded nowhere
-  and is no departure. It is the "make the timeout 10s" case `[SCS:REQ-040]` closed for `/sf-code`, reopened
-  by leaving the prefix off. Only the conformance report could catch it.
-- **The launcher.** It answers a tool call without starting Node (100-180 ms) unless:
-  - a turn is recorded on the machine;
-  - the call names SFlow;
-  - the call names a file that could hold secrets (plugin/hook-launcher.sh, .ps1).
-
-Two smaller faults found while reading:
-- If the prompt hook fails or times out (10 s), the previous `/sf-` turn's record survives, and its contract
-  governs the plain turn's tools.
-- SF Guard labels a plain prompt that follows an unclosed `/sf-` turn as that skill's continuation, though the
-  guard has already dropped that turn's contract.
+8. **The default for a repository that has not chosen.** *[`record`: everything is tracked and nothing is
+   blocked until the repository chooses `refuse`. It keeps "nothing should get blocked" by default.]*
+9. **Where tracked prompts live outside a Story.** Inside a Story they go into the Story's record, which is shared
+   when the Story is pushed. Outside one: kept locally in the clone, or pushed to a shared `sflow/prompts`
+   branch? *[Locally, for v1. A shared branch puts every person's chats in the team's history, a larger privacy
+   step to take on its own.]*
+10. **A machine without SFlow.** The committed hook can't track prompts there, because it has no SFlow to call.
+    Refuse changes with a line to install SFlow, unless the repository says `allow`? *[Yes. Otherwise work
+    there is the one kind that goes untracked.]*
 
 ## What the hosts allow
 
-From GitHub's Copilot CLI hooks pages (use-hooks, hooks reference, hooks concepts), read 2026-11-09. Where they
-are unclear, it is said.
+From GitHub's Copilot CLI hooks pages and VS Code's hooks page (Preview, dated 2026-11-04), read 2026-11-09.
 
-- **`userPromptSubmitted` cannot steer in Copilot CLI.** Its only documented output, `modifiedPrompt`, "is honored
-  only by SDK programmatic hooks", and a config-file or plugin hook's output is dropped. No block field and no
-  `additionalContext` are documented for it.
-  - VS Code reads a prompt hook's top-level context (test/copilot-search-exposure.test.mjs).
-  - So recording a plain prompt works on both hosts, and steering it works only in VS Code.
-  - `userPromptTransformed` (CLI) may rewrite what the model sees, but it is a new event outside the closed
-    hook map, and nobody has checked whether a plugin may use it. It is left out of v1.
+- **No host lets a hook stop or rewrite a prompt from the prompt hook.**
+  - Copilot CLI: `userPromptSubmitted` output from a config-file or plugin hook "is dropped, including
+    `modifiedPrompt`", which "is only honored by SDK programmatic hooks".
+  - VS Code: "command-hook output is ignored for `userPromptSubmitted`."
+  - No block field and no `additionalContext` are documented for it. So the prompt hook can record, and nothing
+    more.
+- **`userPromptTransformed`** (Copilot CLI and cloud agent).
+  - It "can rewrite the model-facing content" through `modifiedTransformedPrompt`, but cannot block. No SDK-only
+    restriction is stated.
+  - VS Code's page does not mention it.
+  - It is the one documented place where a hook can change what the model reads: redact a secret, or add a
+    line. Not checked in a real run yet.
 - **`preToolUse` is the guarantee on both hosts.**
-  - `permissionDecision` takes `allow`, `deny` or `ask`, and a deny carries `permissionDecisionReason`. Exit
-    code 2 also denies.
-  - The docs do not say whether the reason reaches the model. The real runs of 2026-11-06 showed the agent
-    reading and relaying the guard's refusals on both hosts.
-  - VS Code reads the decision under `hookSpecificOutput`, which SFlow has answered with since e4dbdf690.
-- **A timeout lets the call through,** for every event, `preToolUse` included. The plugin gives each hook
-  10 seconds (`timeoutSec`). A command hook that errors denies the call. SFlow's launcher already does that on
-  purpose when its runtime cannot load.
-- **`sessionStart` could add context** (`additionalContext` is the only field it consumes), but SFlow forbids it:
-  scripts/check.mjs refuses a plugin that "inject[s] a model prompt at every session start". That stays.
-- **Hooks can be off.** `disableAllHooks`, a host without hooks, or IntelliJ (no guard). Where no hook runs,
-  nothing here applies. The lifecycle's own checks stay the backstop: departures at prepublish, the dirty start,
-  the conformance report.
-- **`permissionRequest`** (CLI only) can stop the agent with `interrupt`, but it fires only when the CLI asks the
-  person for permission, so it cannot carry a guarantee. Not used.
+  - `permissionDecision` is `allow`, `deny` or `ask`, with `permissionDecisionReason`.
+  - "If any hook returns `"deny"`, the tool is blocked", whichever file it came from.
+  - A crash or a non-zero exit denies. A timeout always lets the call through.
+  - VS Code reads the decision under `hookSpecificOutput` (SFlow answers both ways since e4dbdf690).
+- **Where hooks come from.** Both hosts' Copilot harness reads:
+  - the repository's `.github/hooks/*.json`;
+  - `~/.copilot/hooks/`;
+  - inline `hooks` in `.github/copilot/settings.json` and `.github/copilot/settings.local.json`;
+  - repository `.claude/settings.json`;
+  - plugins.
+
+  "When the same event appears in multiple sources, all hook entries from all sources are run."
+- **Turning hooks off.**
+  - A repository's settings file can say `disableAllHooks` (CLI). That skips every hook for that repository except
+    organisation policy hooks, and a person's own uncommitted `settings.local.json` can say it too.
+  - The docs do not say whether VS Code honours this, or whether VS Code asks before trusting a repository's hooks.
+  - Where hooks are off, nothing here applies, and the lifecycle's own checks stay the backstop: departures, the
+    dirty start, the conformance report.
+- **`sessionStart`** could add context, but SFlow forbids it: no prompt injected at every session start. That stays.
+- **SFlow's own hint.** On `/sf-` turns SFlow returns a top-level `additionalContext` line from the prompt hook
+  (the off-PATH CLI hint). By both pages, neither host reads it. To check (`[PCR:REQ-041]`).
+
+## What happens today (main f6aadf36e)
+
+- **A plain prompt** (no `/sf-…` start and no `<skill-context name="sf-…">`) is native Copilot.
+  - The prompt hook keeps nothing, adds nothing, and ends any earlier `/sf-` turn's contract (src/copilot-repository-boundary.mjs `recordTurn`).
+  - Edits and ordinary commands go through in any repository, Story and step.
+  - Only two things are refused: a person's own SFlow step, and secret files under `policy.plainChatSecrets`.
+- **Later, SFlow sees only bytes.**
+  - A plain change inside a planned file is recorded nowhere and is no departure: the "make the timeout 10s" case
+    `[SCS:REQ-040]` closed for `/sf-code`, reopened by leaving the prefix off.
+  - A pasted secret in a plain prompt reaches the model, and nothing notes it.
+- **The launcher answers without starting Node** (100-180 ms) unless:
+  - a turn is recorded on the machine;
+  - the call names SFlow;
+  - the call names a file that could hold secrets.
+- **Two faults:**
+  - A prompt hook that fails or times out leaves the previous `/sf-` turn's contract governing the plain turn.
+  - SF Guard labels a plain prompt after an unclosed `/sf-` turn as that skill's continuation.
 
 ## Model
 
-| In a checkout where… | A plain chat may | A plain chat's change |
-|---|---|---|
-| no Story is in progress, or the repository does not use SFlow | everything, as today | as today |
-| a Story is in progress, policy `refuse` | read, search, explain, read-only commands | refused, with the line to type |
-| a Story is in progress, policy `record` | everything | goes ahead; the prompt is recorded as "Asked for", and the step's approval waits until it is accounted for |
-| a Story is in progress, policy `allow` | everything, as today | as today |
-| the machine is paused (`/sf-pause`) | everything, as today | as today |
+In a repository that uses SFlow (any branch, Story or not), with hooks on:
 
-A person's own steps and secret files are refused in every row, as today. Pause leaves secret files free, as today.
+| | `refuse` | `record` | `allow` |
+|---|---|---|---|
+| Each prompt | tracked, redacted | tracked, redacted | tracked, redacted |
+| A secret in a prompt | turn's tools refused; redacted for the model where the host allows | same | same |
+| Reading, searching, explaining, read-only commands | free | free | free |
+| An edit or a writing command | refused, with the line to type | goes ahead, tracked; a code step's approval waits for it | goes ahead |
+| A person's own step, a secret file | refused, as today | refused, as today | refused, as today |
+| Without SFlow on the machine | changes refused, with an install line (decision 10) | same | as today |
+
+- A repository that does not use SFlow, or no repository at all, behaves exactly as today, and its calls start no
+  Node.
+- `/sf-pause` turns all of this off on that machine, except a person's own steps, as today.
 
 ## Requirements
 
-### P1 Plain changes in a Story checkout `[PCR:REQ-001]`
+### P1 Every prompt tracked, a secret refused `[PCR:REQ-001]`
 
-- `[PCR:REQ-001]` **A governed checkout.** A checkout whose Story is in progress is governed. The tool guard
-  decides from the file or command's working directory, never from the chat's opening folder: a chat can touch
-  several repositories.
-- `[PCR:REQ-002]` **The launcher stays fast.** A Story checkout writes a small marker into the machine's
-  `copilot-boundaries` folder, naming its root and its current step's kind. The launchers start Node for a call
-  whose path or working directory falls under a marked root, by comparing strings with no Git, and answer every
-  other call as today.
-  - The marker is refreshed when the step changes, and removed when the Story ends, leaves the checkout, or is set
-    aside.
-  - A stale marker costs one Node start, never a wrong refusal: Node checks the Story itself.
-  - A call that falls under no marked root costs nothing new.
-- `[PCR:REQ-003]` **Under `refuse`.** In a governed checkout, a plain turn's edit tools and every shell command
-  outside the read-only set are refused. The read-only set is the one `read-only-review` turns already use
-  (src/copilot-mutation-guard.mjs `readOnlyShell`, `READ_ONLY_GIT`). Reads, searches, SFlow's read commands and
-  the `sflow_*` read tools stay free.
-- `[PCR:REQ-004]` **The refusal gives the line to type.** It names the Story and the step. It suggests
-  `/sf-code <WORK-ID> <what they asked>` in a code step, or `/sf-phase <WORK-ID> …` in another step, with the
-  person's words filled in.
-  - The prompt hook keeps the plain prompt, redacted and bounded as `[SCS:REQ-040]` keeps typed text, in the
-    session's local record only.
-  - The prompt is never written into the Story. It is deleted at the next prompt.
-  - Code: `PLAIN_CHAT_CHANGE_REFUSED`. The refusal ends with `Do not retry it`, like the guard's other refusals,
-    so the agent relays it instead of looking for a way round.
-- `[PCR:REQ-005]` **Under `record`.** The change goes ahead.
-  - In a code step, the plain prompt is recorded as "Asked for" exactly as `/sf-code` text is (`[SCS:REQ-041]`):
-    redacted, bounded, copied into the Story at the next prepublish, and accounted for before approval
-    (`[SCS:REQ-042]`).
-  - In another step it is recorded and shown to the step's approvers, as `/sf-phase` text is.
-  - Each record says it came from a plain chat.
-- `[PCR:REQ-006]` **The setting.** `policy.plainChatEdits` on a capability: `refuse`, `record` or `allow`
-  (owner decision 1 picks the default). It folds one way (owner decision 5).
-  - It changes as `policy.plainChatSecrets` does:
-    - `capability plain-chat <ID> --edits refuse|record|allow|inherit`;
+- `[PCR:REQ-001]` **Where.** A repository that uses SFlow, by the same test the secrets guard uses
+  (`usesSflow`):
+  - `singularity/workflow.yml`, `capabilities.yml` or `environments.yml`;
+  - SFlow's folder under `.git`;
+  - an `sflow` or `sflow/config` ref.
+
+  The guard decides from the call's own working directory or path, never from the chat's opening folder.
+- `[PCR:REQ-002]` **Tracked.** Every prompt there, plain or `/sf-`, is recorded with the session, time, repository
+  and, when a Story is in progress, its Story and step.
+  - It is redacted and bounded exactly as `[SCS:REQ-040]` keeps typed text.
+  - In a Story checkout it joins the Story's record: "Asked for" for a code step, as `/sf-code` text does, marked
+    "plain chat".
+  - Outside a Story it goes to the clone's local log, `<git dir>/singularity-flow/prompts/` (decision 9).
+  - `singularity-flow prompts [--story ID]` and a VS Code view show them.
+  - A prompt is recorded once, whichever hook file ran first (`[PCR:REQ-031]`).
+- `[PCR:REQ-003]` **A secret in a prompt.**
+  - **What counts.** Found with the same rules as the redaction (token shapes, private keys, values of declared
+    environment files).
+  - **Copilot CLI.** `userPromptTransformed` replaces it with `[redacted]` in what the model reads.
+  - **VS Code.** No hook can stop it, so the prompt reaches the model. The record keeps only the redacted form.
+  - **On both hosts:**
+    - every tool call in that turn is refused with
+      `SECRET_IN_PROMPT: the prompt held what looks like a <kind>. … Nothing in this turn runs. Do not retry it`;
+    - in VS Code, the refusal also says that it reached the model and should be rotated;
+    - the turn ends at the next prompt.
+  - **Never blocking.** A false positive costs one turn: the person sends the prompt again without the value,
+    or with `/sf-pause` if it was no secret.
+- `[PCR:REQ-004]` **People are told.** Prompts in a repository that uses SFlow are recorded, and people know it.
+  - VS Code shows it once per repository.
+  - The repository's README section written by onboarding says it, and `doctor` says it.
+  - Copilot CLI shows nothing in a chat, because no hook can.
+
+### P2 Every change through a skill `[PCR:REQ-010]`
+
+- `[PCR:REQ-010]` **Under `refuse`.** A plain turn's edit tools, and every shell command outside the read-only
+  set, are refused. The read-only set is the one `read-only-review` turns already use (src/copilot-mutation-guard.mjs
+  `readOnlyShell`, `READ_ONLY_GIT`). Reads, searches, SFlow's read commands and the `sflow_*` read tools stay free.
+- `[PCR:REQ-011]` **The refusal gives the line to type,** with the person's words filled in from the session's
+  local copy of the prompt. That copy is deleted at the next prompt.
+  - In a code step: `/sf-code <WORK-ID> <what they asked>`.
+  - In another step: `/sf-phase <WORK-ID> …`.
+  - With no Story in progress: `/sf-start …`, or the repository's quick-fix route when it has one.
+  - Code: `PLAIN_CHAT_CHANGE_REFUSED`. The refusal ends with `Do not retry it`.
+- `[PCR:REQ-012]` **Under `record`.** The change goes ahead, and the prompt is already tracked (`[PCR:REQ-002]`).
+  In a code step it must be accounted for before approval (`[SCS:REQ-042]`).
+- `[PCR:REQ-013]` **The setting.** `policy.plainChatEdits`: `refuse`, `record` or `allow`. The default is
+  decision 8.
+  - It folds like `policy.plainChatSecrets`.
+  - It changes the same ways:
+    - `capability plain-chat <ID> --edits …`;
     - `--plain-chat-edits` on `capability set|edit`;
-    - **Changes in plain chats** on the capability page in VS Code;
+    - **Changes in plain chats** on the capability page;
     - a reviewed proposal where `sflow/config` exists.
-  - `capability show` says which applies to a path.
   - The capability that owns the changed path decides.
-  - It reads the approved map on this machine, with no network, and only for a call it would refuse. A map
-    that cannot be read leaves `refuse` standing.
-- `[PCR:REQ-007]` **What stays free.**
-  - `/sf-pause` turns all of this off, as it turns off the secrets check.
-  - A failure of the check itself lets the call through. A plain chat is someone's ordinary work, and the
-    launcher already refuses when the runtime cannot load.
-  - An `/sf-` turn is unchanged.
-- `[PCR:REQ-008]` **A stale turn never governs a plain one.** The launcher removes the session's turn record
-  before it starts Node for `boundary-turn`, so a failed or timed-out prompt hook leaves no earlier contract in
-  force. A skill turn writes its record again as today.
-- `[PCR:REQ-009]` **Answered inside the hook's time.** A host lets a call through when its hook times out
-  (10 s). So the guard decides from the marker and the Story's local state alone: no network, no Git
-  subprocess, no full Story load. Its time is measured in the performance budget, as the secrets guard's is.
+  - It reads the approved map on this machine, with no network, and only for a call it would refuse. A map that
+    cannot be read keeps the repository's own setting.
+- `[PCR:REQ-014]` **Answered inside the hook's time.** A host lets a call through when its hook times out (10 s).
+  - So the guard decides from the repository marker, the session record and the Story's local state alone: no
+    network, no Git subprocess, no full Story load.
+  - Its time is in the performance budget.
+- `[PCR:REQ-015]` **The launcher stays fast.**
+  - A repository that uses SFlow is recognised by the committed hook file itself (P3). The plugin's launcher keeps
+    its name test for every other call.
+  - A call in a repository that does not use SFlow costs nothing new.
+- `[PCR:REQ-016]` **A stale turn never governs a plain one.** The launcher removes the session's turn record before
+  it starts Node for the prompt hook. A skill turn writes its record again, as today.
+- `[PCR:REQ-017]` **Unchanged.**
+  - `/sf-pause` turns this off, as it turns off the secrets check.
+  - A failure of SFlow's own check lets the call through.
+  - An `/sf-` turn is governed exactly as today.
 
-### P2 Steering before the agent tries `[PCR:REQ-010]`
+### P3 The repository carries the guard `[PCR:REQ-030]`
 
-- `[PCR:REQ-010]` **One line of context, in VS Code.** In a governed checkout, a plain prompt's hook adds one
-  line, for example: "QF-1 is at Code. To change it, the person types /sf-code QF-1 …; answer questions freely."
-  - VS Code reads a prompt hook's top-level context.
-  - Copilot CLI drops a plugin's prompt-hook output, so there the refusal in `[PCR:REQ-003]` is the only steer.
-  - The line only saves a refused attempt; it is never the guarantee.
-- `[PCR:REQ-011]` **The line is no instruction to act.** It names the route. It never tells the agent to run a
-  skill or an SFlow command on the person's behalf.
+- `[PCR:REQ-030]` **The hook file.** A repository that uses SFlow commits:
+  - `.github/hooks/sflow.json` (`version: 1`), with the same seven events the plugin uses;
+  - two launchers, `.github/hooks/sflow-hook.sh` and `.ps1`.
 
-### P3 Records and docs `[PCR:REQ-020]`
+  Onboarding writes them, and `doctor` repairs them, as a reviewed change like any other.
+- `[PCR:REQ-031]` **Nothing runs twice.**
+  - With SFlow on the machine, the repository launchers call it, and the plugin's own hooks step aside in that
+    repository.
+  - With SFlow but without the plugin, the repository's hooks alone are enough.
+  - Each event is handled once.
+- `[PCR:REQ-032]` **Without SFlow on the machine** (decision 10).
+  - The repository launchers, in shell or PowerShell only, refuse an edit or a writing command with an install
+    line, unless the repository's setting is `allow`.
+  - They also refuse the secret file names the plugin launcher already tests.
+  - Reading stays free.
+  - They never crash: a host denies on a crash, so every unexpected error answers `{}`, and only the deliberate
+    refusals deny. Tested on bash and pwsh.
+- `[PCR:REQ-033]` **The file carries the repository's setting.** The launcher's arguments hold the repository's own
+  `policy.plainChatEdits`, so the fallback knows it without SFlow. Changing the setting rewrites the file in the same
+  reviewed change.
+- `[PCR:REQ-034]` **Hooks turned off are visible.** `doctor` and the VS Code status say when this repository's
+  hooks would not run:
+  - `disableAllHooks` in its settings files;
+  - a missing or changed hook file;
+  - the plugin present but the repository hook absent.
 
-- `[PCR:REQ-020]` **SF Guard agrees with the guard.** A plain prompt after an unclosed `/sf-` turn is labelled
-  a plain-chat turn, not that skill's continuation.
-- `[PCR:REQ-021]` **The docs say what the plugin does.**
-  - README.md and HELP.md still say the plugin never refuses a tool. They are corrected.
-  - A topic page explains plain chats in a Story checkout: what is free, what is refused, the setting, and pause.
+### P4 Steering and records `[PCR:REQ-040]`
 
-## Hosts
-
-VS Code Copilot Chat and Copilot CLI first; both read the guard's refusal (`hookSpecificOutput` and top level,
-e4dbdf690). IntelliJ runs no guard and is parked.
+- `[PCR:REQ-040]` **A line of context (Copilot CLI).** Through `userPromptTransformed`, a plain prompt in a repository
+  that uses SFlow gets one line, for example: "QF-1 is at Code. To change it, the person types /sf-code QF-1 …;
+  answer questions freely."
+  - It is a new event in the closed hook map (decision 7).
+  - The line names the route, and never tells the agent to run a skill or an SFlow command for the person.
+  - VS Code gets no line: no hook there can add one.
+- `[PCR:REQ-041]` **SFlow's existing hint.** Check in a real run whether either host reads the prompt hook's
+  top-level `additionalContext` on `/sf-` turns. Neither page says it does. If not, carry the hint through
+  `userPromptTransformed` in Copilot CLI, and through the skill's own text elsewhere.
+- `[PCR:REQ-042]` **SF Guard agrees with the guard.** A plain prompt after an unclosed `/sf-` turn is labelled a
+  plain-chat turn.
+- `[PCR:REQ-043]` **The docs say what the plugin does.**
+  - README.md and HELP.md, which still say the plugin never refuses a tool, are corrected.
+  - A topic page explains, per setting:
+    - what is tracked;
+    - what is refused and why;
+    - pause;
+    - hooks being off.
 
 ## Constraints
 
-- The closed hook map in scripts/check.mjs stays: the same seven events, no `sessionStart`. The rule's comment
-  is reworded for governed checkouts (owner decision 7).
-- No workflow gains a step. No Story record changes shape, except that "Asked for" entries say they came from a
-  plain chat (`[PCR:REQ-005]`).
-- The refusal and the context line never carry the prompt's secrets: the same redaction as `[SCS:REQ-040]`.
-- The launchers' name test for secret files is unchanged. A call that touches no governed checkout pays nothing new.
-- Approvals, decisions and person's steps are unchanged: still people only, in their own terminal or on the card.
+- **The closed hook map in scripts/check.mjs** grows by one event, `userPromptTransformed`, and gets the repository
+  hook file's own check. `sessionStart` stays forbidden.
+- **No workflow gains a step.** Story records gain only "plain chat" marks on "Asked for" entries.
+- **Recorded prompts are redacted before they are written.** The local log never leaves the clone (decision 9).
+  Never print or copy a found secret: neither the refusal nor the record carries the value.
+- **Approvals, decisions and person's steps are unchanged:** still people only.
 
 ## Not in scope
 
-- Choosing a skill for the person or rewriting their prompt. The hook names the route; the person types it.
-- Plain chats outside a Story checkout.
-- Hosts other than VS Code Copilot Chat and Copilot CLI.
-- Hooks shipped in a repository's `.github/hooks/` or in organisation policy (owner decision 6).
-- `userPromptTransformed` and other new hook events.
+- Rewriting a person's prompt beyond redaction and the context line, or choosing a skill for them.
+- Organisation policy hooks (`policy.d`).
+- Hosts other than VS Code Copilot Chat and Copilot CLI. IntelliJ is parked.
 
 ## Order and size
 
-1. **P1.** It is the guarantee and closes the drift gap: guard, launcher marker, setting, stale-turn fix. About
-   the size of the plain-chat secrets work (9386600b7).
-2. **P2.** It is small once P1 marks the checkout.
-3. **P3.** Docs, plus the SF Guard label.
+1. **P1 and P2 together.** Tracking, secrets in prompts, the change guard, the setting, the stale-turn fix.
+2. **P3.** The repository hook file and its launchers, the step-aside, the fallback.
+3. **P4.** The context line and the hint check, then docs.
 
-Each part is checked in a real isolated VS Code and on Copilot CLI. A plain prompt in a real chat is a model call,
-so that check needs the owner's yes for a paid run. Everything up to it is checked with the hosts' payloads and no
-model.
+Everything up to a real chat is checked with each host's payloads and no model. A real prompt is a model call, so
+these need the owner's yes for a paid run:
+- whether `userPromptTransformed` redacts a secret and adds the line in Copilot CLI;
+- `[PCR:REQ-041]`;
+- that VS Code loads and trusts `.github/hooks/sflow.json`.
 
 ## Acceptance
 
-- **`refuse`:** in a checkout where QF-1 is at Code, a plain "make the timeout 10s":
+- **`refuse`, Story QF-1 at Code.** A plain "make the timeout 10s":
+  - is tracked;
   - can read `src/retry.js` and run `git diff`;
-  - is refused when it edits the file or runs `npm test`, with "type /sf-code QF-1 make the timeout 10s";
-  - after `/sf-pause`, the edit goes through.
-- **`record`:** the same edit goes through, the card shows "Asked for: make the timeout 10s (plain chat)", and
-  Code's approval waits until it is accounted for.
-- **Elsewhere:** a repository with no Story in progress behaves exactly as today, and its tool calls start no Node.
-- **Stale turn:** a prompt hook that times out after an `/sf-code` turn leaves the next plain turn under these rules,
-  not under `/sf-code`'s contract.
+  - is refused when it edits the file or runs `npm test`, with "type /sf-code QF-1 make the timeout 10s".
+- **`record`.** The same edit goes ahead. The card shows "Asked for: make the timeout 10s (plain chat)", and Code's
+  approval waits until it is accounted for.
+- **No Story.** In a repository that uses SFlow, a plain prompt is in the local prompt log. Under `refuse`, its edit
+  is refused with the start line.
+- **A secret.** A prompt holding a made-up token is recorded as `[redacted]`.
+  - Its turn's tool calls are refused with `SECRET_IN_PROMPT`.
+  - In Copilot CLI, the model never reads the value.
+- **No SFlow on the machine.** The repository's hook file refuses an edit with the install line, and reading works.
+- **Elsewhere.** A repository that does not use SFlow behaves as today, and starts no Node.

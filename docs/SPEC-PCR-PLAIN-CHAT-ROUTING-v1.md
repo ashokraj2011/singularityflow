@@ -65,7 +65,7 @@ From GitHub's Copilot CLI hooks pages and VS Code's hooks page (Preview, dated 2
   - the repository's `.github/hooks/*.json`;
   - `~/.copilot/hooks/`;
   - inline `hooks` in `.github/copilot/settings.json` and `.github/copilot/settings.local.json`;
-  - repository `.claude/settings.json`;
+  - another agent harness's settings file in the repository;
   - plugins.
 
   "When the same event appears in multiple sources, all hook entries from all sources are run."

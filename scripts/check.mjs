@@ -192,6 +192,27 @@ for (const [event, action] of Object.entries(expectedHooks)) {
     fail(`plugin/hooks.json ${event} must use the packaged hook launcher for ${action}`);
   }
 }
+// The repository's own hook file (.github/hooks/sflow.json) carries the same closed map [PCR:REQ-030]: the same seven
+// events and actions, each with the plugin's matcher, never sessionStart, and both launchers it names are packaged.
+{
+  const hooks = await import('../src/repository-hooks.mjs');
+  if (JSON.stringify(hooks.REPOSITORY_HOOK_EVENTS) !== JSON.stringify(expectedHooks)) fail('src/repository-hooks.mjs must map the same seven events as plugin/hooks.json');
+  for (const setting of hooks.REPOSITORY_HOOK_SETTINGS) {
+    const repository = JSON.parse(await hooks.repositoryHookJson(setting));
+    if (repository.version !== 1 || repository.hooks?.sessionStart != null) fail('the repository hook file must be version 1 and never inject a prompt at session start');
+    if (Object.keys(repository.hooks ?? {}).sort().join(',') !== Object.keys(expectedHooks).sort().join(',')) fail('the repository hook file must contain only the plugin\'s seven events');
+    for (const [event, action] of Object.entries(expectedHooks)) {
+      const [entry, ...rest] = repository.hooks[event];
+      if (rest.length || entry?.type !== 'command' || entry.matcher !== hooksJson.hooks[event][0].matcher
+          || entry.bash !== hooks.repositoryHookCommand(action, setting, 'bash') || entry.powershell !== hooks.repositoryHookCommand(action, setting, 'powershell')) {
+        fail(`the repository hook file's ${event} must run .github/hooks/sflow-hook for ${action} with policy.plainChatEdits ${setting}`);
+      }
+    }
+  }
+  for (const launcher of ['sflow-hook.sh', 'sflow-hook.ps1']) {
+    if (!existsSync(path.join(root, 'templates', 'github-hooks', launcher))) fail(`templates/github-hooks/${launcher} is missing`);
+  }
+}
 if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== '.*'
     || hooksJson.hooks?.postToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|exec_command|write_stdin|ask_user|vscode_askQuestions') {
   fail('plugin/hooks.json explicit-turn mutation guard must cover edit payloads and post-terminal detection');

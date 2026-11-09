@@ -8,6 +8,22 @@ case "$action" in
   *) printf '%s\n' '{}'; exit 0 ;;
 esac
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# [PCR:REQ-031] Run as Copilot's plugin (the host names this folder), leave this folder in a marker, so a repository's
+# own hooks (.github/hooks/sflow-hook.sh) answer {} and each event is handled once. Never when a repository hook
+# hands an event here, which names no plugin folder. Mirrors pluginMarkerFile() in src/repository-hooks.mjs.
+note_plugin() {
+  local root=${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-}} mode=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-} marker marked=''
+  [[ -n "$root" && "$root" -ef "$launcher_dir" ]] || return 0
+  if [[ -z "$mode" && "${HOME:-}" == /* ]]; then mode="$HOME/.singularity-flow/copilot-mode.json"; fi
+  [[ "$mode" == /* && "$mode" != */ && "$mode" != *'/./'* && "$mode" != *'/../'* ]] || return 0
+  marker="${mode%/*}/copilot-plugin"
+  [[ -f "$marker" ]] && IFS= read -r marked < "$marker"
+  [[ "$marked" == "$launcher_dir" ]] && return 0
+  mkdir -p "${mode%/*}" 2>/dev/null && printf '%s\n' "$launcher_dir" > "$marker.$$" 2>/dev/null && mv -f "$marker.$$" "$marker" 2>/dev/null
+  rm -f "$marker.$$" 2>/dev/null
+  return 0
+}
+note_plugin
 # With no SFlow turn recorded the runtime's guard still refuses a person's own step in any prompt
 # (personStepGuard in copilot-repository-boundary.mjs), and it looks only at a call that names SFlow,
 # or a file that may hold secrets.

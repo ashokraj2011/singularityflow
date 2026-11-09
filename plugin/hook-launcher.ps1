@@ -145,6 +145,23 @@ function Invoke-HookNode([string]$File, [string[]]$Arguments) {
 # os.homedir(): USERPROFILE on Windows, HOME elsewhere (pwsh on macOS and Linux).
 $windowsHost = $IsWindows -or $env:OS -eq 'Windows_NT'
 $homeDirectory = if ($windowsHost) { $env:USERPROFILE } else { $env:HOME }
+# [PCR:REQ-031] Run as Copilot's plugin, leave this folder in a marker so a repository's own hooks answer {}.
+# Mirrors note_plugin in hook-launcher.sh.
+try {
+  $pluginRoot = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:COPILOT_PLUGIN_ROOT }
+  if ($pluginRoot -and [IO.Path]::GetFullPath($pluginRoot).TrimEnd('\', '/') -eq [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\', '/')) {
+    $markerMode = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE } elseif ($homeDirectory) { Join-Path $homeDirectory '.singularity-flow/copilot-mode.json' } else { $null }
+    if ($markerMode -and [IO.Path]::IsPathRooted($markerMode)) {
+      $marker = Join-Path (Split-Path -Parent $markerMode) 'copilot-plugin'
+      $marked = if ([IO.File]::Exists($marker)) { [IO.File]::ReadAllLines($marker) | Select-Object -First 1 } else { $null }
+      if ($marked -ne $PSScriptRoot) {
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $markerMode))
+        [IO.File]::WriteAllText("$marker.$PID", "$PSScriptRoot`n")
+        Move-Item -LiteralPath "$marker.$PID" -Destination $marker -Force
+      }
+    }
+  }
+} catch { }
 if ($Action -eq 'boundary-turn') { Clear-StaleTurn }
 $managedRoot = if ($env:SINGULARITY_FLOW_ENGINE_HOME) { $env:SINGULARITY_FLOW_ENGINE_HOME } else { Join-Path $homeDirectory '.singularity-flow/engine' }
 $managedActive = Join-Path $managedRoot 'active'

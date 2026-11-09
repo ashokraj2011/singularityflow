@@ -80,6 +80,26 @@ async function plainChatNotice(root) {
   } catch { return null; }
 }
 
+/**
+ * Whether this repository's own hooks would run [PCR:REQ-034]: missing or changed hook files, disableAllHooks, a folder
+ * Copilot CLI does not trust, and SFlow's plugin present without the repository's hook. Null outside SFlow.
+ */
+async function repositoryHooksCheck(root) {
+  try {
+    const [{ sflowRepositoryAt, plainChatEditsPolicy }, hooks] = await Promise.all([import('./copilot-plain-chat.mjs'), import('./repository-hooks.mjs')]);
+    if (!sflowRepositoryAt(root)) return null;
+    const status = await hooks.repositoryHookStatus(root, { setting: await plainChatEditsPolicy(root, '') });
+    const problems = hooks.repositoryHookProblems(status);
+    const repairable = Object.values(status.files).some((state) => state !== 'current');
+    return problems
+      ? check('repository-hooks', 'warn', `This repository's Copilot hooks would not all run: ${problems.join(' ')}`,
+        repairable ? 'Run singularity-flow doctor --repair-hooks, then review and commit the files it writes.' : 'Remove disableAllHooks, or trust this folder in Copilot CLI, or install SFlow\'s plugin (singularity-flow plugin install).',
+        { repositoryHooks: status })
+      : check('repository-hooks', 'pass', `This repository carries its Copilot hooks (${hooks.REPOSITORY_HOOK_FILE}, policy.plainChatEdits: ${status.setting})${status.plugin ? '; SFlow\'s plugin guards on this machine, so they step aside' : ''}.`,
+        null, { repositoryHooks: status });
+  } catch { return null; }
+}
+
 export async function doctorSnapshot(root, {
   workId = null, offline = false, performance = false, probeModelProvider = true,
   execution = null
@@ -92,6 +112,8 @@ export async function doctorSnapshot(root, {
   // People know their prompts here are kept, and what a plain chat's change does [PCR:REQ-004].
   const plainChat = await plainChatNotice(root);
   if (plainChat) checks.push(plainChat);
+  const hooks = await repositoryHooksCheck(root);
+  if (hooks) checks.push(hooks);
   let performanceReport = null;
   let schemaReport = null;
   const node = nodeRequirement();

@@ -50,7 +50,9 @@ const FAMILIES = Object.freeze([
     'story-routing.mjs', 'story-index.mjs', 'commands/workspace-stories.mjs',
     // Every --for-agent result is kept (cli-entry.mjs imports the keeper lazily, e5dd29cfa). Unclaimed, it
     // fell into compatibility, so each --for-agent read, phase entry and nextsteps among them, loaded it and models.
-    'agent-result-keeper.mjs']],
+    'agent-result-keeper.mjs',
+    // The repository's own Copilot hooks, written by init, doctor --repair-hooks and capability set [PCR P3].
+    'repository-hooks.mjs']],
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
   // Keep the broad reads slot too: making Home/Inbox fall into compatibility would shift the cost.

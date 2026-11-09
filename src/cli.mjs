@@ -7165,13 +7165,19 @@ async function capabilityCommand(positionals, options) {
 
   if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
     const id = requirePositional(positionals, 2, 'capability ID');
-    const result = await editCapability(root, id, await capabilityChanges(options), {
+    const changes = await capabilityChanges(options);
+    const result = await editCapability(root, id, changes, {
       mode: subcommandForWrite,
       portfolio,
       reparentChildrenTo: subcommandForWrite === 'remove'
         ? capabilityRemovalDestination(options)
         : undefined
     });
+    // The repository's hook file carries its own setting, rewritten in this same working-tree change [PCR:REQ-033].
+    if (Object.hasOwn(changes, 'policy.plainChatEdits') || subcommandForWrite === 'remove') {
+      const [{ plainChatEditsPolicy }, { setRepositoryHookSetting }] = await Promise.all([import('./copilot-plain-chat.mjs'), import('./repository-hooks.mjs')]);
+      result.hooksRewritten = await setRepositoryHookSetting(root, await plainChatEditsPolicy(root, '')).catch(() => []);
+    }
     const state = {
       published: false,
       reason: 'local authoring never publishes capability state; use capability edit --lead <URL> to propose an organisation change'
@@ -7180,6 +7186,7 @@ async function capabilityCommand(positionals, options) {
     console.log(result.removed
       ? `Removed capability ${id} from ${result.path}.`
       : `Saved capability ${id} to ${result.path}.`);
+    if (result.hooksRewritten?.length) console.log(`  ${result.hooksRewritten.join(' and ')} now carry this repository's setting; commit them with the map.`);
     console.log('  This is a local authoring change; no Flow Ledger branch was created or moved.');
     printCommandRoutes('singularity-flow capability edit <ID> --lead <URL> --mode set …', {
       indent: '  ',

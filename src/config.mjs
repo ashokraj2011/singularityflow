@@ -1778,6 +1778,8 @@ export async function initializeDefinition(root) {
       wrote.push(path.posix.join(destination, file));
     }
   }
+  // The repository's own Copilot hooks [PCR:REQ-030]; files that exist stay.
+  wrote.push(...await (await import('./repository-hooks.mjs')).writeRepositoryHooks(root, { onlyMissing: true }));
   return wrote;
 }
 

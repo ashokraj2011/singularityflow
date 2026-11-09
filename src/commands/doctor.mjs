@@ -33,6 +33,7 @@ export async function doctorCommand(positionals, options) {
     return telemetryCommand(['telemetry', 'enable'], options);
   }
   const root = repoRoot();
+  if (optionBoolean(options, 'repair-hooks')) return repairHooks(root, options);
   const inspect = () => doctorSnapshot(root, {
     workId: positionals[1],
     offline: optionBoolean(options, 'offline'),
@@ -51,4 +52,19 @@ export async function doctorCommand(positionals, options) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
   else process.stdout.write(`${doctorText(report)}${update ? `\n! ${buildCurrencyLine(update)}\n` : ''}`);
   if (!report.healthy) process.exitCode = 2;
+}
+
+/**
+ * Writes this repository's Copilot hooks again for its own policy.plainChatEdits [PCR:REQ-030, REQ-033], into the working
+ * tree only: the person reviews and commits them like any other change.
+ */
+async function repairHooks(root, options) {
+  const [{ plainChatEditsPolicy }, { writeRepositoryHooks }] = await Promise.all([import('../copilot-plain-chat.mjs'), import('../repository-hooks.mjs')]);
+  const setting = await plainChatEditsPolicy(root, '');
+  const wrote = await writeRepositoryHooks(root, { setting });
+  const result = { schemaVersion: 1, resultType: 'sflow-repository-hooks', setting, wrote,
+    words: wrote.length ? `Wrote ${wrote.join(', ')} for policy.plainChatEdits: ${setting}. Review and commit them; nothing was committed.` : 'This repository\'s Copilot hooks are already what SFlow writes; nothing changed.' };
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(result.words);
+  return result;
 }

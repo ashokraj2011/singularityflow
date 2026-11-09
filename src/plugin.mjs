@@ -3,6 +3,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { commandExists, SingularityFlowError, run } from './util.mjs';
+import { copilotModeFile } from './copilot-mode.mjs';
 import {
   bundledDirectSkillNames, bundledSkillDirectory, copilotSkillsDirectory, installDirectSkills,
   uninstallDirectSkills, verifyDirectSkillContents
@@ -553,6 +554,8 @@ export function uninstallPlugin({
 } = {}) {
   requireCopilot(exists);
   removeInstalledCopies(execute);
+  // The plugin is gone: a repository's own hooks guard again on this machine [PCR:REQ-031].
+  fs.rmSync(path.join(path.dirname(copilotModeFile()), 'copilot-plugin'), { force: true });
   const aliases = uninstallAliases();
   removeRetired({ minimumAgeMs: 0 });
   log(`Removed ${aliases.removed.length} managed direct Copilot skill aliases from ${aliases.targetRoot}.`);

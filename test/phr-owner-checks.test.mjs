@@ -14,7 +14,7 @@ import { approvalHold, approvalHoldOwner } from '../src/approval-check.mjs';
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { terminalRecoveryActions } from '../src/evidence/terminal.mjs';
-import { criterionTestRefusal, ownCriterionFindings } from '../src/owner-step-evidence.mjs';
+import { criterionTestRefusal, inspectionWitnessRefusal, ownCriterionFindings } from '../src/owner-step-evidence.mjs';
 import { ownerStepChecks, phaseResponsibilityPin } from '../src/phase-roles.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
@@ -99,7 +99,7 @@ test('[PHR:REQ-002] finding 10: the step that defines the scope is approved only
  * judged as the ending judges it. `second` is how AC-002's test command ran: passed, failed, or passed
  * with skipped tests (which cannot verify the criterion).
  */
-function codeStep({ pinned = true, second = 'passed', status = 'awaiting_approval', risks = [], issues = [], decisions = [] } = {}) {
+function codeStep({ pinned = true, second = 'passed', status = 'awaiting_approval', risks = [], issues = [], decisions = [], inspection = false, witnessRecords = [] } = {}) {
   const W = 'CODE-1';
   const [REQ, AC1, AC2] = [`${W}:REQ-001`, `${W}:AC-001`, `${W}:AC-002`];
   const policy = { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [] };
@@ -119,14 +119,18 @@ function codeStep({ pinned = true, second = 'passed', status = 'awaiting_approva
       tests: { discovered: 2, passed: outcome === 'failed' ? 1 : 2, failed: outcome === 'failed' ? 1 : 0, skipped: outcome === 'skipped' ? 1 : 0 } } });
   const evaluation = evaluateEvidence(evidenceGraph({ workflow,
     records: { indexes: [{ workId: W, phase: 'intake', generation: 1, clauses: [clause(REQ, 'REQ', 3), clause(AC1, 'AC', 5, [REQ]), clause(AC2, 'AC', 6, [REQ])] }],
-      planned: [{ workId: W, phase: 'intake', generation: 1, kind: 'planned', claims: { [REQ]: claim,
+      planned: [{ workId: W, phase: 'intake', generation: 1, kind: 'planned',
+        // With `inspection`, AC-002 is verified by a reviewer inspecting a document, not by its test.
+        ...(inspection ? { verificationContracts: [{ clauseId: AC2, combination: 'all',
+          slots: [{ slot: 'docs', method: 'inspection', role: 'primary', witness: { path: 'docs/value.md' }, requiredAssurance: 'source-bound' }] }] } : {}),
+        claims: { [REQ]: claim,
         [AC1]: { ...claim, tests: ['test/one.test.mjs'], testDisposition: 'applicable' }, [AC2]: { ...claim, tests: ['test/two.test.mjs'], testDisposition: 'applicable' } } }],
       observed: [{ workId: W, phase: 'implementation', generation: 1, kind: 'observed', claims: { [REQ]: { ...delivered, testResults: [] },
         [AC1]: { ...delivered, testResults: ['test/one.test.mjs'] }, [AC2]: { ...delivered, testResults: ['test/two.test.mjs'] } } }], acceptance: [] },
     deliveries: [{ phaseId: 'implementation', generation: 1, status: 'ready', testRecovery: null,
       acceptanceCriteria: { bindings: [{ clauseId: AC1, testSource: 'test/one.test.mjs' }, { clauseId: AC2, testSource: 'test/two.test.mjs' }] },
       receipt: { status: 'ready', traceability: { bindings: [{ clauseId: AC1, testSource: 'test/one.test.mjs', commandId: 'one' }, { clauseId: AC2, testSource: 'test/two.test.mjs', commandId: 'two' }] } },
-      executions: [{ commandId: 'one', ...run('passed') }, { commandId: 'two', ...run(second) }] }] }),
+      executions: [{ commandId: 'one', ...run('passed') }, { commandId: 'two', ...run(second) }] }], witnessRecords }),
   { boundary: 'terminal', mode: 'decision' });
   return { workflow, evaluation, AC1, AC2 };
 }
@@ -168,4 +172,31 @@ test('[PHR:REQ-003] finding 11: at the ending, an inconclusive criterion of an e
   const issue = { id: 'UPI-001', phase: 'implementation', about: AC2, problem: 'Its test is skipped in this repository.' };
   const settled = codeStep({ second: 'skipped', status: 'approved', issues: [issue], decisions: [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }] });
   assert.equal(settled.evaluation.rows.find((entry) => entry.id === AC2).obligations.find((entry) => entry.responsibility === 'verify').status, 'excepted');
+});
+
+test('[PHR:REQ-002] finding 12: a code step is approved only once the inspection of its own criterion is signed off, so the ending no longer asks for it', () => {
+  const { workflow, evaluation, AC2 } = codeStep({ inspection: true });
+  // The ending refuses the row; the code step's approval now does, where its approvers can give it.
+  assert.ok(evaluation.findings.some((entry) => entry.code === 'EVIDENCE_INSPECTION_MISSING' && entry.blocking !== false));
+  assert.equal(criterionTestRefusal(workflow, workflow.phases.implementation, evaluation), null, 'its tests are not what is missing');
+  const refusal = inspectionWitnessRefusal(workflow, workflow.phases.implementation, evaluation);
+  assert.equal(refusal.code, 'EVIDENCE_INSPECTION_MISSING');
+  assert.deepEqual(refusal.details.criteria.map((entry) => entry.clauseId), [AC2]);
+  assert.equal(refusal.details.nextAction.command, 'singularity-flow decisions CODE-1');
+  const commands = refusal.details.recoveryCommands.map((entry) => entry.command);
+  assert.equal(commands[0], 'singularity-flow approve implementation --work-id CODE-1 --confirm-evidence');
+  assert.ok(commands.some((command) => command.startsWith(`singularity-flow decision witness CODE-1 --criterion ${AC2} --slot docs `)), commands.join('\n'));
+  assert.ok(commands.some((command) => command.startsWith('singularity-flow decision risk --obligation OBL:CODE-1:verify:')), commands.join('\n'));
+  // Its approvers decide it: the hold names them, and the decision list is its route on both hosts.
+  assert.equal(approvalHoldOwner(refusal), 'someone-decides');
+  const hold = approvalHold(refusal, workflow, workflow.phases.implementation);
+  assert.deepEqual([hold.action.command, hold.who], ['singularity-flow decisions CODE-1', 'An approver of implementation decides']);
+
+  // Signed off: nothing holds the step, and the ending has nothing left for it.
+  const signed = codeStep({ inspection: true, witnessRecords: [{ clauseId: AC2, slot: 'docs', method: 'inspection', status: 'met', assurance: 'source-bound' }] });
+  assert.equal(inspectionWitnessRefusal(signed.workflow, signed.workflow.phases.implementation, signed.evaluation), null);
+  assert.ok(!signed.evaluation.findings.some((entry) => entry.code === 'EVIDENCE_INSPECTION_MISSING'));
+  // A Story started before the check keeps its policy.
+  const legacy = codeStep({ inspection: true, pinned: false });
+  assert.equal(inspectionWitnessRefusal(legacy.workflow, legacy.workflow.phases.implementation, legacy.evaluation), null);
 });

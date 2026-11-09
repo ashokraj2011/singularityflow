@@ -9,6 +9,8 @@
  */
 import { evidenceGraphFromAggregate } from './evidence/graph.mjs';
 import { evaluateEvidence } from './evidence/evaluate.mjs';
+import { terminalEvidenceDecisions } from './evidence/terminal.mjs';
+import { decisionListRoute } from './upstream-routes.mjs';
 import { ownerStepChecks } from './phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -68,9 +70,41 @@ export function criterionTestRefusal(workflow, phase, evaluation) {
   );
 }
 
+/**
+ * The approval refusal for a code step with an inspection of its own criteria nobody gave, or null
+ * [PHR:REQ-002], finding 12. Whoever approves the step delivering the criterion witnesses it (the
+ * ending asked the same people, after the step was long approved): with this approval itself, or as
+ * its own sign-off in the decision list, after looking at the file. A person who may accept risk on
+ * the criterion may record a dated risk instead.
+ */
+export function inspectionWitnessRefusal(workflow, phase, evaluation) {
+  if (!ownerStepChecks(workflow)) return null;
+  const held = ownCriterionFindings(evaluation, phase.id, /^EVIDENCE_INSPECTION_MISSING$/u);
+  if (!held.length) return null;
+  const workId = workflow.workItem.id;
+  const clauses = new Set(held.map((entry) => entry.clauseId));
+  const witnesses = terminalEvidenceDecisions(workId, { rows: (evaluation?.rows ?? []).filter((row) => clauses.has(row.id)) }, workflow)
+    .flatMap((entry) => entry.witnesses.filter((witness) => witness.method === 'inspection'));
+  const list = decisionListRoute(workId);
+  return new SingularityFlowError(
+    `Phase '${phase.id}' cannot be approved while ${held.length} inspection(s) of the criteria it delivered have no witness:\n- `
+    + held.map((entry) => entry.findings.map((finding) => finding.message).join(' ')).join('\n- ')
+    + `\nAn approver of ${phase.id} looks at each file and confirms it, with this approval (--confirm-evidence) or as a sign-off in the decision list; `
+    + 'or a person who may accept risk on the criterion records a dated risk. The Story\'s ending refuses the same rows.',
+    { code: 'EVIDENCE_INSPECTION_MISSING', details: { workId, phase: phase.id, ownerPhase: phase.id, criteria: held.slice(0, 20),
+      nextAction: { command: list.command, skill: list.skill, label: `An approver of ${phase.id} signs off each inspection after looking at its file.` },
+      recoveryCommands: [
+        { command: `singularity-flow approve ${phase.id} --work-id ${workId} --confirm-evidence`, label: 'Or confirm each inspected file with the approval itself, in your own terminal.' },
+        ...witnesses.slice(0, 3).map((witness) => ({ command: witness.command, label: 'Or sign off this inspection on its own.' })),
+        ...[...new Set(held.map((entry) => entry.riskCommand).filter(Boolean))].slice(0, 3)
+          .map((command) => ({ command, label: 'Or a person who may accept this risk records it, with its category and expiry.' }))] } }
+  );
+}
+
 /** Code approval: the step's own criteria, judged as the ending will judge them. */
 export async function assertOwnCriteriaVerified(root, config, workflow, phase) {
   if (!ownerStepChecks(workflow)) return;
-  const refusal = criterionTestRefusal(workflow, phase, await ownerStepEvaluation(root, config, workflow));
+  const evaluation = await ownerStepEvaluation(root, config, workflow);
+  const refusal = criterionTestRefusal(workflow, phase, evaluation) ?? inspectionWitnessRefusal(workflow, phase, evaluation);
   if (refusal) throw refusal;
 }

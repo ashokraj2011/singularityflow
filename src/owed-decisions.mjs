@@ -132,9 +132,13 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
     const owedWitnesses = listed(witnesses, limit), owedScope = listed(scopeItems, limit);
     // The step that defines the scope last is approved only once each is decided [PHR:REQ-002].
     const scopeHoldsApproval = scopeItems.length > 0 && ownerStepChecks(workflow) && scoping.includes(finalScopeStep(workflow)?.id);
+    // So is a code step, for an inspection of a criterion it answers for last.
+    const inspectionHolds = ownerStepChecks(workflow) ? witnesses.find((witness) => witness.method === 'inspection' && witness.status === 'missing'
+      && witnessing.includes(witness.owners.at(-1)))?.owners.at(-1) : null;
     return { advisory: true, status: 'owed', contextBinding: witnessContextBinding(workflow),
       witnesses: owedWitnesses.entries, scopeItems: owedScope.entries, more: { witnesses: owedWitnesses.more, scopeItems: owedScope.more },
       ...(scopeHoldsApproval ? { scopeHoldsApproval: finalScopeStep(workflow).id } : {}),
+      ...(inspectionHolds ? { inspectionHoldsApproval: inspectionHolds } : {}),
       instruction: 'Relay each item with its exact command to the user. Only a person who approves the owning step decides these: a sign-off after inspecting its file, a scope item by linking or dispositioning the statement; an agent never records or answers them. The Story cannot end without them. '
         + (scopeHoldsApproval ? `Approving ${finalScopeStep(workflow).id} waits for each scope item.` : 'This does not block the current step.') };
   } catch (error) {
@@ -149,7 +153,7 @@ export function owedDecisionLines(owed) {
   const lines = [];
   const witnessCount = owed.witnesses.length + owed.more.witnesses;
   if (witnessCount) {
-    lines.push(`Owed sign-offs (${witnessCount}, human only, not blocking this step):`);
+    lines.push(`Owed sign-offs (${witnessCount}, human only, ${owed.inspectionHoldsApproval ? `approving ${owed.inspectionHoldsApproval} waits for its inspections` : 'not blocking this step'}):`);
     for (const witness of owed.witnesses) {
       lines.push(`  ${witness.clauseId} ${witness.slot} (${witness.method}${witness.files.length ? `: ${witness.files.join(', ')}` : ': the plan names no file'}) — ${witness.available === false ? 'nothing has published it yet; once its step does, inspect it, then:' : 'inspect it first, then:'}`,
         `    ${witness.command ?? 'singularity-flow evidence matrix --json'}`);

@@ -299,23 +299,24 @@ test('a verification contract through a real Story: an inspection-only criterion
   assert.equal(mapping.clauseId, `${workId}:AC-001`);
   assert.equal(mapping.slot, 'unit');
   const expires = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const matrixRows = () => Object.fromEntries(JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
+    .map((entry) => [entry.id.split(':').at(-1), entry]));
+  const submitted = matrixRows();
+  assert.equal(submitted['AC-002'].verification.contract.slots[0].method, 'inspection');
+  assert.equal(submitted['AC-002'].obligations.find((entry) => entry.responsibility === 'verify').status, 'missing', 'the runbook still needs its inspection record');
+
+  // A reviewer inspects the runbook: the slot is witnessed by its exact bytes, and only while they hold. The
+  // code step's approval waits for it [PHR:REQ-002]; a sign-off made while the step is under review stands.
+  cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
+    '--reason', 'The runbook states that the exported value is two.');
   cli('approve', 'implementation', '--yes', '--witness-mapping', `${mapping.mappingSha256}=exception:boundaries`,
     '--witness-mapping-reason', 'No negative value case yet; it is tracked as follow-up work.', '--witness-mapping-expires', expires);
-  const rows = Object.fromEntries(JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
-    .map((entry) => [entry.id.split(':').at(-1), entry]));
+  const rows = matrixRows();
   const verify = (id) => rows[id].obligations.find((entry) => entry.responsibility === 'verify');
   assert.equal(verify('AC-001').status, 'excepted');
   assert.equal(verify('AC-001').facets.exception, 'witness-exception');
   assert.equal(verify('AC-001').facets.execution, 'passed', 'the exception never rewrites what was observed');
-  assert.equal(rows['AC-002'].verification.contract.slots[0].method, 'inspection');
-  assert.equal(verify('AC-002').status, 'missing', 'the runbook still needs its inspection record');
-
-  // A reviewer inspects the runbook: the slot is witnessed by its exact bytes, and only while they hold.
-  cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',
-    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
-    '--reason', 'The runbook states that the exported value is two.');
-  const matrixRows = () => Object.fromEntries(JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
-    .map((entry) => [entry.id.split(':').at(-1), entry]));
   const inspected = matrixRows();
   assert.equal(inspected['AC-002'].obligations.find((entry) => entry.responsibility === 'verify').status, 'met');
   assert.equal(inspected['AC-002'].assurance, 'source-bound');

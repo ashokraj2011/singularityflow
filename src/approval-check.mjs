@@ -722,6 +722,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   SCOPE_ITEMS_UNRESOLVED: 'someone-decides',
   // A code step's own criteria its tests did not verify: its author corrects them, or a person accepts the risk [PHR:REQ-002].
   CRITERION_TESTS_UNVERIFIED: 'author-repairs',
+  // An inspection of a code step's own criterion: its approvers sign it off, or a person accepts the risk [PHR:REQ-002].
+  EVIDENCE_INSPECTION_MISSING: 'someone-decides',
   // The door's own refusals, before any stage runs; approvalAdvisories adds them to the preview.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 'this-checkout',
   WORKTREE_HIDDEN_CHANGE: 'this-checkout',
@@ -842,6 +844,7 @@ function refusalParty(error, workflow, phase) {
   }
   if (code === 'PHASE_APPEAL_REVIEW_REQUIRED') return { plan: true };
   if (code === 'SCOPE_ITEMS_UNRESOLVED') return { steps: [details.scopePhase ?? phase.id] };
+  if (code === 'EVIDENCE_INSPECTION_MISSING') return { steps: [details.phase ?? phase.id] };
   // Decision 10: the workflow's security reviewers when it names them, else the step's approvers.
   if (code === 'DEPENDENCY_VULNERABILITY_HELD') {
     return (details.authorities ?? []).includes('security-reviewers') ? { groups: ['security-reviewers'], securityReview: true } : { steps: [details.phase ?? phase.id] };

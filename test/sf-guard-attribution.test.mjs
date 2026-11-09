@@ -107,7 +107,7 @@ test('SFG AC-002: a plain prompt with no custom agent is recorded as plain Copil
   assert.equal(record.subject, null, 'no Story bound: the whole repository');
 });
 
-test('SFG AC-003: an /sf-code turn as the step\'s agent is declared, and so is the plain prompt that continues it until the step is published', async (t) => {
+test('SFG AC-003: an /sf-code turn as the step\'s agent is declared; a plain prompt after it is a plain chat, as the guard reads it [PCR:REQ-042]', async (t) => {
   const binding = { workId: 'SFG-1', phaseId: 'implementation', agent: 'developer' };
   const f = await fixture(t, { binding });
   // The explicit turn: its own recorder notes the edit, and SF Guard adds where it came from.
@@ -122,7 +122,7 @@ test('SFG AC-003: an /sf-code turn as the step\'s agent is declared, and so is t
   await recordRepositoryBoundaryTurn({ sessionId: 's-code', cwd: f.root, prompt: '/sf-code' }, { captureMutation: (value, record) => captureMutationTurn(value, record,
     { resolveRoot: async () => f.root, load: async () => ({ definition, workflow }) }) });
   await f.edit('s-code', 'const a = 1;', 'const a = 10;');
-  // The person answers the skill's question in a plain prompt; the agent goes on authoring there.
+  // The person answers the skill's question in a plain prompt; the guard reads that turn as a plain chat, and so does SF Guard.
   await f.prompt('s-code', 'Confirmed, go ahead.');
   await f.edit('s-code', 'const b = 2;', 'const b = 20;');
   assert.deepEqual(await f.shell('s-code', 'singularity-flow phase publish implementation --authored governed-agent --channel copilot-host --json'), {});
@@ -138,17 +138,17 @@ test('SFG AC-003: an /sf-code turn as the step\'s agent is declared, and so is t
   assert.equal(explicit.writer.attribution.agentSource, 'binding');
   assert.equal(explicit.writer.attribution.classification, 'declared');
   assert.equal(continued.writer.kind, 'copilot-session');
-  assert.equal(continued.writer.skill, 'sf-code');
-  assert.equal(continued.writer.attribution.skillSource, 'continued');
-  assert.equal(continued.writer.attribution.continued, true);
-  assert.equal(continued.writer.attribution.agent, 'developer');
-  assert.equal(continued.writer.attribution.classification, 'declared');
+  assert.equal(continued.writer.skill, null);
+  assert.equal(continued.writer.attribution.skillSource, 'none');
+  assert.equal(continued.writer.attribution.continued, undefined);
+  assert.equal(continued.writer.attribution.plainChat, true);
+  assert.equal(continued.writer.attribution.classification, 'outside-workflow');
   assert.deepEqual(continued.subject, { workId: 'SFG-1', phase: 'implementation', generation: null });
   assert.equal(after.writer.skill, null);
   assert.equal(after.writer.attribution.classification, 'outside-workflow');
   const [published] = await readSfGuardShellRecords(f.root);
   assert.equal(published.ran, true);
-  assert.equal(published.writer.skill, 'sf-code');
+  assert.equal(published.writer.skill, null, 'the publish the person asked for in that plain prompt ran in a plain chat');
   assert.match(published.commandSha256, /^[0-9a-f]{64}$/u);
   assert.ok(!JSON.stringify(published).includes('phase publish'), 'a command\'s text is never kept, only its digest');
 });
@@ -236,7 +236,9 @@ test('SFG REQ-022: a session map lasts the session; ACP\'s per-prompt "complete"
   await f.prompt('s-acp', 'Answers: 1. yes 2. no');
   const name = (await f.attributionFiles()).find((entry) => entry.endsWith('.attribution.json'));
   const first = JSON.parse(await readFile(path.join(f.boundaries, name), 'utf8'));
-  assert.equal(first.prompt.continued, true, 'the clarification answer continues /sf-phase across ACP\'s sessionEnd');
+  assert.equal(first.prompt.continued, false, 'a clarification answer in a plain prompt is a plain chat, as the guard reads it [PCR:REQ-042]');
+  assert.equal(first.prompt.plainChat, true);
+  assert.equal(first.lastExplicit.skill, 'sf-phase', 'the map still knows the turn ACP\'s per-prompt end kept');
   await f.end('s-acp', 'user_exit');
   assert.deepEqual(await f.attributionFiles(), []);
   await new Promise((resolve) => setTimeout(resolve, 5));

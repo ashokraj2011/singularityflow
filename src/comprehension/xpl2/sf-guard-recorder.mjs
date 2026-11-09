@@ -258,7 +258,7 @@ function writerFor(payload, map, stamps, call) {
     session: map.session, sessionStart: map.startedAt, prompt: map.prompt?.key ?? null, call,
     skill: skill.name, skillSource: skill.skillSource, agent: agent.agent, agentSource: agent.agentSource,
     ...(subagent ? { subagent } : {}), ...(map.prompt?.paused ? { paused: true } : {}),
-    ...(skill.skillSource === 'continued' ? { continued: true } : {}),
+    ...(skill.skillSource === 'continued' ? { continued: true } : {}), ...(map.prompt?.plainChat && skill.skillSource === 'none' ? { plainChat: true } : {}),
     ...(map.agentFilesChanged?.length ? { agentFilesChanged: map.agentFilesChanged } : {}),
     classification: sfGuardClassification(agent, skill), provisional: true
   };
@@ -311,8 +311,13 @@ export async function sfGuardNotePrompt(payload = {}, { directory = sfGuardBound
   const person = !(payload.agentId ?? payload.agent_id);
   const context = name(/<skill-context\s+name=["']([^"']{1,80})["']/u.exec(prompt)?.[1]);
   if (person && explicitSkill) { map.lastExplicit = { skill: explicitSkill, at: now }; map.closed = false; }
-  const continued = Boolean(person && !explicitSkill && map.lastExplicit && !map.closed);
-  map.prompt = { key: short(prompt), id: randomUUID(), at: now, person, explicit: explicitSkill || null, continued, ...(paused ? { paused: true } : {}) };
+  // SF Guard agrees with the guard [PCR:REQ-042]: a person's plain prompt ends the /sf- turn before it, so it is a plain
+  // chat, however soon it follows. Only a host's own stop continuation goes on with the turn, as the guard keeps it.
+  const stopContinuation = /^SFLOW_[A-Z_]+_INCOMPLETE:/u.test(prompt);
+  const continued = Boolean(person && !explicitSkill && stopContinuation && map.lastExplicit && !map.closed);
+  const plainChat = Boolean(person && !explicitSkill && !stopContinuation);
+  map.prompt = { key: short(prompt), id: randomUUID(), at: now, person, explicit: explicitSkill || null, continued,
+    ...(plainChat ? { plainChat: true } : {}), ...(paused ? { paused: true } : {}) };
   map.currentSkill = context ? { name: context, source: 'prompt', prompt: map.prompt.key } : null;
   if (!person && !map.inherited) {
     const parentId = payload.parentAgentId ?? payload.parent_agent_id;

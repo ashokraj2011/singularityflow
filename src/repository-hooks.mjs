@@ -83,9 +83,9 @@ export function repositoryHookReadme(value) {
     'the folder a chat was opened in. Copilot CLI skips them in a folder it does not trust, and `disableAllHooks` in',
     '`.github/copilot/settings.json` or `settings.local.json` turns them off; `singularity-flow doctor` says when.',
     '',
-    'These files are written by `singularity-flow init` and again by `singularity-flow doctor --repair-hooks`; changing the',
-    'setting (`singularity-flow capability plain-chat <ID> --edits ...`) rewrites `sflow.json`. Review and commit them like',
-    'any other change.',
+    'These files are written by `singularity-flow init` and again by `singularity-flow doctor --repair-hooks`. Changing the',
+    'setting with `singularity-flow capability set <ID> --plain-chat-edits ...` rewrites `sflow.json` in the same change;',
+    'after a reviewed `capability plain-chat` proposal, `doctor --repair-hooks` does. Review and commit them like any other change.',
     ''
   ].join('\n');
 }

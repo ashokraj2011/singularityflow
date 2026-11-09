@@ -12,7 +12,7 @@ related:
   - approvals
 commands:
   - prompts
-version: 1
+version: 2
 ---
 In a repository that uses SFlow, Copilot's hooks keep every prompt, refuse a prompt that holds what looks like a secret, and send a chat's changes through an `/sf-` skill as far as the repository chooses. Questions, reading and explaining stay free. The repository's setting is `policy.plainChatEdits` on its capability map: `refuse`, `record` (the default) or `allow`.
 
@@ -24,7 +24,7 @@ Use this topic to choose what a Copilot chat with no `/sf-` command may change i
 
 - **Shell:** `singularity-flow capability plain-chat <ID> --edits refuse|record|allow|inherit` proposes the setting for review where `sflow/config` exists; `singularity-flow capability set <ID> --plain-chat-edits ...` changes a working-tree map and rewrites `.github/hooks/sflow.json` in the same change. `singularity-flow prompts [--story ID]` shows the kept prompts. `singularity-flow doctor` says whether the repository's hooks would run, and `singularity-flow doctor --repair-hooks` writes them again.
 - **Copilot:** `/sf-prompt-log chats` shows the kept prompts. A refusal in a plain chat gives the line to type, such as `/sf-code QF-1 make the timeout 10s`; Copilot CLI also gets one line of context naming that route with each plain prompt.
-- **VS Code:** **Changes in plain chats** on the capability's page sets it; **Singularity Flow: Show Kept Copilot Prompts** shows the kept prompts. VS Code says once per repository that prompts are kept, and warns when the repository has no hook file or turns hooks off.
+- **VS Code:** **Changes in plain chats** on the capability's page sets it; **Singularity Flow: Show Kept Copilot Prompts** shows the kept prompts. VS Code says once per repository that prompts are kept, and its status bar shows **No repository hooks** or **Copilot hooks off** while either holds; clicking it opens Diagnostics.
 
 ## Guided workflow
 

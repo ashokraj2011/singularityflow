@@ -13089,3 +13089,41 @@ test('What this phase sees reads each Story\'s brief, even for a phase of the sa
   PhaseBriefPanel.show(client, 'STORY-B', 'intake', phases);
   assert.equal(calls.length, 2, 'the same Story and phase shown again is not read again');
 });
+
+test('the status bar says when this repository\'s Copilot hooks would not run, and asks nothing [PCR:REQ-034]', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  const create = api.window.createStatusBarItem;
+  api.window.createStatusBarItem = (...args) => {
+    const item = create();
+    item.args = args;
+    item.hide = function hide() { this.shown = false; };
+    return item;
+  };
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const hooks = () => registered.statusBars.find((item) => item.args?.[0] === 'singularityFlow.copilotHooks');
+
+  const missing = await until(() => hooks()?.shown ? hooks() : null, { what: 'the hooks item' });
+  assert.equal(registered.statusBars.indexOf(missing) > 0, true, 'the work item stays first');
+  assert.equal(missing.text, '$(warning) No repository hooks');
+  assert.match(missing.tooltip, /no \.github\/hooks\/sflow\.json.*doctor --repair-hooks/su);
+  assert.equal(missing.command, 'singularityFlow.doctor');
+  assert.deepEqual(registered.warnings.filter((message) => /sflow\.json|disableAllHooks/u.test(message)), [],
+    'a status, never a dialog that could take a pending answer');
+
+  await mkdir(path.join(root, '.github/hooks'), { recursive: true });
+  await writeFile(path.join(root, '.github/hooks/sflow.json'), '{"version":1,"hooks":{}}\n');
+  await mkdir(path.join(root, '.github/copilot'), { recursive: true });
+  await writeFile(path.join(root, '.github/copilot/settings.local.json'), '{ "disableAllHooks": true }\n');
+  await registered.commands.get('singularityFlow.refresh')();
+  await until(() => hooks().text === '$(warning) Copilot hooks off' ? true : null, { what: 'hooks off' });
+  assert.match(hooks().tooltip, /disableAllHooks in \.github\/copilot\/settings\.local\.json/u);
+  assert.doesNotMatch(hooks().tooltip, /no \.github\/hooks\/sflow\.json/u);
+
+  await writeFile(path.join(root, '.github/copilot/settings.local.json'), '{ "disableAllHooks": false }\n');
+  await registered.commands.get('singularityFlow.refresh')();
+  await until(() => hooks().shown === false ? true : null, { what: 'the hooks item hidden' });
+});

@@ -5282,30 +5282,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       + 'in a Story checkout, otherwise in this clone\'s own log (Singularity Flow: Show Kept Copilot Prompts). A prompt that holds what looks like a secret is refused, '
       + 'and a plain chat\'s changes follow the capability\'s "Changes in plain chats" setting. /sf-pause turns this off on this machine.');
   }));
-  // Hooks turned off are visible [PCR:REQ-034]: a repository without SFlow's hook file, or with disableAllHooks in its
-  // Copilot settings, is said once per repository and reason. doctor names the rest (a changed file, an untrusted folder).
-  const hooksToldKey = 'singularityFlow.repositoryHooksWarned';
-  context.subscriptions.push(store.onDidChange((state) => {
-    if (!state.snapshot || state.stale || state.error) return;
-    const target = repository;
-    void (async () => {
-      const exists = (relative: string) => access(path.join(target, relative)).then(() => true, () => false);
-      const disabled: string[] = [];
-      for (const relative of ['.github/copilot/settings.json', '.github/copilot/settings.local.json']) {
-        const text = await readFile(path.join(target, relative), 'utf8').catch(() => '');
-        if (/"disableAllHooks"\s*:\s*true/u.test(text)) disabled.push(relative);
-      }
-      const reasons = [
-        ...(await exists('.github/hooks/sflow.json') ? [] : ['This repository has no .github/hooks/sflow.json, so a Copilot chat on a machine without Singularity Flow\'s plugin is not guarded. Run singularity-flow doctor --repair-hooks, then review and commit the files.']),
-        ...disabled.map((file) => `disableAllHooks in ${file} turns every Copilot hook off for this repository, Singularity Flow's too: prompts are not kept and nothing is refused.`)
-      ];
-      const told = context.globalState.get<string[]>(hooksToldKey) ?? [];
-      const fresh = reasons.filter((reason) => !told.includes(createHash('sha256').update(`${target}\0${reason}`).digest('hex').slice(0, 32)));
-      if (!fresh.length || repository !== target) return;
-      void context.globalState.update(hooksToldKey, [...told, ...fresh.map((reason) => createHash('sha256').update(`${target}\0${reason}`).digest('hex').slice(0, 32))].slice(-200));
-      for (const reason of fresh) void vscode.window.showWarningMessage(reason);
-    })().catch(() => {});
-  }));
   // The engine identifies code delivery, including custom phases. Open its human handoff once per
   // generation; no new snapshot, application process, test or acceptance is triggered by this offer.
   const outcomeOffered = new Set(context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? []);
@@ -5909,6 +5885,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   status.command = 'singularityFlow.myWork';
   context.subscriptions.push(status);
+  // Hooks turned off are visible in the status bar [PCR:REQ-034]: a repository without SFlow's hook file, or with
+  // disableAllHooks in its Copilot settings, shows an item while that holds. Clicking it opens Diagnostics, whose doctor
+  // also names a changed file. Nothing is asked, so no dialog waits on it.
+  let hooksStatus: vscode.StatusBarItem | undefined;
+  context.subscriptions.push({ dispose: () => hooksStatus?.dispose() });
+  context.subscriptions.push(store.onDidChange((state) => {
+    if (!state.snapshot || state.stale || state.error) return;
+    const target = repository;
+    void (async () => {
+      const present = await access(path.join(target, '.github/hooks/sflow.json')).then(() => true, () => false);
+      const disabled: string[] = [];
+      for (const relative of ['.github/copilot/settings.json', '.github/copilot/settings.local.json']) {
+        const text = await readFile(path.join(target, relative), 'utf8').catch(() => '');
+        if (/"disableAllHooks"\s*:\s*true/u.test(text)) disabled.push(relative);
+      }
+      if (repository !== target) return;
+      if (present && !disabled.length) { hooksStatus?.hide(); return; }
+      hooksStatus ??= vscode.window.createStatusBarItem('singularityFlow.copilotHooks', vscode.StatusBarAlignment.Left, 99);
+      hooksStatus.name = 'Singularity Flow: Copilot hooks';
+      hooksStatus.text = disabled.length ? '$(warning) Copilot hooks off' : '$(warning) No repository hooks';
+      hooksStatus.tooltip = [
+        ...disabled.map((file) => `disableAllHooks in ${file} turns every Copilot hook off here, Singularity Flow's too: prompts are not kept and nothing is refused.`),
+        ...(present ? [] : ['This repository has no .github/hooks/sflow.json, so a Copilot chat on a machine without Singularity Flow\'s plugin is not guarded. Run singularity-flow doctor --repair-hooks, then review and commit the files.']),
+        'Click to open Diagnostics.'
+      ].join('\n');
+      hooksStatus.command = 'singularityFlow.doctor';
+      hooksStatus.show();
+    })().catch(() => {});
+  }));
   context.subscriptions.push(store.onDidChange((state, change) => {
     if (state.loading) { status.text = '$(loading~spin) Singularity Flow'; status.show(); return; }
     if (state.error) { status.text = '$(error) Singularity Flow'; status.tooltip = state.error.message; status.show(); return; }

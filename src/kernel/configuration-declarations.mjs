@@ -510,3 +510,24 @@ export function agentMappingProblems(agents, phaseIds) {
   }
   return problems;
 }
+
+export function assertWithinLimit(actual, key, { limits = DEFAULT_ANALYSIS_LIMITS, label, unit = '' } = {}) {
+  const limit = limits[key] ?? DEFAULT_ANALYSIS_LIMITS[key];
+  if (actual <= limit) return actual;
+  throw new SingularityFlowError(
+    `${label} is ${actual}${unit} and the configured limit is ${limit}${unit}. `
+    + `Raise analysisLimits.${key} if this is genuinely the size of the work.`
+  );
+}
+
+export function capWithDisclosure(items, key, { limits = DEFAULT_ANALYSIS_LIMITS, label } = {}) {
+  const limit = limits[key] ?? DEFAULT_ANALYSIS_LIMITS[key];
+  const list = [...items];
+  if (list.length <= limit) return { items: list, dropped: 0, disclosure: null };
+  return {
+    items: list.slice(0, limit),
+    dropped: list.length - limit,
+    disclosure: `${list.length} ${label} exceeded the configured limit of ${limit}; ${list.length - limit} are not listed. `
+      + `Raise analysisLimits.${key} to see them all.`
+  };
+}

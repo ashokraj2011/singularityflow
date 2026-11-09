@@ -6,6 +6,7 @@ import {artifactBytesAreText,artifactContentObservation} from '../kernel/artifac
 import {namespacePublicationValue} from './namespace-publication-contract.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
+import {createNamespacePublicationPolicyReader} from './namespace-policy-reader.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:canonicalJson(a)===canonicalJson(b);
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
@@ -13,6 +14,7 @@ const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{co
 export function createNamespacePublicationReader({observer,scope,workId,checks=null}) {
   const bytes=observer.bytes.bind(observer);
   const specifications=createNamespaceSpecificationReader({observer,scope,workId,checks});
+  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks});
   async function read(binding,phaseId,{signal,specificationTraversal}={}) {
     phasePublicationBindingValue(binding);
     let value;try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
@@ -29,6 +31,7 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
       await checks.publication(publication,{signal});
     }
     await specifications.verify(publication,{signal,specificationTraversal});
+    await policies.verify(publication,{signal});
     return publication;
   }
   async function accepted(binding,phaseId,options={}) {
@@ -43,9 +46,10 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
   }
   function verifyPlan(value,plan) {
     specifications.verifyPlan(value,plan);
+    policies.verifyPlan(value,plan);
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>plan.readBindings?.some(item=>same(item,row)))
       ||!plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The publication did not conditionally accept its retained check evidence.','ENGINE_STORAGE_CORRUPT');
   }
-  return Object.freeze({read,accepted,verifyPlan,specifications});
+  return Object.freeze({read,accepted,verifyPlan,specifications,policies});
 }

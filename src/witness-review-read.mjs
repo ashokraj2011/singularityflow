@@ -1,6 +1,6 @@
 import { run } from './util.mjs';
 import { extractClauses } from './specifications.mjs';
-import { witnessedClauseReviewFields } from './specification-quality.mjs';
+import { witnessedClauseReviewFields } from './engine-compatibility/node-specification-policy.mjs';
 
 export async function witnessMappingReview(root, config, workflow, phase) {
   const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>

@@ -8,7 +8,7 @@
  */
 import { omissionAuthorities } from '../evidence/applicability.mjs';
 import { stepResponsibilities } from '../kernel/phase-policy.mjs';
-import { STARTER_CHECKLIST, validateChecklistDecisions } from '../specification-quality.mjs';
+import { STARTER_CHECKLIST, validateChecklistDecisions } from '../engine-compatibility/node-specification-policy.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
 import { fallbackAuthorities } from '../kernel/approval-fallback.mjs';

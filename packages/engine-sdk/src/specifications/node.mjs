@@ -4,3 +4,4 @@ export {extractClauses,specificationIndexRecord,parseVerificationContracts,norma
   witnessMappingCore,witnessMappingSha256,proseVerificationDeclarations,validateRetainedEvidenceDeclarations} from '../../../../src/engine-compatibility/node-specification-policy.mjs';
 export {normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay,
   validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence} from '../../../../src/engine-compatibility/node-specification-policy.mjs';
+export {STARTER_CHECKLIST,policyHash,witnessedClauseReviewFields,analyzeSpecification,evaluateSpecificationQuality,validateChecklistDecisions,evaluateApprovalChecklist,specificationGateValue} from '../../../../src/engine-compatibility/node-specification-policy.mjs';

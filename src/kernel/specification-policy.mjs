@@ -416,3 +416,12 @@ export function assertSpecificationIndexClauses(specIndex,workflow,phase,specPol
     );
   }
 }
+
+export const SPECIFICATION_REQUIRED_SECTIONS=Object.freeze(['Actors','User scenarios','Requirements']);
+
+export function resolvedSpecificationQualityPolicy(definition, workflow, phase) {
+  const resolved = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
+  return specificationQualityPolicy(
+    resolved?.specificationQuality ?? phase.specificationQuality ?? definition.phases?.[phase.id]?.specificationQuality ?? {}
+  );
+}

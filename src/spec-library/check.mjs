@@ -11,7 +11,7 @@
  * A reviewed publication needs every D rule passed, no A finding pending, and nothing open in H.
  */
 import { normalizeMarkdownHeading } from '../kernel/artifact-content.mjs';
-import { analyzeSpecification } from '../specification-quality.mjs';
+import { analyzeSpecification } from '../engine-compatibility/node-specification-policy.mjs';
 import { foldChecklist, foldGaps, originCoverage } from './draft-model.mjs';
 import { verifyResearch } from './research.mjs';
 

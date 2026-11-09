@@ -1,3 +1,8 @@
+import {SPECIFICATION_GATE_EMPTY as EMPTY} from './kernel/specification-analysis.mjs';
+import {specificationGateValue,evaluateApprovalChecklist} from './engine-compatibility/node-specification-policy.mjs';
+export {evaluateApprovalChecklist} from './engine-compatibility/node-specification-policy.mjs';
+import {resolvedSpecificationQualityPolicy} from './kernel/specification-policy.mjs';
+export {resolvedSpecificationQualityPolicy} from './kernel/specification-policy.mjs';
 /**
  * Where the marker and quality policies stop being opinions. `[SPK:REQ-051]` `[SPK:REQ-065]`
  *
@@ -22,11 +27,10 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
-import { markerQuestionHash } from './clarification-markers.mjs';
+import { markerQuestionHash } from './kernel/specification-markers.mjs';
 import { answeredMarkerHashes, readClarificationRecord, resolvedClarificationPolicy } from './clarifications.mjs';
-import { CHECKLIST_DECISIONS, MARKER_FINDING_KINDS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality, policyHash, validateChecklistDecisions } from './specification-quality.mjs';
+import { CHECKLIST_DECISIONS, MARKER_FINDING_KINDS, STARTER_CHECKLIST } from './engine-compatibility/node-specification-policy.mjs';
 import { specificationQualityPolicy } from './kernel/specification-policy.mjs';
-import { matchApprovalAuthority } from './kernel/approval-policy.mjs';
 import { exists } from './util.mjs';
 
 /** The marker half of the pinned clarification policy `[SPK:REQ-064]`. */
@@ -41,12 +45,7 @@ export function resolvedMarkerPolicy(definition, workflow, phase) {
  * pin, then the definition — because a Story's resolution is the record of what it agreed to, and
  * a later edit to the shared workflow must not retroactively change a Story already in flight.
  */
-export function resolvedSpecificationQualityPolicy(definition, workflow, phase) {
-  const resolved = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
-  return specificationQualityPolicy(
-    resolved?.specificationQuality ?? phase.specificationQuality ?? definition.phases?.[phase.id]?.specificationQuality ?? {}
-  );
-}
+
 
 /**
  * The markers this phase carried at its last recorded generation.
@@ -78,10 +77,7 @@ export function recordedMarkerAnswers(phase, pending = null) {
     .map((questionHash) => ({ questionHash }));
 }
 
-const EMPTY = Object.freeze({
-  applies: false, markerMode: 'off', qualityMode: 'off',
-  errors: [], warnings: [], open: [], report: null, record: null
-});
+
 
 /** One diagnostic mapping for draft-check and prepublish; semantic hints stay out of readiness. */
 export function specificationGateDiagnostics(gate, artifactPath) {
@@ -130,47 +126,8 @@ export async function evaluateSpecificationGate(root, definition, workflow, phas
   const pending = pendingClarification ?? await readClarificationRecord(root, definition, workflow, phase, generation);
 
   const markdown = await readFile(absolute, 'utf8');
-  const report = analyzeSpecification(markdown, {
-    artifactPath: artifactRelativePath,
-    phase: phase.id,
-    generation,
-    policy: quality,
-    namespace,
-    previousMarkers: previousMarkers(phase, generation),
-    answers: recordedMarkerAnswers(phase, pending)
-  });
-
-  // The analyzer has already extracted, reconciled and phrased the marker findings. Taking its
-  // messages rather than re-deriving them through `evaluateMarkerPolicy` means a reader sees one
-  // wording of a problem, and there is one place the marker rules live.
-  const markerMessages = report.findings
-    .filter((finding) => MARKER_FINDING_KINDS.includes(finding.kind))
-    .map((finding) => finding.message);
-  const markerErrors = markerMode === 'block' ? markerMessages : [];
-  const markerWarnings = markerMode === 'warn' ? markerMessages : [];
-  const qualityVerdict = evaluateSpecificationQuality(report, { exclude: MARKER_FINDING_KINDS });
-
-  return {
-    applies: true,
-    markerMode,
-    qualityMode: quality.mode,
-    checklist: quality.checklist,
-    report,
-    open: report.markers.open,
-    errors: [...markerErrors, ...qualityVerdict.errors],
-    warnings: [...markerWarnings, ...qualityVerdict.warnings],
-    // What the phase remembers, so the next generation can tell resolution from deletion.
-    record: {
-      generation,
-      artifactPath: artifactRelativePath,
-      artifactSha256: report.binding.artifactSha256,
-      policySha256: report.binding.policySha256,
-      markerMode,
-      qualityMode: quality.mode,
-      open: report.markers.open,
-      findings: report.findings.length
-    }
-  };
+  return specificationGateValue(markdown,{artifactPath:artifactRelativePath,phase:phase.id,generation,policy:quality,markerMode,namespace,
+    previousMarkers:previousMarkers(phase,generation),answers:recordedMarkerAnswers(phase,pending)});
 }
 
 /**
@@ -202,51 +159,7 @@ export function approvalChecklistPrompt(policy, checklist = STARTER_CHECKLIST) {
   };
 }
 
-export function evaluateApprovalChecklist({
-  policy, decisions = [], authorities = null, actor = null, checklist = STARTER_CHECKLIST
-} = {}) {
-  const resolved = specificationQualityPolicy(policy ?? {});
-  if (resolved.approvalChecklist === 'off') {
-    return {
-      required: false, mode: 'off',
-      errors: decisions.length ? ['specification-quality approval checklist is off; article decisions must not be submitted'] : [],
-      warnings: [], decisions: []
-    };
-  }
-  if (resolved.mode === 'off') return { required: false, mode: 'off', errors: [], warnings: [], decisions: [] };
 
-  const validated = validateChecklistDecisions(decisions, { checklist, mode: resolved.mode });
-  const errors = [...validated.errors];
-  const warnings = [...validated.warnings];
-
-  if (resolved.exceptionAuthority) {
-    const taken = decisions.filter((entry) => entry.decision && entry.decision !== 'satisfied');
-    if (taken.length) {
-      // `.authorized`, not truthiness: the matcher always returns an object, and a refusal is a
-      // populated `{ authorized: false, reason }` rather than a null. Checking the object meant the
-      // authority never gated anything — the same shape of miss this whole module exists to close.
-      const matched = matchApprovalAuthority(authorities, { authorities: [resolved.exceptionAuthority] }, actor);
-      if (!matched.authorized) {
-        const message = `recording ${taken.length === 1 ? 'an exception' : 'exceptions'} on ${taken.map((entry) => `'${entry.article}'`).join(', ')} requires membership of the '${resolved.exceptionAuthority}' authority`;
-        (resolved.mode === 'enforce' ? errors : warnings).push(message);
-      }
-    }
-  }
-
-  return {
-    required: resolved.mode === 'enforce',
-    mode: resolved.mode,
-    checklist: checklist.id,
-    checklistSha256: policyHash(resolved, checklist),
-    errors,
-    warnings,
-    decisions: decisions.map((entry) => ({
-      article: entry.article,
-      decision: entry.decision,
-      ...(entry.reason ? { reason: String(entry.reason).trim() } : {})
-    }))
-  };
-}
 
 /**
  * Exceptions recorded on earlier approvals of this phase. `[SPK:REQ-059]`

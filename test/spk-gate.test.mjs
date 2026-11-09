@@ -534,11 +534,10 @@ test('the analyzer report and the gate are the same evaluation', async () => {
   // same function, so the two can only disagree if this stops being true.
   const gate = await readFile(new URL('../src/specification-gate.mjs', import.meta.url), 'utf8');
   const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
-  const state = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
+  const boundaries = await Promise.all(['generation-publication','submission-transition'].map(name=>
+    readFile(new URL('../src/engine-compatibility/'+name+'.mjs', import.meta.url),'utf8')));
   assert.ok(gate.includes('export async function evaluateSpecificationGate'));
   assert.match(cli, /evaluateSpecificationGate\(root, config, workflow, phase/, 'spec analyze does not use the gate');
-  assert.equal(
-    state.match(/evaluateSpecificationGate\(/g)?.length, 2,
-    'the gate must be called at exactly the two boundaries [SPK:REQ-065] names: publication and submission'
-  );
+  for(const [index,source]of boundaries.entries())assert.equal(source.match(/evaluateSpecificationGate\(/g)?.length,1,
+    ['publication','submission'][index]+' must use the same gate once at its actual compatibility boundary [SPK:REQ-065]');
 });

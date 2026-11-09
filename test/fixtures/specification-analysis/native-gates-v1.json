@@ -1,0 +1,4012 @@
+{
+  "schemaVersion": 1,
+  "capturedAtCommit": "055b08129",
+  "note": "Native gate bodies captured after value-only import rebasing; report parity is independently covered by native-v1.json.",
+  "cases": [
+    {
+      "id": "off-off-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": false,
+        "markerMode": "off",
+        "qualityMode": "off",
+        "errors": [],
+        "warnings": [],
+        "open": [],
+        "report": null,
+        "record": null
+      }
+    },
+    {
+      "id": "off-off-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": false,
+        "markerMode": "off",
+        "qualityMode": "off",
+        "errors": [],
+        "warnings": [],
+        "open": [],
+        "report": null,
+        "record": null
+      }
+    },
+    {
+      "id": "off-off-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": false,
+        "markerMode": "off",
+        "qualityMode": "off",
+        "errors": [],
+        "warnings": [],
+        "open": [],
+        "report": null,
+        "record": null
+      }
+    },
+    {
+      "id": "off-off-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "off",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": false,
+        "markerMode": "off",
+        "qualityMode": "off",
+        "errors": [],
+        "warnings": [],
+        "open": [],
+        "report": null,
+        "record": null
+      }
+    },
+    {
+      "id": "off-warn-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "warn",
+          "qualityMode": "off",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "off-warn-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "warn",
+          "qualityMode": "off",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "off-warn-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [],
+        "warnings": [
+          "unresolved clarification marker at line 10: Who may retry?"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "warn",
+          "qualityMode": "off",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "off-warn-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [
+          "clarification marker removed without a recorded answer: Who may retry?"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "warn",
+          "qualityMode": "off",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "off-block-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "block",
+          "qualityMode": "off",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "off-block-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "block",
+          "qualityMode": "off",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "off-block-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [
+          "unresolved clarification marker at line 10: Who may retry?"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "block",
+          "qualityMode": "off",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "off-block-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          },
+          "markerMode": "block",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "off",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [
+          "clarification marker removed without a recorded answer: Who may retry?"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+          "markerMode": "block",
+          "qualityMode": "off",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "warn-off-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "off",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "warn-off-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [
+          "the specification has no 'Actors' section",
+          "the specification has no 'Requirements' section",
+          "the specification has no 'User scenarios' section"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "off",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "warn-off-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "off",
+          "qualityMode": "warn",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "warn-off-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "off",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "off",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "warn-warn-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "warn",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "warn-warn-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [
+          "the specification has no 'Actors' section",
+          "the specification has no 'Requirements' section",
+          "the specification has no 'User scenarios' section"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "warn",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "warn-warn-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [],
+        "warnings": [
+          "unresolved clarification marker at line 10: Who may retry?"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "warn",
+          "qualityMode": "warn",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "warn-warn-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [
+          "clarification marker removed without a recorded answer: Who may retry?"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "warn",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "warn-block-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "block",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "warn-block-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [
+          "the specification has no 'Actors' section",
+          "the specification has no 'Requirements' section",
+          "the specification has no 'User scenarios' section"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "block",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "warn-block-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [
+          "unresolved clarification marker at line 10: Who may retry?"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "block",
+          "qualityMode": "warn",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "warn-block-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          },
+          "markerMode": "block",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "warn",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [
+          "clarification marker removed without a recorded answer: Who may retry?"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+          "markerMode": "block",
+          "qualityMode": "warn",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "enforce-off-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "off",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "enforce-off-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [
+          "the specification has no 'Actors' section",
+          "the specification has no 'Requirements' section",
+          "the specification has no 'User scenarios' section"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "off",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "enforce-off-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "off",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "off",
+          "qualityMode": "enforce",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "enforce-off-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "off",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "off",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "off",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "enforce-warn-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "warn",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "enforce-warn-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [
+          "the specification has no 'Actors' section",
+          "the specification has no 'Requirements' section",
+          "the specification has no 'User scenarios' section"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "warn",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "enforce-warn-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [],
+        "warnings": [
+          "unresolved clarification marker at line 10: Who may retry?"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "warn",
+          "qualityMode": "enforce",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "enforce-warn-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "warn",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "warn",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [
+          "clarification marker removed without a recorded answer: Who may retry?"
+        ],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "warn",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "enforce-block-ordinary",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "block",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 0
+        }
+      }
+    },
+    {
+      "id": "enforce-block-missing-heading",
+      "method": "specificationGateValue",
+      "args": [
+        "[APP:REQ-001] Return FF.",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [
+          "the specification has no 'Actors' section",
+          "the specification has no 'Requirements' section",
+          "the specification has no 'User scenarios' section"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5857048b4b11561610e549d4ab118f68110eedb6dda253605e82e0117a386dcc",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "block",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 3
+        }
+      }
+    },
+    {
+      "id": "enforce-block-open-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "block",
+          "previousMarkers": [],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 10
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 10: Who may retry?",
+              "line": 10
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [
+          {
+            "question": "Who may retry?",
+            "questionHash": "Who may retry?",
+            "line": 10
+          }
+        ],
+        "errors": [
+          "unresolved clarification marker at line 10: Who may retry?"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "8100d0d00aa6f87f5c36fea9a7f7a87d90d599f15145ba3a206ddcc31ed1646b",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "block",
+          "qualityMode": "enforce",
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 10
+            }
+          ],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "enforce-block-removed-marker",
+      "method": "specificationGateValue",
+      "args": [
+        "## Actors\nOperator.\n\n## User scenarios\nConvert a value.\n\n## Requirements\n[APP:REQ-001] Return FF.\n",
+        {
+          "artifactPath": "spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "markerMode": "block",
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 3
+            }
+          ],
+          "answers": []
+        }
+      ],
+      "outcome": {
+        "applies": true,
+        "markerMode": "block",
+        "qualityMode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "report": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "spec.md",
+            "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        },
+        "open": [],
+        "errors": [
+          "clarification marker removed without a recorded answer: Who may retry?"
+        ],
+        "warnings": [],
+        "record": {
+          "generation": 2,
+          "artifactPath": "spec.md",
+          "artifactSha256": "5fcc91bbc42d4e1d09137514444295987909e0deba6ef1b738e7fbb541c7795f",
+          "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+          "markerMode": "block",
+          "qualityMode": "enforce",
+          "open": [],
+          "findings": 1
+        }
+      }
+    },
+    {
+      "id": "off-missing",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "off"
+          },
+          "decisions": [],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "off-satisfied",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "off"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "satisfied"
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "off-exception",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "off"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "exception",
+              "reason": "  Reviewed known omission.  "
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "off-narrowed",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "off",
+            "exceptionAuthority": "reviewers"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "exception",
+              "reason": "  Reviewed known omission.  "
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "other@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "off-opt-out",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "off",
+            "approvalChecklist": "off"
+          },
+          "decisions": [],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "off-opt-out-submitted",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "off",
+            "approvalChecklist": "off"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "satisfied"
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [
+          "specification-quality approval checklist is off; article decisions must not be submitted"
+        ],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "warn-missing",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "warn"
+          },
+          "decisions": [],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "warn",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+        "errors": [],
+        "warnings": [
+          "checklist article 'completeness' has no decision",
+          "checklist article 'ambiguity' has no decision",
+          "checklist article 'consistency' has no decision",
+          "checklist article 'verifiability' has no decision",
+          "checklist article 'boundary-conditions' has no decision",
+          "checklist article 'non-functional' has no decision"
+        ],
+        "decisions": []
+      }
+    },
+    {
+      "id": "warn-satisfied",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "warn"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "satisfied"
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "warn",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+        "errors": [],
+        "warnings": [],
+        "decisions": [
+          {
+            "article": "completeness",
+            "decision": "satisfied"
+          },
+          {
+            "article": "ambiguity",
+            "decision": "satisfied"
+          },
+          {
+            "article": "consistency",
+            "decision": "satisfied"
+          },
+          {
+            "article": "verifiability",
+            "decision": "satisfied"
+          },
+          {
+            "article": "boundary-conditions",
+            "decision": "satisfied"
+          },
+          {
+            "article": "non-functional",
+            "decision": "satisfied"
+          }
+        ]
+      }
+    },
+    {
+      "id": "warn-exception",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "warn"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "exception",
+              "reason": "  Reviewed known omission.  "
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "warn",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+        "errors": [],
+        "warnings": [],
+        "decisions": [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Reviewed known omission."
+          },
+          {
+            "article": "ambiguity",
+            "decision": "satisfied"
+          },
+          {
+            "article": "consistency",
+            "decision": "satisfied"
+          },
+          {
+            "article": "verifiability",
+            "decision": "satisfied"
+          },
+          {
+            "article": "boundary-conditions",
+            "decision": "satisfied"
+          },
+          {
+            "article": "non-functional",
+            "decision": "satisfied"
+          }
+        ]
+      }
+    },
+    {
+      "id": "warn-narrowed",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "warn",
+            "exceptionAuthority": "reviewers"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "exception",
+              "reason": "  Reviewed known omission.  "
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "other@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "warn",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "1ba26d7b83eca18b742ecbf3aeabaf034c9db95881ca58d83b55291f9b39cd38",
+        "errors": [],
+        "warnings": [
+          "recording an exception on 'completeness' requires membership of the 'reviewers' authority"
+        ],
+        "decisions": [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Reviewed known omission."
+          },
+          {
+            "article": "ambiguity",
+            "decision": "satisfied"
+          },
+          {
+            "article": "consistency",
+            "decision": "satisfied"
+          },
+          {
+            "article": "verifiability",
+            "decision": "satisfied"
+          },
+          {
+            "article": "boundary-conditions",
+            "decision": "satisfied"
+          },
+          {
+            "article": "non-functional",
+            "decision": "satisfied"
+          }
+        ]
+      }
+    },
+    {
+      "id": "warn-opt-out",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "warn",
+            "approvalChecklist": "off"
+          },
+          "decisions": [],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "warn-opt-out-submitted",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "warn",
+            "approvalChecklist": "off"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "satisfied"
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [
+          "specification-quality approval checklist is off; article decisions must not be submitted"
+        ],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "enforce-missing",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "enforce"
+          },
+          "decisions": [],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": true,
+        "mode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+        "errors": [
+          "checklist article 'completeness' has no decision",
+          "checklist article 'ambiguity' has no decision",
+          "checklist article 'consistency' has no decision",
+          "checklist article 'verifiability' has no decision",
+          "checklist article 'boundary-conditions' has no decision",
+          "checklist article 'non-functional' has no decision"
+        ],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "enforce-satisfied",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "enforce"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "satisfied"
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": true,
+        "mode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+        "errors": [],
+        "warnings": [],
+        "decisions": [
+          {
+            "article": "completeness",
+            "decision": "satisfied"
+          },
+          {
+            "article": "ambiguity",
+            "decision": "satisfied"
+          },
+          {
+            "article": "consistency",
+            "decision": "satisfied"
+          },
+          {
+            "article": "verifiability",
+            "decision": "satisfied"
+          },
+          {
+            "article": "boundary-conditions",
+            "decision": "satisfied"
+          },
+          {
+            "article": "non-functional",
+            "decision": "satisfied"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enforce-exception",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "enforce"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "exception",
+              "reason": "  Reviewed known omission.  "
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": true,
+        "mode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+        "errors": [],
+        "warnings": [],
+        "decisions": [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Reviewed known omission."
+          },
+          {
+            "article": "ambiguity",
+            "decision": "satisfied"
+          },
+          {
+            "article": "consistency",
+            "decision": "satisfied"
+          },
+          {
+            "article": "verifiability",
+            "decision": "satisfied"
+          },
+          {
+            "article": "boundary-conditions",
+            "decision": "satisfied"
+          },
+          {
+            "article": "non-functional",
+            "decision": "satisfied"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enforce-narrowed",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "enforce",
+            "exceptionAuthority": "reviewers"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "exception",
+              "reason": "  Reviewed known omission.  "
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "other@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": true,
+        "mode": "enforce",
+        "checklist": "requirements-quality-v1",
+        "checklistSha256": "02fef479083aa68f37e6ee36d90590eff9576d69258b3c99c9a6abdced90c7c6",
+        "errors": [
+          "recording an exception on 'completeness' requires membership of the 'reviewers' authority"
+        ],
+        "warnings": [],
+        "decisions": [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Reviewed known omission."
+          },
+          {
+            "article": "ambiguity",
+            "decision": "satisfied"
+          },
+          {
+            "article": "consistency",
+            "decision": "satisfied"
+          },
+          {
+            "article": "verifiability",
+            "decision": "satisfied"
+          },
+          {
+            "article": "boundary-conditions",
+            "decision": "satisfied"
+          },
+          {
+            "article": "non-functional",
+            "decision": "satisfied"
+          }
+        ]
+      }
+    },
+    {
+      "id": "enforce-opt-out",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "enforce",
+            "approvalChecklist": "off"
+          },
+          "decisions": [],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [],
+        "warnings": [],
+        "decisions": []
+      }
+    },
+    {
+      "id": "enforce-opt-out-submitted",
+      "method": "evaluateApprovalChecklist",
+      "args": [
+        {
+          "policy": {
+            "mode": "enforce",
+            "approvalChecklist": "off"
+          },
+          "decisions": [
+            {
+              "article": "completeness",
+              "decision": "satisfied"
+            },
+            {
+              "article": "ambiguity",
+              "decision": "satisfied"
+            },
+            {
+              "article": "consistency",
+              "decision": "satisfied"
+            },
+            {
+              "article": "verifiability",
+              "decision": "satisfied"
+            },
+            {
+              "article": "boundary-conditions",
+              "decision": "satisfied"
+            },
+            {
+              "article": "non-functional",
+              "decision": "satisfied"
+            }
+          ],
+          "authorities": {
+            "reviewers": {
+              "label": "Reviewers",
+              "allowAnyGitIdentity": false,
+              "members": [
+                {
+                  "email": "reviewer@example.test"
+                }
+              ]
+            }
+          },
+          "actor": {
+            "name": "Reviewer",
+            "email": "reviewer@example.test",
+            "login": null
+          }
+        }
+      ],
+      "outcome": {
+        "required": false,
+        "mode": "off",
+        "errors": [
+          "specification-quality approval checklist is off; article decisions must not be submitted"
+        ],
+        "warnings": [],
+        "decisions": []
+      }
+    }
+  ]
+}

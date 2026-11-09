@@ -13,7 +13,7 @@ import { countedRecords } from './presence/counted.mjs';
 import { markerSummary, priorChecklistExceptions, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
 import {
   STARTER_CHECKLIST, analyzeSpecification, policyHash, witnessedClauseReviewFields
-} from './specification-quality.mjs';
+} from './engine-compatibility/node-specification-policy.mjs';
 import { extractClauses } from './specifications.mjs';
 import { exists, posix, run, snapshot } from './util.mjs';
 import { GOVERNED_ROOTS } from './config.mjs';

@@ -128,6 +128,14 @@ export function normalizeClarificationPolicy(value = {}) {
   return { mode, maxQuestions, topics: normalizedTopics, markers: markerPolicy(value.markers) };
 }
 
+export function pinnedClarificationPolicy(definition,workflow,phase) {
+  const resolved=workflow?.resolution?.phases?.find(entry=>entry.id===phase?.id);
+  return resolved?.clarification??phase?.clarification??definition?.phases?.[phase?.id]?.clarification;
+}
+export function resolvedClarificationPolicy(definition,workflow,phase) {
+  return normalizeClarificationPolicy(pinnedClarificationPolicy(definition,workflow,phase));
+}
+
 export function clarificationCheckpointState(mode,recordState,errorCount) {
   const missing=recordState==='missing';
   const stage=mode==='off'?'off':missing?mode==='required'?'derive-questions':'assess-ambiguity'

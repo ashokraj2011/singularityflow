@@ -1,13 +1,15 @@
+import {resolvedClarificationPolicy} from './kernel/phase-inputs.mjs';
+export {resolvedClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
 import { groundingRecordRelative } from './story-paths.mjs';
 import { clarificationRecordRelative } from './story-paths.mjs';
-import { pinnedClarificationPolicy } from './phase-staging-paths.mjs';
+
 export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
-import {markerQuestionHash} from './clarification-markers.mjs';
+import {markerQuestionHash} from './kernel/specification-markers.mjs';
 import {normalizeClarificationPolicy,clarificationCheckpointState} from './kernel/phase-inputs.mjs';
 export {normalizeClarificationPolicy} from './kernel/phase-inputs.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -23,9 +25,7 @@ import {
  * boundaries in `src/specification-gate.mjs`, and a second copy of this three-way fallback is how
  * the two surfaces would drift into disagreeing about what a Story pinned.
  */
-export function resolvedClarificationPolicy(definition, workflow, phase) {
-  return normalizeClarificationPolicy(pinnedClarificationPolicy(definition, workflow, phase));
-}
+
 
 const resolvedPolicy = resolvedClarificationPolicy;
 

@@ -1,0 +1,4763 @@
+{
+  "schemaVersion": 1,
+  "capturedAtCommit": "055b08129",
+  "originals": {
+    "src/specification-quality.mjs": "bf18dc3ceff469d0b79bfca305efb5cde5616cf7de922c4dbdfbf4aebb2711db",
+    "src/clarification-markers.mjs": "079232f087631dbaa740953aee1f1c4aa7a6d8b203a6b1a1235006b9937d9f1f",
+    "src/specification-scenarios.mjs": "55cd184be6fc40013a53d24748c05a60e58099e40ea89ea4a420b84f02f76231",
+    "src/analysis-limits.mjs": "eb6d8c42fecb94577e4475f47595fc675c2fdae35cd56ce12f0612312f3af2c5",
+    "src/artifact-required-sections.mjs": "3c0b8d655899383168bcc70a765b91d649f2cd623c5598cf9592aae7ec730a38"
+  },
+  "cases": [
+    {
+      "id": "ordinary-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "ordinary-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "ordinary-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "empty-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "empty-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "empty-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bom-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "﻿# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "be30b41b6150e68f9c2805d860e7c3c73c49464d262d852c7b1d4c38c6d8111f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bom-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "﻿# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "be30b41b6150e68f9c2805d860e7c3c73c49464d262d852c7b1d4c38c6d8111f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bom-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "﻿# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "be30b41b6150e68f9c2805d860e7c3c73c49464d262d852c7b1d4c38c6d8111f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "crlf-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\r\n\r\n## Actors\r\n\r\nAn operator.\r\n\r\n## User scenarios\r\n\r\n### S1 — Convert\r\n\r\nGiven 255 When conversion is requested Then FF is displayed.\r\n\r\n## Requirements\r\n\r\n[APP:REQ-001] Convert the supplied integer.\r\n\r\n[APP:AC-001] The hexadecimal output is observable.\r\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "5c1bda497838a24c039bd60c9d5a38e542d673d9a2f44ceac093782457983567",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "crlf-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\r\n\r\n## Actors\r\n\r\nAn operator.\r\n\r\n## User scenarios\r\n\r\n### S1 — Convert\r\n\r\nGiven 255 When conversion is requested Then FF is displayed.\r\n\r\n## Requirements\r\n\r\n[APP:REQ-001] Convert the supplied integer.\r\n\r\n[APP:AC-001] The hexadecimal output is observable.\r\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "5c1bda497838a24c039bd60c9d5a38e542d673d9a2f44ceac093782457983567",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "crlf-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\r\n\r\n## Actors\r\n\r\nAn operator.\r\n\r\n## User scenarios\r\n\r\n### S1 — Convert\r\n\r\nGiven 255 When conversion is requested Then FF is displayed.\r\n\r\n## Requirements\r\n\r\n[APP:REQ-001] Convert the supplied integer.\r\n\r\n[APP:AC-001] The hexadecimal output is observable.\r\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "5c1bda497838a24c039bd60c9d5a38e542d673d9a2f44ceac093782457983567",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "missing-headings-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "[APP:REQ-001] Convert the supplied integer.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "97eee5382c76b98abd9ce9fd5e9d26f053372f95f2760522eaecbf0690fe1db5",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "missing-headings-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "[APP:REQ-001] Convert the supplied integer.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "97eee5382c76b98abd9ce9fd5e9d26f053372f95f2760522eaecbf0690fe1db5",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "missing-headings-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "[APP:REQ-001] Convert the supplied integer.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "97eee5382c76b98abd9ce9fd5e9d26f053372f95f2760522eaecbf0690fe1db5",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:REQ-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section",
+              "section": "Actors"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Requirements' section",
+              "section": "Requirements"
+            },
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'User scenarios' section",
+              "section": "User scenarios"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "duplicate-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[APP:REQ-001] Another declaration.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "39bddb151c5fe51ece9b20aa5e9ce3f796995e7a1bde1910f20ab71c9313954d",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause APP:REQ-001 is duplicated at lines 15 and 19. Brackets define a clause, once; cite it elsewhere as `APP:REQ-001` in backticks, without brackets."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "duplicate-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[APP:REQ-001] Another declaration.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "39bddb151c5fe51ece9b20aa5e9ce3f796995e7a1bde1910f20ab71c9313954d",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause APP:REQ-001 is duplicated at lines 15 and 19. Brackets define a clause, once; cite it elsewhere as `APP:REQ-001` in backticks, without brackets."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "duplicate-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[APP:REQ-001] Another declaration.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "39bddb151c5fe51ece9b20aa5e9ce3f796995e7a1bde1910f20ab71c9313954d",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause APP:REQ-001 is duplicated at lines 15 and 19. Brackets define a clause, once; cite it elsewhere as `APP:REQ-001` in backticks, without brackets."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "duplicate-text-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] Convert the supplied integer.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "7a85f5646c991192c9f8973470cc88db73520529819e5198c6e6bea4ee0e91cd",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "duplicate-clause-text",
+              "message": "clauses APP:REQ-001 and APP:AC-001 state the same requirement",
+              "clauseId": "APP:AC-001"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "duplicate-text-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] Convert the supplied integer.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "7a85f5646c991192c9f8973470cc88db73520529819e5198c6e6bea4ee0e91cd",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "duplicate-clause-text",
+              "message": "clauses APP:REQ-001 and APP:AC-001 state the same requirement",
+              "clauseId": "APP:AC-001"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "duplicate-text-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] Convert the supplied integer.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "7a85f5646c991192c9f8973470cc88db73520529819e5198c6e6bea4ee0e91cd",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "duplicate-clause-text",
+              "message": "clauses APP:REQ-001 and APP:AC-001 state the same requirement",
+              "clauseId": "APP:AC-001"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "wrong-namespace-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[OTHER:REQ-001] Convert the supplied integer.\n\n[OTHER:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "0ac7ade7601eda9787204fe75da806ecc98777f8928bba0495af80e6f008f569",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause OTHER:REQ-001 does not use configured namespace APP."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "wrong-namespace-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[OTHER:REQ-001] Convert the supplied integer.\n\n[OTHER:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "0ac7ade7601eda9787204fe75da806ecc98777f8928bba0495af80e6f008f569",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause OTHER:REQ-001 does not use configured namespace APP."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "wrong-namespace-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[OTHER:REQ-001] Convert the supplied integer.\n\n[OTHER:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "0ac7ade7601eda9787204fe75da806ecc98777f8928bba0495af80e6f008f569",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause OTHER:REQ-001 does not use configured namespace APP."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "dependency-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[APP:REQ-003] Requires APP:REQ-999.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "1b4e76193a1bad967334276e5cdec3c4a7a5c6c2e63ea694e2c61bc5ed26323d",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause APP:REQ-003 references missing dependency APP:REQ-999. A clause may depend only on a clause this Story defines."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "dependency-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[APP:REQ-003] Requires APP:REQ-999.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "1b4e76193a1bad967334276e5cdec3c4a7a5c6c2e63ea694e2c61bc5ed26323d",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause APP:REQ-003 references missing dependency APP:REQ-999. A clause may depend only on a clause this Story defines."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "dependency-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[APP:REQ-003] Requires APP:REQ-999.",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "1b4e76193a1bad967334276e5cdec3c4a7a5c6c2e63ea694e2c61bc5ed26323d",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 0,
+          "clauseIds": [],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clause-extraction-failed",
+              "message": "Clause APP:REQ-003 references missing dependency APP:REQ-999. A clause may depend only on a clause this Story defines."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "marker-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "1aef0cd70c8cd81c77a205547914215c5d528cccdf2f4f7e3b62a95c5c51946f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 19
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 19: Who may retry?",
+              "line": 19
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "marker-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "1aef0cd70c8cd81c77a205547914215c5d528cccdf2f4f7e3b62a95c5c51946f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 19
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 19: Who may retry?",
+              "line": 19
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "marker-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "1aef0cd70c8cd81c77a205547914215c5d528cccdf2f4f7e3b62a95c5c51946f",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 1,
+          "markers": {
+            "open": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "line": 19
+              }
+            ],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "unresolved-clarification",
+              "message": "unresolved clarification marker at line 19: Who may retry?",
+              "line": 19
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "malformed-marker-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[NEEDS CLARIFICATION: ]\n[NEEDS CLARIFICATION: unclosed",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "db539dc40dc4e5235d17f234f1db1ba250dc97108718f281458be7248eb421fc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": [
+              {
+                "line": 19,
+                "reason": "the question is empty"
+              },
+              {
+                "line": 20,
+                "reason": "the marker is not closed on its line"
+              }
+            ]
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "malformed-clarification",
+              "message": "malformed clarification marker at line 19: the question is empty",
+              "line": 19
+            },
+            {
+              "kind": "malformed-clarification",
+              "message": "malformed clarification marker at line 20: the marker is not closed on its line",
+              "line": 20
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "malformed-marker-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[NEEDS CLARIFICATION: ]\n[NEEDS CLARIFICATION: unclosed",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "db539dc40dc4e5235d17f234f1db1ba250dc97108718f281458be7248eb421fc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": [
+              {
+                "line": 19,
+                "reason": "the question is empty"
+              },
+              {
+                "line": 20,
+                "reason": "the marker is not closed on its line"
+              }
+            ]
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "malformed-clarification",
+              "message": "malformed clarification marker at line 19: the question is empty",
+              "line": 19
+            },
+            {
+              "kind": "malformed-clarification",
+              "message": "malformed clarification marker at line 20: the marker is not closed on its line",
+              "line": 20
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "malformed-marker-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n[NEEDS CLARIFICATION: ]\n[NEEDS CLARIFICATION: unclosed",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "db539dc40dc4e5235d17f234f1db1ba250dc97108718f281458be7248eb421fc",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": [
+              {
+                "line": 19,
+                "reason": "the question is empty"
+              },
+              {
+                "line": 20,
+                "reason": "the marker is not closed on its line"
+              }
+            ]
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "malformed-clarification",
+              "message": "malformed clarification marker at line 19: the question is empty",
+              "line": 19
+            },
+            {
+              "kind": "malformed-clarification",
+              "message": "malformed clarification marker at line 20: the marker is not closed on its line",
+              "line": 20
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "examples-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n```md\n[NEEDS CLARIFICATION: Ignore this?]\n[APP:REQ-999] Example.\n```\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "2d0c3c263f55bf1bd4c40de2358db678f5603b6408bc04e99e050988f40aec03",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "examples-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n```md\n[NEEDS CLARIFICATION: Ignore this?]\n[APP:REQ-999] Example.\n```\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "2d0c3c263f55bf1bd4c40de2358db678f5603b6408bc04e99e050988f40aec03",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "examples-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n```md\n[NEEDS CLARIFICATION: Ignore this?]\n[APP:REQ-999] Example.\n```\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "2d0c3c263f55bf1bd4c40de2358db678f5603b6408bc04e99e050988f40aec03",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "loose-heading-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## 1. **Actors:**\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "b89c3baca7c52291dd3390be41c26a1a873940adf6030bfaca175e2b3ce7ffc5",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section; '## 1. **Actors:**' is not that heading: write it as a heading with exactly 'Actors', without numbering, bold or a colon",
+              "section": "Actors"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "loose-heading-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## 1. **Actors:**\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "b89c3baca7c52291dd3390be41c26a1a873940adf6030bfaca175e2b3ce7ffc5",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section; '## 1. **Actors:**' is not that heading: write it as a heading with exactly 'Actors', without numbering, bold or a colon",
+              "section": "Actors"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "loose-heading-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## 1. **Actors:**\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "b89c3baca7c52291dd3390be41c26a1a873940adf6030bfaca175e2b3ce7ffc5",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "missing-required-section",
+              "message": "the specification has no 'Actors' section; '## 1. **Actors:**' is not that heading: write it as a heading with exactly 'Actors', without numbering, bold or a colon",
+              "section": "Actors"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "failure-hint-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Reject negative values and show an error.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "d284057664a17edea9ab488983fa587ac8acd3d06c82e0cf15d16a8684ff3e0b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [
+            {
+              "kind": "failure-scenario-review",
+              "clauseId": "APP:REQ-001",
+              "line": 15,
+              "message": "APP:REQ-001 states rejection/error behavior but has no recognized complete failure acceptance scenario. Review the pinned request and clarifications; add a distinct Given/When/Then case with the invalid condition, action, and observable error. This lexical hint is not a semantic verdict or a new requirement."
+            }
+          ],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "failure-hint-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Reject negative values and show an error.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "d284057664a17edea9ab488983fa587ac8acd3d06c82e0cf15d16a8684ff3e0b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [
+            {
+              "kind": "failure-scenario-review",
+              "clauseId": "APP:REQ-001",
+              "line": 15,
+              "message": "APP:REQ-001 states rejection/error behavior but has no recognized complete failure acceptance scenario. Review the pinned request and clarifications; add a distinct Given/When/Then case with the invalid condition, action, and observable error. This lexical hint is not a semantic verdict or a new requirement."
+            }
+          ],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "failure-hint-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Reject negative values and show an error.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "d284057664a17edea9ab488983fa587ac8acd3d06c82e0cf15d16a8684ff3e0b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [
+            {
+              "kind": "failure-scenario-review",
+              "clauseId": "APP:REQ-001",
+              "line": 15,
+              "message": "APP:REQ-001 states rejection/error behavior but has no recognized complete failure acceptance scenario. Review the pinned request and clarifications; add a distinct Given/When/Then case with the invalid condition, action, and observable error. This lexical hint is not a semantic verdict or a new requirement."
+            }
+          ],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "scenario-matrix-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n## Scenario coverage\n\n| Clause | Scenario | Outcome |\n| --- | --- | --- |\n| APP:REQ-001 | S1 | success |\n| APP:AC-001 | S1 | success |\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "3695bc47a0b3bc78d314daf10d794b1c02c339d646dec1d7054375981e076d3b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": true,
+            "scenarioCount": 1,
+            "rowCount": 2
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "scenario-matrix-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n## Scenario coverage\n\n| Clause | Scenario | Outcome |\n| --- | --- | --- |\n| APP:REQ-001 | S1 | success |\n| APP:AC-001 | S1 | success |\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "3695bc47a0b3bc78d314daf10d794b1c02c339d646dec1d7054375981e076d3b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": true,
+            "scenarioCount": 1,
+            "rowCount": 2
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "scenario-matrix-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n## Scenario coverage\n\n| Clause | Scenario | Outcome |\n| --- | --- | --- |\n| APP:REQ-001 | S1 | success |\n| APP:AC-001 | S1 | success |\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "3695bc47a0b3bc78d314daf10d794b1c02c339d646dec1d7054375981e076d3b",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": true,
+            "scenarioCount": 1,
+            "rowCount": 2
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bad-scenario-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n## Scenario coverage\n\n| Clause | Scenario | Outcome |\n| --- | --- | --- |\n| APP:REQ-001 | S1 | success |\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "e871cf1fc2c7127eef38d91ddbc6b18b47c088b873557739ab0bef4ef07eb3da",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "de69e12f83e6648d814ffa39c9dd22236564e6543afb876f96f53f00d6e45ee5",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": true,
+            "scenarioCount": 1,
+            "rowCount": 1
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "scenario-acceptance-incomplete",
+              "message": "S1 needs substantive Given, When and Then fields in every acceptance case; Then must state an observable outcome. Case 1 has nothing after Then.",
+              "line": 9,
+              "clauseId": "APP:REQ-001",
+              "scenarioId": "S1"
+            },
+            {
+              "kind": "scenario-coverage-clause-missing",
+              "message": "APP:AC-001 has no scenario coverage row; map its stated obligation, without inventing or expanding scope.",
+              "line": 17,
+              "clauseId": "APP:AC-001"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bad-scenario-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n## Scenario coverage\n\n| Clause | Scenario | Outcome |\n| --- | --- | --- |\n| APP:REQ-001 | S1 | success |\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "e871cf1fc2c7127eef38d91ddbc6b18b47c088b873557739ab0bef4ef07eb3da",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f7d678189b36de1405f1459e84e4eb4dad299674a7747f36ff31751143a65b6d",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": true,
+            "scenarioCount": 1,
+            "rowCount": 1
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "scenario-acceptance-incomplete",
+              "message": "S1 needs substantive Given, When and Then fields in every acceptance case; Then must state an observable outcome. Case 1 has nothing after Then.",
+              "line": 9,
+              "clauseId": "APP:REQ-001",
+              "scenarioId": "S1"
+            },
+            {
+              "kind": "scenario-coverage-clause-missing",
+              "message": "APP:AC-001 has no scenario coverage row; map its stated obligation, without inventing or expanding scope.",
+              "line": 17,
+              "clauseId": "APP:AC-001"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bad-scenario-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n\n## Scenario coverage\n\n| Clause | Scenario | Outcome |\n| --- | --- | --- |\n| APP:REQ-001 | S1 | success |\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "e871cf1fc2c7127eef38d91ddbc6b18b47c088b873557739ab0bef4ef07eb3da",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": true,
+            "scenarioCount": 1,
+            "rowCount": 1
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "scenario-acceptance-incomplete",
+              "message": "S1 needs substantive Given, When and Then fields in every acceptance case; Then must state an observable outcome. Case 1 has nothing after Then.",
+              "line": 9,
+              "clauseId": "APP:REQ-001",
+              "scenarioId": "S1"
+            },
+            {
+              "kind": "scenario-coverage-clause-missing",
+              "message": "APP:AC-001 has no scenario coverage row; map its stated obligation, without inventing or expanding scope.",
+              "line": 17,
+              "clauseId": "APP:AC-001"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "witnessed-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "6e821bf6b0b15143bf39080055852c3d5c0727d5a9eaf5cc83ca1f1b09de2a48",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "e202a1939391b1251b2a487ae6309f67bcb104640b51f09c576e7df0dfac1861",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 27
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 4
+                  }
+                },
+                "declaredWitnessType": "test",
+                "witnessType": "test",
+                "enforceable": true
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 0
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "witnessed-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "6e821bf6b0b15143bf39080055852c3d5c0727d5a9eaf5cc83ca1f1b09de2a48",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "44903be57f53849b19d16b503f5e486b7910292b4e9e4fa5a8121cdeefaaf69a",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 27
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 4
+                  }
+                },
+                "declaredWitnessType": "test",
+                "witnessType": "test",
+                "enforceable": true
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 0
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "witnessed-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "6e821bf6b0b15143bf39080055852c3d5c0727d5a9eaf5cc83ca1f1b09de2a48",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "4be2124b5eeceb35ccc2659b2b9ae30c261056d136baaaa536e3706bebbb0d18",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 27
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 4
+                  }
+                },
+                "declaredWitnessType": "test",
+                "witnessType": "test",
+                "enforceable": true
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 0
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bad-witness-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: security-scan\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "626bd57c44ca2fffc8b3a6f02d87a798a220016d6a68cacf61403af6438aaa6c",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "e202a1939391b1251b2a487ae6309f67bcb104640b51f09c576e7df0dfac1861",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 27
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 13
+                  }
+                },
+                "declaredWitnessType": "security-scan",
+                "witnessType": null,
+                "enforceable": false
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 1
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "witnessed-witness-unknown",
+              "message": "clause APP:AC-001 declares unknown Witness value 'security-scan'; allowed values are test, inspection, metric, runtime, manual",
+              "clauseId": "APP:AC-001",
+              "field": "witness"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bad-witness-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: security-scan\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "626bd57c44ca2fffc8b3a6f02d87a798a220016d6a68cacf61403af6438aaa6c",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "44903be57f53849b19d16b503f5e486b7910292b4e9e4fa5a8121cdeefaaf69a",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 27
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 13
+                  }
+                },
+                "declaredWitnessType": "security-scan",
+                "witnessType": null,
+                "enforceable": false
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 1
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "witnessed-witness-unknown",
+              "message": "clause APP:AC-001 declares unknown Witness value 'security-scan'; allowed values are test, inspection, metric, runtime, manual",
+              "clauseId": "APP:AC-001",
+              "field": "witness"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bad-witness-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: security-scan\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "626bd57c44ca2fffc8b3a6f02d87a798a220016d6a68cacf61403af6438aaa6c",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "4be2124b5eeceb35ccc2659b2b9ae30c261056d136baaaa536e3706bebbb0d18",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 27
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 13
+                  }
+                },
+                "declaredWitnessType": "security-scan",
+                "witnessType": null,
+                "enforceable": false
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 1
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "witnessed-witness-unknown",
+              "message": "clause APP:AC-001 declares unknown Witness value 'security-scan'; allowed values are test, inspection, metric, runtime, manual",
+              "clauseId": "APP:AC-001",
+              "field": "witness"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "unicode-fields-off",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert é and 漢字 without losing bytes.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "off",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "be87475d973cd18928e9ee73420c72e8eb0ce3c3513aec1b7a96ab9c508dc37e",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "e202a1939391b1251b2a487ae6309f67bcb104640b51f09c576e7df0dfac1861",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "off",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 43
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 4
+                  }
+                },
+                "declaredWitnessType": "test",
+                "witnessType": "test",
+                "enforceable": true
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 0
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "unicode-fields-warn",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert é and 漢字 without losing bytes.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "warn",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "be87475d973cd18928e9ee73420c72e8eb0ce3c3513aec1b7a96ab9c508dc37e",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "44903be57f53849b19d16b503f5e486b7910292b4e9e4fa5a8121cdeefaaf69a",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "warn",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 43
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 4
+                  }
+                },
+                "declaredWitnessType": "test",
+                "witnessType": "test",
+                "enforceable": true
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 0
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "unicode-fields-enforce",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert é and 漢字 without losing bytes.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "artifactPath": "artifacts/requirements/spec.md",
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce",
+            "witnessedClauses": {
+              "profile": "witnessed-v1"
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": "artifacts/requirements/spec.md",
+            "artifactSha256": "be87475d973cd18928e9ee73420c72e8eb0ce3c3513aec1b7a96ab9c508dc37e",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "4be2124b5eeceb35ccc2659b2b9ae30c261056d136baaaa536e3706bebbb0d18",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 1,
+          "clauseIds": [
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "witnessedClauses": {
+            "profile": "witnessed-v1",
+            "clauseTypes": [
+              "acceptance"
+            ],
+            "enforceableWitnessTypes": [
+              "test"
+            ],
+            "lexicalHintsMode": "off",
+            "enrolledClauseCount": 1,
+            "analyzedClauseCount": 1,
+            "reportedClauseCount": 1,
+            "clauses": [
+              {
+                "clauseId": "APP:AC-001",
+                "line": 13,
+                "heading": "present",
+                "fields": {
+                  "behavior": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 43
+                  },
+                  "observable": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 29
+                  },
+                  "witness": {
+                    "status": "present",
+                    "occurrences": 1,
+                    "bytes": 4
+                  }
+                },
+                "declaredWitnessType": "test",
+                "witnessType": "test",
+                "enforceable": true
+              }
+            ],
+            "lexicalHints": [],
+            "findingCount": 0
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 0,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "required-scenarios",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce",
+            "scenarioCoverage": "required"
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": null,
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "776ff328dcc7817e2d7bb8efe897feb0935317a062d54e9fb8e6aeac270218d0",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "scenario-coverage-required",
+              "message": "Add ## Scenario coverage with Clause | Scenario | Outcome and map each behavior/acceptance clause to a complete Given/When/Then scenario."
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "removed-marker",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": null,
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?",
+                "reason": "the marker was removed without a recorded clarification answer"
+              }
+            ],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [
+            {
+              "kind": "clarification-removed-unanswered",
+              "message": "clarification marker removed without a recorded answer: Who may retry?"
+            }
+          ],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "answered-marker",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "previousMarkers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "answers": [
+            {
+              "questionHash": "Who may retry?"
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": null,
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [
+              {
+                "question": "Who may retry?",
+                "questionHash": "Who may retry?"
+              }
+            ],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "bounded-findings",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "limits": {
+            "maxFacts": 1
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "specification-quality-analysis",
+          "binding": {
+            "artifactPath": null,
+            "artifactSha256": "4ab9d7dc4c50d9b0bb4f29c9e3355a0cff134d3922dbc0c55120122ca013f014",
+            "phase": "requirements",
+            "generation": 2,
+            "policySha256": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab",
+            "checklist": "requirements-quality-v1"
+          },
+          "mode": "enforce",
+          "clauseCount": 2,
+          "clauseIds": [
+            "APP:REQ-001",
+            "APP:AC-001"
+          ],
+          "markerCount": 0,
+          "markers": {
+            "open": [],
+            "resolved": [],
+            "vanished": [],
+            "malformed": []
+          },
+          "scenarioCoverage": {
+            "declared": false,
+            "scenarioCount": 1,
+            "rowCount": 0
+          },
+          "advisories": [],
+          "findings": [],
+          "disclaimer": "Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct."
+        }
+      }
+    },
+    {
+      "id": "oversized-input",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce"
+          },
+          "limits": {
+            "maxArtifactBytes": 8
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Specification artifact is 256 bytes and the configured limit is 8 bytes. Raise analysisLimits.maxArtifactBytes if this is genuinely the size of the work.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "bad-policy",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\n### S1 — Convert\n\nGiven 255 When conversion is requested Then FF is displayed.\n\n## Requirements\n\n[APP:REQ-001] Convert the supplied integer.\n\n[APP:AC-001] The hexadecimal output is observable.\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "unknown"
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "specificationQuality.mode must be one of off, warn, enforce; got 'unknown'.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "small-witness-report",
+      "method": "analyzeSpecification",
+      "args": [
+        "# Specification\n\n## Actors\n\nAn operator.\n\n## User scenarios\n\nConversion.\n\n## Requirements\n\n### [APP:AC-001]\n\n- Behavior: Convert the supplied value.\n- Observable: The returned value equals FF.\n- Witness: test\n",
+        {
+          "phase": "requirements",
+          "generation": 2,
+          "namespace": "APP",
+          "policy": {
+            "mode": "enforce",
+            "witnessedClauses": {
+              "profile": "witnessed-v1",
+              "limits": {
+                "maxReportBytes": 512
+              }
+            }
+          }
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "specificationQuality.witnessedClauses.limits.maxReportBytes must be an integer from 2048 to 10485760.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "extract-markers",
+      "method": "extractMarkers",
+      "args": [
+        "[NEEDS CLARIFICATION:   Who may\tretry? ]"
+      ],
+      "outcome": {
+        "value": {
+          "markers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 1,
+              "raw": "[NEEDS CLARIFICATION:   Who may\tretry? ]"
+            }
+          ],
+          "malformed": []
+        }
+      }
+    },
+    {
+      "id": "extract-empty",
+      "method": "extractMarkers",
+      "args": [
+        "[NEEDS CLARIFICATION: ]"
+      ],
+      "outcome": {
+        "value": {
+          "markers": [],
+          "malformed": [
+            {
+              "question": "",
+              "questionHash": "",
+              "line": 1,
+              "raw": "[NEEDS CLARIFICATION: ]",
+              "reason": "the question is empty"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "extract-masked",
+      "method": "extractMarkers",
+      "args": [
+        "<!-- [NEEDS CLARIFICATION: hidden] -->\n`[NEEDS CLARIFICATION: inline]`"
+      ],
+      "outcome": {
+        "value": {
+          "markers": [],
+          "malformed": []
+        }
+      }
+    },
+    {
+      "id": "extract-long",
+      "method": "extractMarkers",
+      "args": [
+        "[NEEDS CLARIFICATION: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]"
+      ],
+      "outcome": {
+        "value": {
+          "markers": [],
+          "malformed": [
+            {
+              "question": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "questionHash": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "line": 1,
+              "raw": "[NEEDS CLARIFICATION: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+              "reason": "the question is 301 characters; the limit is 300"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "extract-bad-type",
+      "method": "extractMarkers",
+      "args": [
+        42
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Specification artifact must be UTF-8 Markdown.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "extract-tiny-limit",
+      "method": "extractMarkers",
+      "args": [
+        "[NEEDS CLARIFICATION: Who may retry?]",
+        {
+          "limits": {
+            "maxQuestionChars": 5,
+            "maxMarkersPerArtifact": 1
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "markers": [],
+          "malformed": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 1,
+              "raw": "[NEEDS CLARIFICATION: Who may retry?]",
+              "reason": "the question is 14 characters; the limit is 5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "reconcile-vanished",
+      "method": "reconcileMarkers",
+      "args": [
+        {
+          "previous": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "open": [],
+          "resolved": [],
+          "vanished": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4,
+              "reason": "the marker was removed without a recorded clarification answer"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "reconcile-answered",
+      "method": "reconcileMarkers",
+      "args": [
+        {
+          "previous": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "answers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "open": [],
+          "resolved": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "vanished": []
+        }
+      }
+    },
+    {
+      "id": "reconcile-still-open",
+      "method": "reconcileMarkers",
+      "args": [
+        {
+          "current": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "previous": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "answers": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "resolved": [],
+          "vanished": []
+        }
+      }
+    },
+    {
+      "id": "reconcile-reflow",
+      "method": "reconcileMarkers",
+      "args": [
+        {
+          "current": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 90
+            }
+          ],
+          "previous": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 90
+            }
+          ],
+          "resolved": [],
+          "vanished": []
+        }
+      }
+    },
+    {
+      "id": "marker-policy-off",
+      "method": "evaluateMarkerPolicy",
+      "args": [
+        {
+          "mode": "off"
+        },
+        {
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "malformed": [
+            {
+              "line": 5,
+              "reason": "not closed"
+            }
+          ],
+          "vanished": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "mode": "off",
+          "errors": [],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "marker-policy-warn",
+      "method": "evaluateMarkerPolicy",
+      "args": [
+        {
+          "mode": "warn"
+        },
+        {
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "malformed": [
+            {
+              "line": 5,
+              "reason": "not closed"
+            }
+          ],
+          "vanished": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "mode": "warn",
+          "errors": [],
+          "warnings": [
+            "unresolved clarification marker at line 4: Who may retry?",
+            "malformed clarification marker at line 5: not closed",
+            "clarification marker removed without an answer: Who may retry?"
+          ]
+        }
+      }
+    },
+    {
+      "id": "marker-policy-block",
+      "method": "evaluateMarkerPolicy",
+      "args": [
+        {
+          "mode": "block"
+        },
+        {
+          "open": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ],
+          "malformed": [
+            {
+              "line": 5,
+              "reason": "not closed"
+            }
+          ],
+          "vanished": [
+            {
+              "question": "Who may retry?",
+              "questionHash": "Who may retry?",
+              "line": 4
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": {
+          "mode": "block",
+          "errors": [
+            "unresolved clarification marker at line 4: Who may retry?",
+            "malformed clarification marker at line 5: not closed",
+            "clarification marker removed without an answer: Who may retry?"
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "checklist-77",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [],
+        {
+          "mode": "off"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'completeness' has no decision",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-78",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [],
+        {
+          "mode": "warn"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'completeness' has no decision",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-79",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [],
+        {
+          "mode": "enforce"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [
+            "checklist article 'completeness' has no decision",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "checklist-80",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "satisfied"
+          }
+        ],
+        {
+          "mode": "off"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-81",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "satisfied"
+          }
+        ],
+        {
+          "mode": "warn"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-82",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "satisfied"
+          }
+        ],
+        {
+          "mode": "enforce"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "checklist-83",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Known bounded omission."
+          }
+        ],
+        {
+          "mode": "off"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-84",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Known bounded omission."
+          }
+        ],
+        {
+          "mode": "warn"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-85",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "exception",
+            "reason": "Known bounded omission."
+          }
+        ],
+        {
+          "mode": "enforce"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "checklist-86",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "not-applicable"
+          }
+        ],
+        {
+          "mode": "off"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'completeness' is 'not-applicable' and needs a human-authored reason",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-87",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "not-applicable"
+          }
+        ],
+        {
+          "mode": "warn"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'completeness' is 'not-applicable' and needs a human-authored reason",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-88",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "not-applicable"
+          }
+        ],
+        {
+          "mode": "enforce"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [
+            "checklist article 'completeness' is 'not-applicable' and needs a human-authored reason",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "checklist-89",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "invalid"
+          }
+        ],
+        {
+          "mode": "off"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'completeness' has decision 'invalid'; expected satisfied, exception, not-applicable",
+            "checklist article 'completeness' is 'invalid' and needs a human-authored reason",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-90",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "invalid"
+          }
+        ],
+        {
+          "mode": "warn"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [],
+          "warnings": [
+            "checklist article 'completeness' has decision 'invalid'; expected satisfied, exception, not-applicable",
+            "checklist article 'completeness' is 'invalid' and needs a human-authored reason",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "checklist-91",
+      "method": "validateChecklistDecisions",
+      "args": [
+        [
+          {
+            "article": "completeness",
+            "decision": "invalid"
+          }
+        ],
+        {
+          "mode": "enforce"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "errors": [
+            "checklist article 'completeness' has decision 'invalid'; expected satisfied, exception, not-applicable",
+            "checklist article 'completeness' is 'invalid' and needs a human-authored reason",
+            "checklist article 'ambiguity' has no decision",
+            "checklist article 'consistency' has no decision",
+            "checklist article 'verifiability' has no decision",
+            "checklist article 'boundary-conditions' has no decision",
+            "checklist article 'non-functional' has no decision"
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "policy-hash",
+      "method": "policyHash",
+      "args": [
+        {
+          "mode": "enforce"
+        }
+      ],
+      "outcome": {
+        "value": "f52b980ffcaf26cf59e2d5c7fb15b38c1bb7fef7e37f4a81603bdfe0b55006ab"
+      }
+    },
+    {
+      "id": "review-fields",
+      "method": "witnessedClauseReviewFields",
+      "args": [
+        "Behavior: Return é.\nObservable: HTTP 200.\nWitness: test"
+      ],
+      "outcome": {
+        "value": {
+          "behavior": "Return é.",
+          "observable": "HTTP 200.",
+          "witness": "test"
+        }
+      }
+    }
+  ]
+}

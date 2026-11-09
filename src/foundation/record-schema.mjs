@@ -228,15 +228,19 @@ export const NAMESPACE_SOURCE_CONTROL_SCHEMAS=/* @__PURE__ */ Object.freeze({
 });
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
-  manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
+  manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
 export function namespacePublicationRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.manifest,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-publication/v${storedVersion}`,
-    profile:storedVersion===3?'sflow-specification-publication/v1':`sflow-primary-document-publication/v${storedVersion}`,
-    checks:storedVersion>1,...(storedVersion===3?{optionalChecks:true,specifications:true}:{})});
+    profile:storedVersion===4?'sflow-policy-publication/v1':storedVersion===3?'sflow-specification-publication/v1':`sflow-primary-document-publication/v${storedVersion}`,
+    checks:storedVersion>1,...(storedVersion>=3?{optionalChecks:true,specifications:true}:{}),
+    ...(storedVersion===4?{optionalSpecifications:true,policyEvidence:true}:{})});
 }
+export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
+export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
+  analysis:frozenFamily('namespace-specification-analysis')});
 export const NAMESPACE_SPECIFICATION_SCHEMAS=Object.freeze({
   binding:frozenFamily('namespace-specification-evidence-binding'),manifest:frozenFamily('namespace-specification-evidence')
 });
@@ -257,11 +261,16 @@ export function namespaceSubmissionWriterProfile({routing=false,checks=false}={}
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
   vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),binding:frozenFamily('namespace-phase-approval-binding'),
-  artifactSet:frozenFamily('namespace-primary-approval-artifact-set'),
+  artifactSet:Object.freeze({id:'namespace-primary-approval-artifact-set',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   routing:Object.freeze({id:'namespace-phase-approval-routing',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   receipt:frozenFamily('namespace-phase-approval-receipt')
 });
+export function namespaceApprovalArtifactSetProfile(input) {
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.artifactSet,input);
+  return Object.freeze({version:storedVersion,format:`sflow-namespace-primary-approval-artifact-set/v${storedVersion}`,policyChecklist:storedVersion>1});
+}
 export const NAMESPACE_ROUTING_CHOICE_SCHEMAS=Object.freeze({
   record:frozenFamily('namespace-routing-choice'),receipt:frozenFamily('namespace-routing-choice-receipt')
 });

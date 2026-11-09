@@ -9,17 +9,20 @@ import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {buildGenerationAuthorship,normalizeAuthorshipOptions} from '../kernel/phase-policy.mjs';
 import {phaseCheckEvidenceBinding} from './namespace-phase-check-contract.mjs';
 import {namespaceSpecificationBinding} from './namespace-specification-contract.mjs';
+import {namespacePolicyEvidenceBinding} from './namespace-policy-contract.mjs';
 export {NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE} from './namespace-specification-contract.mjs';
+export {NAMESPACE_POLICY_PUBLICATION_PROFILE} from './namespace-policy-contract.mjs';
 export const NAMESPACE_PUBLICATION_PROFILE='sflow-primary-document-publication/v1';
 export const NAMESPACE_CHECKED_PUBLICATION_PROFILE='sflow-primary-document-publication/v2';
 
-export function namespacePublicationRecord(value,{checks=null,specifications=null}={}) {
-  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','checks','specifications'].some(key=>Object.hasOwn(value,key)))
+export function namespacePublicationRecord(value,{checks=null,specifications=null,policyEvidence=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','checks','specifications','policyEvidence'].some(key=>Object.hasOwn(value,key)))
     throw new SingularityFlowError('Publication metadata must come from its registered profile.',{code:'ENGINE_INPUT_INVALID'});
-  const profile=namespacePublicationRecordProfile({schemaVersion:specifications!==null?3:checks===null?1:2});
+  const profile=namespacePublicationRecordProfile({schemaVersion:policyEvidence!==null?4:specifications!==null?3:checks===null?1:2});
   return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,
     ...(profile.checks?{checks:checks===null&&profile.optionalChecks?null:phaseCheckEvidenceBinding(checks)}:{}),
-    ...(profile.specifications?{specifications:namespaceSpecificationBinding(specifications)}:{})};
+    ...(profile.specifications?{specifications:specifications===null&&profile.optionalSpecifications?null:namespaceSpecificationBinding(specifications)}:{}),
+    ...(profile.policyEvidence?{policyEvidence:policyEvidence.map(namespacePolicyEvidenceBinding)}:{})};
 }
 
 function publicationInput(value) {
@@ -46,7 +49,8 @@ export function namespacePublicationValue(value,{projectId,workId,phaseId}={}) {
   try {
     profile=namespacePublicationRecordProfile(value);
     exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256',
-      'baseRevision','configuration','draft','actor','agentId','publishedAt','authorship','artifact','inputs',...(profile.checks?['checks']:[]),...(profile.specifications?['specifications']:[])]);
+      'baseRevision','configuration','draft','actor','agentId','publishedAt','authorship','artifact','inputs',...(profile.checks?['checks']:[]),
+      ...(profile.specifications?['specifications']:[]),...(profile.policyEvidence?['policyEvidence']:[])]);
     if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId||value.workId!==workId||value.phase!==phaseId
       ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another publication binding.');
     namespaceIdentifier(value.projectId,'Project ID');namespaceIdentifier(value.workId,'Story ID');namespaceIdentifier(value.phase,'Phase ID');
@@ -67,7 +71,12 @@ export function namespacePublicationValue(value,{projectId,workId,phaseId}={}) {
       ||(value.artifact.encoding==='binary'?value.artifact.fingerprint!==null:!/^sha256:[a-f0-9]{64}$/u.test(value.artifact.fingerprint)))throw Error('Invalid retained artifact.');
     const identities=new Set();
     if(profile.checks&&(!profile.optionalChecks||value.checks!==null))phaseCheckEvidenceBinding(value.checks);
-    if(profile.specifications)namespaceSpecificationBinding(value.specifications);
+    if(profile.specifications&&(!profile.optionalSpecifications||value.specifications!==null))namespaceSpecificationBinding(value.specifications);
+    if(profile.policyEvidence) {
+      if(!Array.isArray(value.policyEvidence)||!value.policyEvidence.length||value.policyEvidence.length>16)throw Error('Invalid policy evidence bound.');
+      const kinds=new Set();for(const binding of value.policyEvidence){namespacePolicyEvidenceBinding(binding);
+        if(kinds.has(binding.kind))throw Error('Duplicate policy evidence kind.');kinds.add(binding.kind);}
+    }
     for(const input of value.inputs) {
       publicationInput(input);const identity=canonicalJson([input.kind,input.id??input.phase]);
       if(identities.has(identity))throw Error('Duplicate retained publication input.');identities.add(identity);

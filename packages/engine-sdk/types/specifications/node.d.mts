@@ -1,4 +1,4 @@
-import type {SpecificationValues,SpecificationClaimValues,VerificationContracts} from '../specifications.mjs';
+import type {SpecificationValues,SpecificationClaimValues,VerificationContracts,SpecificationAnalysisValues,SpecificationChecklist} from '../specifications.mjs';
 export declare const extractClauses:SpecificationValues['extractClauses'];
 export declare const specificationIndexRecord:SpecificationValues['specificationIndexRecord'];
 export declare const proseVerificationDeclarations:VerificationContracts['proseVerificationDeclarations'];
@@ -19,3 +19,11 @@ export declare const deriveObservedClaimMapReplay:SpecificationClaimValues['deri
 export declare const validatePlannedEvidenceTypes:SpecificationClaimValues['validatePlannedEvidenceTypes'];
 export declare const planSupportingFiles:SpecificationClaimValues['planSupportingFiles'];
 export declare const testOnlyClaimEvidence:SpecificationClaimValues['testOnlyClaimEvidence'];
+export declare const STARTER_CHECKLIST:SpecificationChecklist;
+export declare const policyHash:SpecificationAnalysisValues['policyHash'];
+export declare const witnessedClauseReviewFields:SpecificationAnalysisValues['witnessedClauseReviewFields'];
+export declare const analyzeSpecification:SpecificationAnalysisValues['analyzeSpecification'];
+export declare const evaluateSpecificationQuality:SpecificationAnalysisValues['evaluateSpecificationQuality'];
+export declare const validateChecklistDecisions:SpecificationAnalysisValues['validateChecklistDecisions'];
+export declare const evaluateApprovalChecklist:SpecificationAnalysisValues['evaluateApprovalChecklist'];
+export declare const specificationGateValue:SpecificationAnalysisValues['specificationGateValue'];

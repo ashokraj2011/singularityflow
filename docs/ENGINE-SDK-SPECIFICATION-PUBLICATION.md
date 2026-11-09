@@ -51,7 +51,8 @@ acceptance and the original human approval checks remain required.
 ## Compatibility and remaining scope
 
 This integration supports ordinary specification and plan duties with the required surrounding
-policy owners available. Required clarification, quality analysis, constitution, qualified skill
+policy owners available. [Retained quality analysis and human checklists](ENGINE-SDK-SPECIFICATION-ANALYSIS.md)
+now have their shared production owner and explicit namespace records. Required clarification, constitution, qualified skill
 hosting, artifact sets, application-code delivery, execution and other production policies continue
 to require their own verified owners. This does not qualify complete application publication or an
 entire headless application Story.

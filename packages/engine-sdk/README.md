@@ -86,7 +86,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   diagnostics. Path/hash primitives are explicit; `specifications/node` supplies the optional Node
   value binding. Planned/observed native-v2 claim replays request the original timestamp explicitly,
   after validation, preserving serialized byte limits and record identity. Candidate values do not
-  authenticate source bytes, retain evidence or admit publication.
+  authenticate source bytes, retain evidence or admit publication. Deterministic quality, marker,
+  scenario and human-checklist value rules use explicitly declared review content; their findings
+  never claim semantic completeness, passing tests or human approval.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-engine`: one explicit composition of the implemented namespace operations,
@@ -154,7 +156,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   approved predecessor proof. It uses the same registered publish/submit/approve operations;
   command declarations are not passing tests. See `docs/ENGINE-SDK-SPECIFICATION-PUBLICATION.md`
   in the source repository for its versioned records and supported policy boundary.
-  Additional policy/execution owners and the complete portable lifecycle remain unfinished.
+  `NAMESPACE_POLICY_PUBLICATION_PROFILE` identifies retained specification analysis, including its
+  original artifact/policy/basis proof. Human checklist answers remain a separate approval action;
+  exact analysis report references are issued by `phase.review.resources`. See
+  `docs/ENGINE-SDK-SPECIFICATION-ANALYSIS.md` in the source repository. Additional policy/execution
+  owners and the complete portable lifecycle remain unfinished.
 - `hosts/namespace-submission`: submit a published primary document using shared records only,
   retain its exact review packet and acknowledge its receipt on another host without private drafts.
   This requests required human approval; it does not record it.

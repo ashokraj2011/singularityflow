@@ -38,3 +38,31 @@ export const profileCeiling=/* @__PURE__ */ (()=>profiles.profileCeiling)();
 const plannedCapabilities=/* @__PURE__ */ plannedTestCapabilityPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
 export const plannedTestSlots=/* @__PURE__ */ (()=>plannedCapabilities.plannedTestSlots)();
 export const plannedTestAssuranceProblem=/* @__PURE__ */ (()=>plannedCapabilities.plannedTestAssuranceProblem)();
+
+import {SPECIFICATION_CHECKLIST_ID,SPECIFICATION_REQUIRED_SECTIONS} from '../kernel/specification-policy.mjs';
+import {specificationAnalysisPolicies,SPECIFICATION_ANALYSIS_DECLARATIONS} from '../kernel/specification-analysis.mjs';
+export const STARTER_CHECKLIST = Object.freeze({
+  id: SPECIFICATION_CHECKLIST_ID,
+  version: 1,
+  articles: Object.freeze([
+    { id: 'completeness', title: 'Completeness', question: 'Does the specification cover every scenario the work is expected to serve, including failure and empty states?' },
+    { id: 'ambiguity', title: 'Ambiguity', question: 'Is every requirement free of wording that two competent readers could implement differently?' },
+    { id: 'consistency', title: 'Consistency', question: 'Do the requirements agree with each other, with the scenarios, and with the cited constitution articles?' },
+    { id: 'verifiability', title: 'Verifiability', question: 'Can each requirement be proved or disproved by a stated test, check, or observation?' },
+    { id: 'boundary-conditions', title: 'Boundary conditions', question: 'Are limits, sizes, counts, and timeouts stated, with the behaviour at and beyond each one?' },
+    { id: 'non-functional', title: 'Non-functional requirements', question: 'Are latency, availability, privacy, accessibility and retention stated as measurable numbers rather than adjectives?' }
+  ])
+});
+const analysis=/* @__PURE__ */ specificationAnalysisPolicies(NODE_TEXT_VALUE_SYNTAX,Object.freeze({profile:SPECIFICATION_ANALYSIS_DECLARATIONS,
+ requiredSections:SPECIFICATION_REQUIRED_SECTIONS,starterChecklist:STARTER_CHECKLIST}));
+export const policyHash=/* @__PURE__ */ (()=>analysis.policyHash)();
+export const witnessedClauseReviewFields=/* @__PURE__ */ (()=>analysis.witnessedClauseReviewFields)();
+export const analyzeSpecification=/* @__PURE__ */ (()=>analysis.analyzeSpecification)();
+export const evaluateSpecificationQuality=/* @__PURE__ */ (()=>analysis.evaluateSpecificationQuality)();
+export const validateChecklistDecisions=/* @__PURE__ */ (()=>analysis.validateChecklistDecisions)();
+export {WITNESS_TYPES,CHECKLIST_DECISIONS,MARKER_FINDING_KINDS} from '../kernel/specification-analysis.mjs';
+export {specificationQualityPolicy,SPECIFICATION_QUALITY_MODES,WITNESSED_CLAUSE_PROFILE} from '../kernel/specification-policy.mjs';
+export {evaluateMarkerPolicy,markerPolicy} from '../kernel/specification-markers.mjs';
+
+export const evaluateApprovalChecklist=/* @__PURE__ */ (()=>analysis.evaluateApprovalChecklist)();
+export const specificationGateValue=/* @__PURE__ */ (()=>analysis.specificationGateValue)();

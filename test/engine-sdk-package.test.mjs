@@ -1066,6 +1066,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
   await t.test('installed specification values reproduce native indexes without a checkout or implicit infrastructure',async()=>{
     const oracle=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-values/native-v1.json'),'utf8'));
     const claims=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-claims/native-v2.json'),'utf8'));
+    const analysis=JSON.parse(await readFile(path.join(root,'test/fixtures/specification-analysis/native-v1.json'),'utf8'));
+    const {STARTER_CHECKLIST}=await import('../src/engine-compatibility/node-specification-policy.mjs');
+    const declarations={profile:'sflow-specification-analysis-declarations/v1',requiredSections:['Actors','User scenarios','Requirements'],starterChecklist:STARTER_CHECKLIST};
     await run('specification-values.mjs',`
       import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import path from 'node:path';import {registerHooks} from 'node:module';
       const blocked=[],hooks=registerHooks({resolve(specifier,context,next){if(specifier.startsWith('node:')){blocked.push(specifier);throw Error('Unexpected infrastructure import: '+specifier);}return next(specifier,context);}});
@@ -1080,6 +1083,13 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         isAbsolute:path.isAbsolute,normalize:path.normalize,parse:path.parse,posixIsAbsolute:path.posix.isAbsolute,posixNormalize:path.posix.normalize,
         posixBasename:path.posix.basename,posixDirname:path.posix.dirname,posixRelative:path.posix.relative,win32IsAbsolute:path.win32.isAbsolute,toPosix:value=>value.split(path.sep).join('/')});
       const claimRules=pure.specificationClaimPolicies(paths,Object.freeze({profile:pure.TEXT_VALUE_SYNTAX_PROFILE,byteLengthUtf8:value=>Buffer.byteLength(value),sha256Utf8:digest.sha256Utf8}));
+      const analysisRules=pure.specificationAnalysisPolicies(Object.freeze({profile:pure.TEXT_VALUE_SYNTAX_PROFILE,byteLengthUtf8:value=>Buffer.byteLength(value),sha256Utf8:digest.sha256Utf8}),
+        JSON.parse(${JSON.stringify(JSON.stringify(declarations))})),analysisApi={...pure,...analysisRules};
+      for(const entry of JSON.parse(${JSON.stringify(JSON.stringify(analysis))}).cases) {
+        let actual;try{actual={value:analysisApi[entry.method](...entry.args)};}
+        catch(error){actual={error:{name:error.name,message:error.message,code:error.code,details:error.details,exitCode:error.exitCode}};}
+        assert.deepEqual(JSON.parse(JSON.stringify(actual)),entry.outcome,entry.id);
+      }
       const claimCapture=JSON.parse(${JSON.stringify(JSON.stringify(claims))});
       const replayClaim=(api,entry)=>{const replay=api[entry.operation+'Replay'](...entry.args);let step=replay.next(),clocks=0;
         while(!step.done){assert.equal(step.value,pure.SPECIFICATION_CLAIM_TIMESTAMP_REQUEST);clocks++;step=replay.next('2026-02-03T04:05:06.789Z');}
@@ -1087,6 +1097,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       for(const name of ['ordinary','inspect-complete','projection-exact-bindings'])replayClaim(claimRules,claimCapture.cases.find(entry=>entry.name===name));
       assert.deepEqual(blocked,[]);hooks.deregister();
       const native=await import('${packageName}/specifications/node');
+      assert.deepEqual(native.analyzeSpecification('## Actors\\nUser.\\n## User scenarios\\nConvert.\\n## Requirements\\n[VALUE:REQ-001] Exact.',{namespace:'VALUE',policy:{mode:'enforce'}}).findings,[]);
+      assert.equal(native.evaluateApprovalChecklist({policy:{mode:'enforce'},decisions:[]}).errors.length,6);
       const entry=captured.cases.find(entry=>entry.name==='contract-default');
       const contracts=native.parseVerificationContracts(...entry.args);assert.deepEqual(contracts,entry.outcome.result);
       assert.equal(native.contractSha256(contracts[0]).length,71);
@@ -1105,7 +1117,18 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import type {RepositoryChangeSetCodec} from '${packageName}/changes';
       import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
       import type {SpecificationClause,SpecificationIndex,VerificationContract,ClaimTimestampRequest,SpecificationClaimMap} from '${packageName}/specifications';
-      import {extractClauses,parseVerificationContracts,normalizeClaimMapReplay} from '${packageName}/specifications/node';
+      import {extractClauses,parseVerificationContracts,normalizeClaimMapReplay,analyzeSpecification,STARTER_CHECKLIST,evaluateApprovalChecklist} from '${packageName}/specifications/node';
+      import {specificationAnalysisPolicies,SPECIFICATION_ANALYSIS_DECLARATIONS,TEXT_VALUE_SYNTAX_PROFILE} from '${packageName}/specifications';
+      import type {SpecificationAnalysisReport,SpecificationChecklistResult} from '${packageName}/specifications';
+      const analysisValues=specificationAnalysisPolicies(Object.freeze({profile:TEXT_VALUE_SYNTAX_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64),byteLengthUtf8:(text:string)=>text.length}),
+        {profile:SPECIFICATION_ANALYSIS_DECLARATIONS,requiredSections:['Actors'],starterChecklist:STARTER_CHECKLIST});
+      const report:SpecificationAnalysisReport=analyzeSpecification('[VALUE:REQ-001] Exact.');
+      const checklistResult:SpecificationChecklistResult=evaluateApprovalChecklist({policy:{mode:'enforce'},decisions:[{article:'completeness',decision:'satisfied'}]});
+      analysisValues.evaluateSpecificationQuality(report);
+      // @ts-expect-error Human checklist choices are a bounded vocabulary, not an approval boolean.
+      evaluateApprovalChecklist({decisions:[{article:'completeness',decision:true}]});
+      // @ts-expect-error Analysis declarations cannot accept a readiness callback.
+      specificationAnalysisPolicies({profile:TEXT_VALUE_SYNTAX_PROFILE,sha256Utf8:()=>'',byteLengthUtf8:()=>0},{profile:SPECIFICATION_ANALYSIS_DECLARATIONS,requiredSections:['Actors'],starterChecklist:STARTER_CHECKLIST,ready:()=>true});
       const specValues=specificationValuePolicies(Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
       const specClauses:SpecificationClause[]=extractClauses('[VALUE:REQ-001] Exact.');
       const specIndex:SpecificationIndex=specValues.specificationIndexRecord({source:{path:'spec.md',sha256:'a'.repeat(64),bytes:32},clauses:specClauses});
@@ -1133,8 +1156,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
       import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
-      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
+      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE,NAMESPACE_POLICY_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
       const specificationPublicationProfile:'sflow-specification-publication/v1'=NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE;
+      const policyPublicationProfile:'sflow-policy-publication/v1'=NAMESPACE_POLICY_PUBLICATION_PROFILE;
       import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE } from '${packageName}/hosts/namespace-submission';
       import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE } from '${packageName}/hosts/namespace-routing-choice';

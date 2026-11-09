@@ -23,7 +23,8 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { renderClauseNamespaces } from './foundation/traceability-ids.mjs';
 
 /** Sections every enforced specification must have (specification-quality.mjs checks them). */
-export const SPECIFICATION_REQUIRED_SECTIONS = Object.freeze(['Actors', 'User scenarios', 'Requirements']);
+import {SPECIFICATION_REQUIRED_SECTIONS} from './kernel/specification-policy.mjs';
+export {SPECIFICATION_REQUIRED_SECTIONS} from './kernel/specification-policy.mjs';
 
 const PACKAGED_TEMPLATES = path.join(PACKAGE_ROOT, 'templates', 'artifacts');
 

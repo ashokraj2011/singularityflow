@@ -1,3 +1,5 @@
+import {pinnedClarificationPolicy} from './kernel/phase-inputs.mjs';
+export {pinnedClarificationPolicy} from './kernel/phase-inputs.mjs';
 /**
  * The exact Git-private staging files a Story step's own turns write (docs/SPEC-STAGING-PERMISSIONS-v1.md).
  *
@@ -19,10 +21,7 @@ const STAGING_DIRECTORIES = Object.freeze({ clarification: 'clarification-respon
  * the definition. One copy of this fallback, shared with clarifications.mjs, so the guard and the
  * checkpoint cannot disagree about what a Story pinned.
  */
-export function pinnedClarificationPolicy(definition, workflow, phase) {
-  const resolved = workflow?.resolution?.phases?.find((entry) => entry.id === phase?.id);
-  return resolved?.clarification ?? phase?.clarification ?? definition?.phases?.[phase?.id]?.clarification;
-}
+
 
 function pinnedClarificationMode(definition, workflow, phase) {
   const value = pinnedClarificationPolicy(definition, workflow, phase);

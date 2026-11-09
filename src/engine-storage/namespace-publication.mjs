@@ -7,6 +7,7 @@ import {validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {artifactBytesAreText,artifactContentObservation,inspectRequiredArtifactObservation,inspectBinaryArtifactSize} from '../kernel/artifact-content.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
 import {specificationPublicationPolicy,SPECIFICATION_PUBLICATION_OWNERS} from '../kernel/specification-publication.mjs';
+import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {buildGenerationAuthorship} from '../kernel/phase-policy.mjs';
 import {beginGenerationPublication,appendGenerationAuthorship,resetGenerationDeliveryBindings} from '../kernel/lifecycle-transitions.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
@@ -18,12 +19,13 @@ import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-co
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
-import {namespacePublicationValue,namespacePublicationRecord,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE} from './namespace-publication-contract.mjs';
+import {namespacePublicationValue,namespacePublicationRecord,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE,NAMESPACE_POLICY_PUBLICATION_PROFILE} from './namespace-publication-contract.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {createNamespaceSpecificationWriter} from './namespace-specification-retention.mjs';
-export {NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE};
+import {createNamespacePublicationPolicyWriter} from './namespace-policy-retention.mjs';
+export {NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE,NAMESPACE_POLICY_PUBLICATION_PROFILE};
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -37,6 +39,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const publicationReader=createNamespacePublicationReader({observer,scope,workId,checks});
   const specificationWriter=createNamespaceSpecificationWriter({observer,scope,workId,content,reader:publicationReader.specifications});
+  const policyWriter=createNamespacePublicationPolicyWriter({observer,scope,workId,content,reader:publicationReader.policies});
   const sources=(options.sources??[]).map(unit=>Object.freeze({descriptor:structuredClone(validateSourceUnit(unit)),capture:unit.capture.bind(unit)}));
   const put=content.put.bind(content),now=clock.now.bind(clock),contexts=new WeakMap(),preparations=new WeakMap();
   if(typeof notice!=='function')throw error('Publication notice must be an explicit observer.','ENGINE_INPUT_INVALID');
@@ -147,7 +150,9 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         let required=primaryDocumentPublicationRequirements(snapshot.workflow,phase,{definition:observed.definition});
         if(s.checkEvidence){await checks.freshSources(s.checkEvidence,s.phaseId,sources,{signal});required=required.filter(item=>item!=='check-execution');}
         const specificationPolicy=specificationPublicationPolicy(snapshot.workflow,phase);
-        const pending=specificationPolicy?required.filter(item=>!SPECIFICATION_PUBLICATION_OWNERS.includes(item)):required;
+        const analysisPolicy=specificationAnalysisPublicationPolicy(observed.definition,snapshot.workflow,phase);
+        const available=[...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[])];
+        const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
           operation:'phase.publish',phase:s.phaseId,required:pending});
         const data=runtime.artifactBytes(admission),text=artifactBytesAreText(data),observation=text?artifactContentObservation(data.toString('utf8')):null;
@@ -171,18 +176,20 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let specifications=null;
-          if(specificationPolicy) {
+          let specifications=null,analysis=null;
+          if(specificationPolicy||analysisPolicy) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
-            specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
+            if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
+            if(analysisPolicy)analysis=await policyWriter.retain(base,{snapshot,head:head.value,signal});
           }
-          const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications});
+          const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:analysis?[analysis.binding]:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
             format:'sflow-phase-publication-binding/v1',generation,record:reference};phasePublicationBindingValue(binding);
-          const verified=specifications?await publicationReader.read(binding,s.phaseId,{signal}):record;
-          required=required.filter(owner=>!publicationReader.specifications.owners(verified).includes(owner));
+          const verified=specifications||analysis?await publicationReader.read(binding,s.phaseId,{signal}):record;
+          const fulfilled=[...publicationReader.specifications.owners(verified),...publicationReader.policies.owners(verified)];
+          required=required.filter(owner=>!fulfilled.includes(owner));
           if(required.length)throw error('This phase still requires its remaining publication policy owners.','ENGINE_PORT_UNAVAILABLE',{
             operation:'phase.publish',phase:s.phaseId,required});
           beginGenerationPublication(phase,{targetGeneration:generation,actor:observed.actor.identity,agent:observed.agentId,producer:intent.authorship.producer});
@@ -192,11 +199,14 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           snapshot.workflow.namespaceDocuments=[...(snapshot.workflow.namespaceDocuments??[]),{id:'PUB-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey,role:'artifact',name:phase.label??s.phaseId,kind:record.artifact.kind,mimeType:text?'text/markdown':'application/octet-stream',encoding:record.artifact.encoding,
             locality:'project',status:'active',aliases:[],content:artifact}];
+          if(analysis)snapshot.workflow.namespaceDocuments.push({id:'ANALYSIS-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-analysis-gen'+generation+'.json',
+            role:'file',name:'Specification analysis',kind:'specification-analysis',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:analysis.report});
           snapshot.workflow.history.push({at:publishedAt,actor:observed.actor.principalId,agent:observed.agentId,event:'phase_generated',phase:s.phaseId,detail:'generation '+generation});
           const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
             configuration:snapshot.configuration.content,workflow:snapshot.workflow});
           await runtime.revalidateDraft(admission,{signal});
-          const evidence=[...new Map([artifact,reference,...publicationReader.specifications.evidence(verified),...(s.checkEvidence?[s.checkEvidence.result.content]:[]),...observed.resources.map(item=>item.reference).filter(ref=>ref.namespace==='evidence')]
+          const evidence=[...new Map([artifact,reference,...publicationReader.specifications.evidence(verified),...publicationReader.policies.evidence(verified),...(s.checkEvidence?[s.checkEvidence.result.content]:[]),...observed.resources.map(item=>item.reference).filter(ref=>ref.namespace==='evidence')]
             .map(ref=>[canonicalJson(ref),ref])).values()];
           try{await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.publish',inputsSha256:s.requestSha256,
             state:Buffer.from(canonicalJson(body)),evidence,...(s.checkEvidence?{readBindings:checks.readBindings(s.checkEvidence)}:{})},{signal});}

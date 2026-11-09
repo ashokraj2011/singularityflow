@@ -1,7 +1,8 @@
 /** Immutable human votes and primary-document sets; no storage or actor discovery. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NAMESPACE_APPROVAL_SCHEMAS,admitRecordSchemaVersion,canonicalJson,namespaceApprovalRecordProfile,namespaceApprovalWriterProfile,
-  namespaceApprovalRoutingProfile} from '../foundation/record-schema.mjs';
+  namespaceApprovalRoutingProfile,namespaceApprovalArtifactSetProfile} from '../foundation/record-schema.mjs';
+import {namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE} from './namespace-policy-contract.mjs';
 import {exactObject,namespaceIdentifier,namespaceKey,namespaceRevision,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
@@ -116,16 +117,45 @@ export function namespaceApprovalReceipts(workflow,{projectId,workId}) {return c
   }
   return values;
 });}
+/** Shape admission only. Completeness, exceptions and authority stay with the shared policy. */
+export function namespaceApprovalChecklistAnswers(value) {
+  try {
+    if(!Array.isArray(value)||value.length>256)throw Error('Use at most 256 article decisions.');
+    for(const decision of value) {
+      exactObject(decision,['article','decision'],['reason']);
+      for(const key of ['article','decision'])if(typeof decision[key]!=='string'||!decision[key]||decision[key].length>256)throw Error('Name the exact article and decision.');
+      if(decision.reason!==undefined&&(typeof decision.reason!=='string'||decision.reason.length>65536))throw Error('Use a bounded human-authored reason.');
+    }
+  }catch(cause){throw new SingularityFlowError('Checklist answers need article and decision strings, plus an optional reason.',{code:'ENGINE_INPUT_INVALID',details:{field:'checklist'},cause});}
+  return value;
+}
 export function namespaceApprovalArtifactSetValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
-  admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.artifactSet,value);
-  exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','reviewPacket','artifact']);
-  if(value.format!=='sflow-namespace-primary-approval-artifact-set/v1'||value.projectId!==projectId||value.workId!==workId
+  const profile=namespaceApprovalArtifactSetProfile(value);
+  exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','reviewPacket','artifact',...(profile.policyChecklist?['policyChecklist']:[])]);
+  if(value.format!==profile.format||value.projectId!==projectId||value.workId!==workId
     ||value.phase!==phaseId||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another artifact-set binding.');
   evidence(value.reviewPacket);exactObject(value.artifact,['sourceKey','kind','content']);sourceRelativePath(value.artifact.sourceKey);
   if(typeof value.artifact.kind!=='string'||!value.artifact.kind||value.artifact.kind.length>2048||/[\u0000-\u001f]/u.test(value.artifact.kind))throw Error('Invalid artifact kind.');
   if(contentReference(value.artifact.content).namespace!=='evidence')throw Error('An approval cannot claim device-private artifact content.');
+  if(profile.policyChecklist) {
+    const item=value.policyChecklist;exactObject(item,['evidence','result']);namespacePolicyEvidenceBinding(item.evidence);
+    if(item.evidence.kind!==SPECIFICATION_ANALYSIS_EVIDENCE)throw new SingularityFlowError('This checklist needs its matching policy owner.',{code:'ENGINE_STORAGE_UNSUPPORTED'});
+    const result=item.result;exactObject(result,['required','mode','errors','warnings','decisions'],['checklist','checklistSha256']);
+    if(typeof result.required!=='boolean'||!['off','warn','enforce'].includes(result.mode)||result.required!==(result.mode==='enforce')
+      ||!Array.isArray(result.errors)||result.errors.length||!Array.isArray(result.warnings)||result.warnings.some(value=>typeof value!=='string')
+      ||!Array.isArray(result.decisions)||result.decisions.length>256)throw Error('Invalid human checklist outcome.');
+    if(result.mode!=='off'&&(typeof result.checklist!=='string'||!digest(result.checklistSha256)))throw Error('Missing human checklist identity.');
+    namespaceApprovalChecklistAnswers(result.decisions);
+    namespaceJson(item);
+  }
   return value;
 });}
+export function namespaceApprovalArtifactSetRecord(value,{policyChecklist=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','policyChecklist'].some(key=>Object.hasOwn(value,key)))throw new SingularityFlowError(
+    'Approval artifact-set metadata must use its registered profile.',{code:'ENGINE_INPUT_INVALID'});
+  const profile=namespaceApprovalArtifactSetProfile({schemaVersion:policyChecklist===null?1:2});
+  return {schemaVersion:profile.version,format:profile.format,...value,...(profile.policyChecklist?{policyChecklist}:{})};
+}
 export function namespaceApprovalDecision(value,binding) {
   return {decision:'approved',generation:value.generation,at:value.recordedAt,actor:value.actor.identity,principalId:value.actor.principalId,
     agent:value.agentId,approvedBy:value.actor.principalId,authorityGroup:value.authorityGroup,reviewPacketSha256:value.reviewPacket.sha256,

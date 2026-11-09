@@ -117,3 +117,61 @@ export interface SpecificationClaimValues {
 export declare function specificationClaimPolicies(paths:VerificationPathSyntax,values:SpecificationTextValues):Readonly<SpecificationClaimValues>;
 export declare const SPECIFICATION_CLAIM_MAP_SCHEMA:Readonly<{id:'specification-claim-map';currentVersion:2;minimumReadableVersion:1;
   maximumReadableVersion:2;unversionedAs:null;immutable:true;migrationPolicy:'migrate-on-read'}>;
+
+/** Analysis is deterministic evidence, never a claim of semantic completeness or human approval. */
+export declare const SPECIFICATION_ANALYSIS_DECLARATIONS:'sflow-specification-analysis-declarations/v1';
+export type SpecificationQualityMode='off'|'warn'|'enforce';
+export type SpecificationMarkerMode='off'|'warn'|'block';
+export type SpecificationChecklistDecision='satisfied'|'exception'|'not-applicable';
+export interface SpecificationChecklist {readonly id:string;readonly version:number;
+  readonly articles:readonly {readonly id:string;readonly title:string;readonly question:string}[]}
+export interface SpecificationChecklistAnswer {readonly article:string;readonly decision:SpecificationChecklistDecision;readonly reason?:string}
+export interface SpecificationAnalysisDeclarations {readonly profile:typeof SPECIFICATION_ANALYSIS_DECLARATIONS;
+  readonly requiredSections:readonly string[];readonly starterChecklist:SpecificationChecklist}
+export interface SpecificationAnalysisFinding {readonly kind:string;readonly message:string;readonly [key:string]:unknown}
+export interface SpecificationMarker {readonly question:string;readonly questionHash:string;readonly line:number;readonly raw?:string}
+export interface SpecificationMalformedMarker {readonly question:string|null;readonly questionHash:string|null;readonly line:number;readonly raw:string;readonly reason:string}
+export interface SpecificationMarkerAnswer {readonly questionHash?:string;readonly question?:string}
+export interface SpecificationMarkerSets {readonly open:readonly SpecificationMarker[];
+  readonly resolved:readonly Pick<SpecificationMarker,'question'|'questionHash'>[];
+  readonly vanished:readonly (Pick<SpecificationMarker,'question'|'questionHash'>&{readonly reason:string})[];
+  readonly malformed:readonly Pick<SpecificationMalformedMarker,'line'|'reason'>[]}
+export interface SpecificationAnalysisReport {readonly schemaVersion:1;readonly resultType:'specification-quality-analysis';
+  readonly binding:{readonly artifactPath:string|null;readonly artifactSha256:string;readonly phase:string|null;readonly generation:number|null;
+    readonly policySha256:string;readonly checklist:string};readonly mode:SpecificationQualityMode;readonly clauseCount:number;
+  readonly clauseIds:readonly string[];readonly markerCount:number;readonly markers:SpecificationMarkerSets;
+  readonly findings:readonly SpecificationAnalysisFinding[];readonly advisories?:readonly SpecificationAnalysisFinding[];
+  readonly witnessedClauses?:Readonly<Record<string,unknown>>;readonly scenarioCoverage?:{readonly declared:boolean;readonly scenarioCount:number;readonly rowCount:number};
+  readonly truncated?:{readonly dropped:number;readonly disclosure:string};readonly advisoryTruncation?:{readonly dropped:number;readonly disclosure:string};readonly disclaimer:string}
+export interface SpecificationAnalysisOptions {readonly artifactPath?:string|null;readonly phase?:string|null;readonly generation?:number|null;
+  readonly policy?:Readonly<Record<string,unknown>>;readonly checklist?:SpecificationChecklist;readonly namespace?:string|null;
+  readonly previousMarkers?:readonly SpecificationMarker[];readonly answers?:readonly SpecificationMarkerAnswer[];readonly limits?:Readonly<Record<string,number>>}
+export interface SpecificationChecklistResult {readonly required:boolean;readonly mode:SpecificationQualityMode;readonly checklist?:string;
+  readonly checklistSha256?:string;readonly errors:readonly string[];readonly warnings:readonly string[];readonly decisions:readonly SpecificationChecklistAnswer[]}
+export interface SpecificationGateResult {readonly applies:boolean;readonly markerMode:SpecificationMarkerMode;readonly qualityMode:SpecificationQualityMode;
+  readonly checklist?:string;readonly report:SpecificationAnalysisReport|null;readonly open:readonly SpecificationMarker[];
+  readonly errors:readonly string[];readonly warnings:readonly string[];readonly record:Readonly<Record<string,unknown>>|null}
+export interface SpecificationAnalysisValues {
+  policyHash(policy:Readonly<Record<string,unknown>>,checklist?:SpecificationChecklist):string;
+  witnessedClauseReviewFields(body:string):Readonly<{behavior:string|null;observable:string|null;witness:string|null}>;
+  analyzeSpecification(markdown:string,options?:SpecificationAnalysisOptions):SpecificationAnalysisReport;
+  evaluateSpecificationQuality(report:SpecificationAnalysisReport,options?:{readonly exclude?:readonly string[]}):{errors:string[];warnings:string[]};
+  validateChecklistDecisions(decisions?:readonly SpecificationChecklistAnswer[],options?:{readonly checklist?:SpecificationChecklist;readonly mode?:SpecificationQualityMode}):{errors:string[];warnings:string[]};
+  evaluateApprovalChecklist(options?:{readonly policy?:Readonly<Record<string,unknown>>;readonly decisions?:readonly SpecificationChecklistAnswer[];
+    readonly authorities?:Readonly<Record<string,unknown>>|null;readonly actor?:Readonly<Record<string,unknown>>|null;readonly checklist?:SpecificationChecklist}):SpecificationChecklistResult;
+  specificationGateValue(markdown:string,options?:Omit<SpecificationAnalysisOptions,'checklist'|'limits'>&{readonly markerMode?:SpecificationMarkerMode}):SpecificationGateResult;
+}
+export declare function specificationAnalysisPolicies(values:SpecificationTextValues,declarations:SpecificationAnalysisDeclarations):Readonly<SpecificationAnalysisValues>;
+export declare const WITNESS_TYPES:readonly ('test'|'inspection'|'metric'|'runtime'|'manual')[];
+export declare const CHECKLIST_DECISIONS:readonly SpecificationChecklistDecision[];
+export declare const MARKER_FINDING_KINDS:readonly string[];
+export declare const MARKER_LIMITS:Readonly<{maxQuestionChars:300;maxMarkersPerArtifact:200}>;
+export declare function markerQuestionHash(question:unknown):string;
+export declare function extractMarkers(markdown:string,options?:{readonly limits?:{readonly maxQuestionChars:number;readonly maxMarkersPerArtifact:number}}):{markers:SpecificationMarker[];malformed:SpecificationMalformedMarker[]};
+export declare function reconcileMarkers(options?:{readonly current?:readonly SpecificationMarker[];readonly previous?:readonly SpecificationMarker[];readonly answers?:readonly SpecificationMarkerAnswer[]}):{
+  open:SpecificationMarker[];resolved:SpecificationMarker[];vanished:(SpecificationMarker&{reason:string})[]};
+export declare function evaluateMarkerPolicy(policy:Readonly<{mode?:SpecificationMarkerMode}>|SpecificationMarkerMode|undefined,
+  markers?:{readonly open?:readonly SpecificationMarker[];readonly malformed?:readonly SpecificationMalformedMarker[];readonly vanished?:readonly Pick<SpecificationMarker,'question'>[]}):{mode:SpecificationMarkerMode;errors:string[];warnings:string[]};
+export declare function inspectSpecificationScenarios(markdown:string,clauses:readonly Pick<SpecificationClause,'id'|'type'|'body'|'source'>[],
+  options?:{readonly required?:boolean;readonly clausesKnown?:boolean}):{findings:SpecificationAnalysisFinding[];advisories:SpecificationAnalysisFinding[];declared:boolean;scenarioCount:number;
+    rows:{clauseId:string;scenarioId:string;outcome:string}[]};

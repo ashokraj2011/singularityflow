@@ -12,7 +12,8 @@ const hook=registerHooks({resolve(specifier,context,next){
   return next(specifier,context);
 }});
 const {createNamespaceEngine}=await import('@sdk-name@/hosts/namespace-engine');
-const {NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE}=await import('@sdk-name@/hosts/namespace-publication');
+const {NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE,NAMESPACE_POLICY_PUBLICATION_PROFILE}=await import('@sdk-name@/hosts/namespace-publication');
+const {STARTER_CHECKLIST}=await import('@sdk-name@/specifications/node');
 const fresh=process.argv[2]==='fresh',scope={projectId:'installed-specification'},authority={id:'application-authority',epoch:1},workId='story-1';
 const shared={kind:'shared'},local={kind:'machine-local',deviceId:'installed-specification-device'};
 const records=await createFilesystemNamespaceStore({root:path.resolve('specification-records'),binding:shared,create:fresh});
@@ -25,7 +26,7 @@ const access={current(){if(!fresh)throw Error('Retained publication cannot autho
 const clock={now(){if(!fresh)throw Error('Retained specification cannot be restamped.');return '2026-11-08T18:00:00.000Z';}};
 const options={records,content,working:{records:localRecords,content:localContent},scope,workId,authority,access,clock};
 const engine=createNamespaceEngine(options),json=async ref=>JSON.parse(Buffer.from((await content.read(scope,ref)).data));
-const spec='# Specification\n\n[STORY-1:REQ-001] Convert an integer into hexadecimal.\n\n[STORY-1:AC-001] Given 255, conversion returns FF.\n';
+const spec='# Specification\n\n## Actors\n\nCalculator user.\n\n## User scenarios\n\nConvert a value.\n\n## Requirements\n\n[STORY-1:REQ-001] Convert an integer into hexadecimal.\n\n[STORY-1:AC-001] Given 255, conversion returns FF.\n';
 const plan='# Plan\n\nImplement the converter and boundary tests.\n\n| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n'
   +'| STORY-1:REQ-001 | `src/converter.js` | `test/converter.test.js` |\n| STORY-1:AC-001 | `src/converter.js` | `test/converter.test.js` |\n';
 try {
@@ -40,7 +41,7 @@ try {
       definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',
         approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'}]}},
         spec:{mode:'enforce',namespace:'STORY-1',coverage:'enforce',acceptance:'presence'},
-        phases:{intake:{...base,label:'Intake',artifact:{path:'artifacts/intake/spec.md',kind:'requirements'}},
+        phases:{intake:{...base,label:'Intake',artifact:{path:'artifacts/intake/spec.md',kind:'requirements'},specificationQuality:{mode:'enforce'}},
           design:{...base,label:'Design',artifact:{path:'artifacts/design/plan.md',kind:'implementation-plan'},inputs:[{phase:'intake'}]},
           build:{...base,label:'Build',artifact:{path:'artifacts/build/summary.md',kind:'implementation-summary'},inputs:[{phase:'design'}],
             generation:{producer:'governed-agent',task:'code'},writeScope:'source-and-artifact'}},
@@ -61,11 +62,17 @@ try {
       await engine.run('phase.submit',{phaseId});
       const packet=JSON.parse((await engine.run('document.read',{reference:{kind:'story-document',id:'REVIEW-'+phaseId+'-GEN-1',workId}})).document.content.text),
         published=await json(packet.publication.record),evidence=await json(published.specifications.record);
-      assert.equal(published.profile,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE);
-      if(phaseId==='intake')assert.equal((await json(evidence.index)).clauses.length,2);
+      assert.equal(published.profile,phaseId==='intake'?NAMESPACE_POLICY_PUBLICATION_PROFILE:NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE);
+      if(phaseId==='intake') {
+        assert.equal((await json(evidence.index)).clauses.length,2);
+        const analysis=await json(published.policyEvidence[0].record),report=await json(analysis.report);
+        assert.equal(report.findings.length,0);assert.equal(report.binding.artifactSha256,published.artifact.content.sha256);
+      }
       else {assert.deepEqual(Object.keys((await json(evidence.planned)).claims),['STORY-1:AC-001','STORY-1:REQ-001']);assert.equal(evidence.inputs[0].phase,'intake');}
       const {manifest}=await reviewer.run('phase.review',{phaseId}),binding=manifest.reviewBinding;
-      const approved=await reviewer.run('phase.approve',{phaseId,confirmation:{workId,phase:phaseId,generation:binding.generation,reviewPacketSha256:binding.packetSha256}});
+      const approvalInput={phaseId,confirmation:{workId,phase:phaseId,generation:binding.generation,reviewPacketSha256:binding.packetSha256}};
+      if(phaseId==='intake')await assert.rejects(reviewer.run('phase.approve',approvalInput),{code:'APPROVAL_CHECKLIST_INCOMPLETE'});
+      const approved=await reviewer.run('phase.approve',{...approvalInput,...(phaseId==='intake'?{checklist:STARTER_CHECKLIST.articles.map(article=>({article:article.id,decision:'satisfied'}))}:{})});
       assert.equal(approved.approval.selfApproval,false);expected.push({phase:phaseId,record:published.specifications.record});
     }
     await writeFile('specification-publications.json',JSON.stringify(expected));

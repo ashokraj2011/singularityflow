@@ -115,7 +115,7 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/engine-storage/namespace-specifications.mjs','src/engine-storage/namespace-specification-retention.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-source-control.mjs','src/engine-storage/namespace-source-control-reader.mjs','src/engine-storage/namespace-source-control-contract.mjs',
+  const namespaceAdapters = new Set(['src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-policy-reader.mjs','src/engine-storage/namespace-policy-retention.mjs','src/engine-storage/namespace-specifications.mjs','src/engine-storage/namespace-specification-retention.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-source-control.mjs','src/engine-storage/namespace-source-control-reader.mjs','src/engine-storage/namespace-source-control-contract.mjs',
     'src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-source-baseline.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-source-baseline-contract.mjs',
     'src/engine-storage/namespace-source-retention.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-source-retention-contract.mjs',
     'src/engine-storage/namespace-source-inspection.mjs','src/engine-storage/namespace-phase-check-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-contract.mjs',
@@ -385,13 +385,13 @@ test('code preflight uses shared policy and refusal formatting cannot authorize 
 });
 
 test('specification and verification compatibility facades share kernel values and retain native observation ordering',async()=>{
-  for(const file of ['src/verification/contracts.mjs','src/verification/intent.mjs','src/draft-diagnostics.mjs']) {
+  for(const file of ['src/verification/contracts.mjs','src/verification/intent.mjs','src/draft-diagnostics.mjs','src/specification-quality.mjs','src/clarification-markers.mjs','src/specification-scenarios.mjs']) {
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     assert.ok(ast.statements.every(node=>ts.isExportDeclaration(node)),file+' must remain a facade');
   }
   const file='src/engine-compatibility/node-specification-policy.mjs';
   const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
-  const allowed=new Set(['../records.mjs','./node-configuration-path.mjs','../kernel/verification-policy.mjs','../kernel/specification-values.mjs']);
+  const allowed=new Set(['../records.mjs','./node-configuration-path.mjs','../kernel/verification-policy.mjs','../kernel/specification-values.mjs','../kernel/specification-policy.mjs','../kernel/specification-analysis.mjs','../kernel/specification-markers.mjs']);
   for(const node of ast.statements) {
     if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
     assert.equal(ts.isFunctionDeclaration(node),false,'bindings may not grow feature rules');
@@ -814,12 +814,48 @@ test('source-control acceptance owns only evidence transactions and never select
   assert.deepEqual(graph.problems,[]);
 });
 
+test('specification analysis shares pure rules; policy verification is read-only and retention writes content only',async()=>{
+  const reader='src/engine-storage/namespace-policy-reader.mjs',writer='src/engine-storage/namespace-policy-retention.mjs',
+    contract='src/engine-storage/namespace-policy-contract.mjs';
+  const allowed=new Map([
+    [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
+      '../engine-compatibility/node-specification-policy.mjs','./namespace-specification-contract.mjs','./namespace-policy-contract.mjs','./namespace-publication-reader.mjs'])],
+    [writer,new Set(['node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs',
+      './namespace-specification-contract.mjs','./namespace-policy-contract.mjs'])]
+  ]);
+  for(const [file,imports]of allowed) {
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const inspect=node=>{
+      if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier)assert.ok(imports.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(file+' cannot discover a host');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+      if(ts.isPropertyAccessExpression(node)&&['transact','commit','prepare','writeFile','unlink',...(file===reader?['put']:[])].includes(node.name.text))assert.fail(file+' cannot mutate lifecycle authority');
+      ts.forEachChild(node,inspect);
+    };inspect(ast);
+  }
+  const graph=await inspectPureModuleGraph({root:packageRoot,entries:[contract,'src/kernel/specification-analysis.mjs','src/kernel/specification-markers.mjs','src/kernel/specification-scenarios.mjs'],
+    allowed:[contract,'src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel'),
+      ...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
+  assert.deepEqual(graph.problems,[]);
+  const retired=new Set(['src/specification-quality.mjs','src/clarification-markers.mjs','src/specification-scenarios.mjs']);
+  for(const file of await sourceFiles('src')) {
+    if(retired.has(file))continue;
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const inspect=node=>{
+      const target=(ts.isImportDeclaration(node)||ts.isExportDeclaration(node))?node.moduleSpecifier
+        :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
+      if(target&&ts.isStringLiteralLike(target)&&target.text.startsWith('.'))assert.equal(retired.has(path.posix.normalize(path.posix.join(path.posix.dirname(file),target.text))),false,file+' must use the shared owner');
+      ts.forEachChild(node,inspect);
+    };inspect(ast);
+  }
+});
+
 test('namespace publication composes verified private drafts and the conditional writer through explicit ports only',async()=>{
   const owner='src/engine-storage/namespace-publication.mjs',contract='src/engine-storage/namespace-publication-contract.mjs';
   const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
-    '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/publication-intent.mjs','../kernel/specification-publication.mjs','../kernel/phase-policy.mjs','../kernel/lifecycle-transitions.mjs',
+    '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/publication-intent.mjs','../kernel/specification-publication.mjs','../kernel/specification-analysis.mjs','../kernel/phase-policy.mjs','../kernel/lifecycle-transitions.mjs',
     '../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-preparation.mjs',
-    './namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-lifecycle-reader.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs','./namespace-publication-reader.mjs','./namespace-specification-retention.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs']);
+    './namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-lifecycle-reader.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs','./namespace-publication-reader.mjs','./namespace-specification-retention.mjs','./namespace-policy-retention.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -827,7 +863,7 @@ test('namespace publication composes verified private drafts and the conditional
     assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
     ts.forEachChild(node,visit);
   };visit(ast);
-  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
     ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(pure.problems,[]);
   for(const file of await sourceFiles('src')) {
@@ -853,7 +889,7 @@ test('shared submission never selects a private working store, Git host or insta
       '../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs','../kernel/submission-routing.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
       './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-publication-reader.mjs',
       './namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-submission-contract.mjs','./namespace-submission-reader.mjs'])],
-    [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/artifact-content.mjs','./namespace-publication-contract.mjs','./namespace-lifecycle-receipt-reader.mjs','./namespace-specifications.mjs'])],
+    [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/artifact-content.mjs','./namespace-publication-contract.mjs','./namespace-lifecycle-receipt-reader.mjs','./namespace-specifications.mjs','./namespace-policy-reader.mjs'])],
     [submissionReader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/submission-routing.mjs','./namespace-submission-contract.mjs',
       './namespace-publication-reader.mjs','./namespace-approval-reader.mjs','./namespace-lifecycle-receipt-reader.mjs'])]
   ]);
@@ -867,7 +903,7 @@ test('shared submission never selects a private working store, Git host or insta
       ts.forEachChild(node,visit);
     };visit(ast);
   }
-  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
     ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(pure.problems,[]);
   for(const file of await sourceFiles('src')) {
@@ -891,9 +927,9 @@ test('namespace human approval has explicit ports, a pure vote contract and no i
       '../kernel/publication-intent.mjs','../kernel/lifecycle-transitions.mjs','../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','../kernel/project-enrollment.mjs',
       '../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs',
       './namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs',
-      './namespace-lifecycle-contract.mjs','./namespace-approval-contract.mjs'])],
+      './namespace-lifecycle-contract.mjs','./namespace-approval-contract.mjs','../engine-compatibility/node-specification-policy.mjs'])],
     [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',
-      '../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','./namespace-approval-contract.mjs','./namespace-lifecycle-receipt-reader.mjs'])]
+      '../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','./namespace-approval-contract.mjs','./namespace-lifecycle-receipt-reader.mjs','./namespace-policy-reader.mjs'])]
   ]);
   for(const [file,imports]of allowed){const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     const visit=node=>{
@@ -904,7 +940,7 @@ test('namespace human approval has explicit ports, a pure vote contract and no i
       ts.forEachChild(node,visit);
     };visit(ast);
   }
-  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
     ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(pure.problems,[]);
   for(const file of await sourceFiles('src')){

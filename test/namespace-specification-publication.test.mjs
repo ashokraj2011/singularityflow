@@ -5,7 +5,7 @@ import {namespaceSpecificationFixture,specificationText,planText} from './helper
 import {createNamespacePublicationReader} from '../src/engine-storage/namespace-publication-reader.mjs';
 import {createNamespaceStoryObserver} from '../src/engine-storage/namespace-story-reader.mjs';
 import {namespacePublicationValue} from '../src/engine-storage/namespace-publication-contract.mjs';
-import {namespacePublicationRecordProfile,NAMESPACE_SPECIFICATION_SCHEMAS,canonicalJson} from '../src/foundation/record-schema.mjs';
+import {namespacePublicationRecordProfile,PHASE_PUBLICATION_SCHEMAS,NAMESPACE_SPECIFICATION_SCHEMAS,canonicalJson} from '../src/foundation/record-schema.mjs';
 import {profileForCommand,profileCeiling,profileIsExact} from '../src/verification/profiles.mjs';
 import {commandCovering} from '../src/verification/adapters.mjs';
 import {plannedClaimContractFindings} from '../src/kernel/specification-values.mjs';
@@ -66,7 +66,7 @@ test('publication v1/v2 stay strict and the specification profile is a separatel
   const f=await namespaceSpecificationFixture(t);await f.author('intake',specificationText);const {publication}=await record(f),context={projectId:f.scope.projectId,workId:f.inputs.workId,phaseId:'intake'};
   for(const version of [1,2])assert.throws(()=>namespacePublicationValue({...publication,schemaVersion:version,
     format:'sflow-namespace-phase-publication/v'+version,profile:'sflow-primary-document-publication/v'+version},context),{code:'ENGINE_STORAGE_CORRUPT'});
-  assert.throws(()=>namespacePublicationValue({...publication,schemaVersion:4},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
+  assert.throws(()=>namespacePublicationValue({...publication,schemaVersion:PHASE_PUBLICATION_SCHEMAS.manifest.maximumReadableVersion+1},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
 });
 
 test('accepted specification retries preserve the original index and timestamp without a new clock or approval',async t=>{
@@ -126,15 +126,10 @@ test('a declared runner with insufficient assurance refuses the plan before code
   assert.equal((await f.capture()).workflow.phases.design.generation,0);
 });
 
-test('specification evidence does not waive required clarification or quality analysis',async t=>{
-  for(const [owner,configure] of [
-    ['clarification-record',source=>{source.definition.phases.intake.clarification.mode='required';}],
-    ['specification-analysis',source=>{source.definition.phases.intake.specificationQuality.mode='enforce';}]
-  ]) {
-    const f=await namespaceSpecificationFixture(t,{configure});
-    await assert.rejects(f.author('intake',specificationText),error=>error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.includes(owner));
-    assert.equal((await f.capture()).workflow.phases.intake.generation,0);
-  }
+test('specification evidence does not waive a required clarification record',async t=>{
+  const f=await namespaceSpecificationFixture(t,{configure:source=>{source.definition.phases.intake.clarification.mode='required';}});
+  await assert.rejects(f.author('intake',specificationText),error=>error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.includes('clarification-record'));
+  assert.equal((await f.capture()).workflow.phases.intake.generation,0);
 });
 
 test('changing a retained index cannot become valid merely by storing new content digests',async t=>{

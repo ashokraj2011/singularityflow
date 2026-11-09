@@ -117,7 +117,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
       const submissionReader=createNamespaceSubmissionReader({observer,scope,workId,checks});
       return {subject:{kind:'story',id:workId},workflow:projected,policy,documents,
         revision:snapshot.revision,lifecycleSnapshot:snapshot,submissionReader,
-        routingChoiceReader:createNamespaceRoutingChoiceReader({observer,scope,workId,packets:submissionReader}),
+        routingChoiceReader:createNamespaceRoutingChoiceReader({observer,scope,workId,packets:submissionReader,checks}),
         lifecycle:{locatorRevision:selected.revision,key:selected.value.lifecycleHead,authorityVersion:basis.authorityVersion}};
     }
     if(authority)throw unavailable('The bound Engine requires a canonical lifecycle locator.','ENGINE_PORT_UNAVAILABLE',{
@@ -213,10 +213,11 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     }
     for(const member of [proof,...sources]) {
       for(const [kind,reference,sourceKey] of [['review-packet',member.binding.record,null],
-        ['artifact',member.published.artifact.content,member.published.artifact.sourceKey]]) {
+        ['artifact',member.published.artifact.content,member.published.artifact.sourceKey],
+        ...context.submissionReader.publicationResources(member.published).map(item=>[item.kind,item.reference,null])]) {
         const candidates=context.documents.filter(record=>record.phase===member.value.phase&&record.generation===member.value.generation
           &&record.status!=='detached'&&record.locality==='project'&&record.content&&sameRef(record.content,reference)
-          &&(kind==='review-packet'?record.role==='file'&&record.kind==='review-packet':record.role==='artifact'&&record.sourceKey===sourceKey));
+          &&(kind==='artifact'?record.role==='artifact'&&record.sourceKey===sourceKey:record.role==='file'&&record.kind===kind));
         if(candidates.length!==1)throw unavailable('The retained review has no unique readable resource reference.','ENGINE_STORAGE_CORRUPT',{
           workId,phase:member.value.phase,generation:member.value.generation,kind,expected:reference});
         resources.push(issued(candidates[0]));

@@ -45,10 +45,10 @@ export async function namespaceSpecificationFixture(t,{backend='filesystem',conf
       expectedRevision:draft.manifest.draft.revision,content:await f.upload(text),reason:'Complete the actual approved-intent contract.'});
     return publish().run('phase.publish',{phaseId,authored:'governed-agent',channel:'copilot-host'});
   }
-  async function approve(phaseId) {
-    await createNamespaceSubmissionEngine(common).run('phase.submit',{phaseId});
+  async function approve(phaseId,checklist,decisionValues) {
+    await createNamespaceSubmissionEngine(common).run('phase.submit',{phaseId,...(decisionValues?{decisionValues}:{})});
     const {manifest}=await reviewer.run('phase.review',{phaseId}),binding=manifest.reviewBinding;
-    return reviewer.run('phase.approve',{phaseId,confirmation:{workId:f.inputs.workId,phase:phaseId,generation:binding.generation,reviewPacketSha256:binding.packetSha256}});
+    return reviewer.run('phase.approve',{phaseId,...(checklist?{checklist}:{}),confirmation:{workId:f.inputs.workId,phase:phaseId,generation:binding.generation,reviewPacketSha256:binding.packetSha256}});
   }
   return {...f,common,publish,reviewer,capture,json,author,approve};
 }

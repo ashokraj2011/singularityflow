@@ -23,7 +23,8 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceApprovalReader,namespaceRoutingQuestionKey} from './namespace-approval-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
-import {namespaceApprovalValue,namespaceApprovalRecord,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision,
+import {STARTER_CHECKLIST} from '../engine-compatibility/node-specification-policy.mjs';
+import {namespaceApprovalValue,namespaceApprovalRecord,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalArtifactSetRecord,namespaceApprovalChecklistAnswers,namespaceApprovalDecision,
   namespaceApprovalReceipt,namespaceApprovalReceipts,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE} from './namespace-approval-contract.mjs';
 export {NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE};
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -36,7 +37,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
-  const packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),votes=createNamespaceApprovalReader({observer,scope,workId});
+  const packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),votes=createNamespaceApprovalReader({observer,scope,workId,checks});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function')throw error('Approval needs explicit authenticated access and clock ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap(),preparations=new WeakMap();
   function selected(context){const value=contexts.get(context);if(!value)throw error('Use the issued approval context.','ENGINE_INPUT_INVALID');return value;}
@@ -52,6 +53,12 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
   function checkedPlan(plan,s) {
     if(plan&&(plan.operation!=='phase.approve'||plan.inputsSha256!==s.requestSha256))throw error('This approval ID has another retained intent.','ENGINE_OPERATION_ID_REUSED');
     return plan;
+  }
+  function checkRetainedChecklist(s,value,publication) {
+    if(s.checklistRequest===null||packets.publicationChecklist(publication,value.actor,[])===null)return;
+    const request={workId,phaseId:s.phaseId,confirmation:s.checklistRequest.confirmation??s.reviewBinding,checklist:s.checklistRequest.checklist};
+    if(hash(canonicalJson(request))!==value.requestSha256)throw error('This approval already retained different human checklist answers. Review the original receipt; a retry cannot rewrite the decision.',
+      'ENGINE_OPERATION_ID_REUSED');
   }
   function routing(workflow,phase,reached,at,version=NAMESPACE_APPROVAL_SCHEMAS.routing.currentVersion) {
     const selected=routedApprovalSelection(workflow,phase,{reached,at});
@@ -79,10 +86,11 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The routed approval lost its original submitted packet.','ENGINE_STORAGE_CORRUPT');
     const value=await votes.read(binding,s.phaseId,proof,{signal}),active=await votes.activeAccepted(snapshot,s.phaseId,proof,{signal});
+    checkRetainedChecklist(s,value,proof.published);
     if(!value.routing||value.operationId!==s.operationId||value.requestSha256!==s.requestSha256||value.baseRevision!==plan.basis.headVersion
       ||!same(value.configuration,plan.basis.head.configuration)||!same(value.actor,s.reviewer.actor)||value.agentId!==s.reviewer.agentId
       ||!same(link,namespaceApprovalReceipt(value,binding))
-      ||![binding.record,value.artifactSet,value.reviewPacket,proof.value.publication.record,proof.published.artifact.content].every(ref=>plan.evidence.some(item=>same(item,ref)))) {
+      ||![binding.record,value.artifactSet,value.reviewPacket,proof.value.publication.record,proof.published.artifact.content,...votes.evidence(value)].every(ref=>plan.evidence.some(item=>same(item,ref)))) {
       throw error('The routed approval differs from its original actor, intent or evidence.','ENGINE_STORAGE_CORRUPT');
     }
     try {
@@ -104,10 +112,11 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     const active=await votes.active(snapshot,s.phaseId,proof,{signal}),matches=active.votes.filter(item=>item.value.operationId===s.operationId);
     if(matches.length!==1)throw error('The retained approval has no exact human vote.','ENGINE_STORAGE_CORRUPT');
     const {value,binding}=matches[0],phase=body.workflow.phases[s.phaseId];
+    checkRetainedChecklist(s,value,proof.published);
     if(value.requestSha256!==s.requestSha256||value.baseRevision!==plan.basis.headVersion||!same(value.configuration,plan.basis.head.configuration)
       ||!same(value.actor,s.reviewer.actor)||value.agentId!==s.reviewer.agentId||value.currentPhase!==body.workflow.currentPhase
       ||phase.status!==(value.thresholdReached?'approved':'awaiting_approval')
-      ||![binding.record,value.artifactSet,value.reviewPacket,proof.value.publication.record,proof.published.artifact.content].every(ref=>plan.evidence.some(item=>same(item,ref)))) {
+      ||![binding.record,value.artifactSet,value.reviewPacket,proof.value.publication.record,proof.published.artifact.content,...votes.evidence(value)].every(ref=>plan.evidence.some(item=>same(item,ref)))) {
       throw error('The retained approval differs from its original actor, evidence or transition.','ENGINE_STORAGE_CORRUPT');
     }
     return {value,binding,workflow:body.workflow};
@@ -151,7 +160,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           const context={subject:{kind:'story',id:workId},workflow:original.workflow,phase:original.workflow.phases[phaseId],
             reviewBinding:{workId,phase:phaseId,generation:value.generation,reviewPacketSha256:value.reviewPacket.sha256}};
           contexts.set(context,{phaseId,reviewer:{actor:identified.reviewer.actor,agentId:value.agentId},reviewBinding:context.reviewBinding,
-            operationId:value.operationId,requestSha256:value.requestSha256,replay:true,routed:true,receiptReference:link.record,observed:observed.snapshot});
+            operationId:value.operationId,requestSha256:value.requestSha256,replay:true,routed:true,receiptReference:link.record,observed:observed.snapshot,
+            checklistRequest:input.checklist==null?null:{confirmation:input.confirmation,checklist:input.checklist}});
           return context;
         }
       }
@@ -170,12 +180,15 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
       const reviewer=previous?{actor:authenticated.actor,agentId:previous.value.agentId}:authenticated;
       // This profile has no additional human decision fields; absent/false host options are one intent.
       // Unsupported features are refused before a candidate can be accepted.
-      const request={workId,phaseId,confirmation:input.confirmation??null},requestSha256=previous?.value.requestSha256??hash(canonicalJson(request));
+      const hasPolicyChecklist=packets.publicationChecklist(proof.published,reviewer.actor,[])!==null;
+      if(hasPolicyChecklist&&input.checklist!=null)namespaceApprovalChecklistAnswers(input.checklist);
+      const request={workId,phaseId,confirmation:input.confirmation??null,...(hasPolicyChecklist?{checklist:input.checklist??[]}:{})},requestSha256=previous?.value.requestSha256??hash(canonicalJson(request));
       const operationId=previous?.value.operationId??'approve-'+hash(canonicalJson({scope,workId,authority,reviewer,requestSha256,
         reviewPacket:proof.binding.record,basis:{revision:observed.snapshot.revision,authorityVersion:observed.basis.authorityVersion}}));
       const context={subject:{kind:'story',id:workId},workflow,phase,reviewBinding};
       contexts.set(context,{phaseId,reviewer,initialFacts,proof,active,reviewBinding,operationId,requestSha256,replay:!!previous,
-        routed:!!decisionAfter(workflow,phaseId),observed:observed.snapshot});
+        routed:!!decisionAfter(workflow,phaseId),observed:observed.snapshot,
+        checklistRequest:input.checklist==null?null:{confirmation:input.confirmation,checklist:input.checklist}});
       return context;
     },
     async prepare(context,input,{signal}={}) {
@@ -203,18 +216,25 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
         if(!mutation.allowed)throw error('The selected agent cannot approve this phase.',mutation.code,mutation);
         const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
         for(const owner of packets.publicationOwners(s.proof.published))required.delete(owner);
+        const policyChecklist=packets.publicationChecklist(s.proof.published,s.reviewer.actor,input.checklist??[]);
+        // Check the authenticated human before inviting answers; legacy ordering stays unchanged.
+        const checklistAuthority=policyChecklist?principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions}):null;
+        if(policyChecklist?.result.errors.length)throw error('Complete the human checklist for this exact submitted generation before approval.','APPROVAL_CHECKLIST_INCOMPLETE',{
+          workId,phase:s.phaseId,errors:policyChecklist.result.errors,checklist:STARTER_CHECKLIST.id,articles:STARTER_CHECKLIST.articles,
+          actions:[{operation:'phase.approve',inputs:{workId,phaseId:s.phaseId,confirmation:s.reviewBinding}}]});
+        if(!policyChecklist&&input.checklist?.length)required.add('approval-checklist');
         if(s.proof.published.checks)required.delete('check-execution'); // The submission reader verified actual immutable execution proof.
         if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
         if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
         if(workflow.resolution.presence)required.add('person-presence');
         if(s.routed&&!s.proof.value.routing)required.add('namespace-submission-routing');
-        for(const key of ['selectionReceipt','checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason','fetch']) {
+        for(const key of ['selectionReceipt','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason','fetch']) {
           if(input[key]!=null&&input[key]!==false&&(!Array.isArray(input[key])||input[key].length))required.add('approval-'+key);
         }
         if(input.agent!=null&&input.agent!==s.reviewer.agentId)throw error('Approval uses the authenticated agent, never the request agent.','ENGINE_ACTOR_CHANGED');
         if(required.size)throw error('This approval needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
           operation:'phase.approve',required:[...required].sort()});
-        const policy=principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
+        const policy=checklistAuthority??principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
         if(plan) {
           const original=await retained(plan,s,signal);
           if(original.value.authorityGroup!==policy.authorityGroup||original.value.selfApproval!==policy.selfApproval||original.value.thresholdReached!==policy.reached) {
@@ -222,9 +242,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           }
           s.plan=plan;
         }else {
-          const recordedAt=projectEnrollmentTimestamp(await now()),set={schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.artifactSet.currentVersion,
-            format:'sflow-namespace-primary-approval-artifact-set/v1',projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
-            reviewPacket:s.proof.binding.record,artifact:{sourceKey:s.proof.published.artifact.sourceKey,kind:s.proof.published.artifact.kind,content:s.proof.published.artifact.content}};
+          const recordedAt=projectEnrollmentTimestamp(await now()),set=namespaceApprovalArtifactSetRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
+            reviewPacket:s.proof.binding.record,artifact:{sourceKey:s.proof.published.artifact.sourceKey,kind:s.proof.published.artifact.kind,content:s.proof.published.artifact.content}},{policyChecklist});
           namespaceApprovalArtifactSetValue(set,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
           const artifactSet=await save(set,signal),value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
@@ -250,7 +269,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           }
           const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow:proposed});
           await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
-          const evidence=[reference,artifactSet,value.reviewPacket,s.proof.value.publication.record,s.proof.published.artifact.content];
+          const evidence=[...new Map([reference,artifactSet,value.reviewPacket,s.proof.value.publication.record,s.proof.published.artifact.content,
+            ...packets.publicationPolicyEvidence(s.proof.published)].map(ref=>[canonicalJson(ref),ref])).values()];
           try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.approve',inputsSha256:s.requestSha256,
             state:Buffer.from(canonicalJson(body)),evidence},{signal});}
           catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;

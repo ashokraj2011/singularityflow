@@ -11,7 +11,7 @@ const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{co
 
 export function createNamespaceSubmissionReader({observer,scope,workId,checks=null}) {
   const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId,checks}),
-    votes=createNamespaceApprovalReader({observer,scope,workId});
+    votes=createNamespaceApprovalReader({observer,scope,workId,checks});
   async function decode(binding,phaseId,{signal}={}) {
     namespaceSubmissionBindingValue(binding);let value;
     try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
@@ -99,5 +99,8 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
     return (await inspect(snapshot,phaseId,options))?.review??null;
   }
-  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,publicationOwners:publications.specifications.owners});
+  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,
+    publicationOwners:value=>[...publications.specifications.owners(value),...publications.policies.owners(value)],
+    publicationChecklist:publications.policies.checklist,publicationPolicyEvidence:publications.policies.evidence,
+    publicationResources:publications.policies.resources});
 }

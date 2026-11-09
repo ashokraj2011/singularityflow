@@ -158,7 +158,7 @@ async function scopeClauses(root, config, workflow) {
 async function completenessFacts(root, config, workflow) {
   try {
     const [{ evidenceGraphFromAggregate }, { scopeAuthorities }, { CHECKLIST_DECISIONS, STARTER_CHECKLIST }] = await Promise.all([
-      import('./evidence/graph.mjs'), import('./scope/decisions.mjs'), import('./specification-quality.mjs')]);
+      import('./evidence/graph.mjs'), import('./scope/decisions.mjs'), import('./engine-compatibility/node-specification-policy.mjs')]);
     const graph = await evidenceGraphFromAggregate(root, config, workflow);
     const groups = scopeAuthorities(workflow);
     if (!graph.scope?.structurallyComplete || !graph.scope.items.length || graph.completenessReview || !groups.length) return null;

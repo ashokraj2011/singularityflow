@@ -9,7 +9,7 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=message=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT'});
 export function createNamespaceRoutingChoiceReader({observer,scope,workId,packets=null,checks=null}) {
   packets??=createNamespaceSubmissionReader({observer,scope,workId,checks});
-  const votes=createNamespaceApprovalReader({observer,scope,workId});
+  const votes=createNamespaceApprovalReader({observer,scope,workId,checks});
   async function read(snapshot,{signal}={}) {
     let selected;
     try{selected=decisionContextSelection(snapshot.workflow);}catch(cause){throw new SingularityFlowError('The retained question is invalid.',{

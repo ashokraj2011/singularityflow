@@ -1,4 +1,5 @@
-import { DEFAULT_ANALYSIS_LIMITS } from './kernel/configuration-declarations.mjs';
+export {assertWithinLimit,capWithDisclosure} from './kernel/configuration-declarations.mjs';
+import { DEFAULT_ANALYSIS_LIMITS,capWithDisclosure } from './kernel/configuration-declarations.mjs';
 export { DEFAULT_ANALYSIS_LIMITS, analysisLimits } from './kernel/configuration-declarations.mjs';
 /**
  * Bounds for deterministic analysis and convergence. `[SPK:REQ-130]` `[SPK:REQ-131]` `[SPK:REQ-133]`
@@ -17,42 +18,6 @@ export { DEFAULT_ANALYSIS_LIMITS, analysisLimits } from './kernel/configuration-
  *   complete list of 200, and the reader has no way to tell. Every cap emits a record saying what
  *   was dropped and how to see it.
  */
-import { SingularityFlowError } from './util.mjs';
-
-/**
- * Refuse an input that is past its bound.
- *
- * Names the limit and the key that raises it, because a refusal a reader cannot act on is only
- * slightly better than a hang.
- */
-export function assertWithinLimit(actual, key, { limits = DEFAULT_ANALYSIS_LIMITS, label, unit = '' } = {}) {
-  const limit = limits[key] ?? DEFAULT_ANALYSIS_LIMITS[key];
-  if (actual <= limit) return actual;
-  throw new SingularityFlowError(
-    `${label} is ${actual}${unit} and the configured limit is ${limit}${unit}. `
-    + `Raise analysisLimits.${key} if this is genuinely the size of the work.`
-  );
-}
-
-/**
- * Cap a list and say so. `[SPK:REQ-130]`
- *
- * Returns the kept items and a disclosure, never a quietly shortened array. Callers are expected to
- * put the disclosure somewhere a reader sees — a capped list with the note dropped is the silent
- * truncation this exists to prevent.
- */
-export function capWithDisclosure(items, key, { limits = DEFAULT_ANALYSIS_LIMITS, label } = {}) {
-  const limit = limits[key] ?? DEFAULT_ANALYSIS_LIMITS[key];
-  const list = [...items];
-  if (list.length <= limit) return { items: list, dropped: 0, disclosure: null };
-  return {
-    items: list.slice(0, limit),
-    dropped: list.length - limit,
-    disclosure: `${list.length} ${label} exceeded the configured limit of ${limit}; ${list.length - limit} are not listed. `
-      + `Raise analysisLimits.${key} to see them all.`
-  };
-}
-
 /**
  * A bounded reference envelope for an assisted pass. `[SPK:REQ-131]`
  *

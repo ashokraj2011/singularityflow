@@ -8,6 +8,7 @@ import {routedApprovalSelection} from '../kernel/routed-approval.mjs';
 import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalDecision,
   namespaceApprovalReceipts,namespaceApprovalReceipt} from './namespace-approval-contract.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
+import {createNamespacePublicationPolicyReader} from './namespace-policy-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
 /** V1 hashes its native payload. V2 also binds generation, so coarse clocks cannot reuse a question. */
@@ -18,7 +19,8 @@ export function namespaceRoutingQuestionKey(pending,generation,version) {
   const identity=profile.generationBound?{generation,question:pending}:pending;
   return createHash('sha256').update(canonicalJson(identity)).digest('hex').slice(0,16);
 }
-export function createNamespaceApprovalReader({observer,scope,workId}) {
+export function createNamespaceApprovalReader({observer,scope,workId,checks=null}) {
+  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks}),policyEvidence=new WeakMap();
   async function json(reference,signal) {
     const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}
@@ -39,6 +41,10 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
       {sourceKey:proof.published.artifact.sourceKey,kind:proof.published.artifact.kind,content:proof.published.artifact.content})) {
       throw corrupt('The vote artifact set differs from the retained publication.');
     }
+    await policies.verify(proof.published,{signal});
+    const checklist=policies.checklist(proof.published,value.actor,set.policyChecklist?.result.decisions??[]);
+    if(!same(checklist,set.policyChecklist??null))throw corrupt('The human checklist differs from its pinned policy, actor or retained publication.');
+    policyEvidence.set(value,{identity:canonicalJson(value),references:policies.evidence(proof.published)});
     return value;
   }
   async function readAccepted(binding,phaseId,proof,options={}) {
@@ -46,7 +52,7 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
     const workflow=accepted.state.workflow,phase=workflow.phases[phaseId];
     const retained=value.routing?namespaceApprovalReceipts(workflow,{projectId:scope.projectId,workId}).some(item=>same(item,namespaceApprovalReceipt(value,binding)))
       :phase?.generation===value.generation&&phase.approvals?.some(item=>same(item,namespaceApprovalDecision(value,binding)));
-    if(!retained||workflow.currentPhase!==value.currentPhase||![value.artifactSet,value.reviewPacket].every(ref=>accepted.plan.evidence.some(item=>same(item,ref))))throw corrupt(
+    if(!retained||workflow.currentPhase!==value.currentPhase||![value.artifactSet,value.reviewPacket,...evidence(value)].every(ref=>accepted.plan.evidence.some(item=>same(item,ref))))throw corrupt(
       'The accepted approval lost its exact human vote or outcome.');
     return value;
   }
@@ -83,5 +89,6 @@ export function createNamespaceApprovalReader({observer,scope,workId}) {
   }
   const active=(snapshot,phaseId,proof,options={})=>collect(snapshot,phaseId,proof,options,read);
   const activeAccepted=(snapshot,phaseId,proof,options={})=>collect(snapshot,phaseId,proof,options,readAccepted);
-  return Object.freeze({decode,read,readAccepted,active,activeAccepted});
+  function evidence(value){const found=policyEvidence.get(value);return found?.identity===canonicalJson(value)?found.references.map(reference=>({...reference})):[];}
+  return Object.freeze({decode,read,readAccepted,active,activeAccepted,evidence});
 }
